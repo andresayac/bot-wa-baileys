@@ -60,7 +60,7 @@ const startSock = async () => {
             type: 'text'
         };
 
-        //Detectar location
+        // detect location
         if (messageCtx.message?.locationMessage) {
             const { degreesLatitude, degreesLongitude } = messageCtx.message.locationMessage;
             if (typeof degreesLatitude === 'number' && typeof degreesLongitude === 'number') {
@@ -68,17 +68,17 @@ const startSock = async () => {
             }
         }
 
-        //Detectar media
+        // detect mean
         if (messageCtx.message?.imageMessage) {
             payload = { ...payload, type: 'image' };
         }
 
-        //Detectar file
+        // detect file
         if (messageCtx.message?.documentMessage) {
             payload = { ...payload, type: 'file' };
         }
 
-        //Detectar voice note
+        // detect voice note
         if (messageCtx.message?.audioMessage) {
             payload = { ...payload, type: 'voice' };
         }
@@ -86,7 +86,6 @@ const startSock = async () => {
         bot.emit('message', payload);
     })
     wa.ev.on('messages.update', async (m) => {
-        console.log('messages.update', JSON.stringify(m))
         console.log('messages.update', JSON.stringify(m))
         for (const { key, update } of m) {
             if (update.pollUpdates) {
