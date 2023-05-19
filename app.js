@@ -1,5 +1,6 @@
 import NodeCache from 'node-cache'
 import pino from 'pino'
+import { Boom } from '@hapi/boom';
 import makeWASocket, {
     DisconnectReason,
     fetchLatestBaileysVersion,
@@ -10,6 +11,7 @@ import makeWASocket, {
 } from '@whiskeysockets/baileys'
 
 import { EventEmitter } from 'events';
+import { rmSync } from 'fs';
 
 export const bot = new EventEmitter();
 
@@ -111,16 +113,12 @@ const startSock = async () => {
         }
     })
     wa.ev.on('connection.update', async (update) => {
-        const { connection, lastDisconnect } = update
-        if (connection === 'close') {
-            if (lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut) {
-                startSock()
-            } else {
-                console.log('Connection closed. You are logged out.')
-            }
-        }
+        const { connection, lastDisconnect } = update;
 
-        console.log('connection update', update)
+        if (connection === 'close') {
+            new Boom(lastDisconnect.error)?.output?.statusCode !== DisconnectReason.loggedOut ? startSock() : console.log('[INFO]: connection closed...')
+        } 
+
     })
 }
 
