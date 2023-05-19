@@ -11,7 +11,6 @@ import makeWASocket, {
 } from '@whiskeysockets/baileys'
 
 import { EventEmitter } from 'events';
-import { rmSync } from 'fs';
 
 export const bot = new EventEmitter();
 
