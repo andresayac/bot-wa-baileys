@@ -1,0 +1,82 @@
+# Bot Baileys
+
+This repository contains a WhatsApp bot implemented in JavaScript using the `@whiskeysockets/baileys` library.
+
+## baileys.js
+
+This file is a JavaScript module that exports the `BaileysClass`, which extends `EventEmitter`. This class has several methods for sending different types of messages through WhatsApp, such as text, images, videos, audios, files, buttons, polls, locations, contacts, and stickers.
+
+### Key Methods
+
+- `initBailey`: Initializes the connection with WhatsApp.
+- `setUpBaileySock`: Sets up the connection socket with WhatsApp.
+- `handleConnectionUpdate`: Handles updates to the connection with WhatsApp.
+- `busEvents`: Defines various events that the bot can handle.
+- `sendMessage`, `sendMedia`, `sendImage`, `sendVideo`, `sendAudio`, `sendText`, `sendFile`, `sendButtons`, `sendPoll`, `sendLocation`, `sendContact`, `sendPresenceUpdate`, `sendSticker`: Methods for sending different types of messages through WhatsApp.
+
+#### Method Parameters
+
+- `sendMessage(numberIn, message, options)`: Sends a message to a given phone number. The message can include additional options like buttons or media.
+- `sendMedia(number, mediaUrl, text)`: Sends media to a given phone number. The media is specified by a URL, and additional text can be sent along with the media.
+- `sendImage(number, filePath, text)`: Sends an image to a given phone number. The image is specified by a file path, and additional text can be sent along with the image.
+- `sendVideo(number, filePath, text)`: Sends a video to a given phone number. The video is specified by a file path, and additional text can be sent along with the video.
+- `sendAudio(number, audioUrl)`: Sends audio to a given phone number. The audio is specified by a URL.
+- `sendText(number, message)`: Sends a text message to a given phone number.
+- `sendFile(number, filePath)`: Sends a file to a given phone number. The file is specified by a file path.
+- `sendButtons(number, text, buttons)`: Sends buttons to a given phone number. The buttons are displayed along with a given text.
+- `sendPoll(number, text, poll)`: Sends a poll to a given phone number. The poll options are displayed along with a given text.
+- `sendLocation(remoteJid, latitude, longitude, messages)`: Sends a location to a given chat ID. The location is specified by latitude and longitude, and additional messages can be sent along with the location.
+- `sendContact(remoteJid, contactNumber, displayName, messages)`: Sends a contact to a given chat ID. The contact is specified by a phone number and a display name, and additional messages can be sent along with the contact.
+- `sendPresenceUpdate(remoteJid, WAPresence)`: Sends a presence update (e.g., "recording") to a given chat ID.
+- `sendSticker(remoteJid, url, stickerOptions, messages)`: Sends a sticker to a given chat ID. The sticker is specified by a URL, and additional messages can be sent along with the sticker.
+
+Please note that these methods are asynchronous, meaning they return a promise that resolves once the action is completed.
+
+
+### Usage
+
+Here is an example of how to use the `BaileysClass`:
+
+```javascript
+import BaileysClass from './baileys.js';
+
+const botBaileys = new BaileysClass(null);
+
+botBaileys.on('auth_failure', async (error) => console.log("ERROR BOT: ", error));
+botBaileys.on('qr', (qr) => console.log("NEW QR CODE: ", qr));
+botBaileys.on('ready', async () => console.log('READY BOT'))
+
+botBaileys.on('message', async (message) => {
+    console.log({ message });
+    await botBaileys.sendText(message.from, 'Hello world');
+    await botBaileys.sendMessage(message.from, 'Hello world', {
+        media: {
+            url: 'https://www.w3schools.com/w3css/img_lights.jpg',
+        }
+    });
+
+    await botBaileys.sendMedia(message.from, 'https://www.w3schools.com/w3css/img_lights.jpg', 'Hello world');
+    await botBaileys.sendMedia(message.from, 'https://github.com/pedrazadixon/sample-files/raw/main/sample_video_mp4.mp4', 'Hello world');
+    await botBaileys.sendMedia(message.from, 'https://github.com/pedrazadixon/sample-files/raw/main/sample_mp3.mp3', 'Hello world');
+    await botBaileys.sendFile(message.from, 'https://github.com/pedrazadixon/sample-files/raw/main/sample_pdf.pdf')
+    await botBaileys.sendPoll(message.from, 'Hello world', {
+        options: ['Option 1', 'Option 2', 'Option 3', 'Option 4'],
+        multiselect: false
+    });
+
+    await botBaileys.sendSticker(message.from, 'https://gifimgs.com/animations/anime/dragon-ball-z/Goku/goku_34.gif', { pack: 'User', author: 'Me' })
+
+});
+
+### Acknowledgements
+
+This project was inspired by ideas and code from the [bot-whatsapp](https://github.com/codigoencasa/bot-whatsapp) repository by codigoencasa. Their work on creating automated conversation flows and setting up automated responses for frequently asked questions was particularly influential. We appreciate their contributions to the open-source community and their work on WhatsApp bot development.
+
+
+### Contribution
+If you want to contribute to this project, feel free to do so. Any type of improvement, bug fix or new features are welcome.
+
+### Licencia
+
+This project is licensed under the [MIT](LICENSE).
+
