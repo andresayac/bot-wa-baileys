@@ -329,6 +329,7 @@ class BaileysClass extends EventEmitter {
     }
 
     /**
+     * Send Media
      * @alpha
      * @param {string} number
      * @param {string} message
@@ -355,7 +356,7 @@ class BaileysClass extends EventEmitter {
     }
 
     /**
-     * Enviar imagen
+     * Send image
      * @param {*} number
      * @param {*} filePath
      * @param {*} text
@@ -483,8 +484,6 @@ class BaileysClass extends EventEmitter {
     }
 
     /**
-     * TODO: Necesita terminar de implementar el sendMedia y sendButton guiarse:
-     * https://github.com/leifermendez/bot-whatsapp/blob/4e0fcbd8347f8a430adb43351b5415098a5d10df/packages/provider/src/web-whatsapp/index.js#L165
      * @param {string} number
      * @param {string} message
      * @example await sendMessage('+XXXXXXXXXXX', 'Hello World')
@@ -492,8 +491,6 @@ class BaileysClass extends EventEmitter {
 
     sendMessage = async (numberIn, message, { options }) => {
         const number = utils.formatPhone(numberIn);
-        console.log({ number, message, options })
-
         if (options?.buttons?.length) return this.sendButtons(number, message, options.buttons)
         if (options?.media) return this.sendMedia(number, options.media, message)
         return this.sendText(number, message)
@@ -570,7 +567,7 @@ class BaileysClass extends EventEmitter {
      * @param {string} url
      * @param {object} stickerOptions
      * @param {any} messages - optional
-     * @example await sendSticker("xxxxxxxxxxx@c.us" || "xxxxxxxxxxxxxxxxxx@g.us", "https://dn/image.png" || "https://dn/image.gif" || "https://dn/image.mp4", {pack: 'User', author: 'Me'} messages)
+     * @example await sendSticker("xxxxxxxxxxx@c.us" || "xxxxxxxxxxxxxxxxxx@g.us", "https://dn/image.png" || "https://dn/image.gif" || "https://dn/image.mp4", {pack: 'User', author: 'Me'}, messages)
      */
 
     sendSticker = async (remoteJid, url, stickerOptions, messages = null) => {
