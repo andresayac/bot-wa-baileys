@@ -67,6 +67,7 @@ botBaileys.on('message', async (message) => {
     await botBaileys.sendSticker(message.from, 'https://gifimgs.com/animations/anime/dragon-ball-z/Goku/goku_34.gif', { pack: 'User', author: 'Me' })
 
 });
+```
 
 ### Acknowledgements
 
