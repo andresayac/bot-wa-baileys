@@ -168,7 +168,7 @@ class BaileysClass extends EventEmitter {
     getInstance = () => this.vendor;
 
     initBailey = async () => {
-        const logger = pino({ level: 'debug' })
+        const logger = pino({ level: 'fatal' })
 
         const { state, saveCreds } = await useMultiFileAuthState(SESSION_DIRECTORY_NAME);
         const { version, isLatest } = await fetchLatestBaileysVersion()
