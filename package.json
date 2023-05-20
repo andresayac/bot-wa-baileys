@@ -6,7 +6,10 @@
   },
   "dependencies": {
     "@adiwajshing/keyed-db": "^0.2.4",
+    "@ffmpeg-installer/ffmpeg": "^1.1.0",
     "@whiskeysockets/baileys": "github:WhiskeySockets/Baileys",
-    "qrcode-terminal": "^0.12.0"
+    "fluent-ffmpeg": "^2.1.2",
+    "qrcode-terminal": "^0.12.0",
+    "wa-sticker-formatter": "^4.4.4"
   }
 }
