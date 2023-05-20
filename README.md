@@ -1,10 +1,22 @@
 # Bot Baileys
 
-This repository contains a WhatsApp bot implemented in JavaScript using the `@whiskeysockets/baileys` library.
+This repository contains a WhatsApp bot implemented in JavaScript using the [@whiskeysockets/baileys](https://github.com/WhiskeySockets/Baileys) library.
 
 ## baileys.js
 
 This file is a JavaScript module that exports the `BaileysClass`, which extends `EventEmitter`. This class has several methods for sending different types of messages through WhatsApp, such as text, images, videos, audios, files, buttons, polls, locations, contacts, and stickers.
+
+
+## Deployment
+
+Follow these steps to deploy the application:
+
+- Clone this repository: `https://github.com/andresayac/bot_baileys.git`
+- Enter the `bot_baileys` directory
+- Run the command `npm i`
+- Run the command `npm run start` to start the bot
+- Scan the QR code in WhatsApp as if it were WhatsApp Web. You can find the QR code in `qr.png`
+- Done!
 
 ### Key Methods
 
