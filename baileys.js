@@ -33,7 +33,7 @@ const SESSION_DIRECTORY_NAME = `baileys_sessions`;
 // These are utility functions
 const utils = {
     formatPhone: (contact, full = false) => {
-        let domain = contact.includes('@s.whatsapp.net') ? '@s.whatsapp.net' : '@g.us';
+        let domain = contact.includes('@g.us') ? '@g.us' : '@s.whatsapp.net';
         contact = contact.replace(domain, '');
         return !full ? `${contact}${domain}` : contact;
     },
@@ -294,7 +294,7 @@ class BaileysClass extends EventEmitter {
                 const listRowId = payload?.message?.listResponseMessage?.title;
                 if (listRowId) payload.body = listRowId;
 
-                payload.from = utils.formatPhone(payload.from, true);
+                payload.from = utils.formatPhone(payload.from, false);
                 this.emit('message', payload);
             },
         },
@@ -432,7 +432,6 @@ class BaileysClass extends EventEmitter {
     sendFile = async (number, filePath) => {
         const numberClean = utils.formatPhone(number)
         const mimeType = mime.lookup(filePath);
-        console.log({ mimeType })
         const fileName = filePath.split('/').pop();
         return this.vendor.sendMessage(numberClean, {
             document: { url: filePath },
@@ -481,6 +480,8 @@ class BaileysClass extends EventEmitter {
     sendPoll = async (number, text, poll) => {
         const numberClean = utils.formatPhone(number)
 
+
+
         if (poll.options.length < 2) return false
 
         const pollMessage = {
@@ -499,7 +500,12 @@ class BaileysClass extends EventEmitter {
 
     sendMessage = async (numberIn, message, { options }) => {
         const number = utils.formatPhone(numberIn);
-        if (options?.buttons?.length) return this.sendButtons(number, message, options.buttons)
+
+        if (options?.buttons?.length) {
+            return this.sendPoll(number, message, {
+                options: options.buttons.map((btn, i) => (btn.body)) ?? [],
+            })
+        }
         if (options?.media) return this.sendMedia(number, options.media, message)
         return this.sendText(number, message)
     }

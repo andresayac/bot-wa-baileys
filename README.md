@@ -7,6 +7,7 @@ This repository contains a WhatsApp bot implemented in JavaScript using the [@wh
 This file is a JavaScript module that exports the `BaileysClass`, which extends `EventEmitter`. This class has several methods for sending different types of messages through WhatsApp, such as text, images, videos, audios, files, buttons, polls, locations, contacts, and stickers.
 
 
+
 ## Deployment
 
 Follow these steps to deploy the application:
@@ -17,6 +18,16 @@ Follow these steps to deploy the application:
 - Run the command `npm run start` to start the bot
 - Scan the QR code in WhatsApp as if it were WhatsApp Web. You can find the QR code in `qr.png`
 - Done!
+
+## Bot-Whatsapp with https://github.com/codigoencasa/bot-whatsapp
+
+Follow the next example for create bot using bot-whatsapp this bot with provider 
+- Bot with Json `npm run example-json`
+- Bot with InMemory mock `npm run example-memory`
+- Bot with Mongo `npm run example-mongo`
+- Bot with MYSQL `npm run example-mysql`
+
+More information [bot-whatsapp](https://bot-whatsapp.netlify.app/docs)
 
 ### Key Methods
 

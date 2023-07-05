@@ -2,12 +2,18 @@
   "main": "app.js",
   "type": "module",
   "scripts": {
-    "start": "node ."
+    "start": "node .",
+    "example-json": "node examples-bot-whatsapp/bot-whatsapp-json.js",
+    "example-memory": "node bot-whatsapp-memory.js",
+    "example-mongo": "node bot-whatsapp-mongo.js",
+    "example-mysql": "node bot-whatsapp-mysql.js"
   },
   "dependencies": {
     "@adiwajshing/keyed-db": "^0.2.4",
+    "@bot-whatsapp/bot": "latest",
+    "@bot-whatsapp/database": "latest",
     "@ffmpeg-installer/ffmpeg": "^1.1.0",
-    "@whiskeysockets/baileys": "github:WhiskeySockets/Baileys",
+    "@whiskeysockets/baileys": "^6.3.0",
     "fluent-ffmpeg": "^2.1.2",
     "qrcode-terminal": "^0.12.0",
     "wa-sticker-formatter": "^4.4.4"
