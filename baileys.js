@@ -32,9 +32,10 @@ const SESSION_DIRECTORY_NAME = `baileys_sessions`;
 
 // These are utility functions
 const utils = {
-    formatPhone: (phone, full = false) => {
-        phone = phone.replace('@s.whatsapp.net', '');
-        return !full ? `${phone}@s.whatsapp.net` : `${phone}`;
+    formatPhone: (contact, full = false) => {
+        let domain = contact.includes('@s.whatsapp.net') ? '@s.whatsapp.net' : '@g.us';
+        contact = contact.replace(domain, '');
+        return !full ? `${contact}${domain}` : contact;
     },
     generateRefprovider: (prefix = '') => prefix ? `${prefix}_${crypto.randomUUID()}` : crypto.randomUUID(),
     isValidNumber: (rawNumber) => !rawNumber.match(/\@g.us\b/gm),
@@ -240,7 +241,9 @@ class BaileysClass extends EventEmitter {
         {
             event: 'messages.upsert',
             func: ({ messages, type }) => {
+                // Ignore notify messages
                 if (type !== 'notify') return
+
                 const [messageCtx] = messages;
                 let payload = {
                     ...messageCtx,
@@ -249,33 +252,38 @@ class BaileysClass extends EventEmitter {
                     type: 'text'
                 };
 
-                //Detectar location
+                // Ignore pollUpdateMessage
+                if (messageCtx.message?.pollUpdateMessage) return
+
+                // Ignore broadcast messages
+                if (payload.from === 'status@broadcast') return
+
+                // Ignore messages from self
+                if (payload?.key?.fromMe) return
+
+                // Detect location
                 if (messageCtx.message?.locationMessage) {
                     const { degreesLatitude, degreesLongitude } = messageCtx.message.locationMessage;
                     if (typeof degreesLatitude === 'number' && typeof degreesLongitude === 'number') {
                         payload = { ...payload, body: utils.generateRefprovider('_event_location_'), type: 'location' };
                     }
                 }
-
-                //Detectar media
+                // Detect  media
                 if (messageCtx.message?.imageMessage) {
                     payload = { ...payload, body: utils.generateRefprovider('_event_media_'), type: 'image' };
                 }
 
-                //Detectar file
+                // Detect  ectar file
                 if (messageCtx.message?.documentMessage) {
                     payload = { ...payload, body: utils.generateRefprovider('_event_document_'), type: 'file' };
                 }
 
-                //Detectar voice note
+                // Detect voice note
                 if (messageCtx.message?.audioMessage) {
                     payload = { ...payload, body: utils.generateRefprovider('_event_voice_note_'), type: 'voice' };
                 }
 
-                if (payload.from === 'status@broadcast') return
-
-                if (payload?.key?.fromMe) return
-
+                // Check from user and group is valid 
                 if (!utils.formatPhone(payload.from)) {
                     return
                 }
