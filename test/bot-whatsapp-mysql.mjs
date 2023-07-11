@@ -52,7 +52,7 @@ const flowWellcome = addKeyword(['wellcome'])
     );
 
 const flowGit = addKeyword(['git'])
-    .addAnswer(['Git https://github.com/andresayac/bot_baileys'])
+    .addAnswer(['Git https://github.com/andresayac/bot-wa-baileys'])
 
 
 const flowHelp = addKeyword(['help'])
