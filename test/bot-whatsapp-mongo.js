@@ -1,8 +1,12 @@
-import BaileysClass from '../baileys.js';
-import MockAdapter from '@bot-whatsapp/database/mock';
+import BaileysClass from '../src/baileys.js';
+import MongoAdapter from '@bot-whatsapp/database/mongo';
 import botLib from '@bot-whatsapp/bot';
 
 const { createBot, createProvider, createFlow, EVENTS, addKeyword } = botLib;
+
+const MONGO_DB_URI = 'mongodb://0.0.0.0:27017'
+const MONGO_DB_NAME = 'db_bot'
+
 
 const flowWellcome = addKeyword(['wellcome'])
     .addAnswer(['Hi there!'])
@@ -102,7 +106,10 @@ const mainFlow = addKeyword(EVENTS.WELCOME)
 const main = async () => {
     const adapterFlow = createFlow([mainFlow])
     const adapterProvider = createProvider(BaileysClass)
-    const adapterDB = new MockAdapter()
+    const adapterDB = new MongoAdapter({
+        dbUri: MONGO_DB_URI,
+        dbName: MONGO_DB_NAME,
+    })
 
     createBot({
         flow: adapterFlow,

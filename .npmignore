@@ -1,0 +1,6 @@
+test/*
+node_modules
+baileys_sessions
+baileys.log
+core.class.log
+db.json

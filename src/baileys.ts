@@ -1,6 +1,5 @@
 import { EventEmitter } from 'events';
 import pino from 'pino'
-import { Boom } from '@hapi/boom';
 import NodeCache from 'node-cache'
 import makeWASocket, {
     DisconnectReason,
@@ -9,142 +8,49 @@ import makeWASocket, {
     makeCacheableSignalKeyStore,
     makeInMemoryStore,
     useMultiFileAuthState,
-    Browsers
+    Browsers,
+    proto,
+    WAMessageContent,
+    WAMessageKey
 } from '@whiskeysockets/baileys'
 import { readFileSync } from 'fs';
-import crypto from 'crypto';
+
 import { Sticker } from 'wa-sticker-formatter'
 
 import ffmpeg from 'fluent-ffmpeg';
 import ffmpegInstaller from '@ffmpeg-installer/ffmpeg';
-import path from 'path';
-import mime from 'mime-types';
-import { rename, createWriteStream, existsSync } from 'fs'
-import { tmpdir } from 'os'
-import followRedirects from 'follow-redirects';
 
-const { http, https } = followRedirects;
+import mime from 'mime-types';
+
+import utils from './utils';
+import { join } from 'path';
+
+
+import fs from 'fs-extra';
+
+interface Args {
+    [key: string]: any;  // Define the shape of this object as needed
+}
+
+
+type SendMessageOptions = {
+    buttons?: { body: string }[]
+    media?: string
+
+}
 
 ffmpeg.setFfmpegPath(ffmpegInstaller.path)
 
 const msgRetryCounterCache = new NodeCache()
 const SESSION_DIRECTORY_NAME = `baileys_sessions`;
 
-// These are utility functions
-const utils = {
-    formatPhone: (contact, full = false) => {
-        let domain = contact.includes('@g.us') ? '@g.us' : '@s.whatsapp.net';
-        contact = contact.replace(domain, '');
-        return !full ? `${contact}${domain}` : contact;
-    },
-    generateRefprovider: (prefix = '') => prefix ? `${prefix}_${crypto.randomUUID()}` : crypto.randomUUID(),
-    isValidNumber: (rawNumber) => !rawNumber.match(/\@g.us\b/gm),
-    prepareMedia: (media) => {
-        if (isUrl(media)) {
-            return { url: media };
-        } else {
-            try {
-                return { buffer: readFileSync(media) };
-            } catch (e) {
-                console.error(`Failed to read file at ${media}`, e);
-                throw e;
-            }
-        }
-    },
-    generalDownload: async (url) => {
-        const checkIsLocal = existsSync(url)
 
-        const handleDownload = () => {
-            const checkProtocol = url.includes('https:')
-            const handleHttp = checkProtocol ? https : http
+export class BaileysClass extends EventEmitter {
+    private vendor: any;
+    private store: any;
+    private globalVendorArgs: Args;
+    private sock: any;
 
-            const name = `tmp-${Date.now()}-dat`
-            const fullPath = `${tmpdir()}/${name}`
-            const file = createWriteStream(fullPath)
-
-            if (checkIsLocal) {
-                /**
-                 * From Local
-                 */
-                return new Promise((res) => {
-                    const response = {
-                        headers: {
-                            'content-type': mime.contentType(extname(url)),
-                        },
-                    }
-                    res({ response, fullPath: url })
-                })
-            } else {
-                /**
-                 * From URL
-                 */
-                return new Promise((res, rej) => {
-                    handleHttp.get(url, function (response) {
-                        response.pipe(file)
-                        file.on('finish', async function () {
-                            file.close()
-                            res({ response, fullPath })
-                        })
-                        file.on('error', function () {
-                            file.close()
-                            rej(null)
-                        })
-                    })
-                })
-            }
-        }
-
-        const handleFile = (pathInput, ext) =>
-            new Promise((resolve, reject) => {
-                const fullPath = `${pathInput}.${ext}`
-                rename(pathInput, fullPath, (err) => {
-                    if (err) reject(null)
-                    resolve(fullPath)
-                })
-            })
-
-        const httpResponse = await handleDownload()
-        const { ext } = await utils.fileTypeFromFile(httpResponse.response)
-        const getPath = await handleFile(httpResponse.fullPath, ext)
-
-        return getPath
-    },
-    convertAudio: async (filePath = null, format = 'opus') => {
-        const formats = {
-            mp3: {
-                code: 'libmp3lame',
-                ext: 'mp3',
-            },
-            opus: {
-                code: 'libopus',
-                ext: 'opus',
-            },
-        }
-
-        const opusFilePath = path.join(path.dirname(filePath), `${path.basename(filePath, path.extname(filePath))}.${formats[format].ext}`)
-        await new Promise((resolve, reject) => {
-            ffmpeg(filePath)
-                .audioCodec(formats[format].code)
-                .audioBitrate('64k')
-                .format(formats[format].ext)
-                .output(opusFilePath)
-                .on('end', resolve)
-                .on('error', reject)
-                .run()
-        })
-        return opusFilePath
-    },
-    fileTypeFromFile: async (response) => {
-        const type = response.headers['content-type'] ?? null
-        const ext = mime.extension(type)
-        return {
-            type,
-            ext,
-        }
-    }
-}
-
-class BaileysClass extends EventEmitter {
     constructor(args = {}) {
         super()
         this.vendor = null;
@@ -153,11 +59,7 @@ class BaileysClass extends EventEmitter {
         this.initBailey();
     }
 
-    sendMessage = async (userId, message) => {
-        return message
-    }
-
-    getMessage = async (key) => {
+    getMessage = async (key: WAMessageKey): Promise<WAMessageContent | undefined> => {
         if (this.store) {
             const msg = await this.store.loadMessage(key.remoteJid, key.id)
             return msg?.message || undefined
@@ -166,9 +68,9 @@ class BaileysClass extends EventEmitter {
         return proto.Message.fromObject({})
     }
 
-    getInstance = () => this.vendor;
+    getInstance = (): any => this.vendor;
 
-    initBailey = async () => {
+    initBailey = async (): Promise<void> => {
         const logger = pino({ level: 'fatal' })
 
         const { state, saveCreds } = await useMultiFileAuthState(SESSION_DIRECTORY_NAME);
@@ -189,7 +91,7 @@ class BaileysClass extends EventEmitter {
     }
 
     setUpBaileySock = async ({ version, logger, state, saveCreds }) => {
-        this.sock = makeWASocket.default({
+        this.sock = makeWASocket({
             version,
             logger,
             printQRInTerminal: true,
@@ -209,7 +111,7 @@ class BaileysClass extends EventEmitter {
         this.sock.ev.on('creds.update', saveCreds)
     }
 
-    handleConnectionUpdate = async (update) => {
+    handleConnectionUpdate = async (update: any): Promise<void> => {
         const { connection, lastDisconnect, qr } = update;
         const statusCode = lastDisconnect?.error?.output?.statusCode;
 
@@ -227,17 +129,18 @@ class BaileysClass extends EventEmitter {
         if (qr) this.emit('qr', qr);
     }
 
-    clearSessionAndRestart = () => {
+    clearSessionAndRestart = (): void => {
         const PATH_BASE = join(process.cwd(), SESSION_DIRECTORY_NAME);
-        rimraf(PATH_BASE, (err) => {
-            if (err) return;
-            this.initBailey();
-        });
+        fs.remove(PATH_BASE)
+            .then(() => {
+                this.initBailey();
+            })
+            .catch((err) => {
+                console.error('Error to delete directory:', err);
+            });
     }
 
-
-
-    busEvents = () => [
+    busEvents = (): any[] => [
         {
             event: 'messages.upsert',
             func: ({ messages, type }) => {
@@ -327,7 +230,7 @@ class BaileysClass extends EventEmitter {
         }
     ]
 
-    initBusEvents = (_sock) => {
+    initBusEvents = (_sock: any): void => {
         this.vendor = _sock;
         const listEvents = this.busEvents();
 
@@ -344,16 +247,16 @@ class BaileysClass extends EventEmitter {
      * @example await sendMessage('+XXXXXXXXXXX', 'https://dominio.com/imagen.jpg' | 'img/imagen.jpg')
      */
 
-    sendMedia = async (number, mediaUrl, text) => {
+    sendMedia = async (number: string, mediaUrl: string, text: string): Promise<any> => {
         try {
             const fileDownloaded = await utils.generalDownload(mediaUrl);
             const mimeType = mime.lookup(fileDownloaded);
 
-            if (mimeType.includes('image')) return this.sendImage(number, fileDownloaded, text)
-            if (mimeType.includes('video')) return this.sendVideo(number, fileDownloaded, text)
-            if (mimeType.includes('audio')) {
+            if (typeof mimeType === 'string' && mimeType.includes('image')) return this.sendImage(number, fileDownloaded, text);
+            if (typeof mimeType === 'string' && mimeType.includes('video')) return this.sendVideo(number, fileDownloaded, text);
+            if (typeof mimeType === 'string' && mimeType.includes('audio')) {
                 const fileOpus = await utils.convertAudio(fileDownloaded);
-                return this.sendAudio(number, fileOpus, text)
+                return this.sendAudio(number, fileOpus);
             }
 
             return this.sendFile(number, fileDownloaded)
@@ -370,7 +273,7 @@ class BaileysClass extends EventEmitter {
      * @param {*} text
      * @returns
      */
-    sendImage = async (number, filePath, text) => {
+    sendImage = async (number: string, filePath: string, text: string): Promise<any> => {
         const numberClean = utils.formatPhone(number)
         return this.vendor.sendMessage(numberClean, {
             image: readFileSync(filePath),
@@ -385,7 +288,7 @@ class BaileysClass extends EventEmitter {
      * @param {*} text
      * @returns
      */
-    sendVideo = async (number, filePath, text) => {
+    sendVideo = async (number: string, filePath: string, text: string): Promise<any> => {
         const numberClean = utils.formatPhone(number)
         return this.vendor.sendMessage(numberClean, {
             video: readFileSync(filePath),
@@ -403,7 +306,7 @@ class BaileysClass extends EventEmitter {
      * @example await sendMessage('+XXXXXXXXXXX', 'audio.mp3')
      */
 
-    sendAudio = async (number, audioUrl) => {
+    sendAudio = async (number: string, audioUrl: string): Promise<any> => {
         const numberClean = utils.formatPhone(number)
         return this.vendor.sendMessage(numberClean, {
             audio: { url: audioUrl },
@@ -417,7 +320,7 @@ class BaileysClass extends EventEmitter {
      * @param {string} message
      * @returns
      */
-    sendText = async (number, message) => {
+    sendText = async (number: string, message: string): Promise<any> => {
         const numberClean = utils.formatPhone(number)
         return this.vendor.sendMessage(numberClean, { text: message })
     }
@@ -429,7 +332,7 @@ class BaileysClass extends EventEmitter {
      * @example await sendMessage('+XXXXXXXXXXX', './document/file.pdf')
      */
 
-    sendFile = async (number, filePath) => {
+    sendFile = async (number: string, filePath: string): Promise<any> => {
         const numberClean = utils.formatPhone(number)
         const mimeType = mime.lookup(filePath);
         const fileName = filePath.split('/').pop();
@@ -449,7 +352,7 @@ class BaileysClass extends EventEmitter {
      * @example await sendMessage("+XXXXXXXXXXX", "Your Text", "Your Footer", [{"buttonId": "id", "buttonText": {"displayText": "Button"}, "type": 1}])
      */
 
-    sendButtons = async (number, text, buttons) => {
+    sendButtons = async (number: string, text: string, buttons: any[]): Promise<any> => {
         const numberClean = utils.formatPhone(number)
 
         const templateButtons = buttons.map((btn, i) => ({
@@ -477,7 +380,7 @@ class BaileysClass extends EventEmitter {
     * @example await sendMessage("+XXXXXXXXXXX", "Your Text", "Your Footer", [{"buttonId": "id", "buttonText": {"displayText": "Button"}, "type": 1}])
     */
 
-    sendPoll = async (number, text, poll) => {
+    sendPoll = async (number: string, text: string, poll: any): Promise<boolean> => {
         const numberClean = utils.formatPhone(number)
 
 
@@ -498,7 +401,8 @@ class BaileysClass extends EventEmitter {
      * @example await sendMessage('+XXXXXXXXXXX', 'Hello World')
      */
 
-    sendMessage = async (numberIn, message, { options }) => {
+
+    sendMessage = async (numberIn: string, message: string, options: SendMessageOptions): Promise<any> => {
         const number = utils.formatPhone(numberIn);
 
         if (options?.buttons?.length) {
@@ -518,7 +422,7 @@ class BaileysClass extends EventEmitter {
      * @example await sendLocation("xxxxxxxxxxx@c.us" || "xxxxxxxxxxxxxxxxxx@g.us", "xx.xxxx", "xx.xxxx", messages)
      */
 
-    sendLocation = async (remoteJid, latitude, longitude, messages = null) => {
+    sendLocation = async (remoteJid: string, latitude: string, longitude: string, messages: any = null): Promise<{ status: string }> => {
         await this.vendor.sendMessage(
             remoteJid,
             {
@@ -541,8 +445,9 @@ class BaileysClass extends EventEmitter {
      * @example await sendContact("xxxxxxxxxxx@c.us" || "xxxxxxxxxxxxxxxxxx@g.us", "+xxxxxxxxxxx", "Robin Smith", messages)
      */
 
-    sendContact = async (remoteJid, contactNumber, displayName, messages = null) => {
-        const cleanContactNumber = contactNumber.replaceAll(' ', '');
+    sendContact = async (remoteJid: string, contactNumber: string, displayName: string, messages: any = null): Promise<{ status: string }> => {
+
+        const cleanContactNumber = contactNumber.replace(/ /g, '');
         const waid = cleanContactNumber.replace('+', '');
 
         const vcard =
@@ -572,7 +477,7 @@ class BaileysClass extends EventEmitter {
      * @param {string} WAPresence
      * @example await sendPresenceUpdate("xxxxxxxxxxx@c.us" || "xxxxxxxxxxxxxxxxxx@g.us", "recording")
      */
-    sendPresenceUpdate = async (remoteJid, WAPresence) => {
+    sendPresenceUpdate = async (remoteJid: string, WAPresence: string): Promise<void> => {
         await this.vendor.sendPresenceUpdate(WAPresence, remoteJid);
     }
 
@@ -584,7 +489,7 @@ class BaileysClass extends EventEmitter {
      * @example await sendSticker("xxxxxxxxxxx@c.us" || "xxxxxxxxxxxxxxxxxx@g.us", "https://dn/image.png" || "https://dn/image.gif" || "https://dn/image.mp4", {pack: 'User', author: 'Me'}, messages)
      */
 
-    sendSticker = async (remoteJid, url, stickerOptions, messages = null) => {
+    sendSticker = async (remoteJid: string, url: string, stickerOptions: any, messages: any = null): Promise<void> => {
         const number = utils.formatPhone(remoteJid);
         const sticker = new Sticker(url, {
             ...stickerOptions,
@@ -598,4 +503,4 @@ class BaileysClass extends EventEmitter {
     }
 }
 
-export default BaileysClass;
+

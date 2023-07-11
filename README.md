@@ -7,19 +7,40 @@ This repository contains a WhatsApp bot implemented in JavaScript using the [@wh
 This file is a JavaScript module that exports the `BaileysClass`, which extends `EventEmitter`. This class has several methods for sending different types of messages through WhatsApp, such as text, images, videos, audios, files, buttons, polls, locations, contacts, and stickers.
 
 
+## Install
 
-## Deployment
+Use the stable version:
+```
+npm i @bot-wa/bot-wa-baileys
+```
+
+Then import your code using:
+``` ts 
+import { BaileysClass } from '@bot-wa/bot-wa-baileys'
+```
+``` js 
+const { BaileysClass } = require('@bot-wa/bot-wa-baileys/lib/baileys.js');
+```
+
+Use as bot-whatsapp provider [bot-whatsapp](https://bot-whatsapp.netlify.app/docs)
+
+``` js
+const { BaileysClass } = require('@bot-wa/bot-wa-baileys') // OLD const BaileysProvider = require('@bot-whatsapp/provider/baileys')
+const adapterProvider = createProvider(BaileysClass) // ANTES -> const adapterProvider = createProvider(BaileysProvider)
+```
+
+## Example
 
 Follow these steps to deploy the application:
 
-- Clone this repository: `https://github.com/andresayac/bot_baileys.git`
-- Enter the `bot_baileys` directory
+- Clone this repository: `https://github.com/andresayac/bot-wa-baileys.git`
+- Enter the `bot-wa-baileys` directory
 - Run the command `npm i`
 - Run the command `npm run start` to start the bot
 - Scan the QR code in WhatsApp as if it were WhatsApp Web. You can find the QR code in `qr.png`
 - Done!
 
-## Bot-Whatsapp with https://github.com/codigoencasa/bot-whatsapp
+## Example Bot-Whatsapp with https://github.com/codigoencasa/bot-whatsapp
 
 Follow the next example for create bot using bot-whatsapp this bot with provider 
 - Bot with Json `npm run example-json`

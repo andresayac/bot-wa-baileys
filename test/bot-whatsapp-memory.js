@@ -1,12 +1,6 @@
-import BaileysClass from '../baileys.js';
-import MySQLAdapter from '@bot-whatsapp/database/mysql';
+import BaileysClass from '../src/baileys.js';
+import MockAdapter from '@bot-whatsapp/database/mock';
 import botLib from '@bot-whatsapp/bot';
-
-const MYSQL_DB_HOST = 'localhost'
-const MYSQL_DB_USER = 'usr'
-const MYSQL_DB_PASSWORD = 'pass'
-const MYSQL_DB_NAME = 'bot'
-const MYSQL_DB_PORT = '3306'
 
 const { createBot, createProvider, createFlow, EVENTS, addKeyword } = botLib;
 
@@ -108,13 +102,7 @@ const mainFlow = addKeyword(EVENTS.WELCOME)
 const main = async () => {
     const adapterFlow = createFlow([mainFlow])
     const adapterProvider = createProvider(BaileysClass)
-    const adapterDB = new MySQLAdapter({
-        host: MYSQL_DB_HOST,
-        user: MYSQL_DB_USER,
-        database: MYSQL_DB_NAME,
-        password: MYSQL_DB_PASSWORD,
-        port: MYSQL_DB_PORT,
-    })
+    const adapterDB = new MockAdapter()
 
     createBot({
         flow: adapterFlow,
