@@ -82,7 +82,7 @@ Please note that these methods are asynchronous, meaning they return a promise t
 Here is an example of how to use the `BaileysClass`:
 
 ```javascript
-import BaileysClass from './baileys.js';
+import {BaileysClass} from '@bot-wa/bot-wa-baileys';
 
 const botBaileys = new BaileysClass(null);
 
