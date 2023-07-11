@@ -1,6 +1,6 @@
-import BaileysClass from '../src/baileys.js';
+import { BaileysClass } from '../lib/baileys.js';
 
-const botBaileys = new BaileysClass(null);
+const botBaileys = new BaileysClass({});
 
 botBaileys.on('auth_failure', async (error) => console.log("ERROR BOT: ", error));
 botBaileys.on('qr', (qr) => console.log("NEW QR CODE: ", qr));
@@ -10,7 +10,6 @@ let awaitingResponse = false;
 
 botBaileys.on('message', async (message) => {
     if (!awaitingResponse) {
-        console.log('message.from', message.from);
         await botBaileys.sendPoll(message.from, 'Select an option', {
             options: ['text', 'media', 'file', 'sticker'],
             multiselect: false

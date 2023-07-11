@@ -1,5 +1,5 @@
-import BaileysClass from '../src/baileys.js';
-import JsonFileAdapter from '@bot-whatsapp/database/json';
+import { BaileysClass } from '../lib/baileys.js';
+import MockAdapter from '@bot-whatsapp/database/mock';
 import botLib from '@bot-whatsapp/bot';
 
 const { createBot, createProvider, createFlow, EVENTS, addKeyword } = botLib;
@@ -102,7 +102,7 @@ const mainFlow = addKeyword(EVENTS.WELCOME)
 const main = async () => {
     const adapterFlow = createFlow([mainFlow])
     const adapterProvider = createProvider(BaileysClass)
-    const adapterDB = new JsonFileAdapter()
+    const adapterDB = new MockAdapter()
 
     createBot({
         flow: adapterFlow,

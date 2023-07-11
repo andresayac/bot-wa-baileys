@@ -1,6 +1,7 @@
 node_modules
-baileys_sessions
+*_sessions
 baileys.log
 core.class.log
 db.json
 lib/
+*.qr.png

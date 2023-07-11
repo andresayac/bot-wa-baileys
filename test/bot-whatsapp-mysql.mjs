@@ -1,12 +1,14 @@
-import BaileysClass from '../src/baileys.js';
-import MongoAdapter from '@bot-whatsapp/database/mongo';
+import { BaileysClass } from '../lib/baileys.js';
+import MySQLAdapter from '@bot-whatsapp/database/mysql';
 import botLib from '@bot-whatsapp/bot';
 
+const MYSQL_DB_HOST = 'localhost'
+const MYSQL_DB_USER = 'usr'
+const MYSQL_DB_PASSWORD = 'pass'
+const MYSQL_DB_NAME = 'bot'
+const MYSQL_DB_PORT = '3306'
+
 const { createBot, createProvider, createFlow, EVENTS, addKeyword } = botLib;
-
-const MONGO_DB_URI = 'mongodb://0.0.0.0:27017'
-const MONGO_DB_NAME = 'db_bot'
-
 
 const flowWellcome = addKeyword(['wellcome'])
     .addAnswer(['Hi there!'])
@@ -106,9 +108,12 @@ const mainFlow = addKeyword(EVENTS.WELCOME)
 const main = async () => {
     const adapterFlow = createFlow([mainFlow])
     const adapterProvider = createProvider(BaileysClass)
-    const adapterDB = new MongoAdapter({
-        dbUri: MONGO_DB_URI,
-        dbName: MONGO_DB_NAME,
+    const adapterDB = new MySQLAdapter({
+        host: MYSQL_DB_HOST,
+        user: MYSQL_DB_USER,
+        database: MYSQL_DB_NAME,
+        password: MYSQL_DB_PASSWORD,
+        port: MYSQL_DB_PORT,
     })
 
     createBot({

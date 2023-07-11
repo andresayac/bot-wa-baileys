@@ -7,6 +7,12 @@ import mime from 'mime-types';
 import { extname } from 'path';
 import ffmpeg from 'fluent-ffmpeg';
 
+
+import sharp from 'sharp';
+import { readFile } from 'fs';
+import qr from 'qr-image';
+
+
 const { http, https } = followRedirects;
 
 interface HttpResponse {
@@ -136,7 +142,51 @@ const utils = {
             type,
             ext,
         }
+    },
+    baileyGenerateImage: async (base64, name = 'qr.png') => {
+        const PATH_QR = `${process.cwd()}/${name}`
+        let qr_svg = qr.image(base64, { type: 'png', margin: 4 })
+
+        const writeFilePromise = () =>
+            new Promise((resolve, reject) => {
+                const file = qr_svg.pipe(createWriteStream(PATH_QR))
+                file.on('finish', () => resolve(true))
+                file.on('error', reject)
+            })
+
+        await writeFilePromise()
+        await utils.cleanImage(PATH_QR)
+    },
+    cleanImage: async (FROM: string): Promise<boolean> => {
+        const readBuffer = () => {
+            return new Promise((resolve, reject) => {
+                readFile(FROM, (err, data) => {
+                    if (err) reject(err)
+                    const imageBuffer = Buffer.from(data)
+                    resolve(imageBuffer)
+                })
+            })
+        }
+
+        const imgBuffer = await readBuffer()
+
+        return new Promise((resolve, reject) => {
+            sharp(imgBuffer)
+                .extend({
+                    top: 15,
+                    bottom: 15,
+                    left: 15,
+                    right: 15,
+                    background: { r: 255, g: 255, b: 255, alpha: 1 },
+                })
+                .toFile(FROM, (err) => {
+                    if (err) reject(err)
+                    resolve(true)
+                })
+        })
     }
+
+
 }
 
 export default utils;

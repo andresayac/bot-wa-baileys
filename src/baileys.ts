@@ -29,20 +29,30 @@ import { join } from 'path';
 import fs from 'fs-extra';
 
 interface Args {
+    debug?: boolean;
     [key: string]: any;  // Define the shape of this object as needed
 }
 
-
 type SendMessageOptions = {
-    buttons?: { body: string }[]
-    media?: string
-
+    keyword?: string,
+    refresh?: string,
+    answer?: string,
+    options: {
+        capture?: boolean
+        child?: any
+        delay?: number
+        nested?: any[]
+        keyword?: any
+        callback?: boolean
+        buttons?: { body: string }[]
+        media?: string
+    },
+    refSerialize?: string
 }
 
 ffmpeg.setFfmpegPath(ffmpegInstaller.path)
 
 const msgRetryCounterCache = new NodeCache()
-const SESSION_DIRECTORY_NAME = `baileys_sessions`;
 
 
 export class BaileysClass extends EventEmitter {
@@ -50,13 +60,23 @@ export class BaileysClass extends EventEmitter {
     private store: any;
     private globalVendorArgs: Args;
     private sock: any;
+    private NAME_DIR_SESSION: string;
+    private plugin: boolean;
 
     constructor(args = {}) {
+
         super()
         this.vendor = null;
         this.store = null;
-        this.globalVendorArgs = { name: `bot`, gifPlayback: false, ...args };
+        this.globalVendorArgs = { name: `bot`, gifPlayback: false, ...args };        
+        this.NAME_DIR_SESSION = `${this.globalVendorArgs.name}_sessions`;
         this.initBailey();
+
+        // is plugin?
+        const err = new Error();
+        const stack = err.stack;
+        this.plugin = stack?.includes('createProvider') ?? false;
+
     }
 
     getMessage = async (key: WAMessageKey): Promise<WAMessageContent | undefined> => {
@@ -71,16 +91,17 @@ export class BaileysClass extends EventEmitter {
     getInstance = (): any => this.vendor;
 
     initBailey = async (): Promise<void> => {
-        const logger = pino({ level: 'fatal' })
 
-        const { state, saveCreds } = await useMultiFileAuthState(SESSION_DIRECTORY_NAME);
+        const logger = pino({ level: this.globalVendorArgs.debug ? 'debug' : 'fatal' })
+        const { state, saveCreds } = await useMultiFileAuthState(this.NAME_DIR_SESSION);
         const { version, isLatest } = await fetchLatestBaileysVersion()
-        console.log(`using WA v${version.join('.')}, isLatest: ${isLatest}`)
+
+        if (this.globalVendorArgs.debug) console.log(`using WA v${version.join('.')}, isLatest: ${isLatest}`)
 
         this.store = makeInMemoryStore({ logger })
-        this.store.readFromFile(`./${SESSION_DIRECTORY_NAME}/baileys_store.json`)
+        this.store.readFromFile(`./${this.NAME_DIR_SESSION}/baileys_store.json`)
         setInterval(() => {
-            this.store.writeToFile(`./${SESSION_DIRECTORY_NAME}/baileys_store.json`)
+            this.store.writeToFile(`./${this.NAME_DIR_SESSION}/baileys_store.json`)
         }, 10_000)
 
         try {
@@ -94,7 +115,7 @@ export class BaileysClass extends EventEmitter {
         this.sock = makeWASocket({
             version,
             logger,
-            printQRInTerminal: true,
+            printQRInTerminal: this.plugin ? false : true,
             auth: {
                 creds: state.creds,
                 keys: makeCacheableSignalKeyStore(state.keys, logger),
@@ -126,11 +147,21 @@ export class BaileysClass extends EventEmitter {
             this.emit('ready', true);
         }
 
-        if (qr) this.emit('qr', qr);
+        if (qr) {
+            if (this.plugin) this.emit('require_action', {
+                instructions: [
+                    `Debes escanear el QR Code 👌 ${this.globalVendorArgs.name}.qr.png`,
+                    `Recuerda que el QR se actualiza cada minuto `,
+                    `Necesitas ayuda: https://link.codigoencasa.com/DISCORD`,
+                ],
+            })
+            this.emit('qr', qr);
+            if (this.plugin) await utils.baileyGenerateImage(qr, `${this.globalVendorArgs.name}.qr.png`)
+        }
     }
 
     clearSessionAndRestart = (): void => {
-        const PATH_BASE = join(process.cwd(), SESSION_DIRECTORY_NAME);
+        const PATH_BASE = join(process.cwd(), this.NAME_DIR_SESSION);
         fs.remove(PATH_BASE)
             .then(() => {
                 this.initBailey();
@@ -383,8 +414,7 @@ export class BaileysClass extends EventEmitter {
     sendPoll = async (number: string, text: string, poll: any): Promise<boolean> => {
         const numberClean = utils.formatPhone(number)
 
-
-
+        console.log('poll.options', poll.options)
         if (poll.options.length < 2) return false
 
         const pollMessage = {
@@ -392,6 +422,7 @@ export class BaileysClass extends EventEmitter {
             values: poll.options,
             selectableCount: 1
         };
+        console.log('pollMessage', pollMessage)
         return this.vendor.sendMessage(numberClean, { poll: pollMessage })
     }
 
@@ -405,12 +436,13 @@ export class BaileysClass extends EventEmitter {
     sendMessage = async (numberIn: string, message: string, options: SendMessageOptions): Promise<any> => {
         const number = utils.formatPhone(numberIn);
 
-        if (options?.buttons?.length) {
+        if (options.options.buttons?.length) {
+            console.log('sendPoll')
             return this.sendPoll(number, message, {
-                options: options.buttons.map((btn, i) => (btn.body)) ?? [],
+                options: options.options.buttons.map((btn, i) => (btn.body)) ?? [],
             })
         }
-        if (options?.media) return this.sendMedia(number, options.media, message)
+        if (options.options?.media) return this.sendMedia(number, options.options.media, message)
         return this.sendText(number, message)
     }
 

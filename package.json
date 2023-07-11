@@ -6,11 +6,11 @@
   "types": "lib/baileys.d.ts",
   "scripts": {
     "build": "tsc",
-    "example": "node test/bot.js",
-    "example-bot-whatsapp-json": "node test/bot-whatsapp-json.js",
-    "example-bot-whatsapp-memory": "node test/bot-whatsapp-memory.js",
-    "example-bot-whatsapp-mongo": "node test/bot-whatsapp-mongo.js",
-    "example-bot-whatsapp-mysql": "node test/bot-whatsapp-mysql.js"
+    "example": "node test/bot.mjs",
+    "example-bot-whatsapp-json": "tsc && node test/bot-whatsapp-json.mjs",
+    "example-bot-whatsapp-memory": "tsc && node test/bot-whatsapp-memory.mjs",
+    "example-bot-whatsapp-mongo": "tsc && node test/bot-whatsapp-mongo.mjs",
+    "example-bot-whatsapp-mysql": "tsc && node test/bot-whatsapp-mysql.mjs"
   },
   "repository": {
     "type": "git",
@@ -29,6 +29,7 @@
     "@ffmpeg-installer/ffmpeg": "^1.1.0",
     "@whiskeysockets/baileys": "^6.3.1",
     "fluent-ffmpeg": "^2.1.2",
+    "qr-image": "^3.2.0",
     "qrcode-terminal": "^0.12.0",
     "wa-sticker-formatter": "^4.4.4"
   },
