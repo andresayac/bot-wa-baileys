@@ -68,7 +68,7 @@ export class BaileysClass extends EventEmitter {
         super()
         this.vendor = null;
         this.store = null;
-        this.globalVendorArgs = { name: `bot`, gifPlayback: false, ...args };        
+        this.globalVendorArgs = { name: `bot`, gifPlayback: false, ...args };
         this.NAME_DIR_SESSION = `${this.globalVendorArgs.name}_sessions`;
         this.initBailey();
 
@@ -228,7 +228,7 @@ export class BaileysClass extends EventEmitter {
                 const listRowId = payload?.message?.listResponseMessage?.title;
                 if (listRowId) payload.body = listRowId;
 
-                payload.from = utils.formatPhone(payload.from, false);
+                payload.from = utils.formatPhone(payload.from, this.plugin);
                 this.emit('message', payload);
             },
         },
@@ -248,7 +248,7 @@ export class BaileysClass extends EventEmitter {
                             let payload = {
                                 ...messageCtx,
                                 body: pollMessage.find(poll => poll.voters.length > 0)?.name || '',
-                                from: key.remoteJid,
+                                from: utils.formatPhone(key.remoteJid, this.plugin),
                                 voters: pollCreation,
                                 type: 'poll'
                             };
@@ -414,7 +414,6 @@ export class BaileysClass extends EventEmitter {
     sendPoll = async (number: string, text: string, poll: any): Promise<boolean> => {
         const numberClean = utils.formatPhone(number)
 
-        console.log('poll.options', poll.options)
         if (poll.options.length < 2) return false
 
         const pollMessage = {
@@ -422,7 +421,6 @@ export class BaileysClass extends EventEmitter {
             values: poll.options,
             selectableCount: 1
         };
-        console.log('pollMessage', pollMessage)
         return this.vendor.sendMessage(numberClean, { poll: pollMessage })
     }
 
@@ -437,7 +435,6 @@ export class BaileysClass extends EventEmitter {
         const number = utils.formatPhone(numberIn);
 
         if (options.options.buttons?.length) {
-            console.log('sendPoll')
             return this.sendPoll(number, message, {
                 options: options.options.buttons.map((btn, i) => (btn.body)) ?? [],
             })
