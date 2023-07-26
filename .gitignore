@@ -5,3 +5,4 @@ core.class.log
 db.json
 lib/
 *.qr.png
+examples/
