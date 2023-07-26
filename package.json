@@ -1,33 +1,36 @@
 {
   "name": "@bot-wa/bot-wa-baileys",
-  "version": "1.0.9",
+  "version": "1.1.1",
   "description": "Creacte a bot for whatsapp with baileys library or bot-whatsapp",
   "main": "lib/baileys.js",
   "types": "lib/baileys.d.ts",
   "scripts": {
     "build": "tsc",
-    "example": "node test/bot.mjs",
-    "example-bot-whatsapp-json": "tsc && node test/bot-whatsapp-json.mjs",
-    "example-bot-whatsapp-memory": "tsc && node test/bot-whatsapp-memory.mjs",
-    "example-bot-whatsapp-mongo": "tsc && node test/bot-whatsapp-mongo.mjs",
-    "example-bot-whatsapp-mysql": "tsc && node test/bot-whatsapp-mysql.mjs"
+    "example": "tsc && node -r ts-node/register examples/bot.ts",
+    "example-bot-whatsapp-json": "tsc && node -r ts-node/register examples/bot-whatsapp-json.mjs",
+    "example-bot-whatsapp-memory": "tsc && node -r ts-node/register examples/bot-whatsapp-memory.mjs",
+    "example-bot-whatsapp-mongo": "tsc && node -r ts-node/register examples/bot-whatsapp-mongo.mjs",
+    "example-bot-whatsapp-mysql": "tsc && node -r ts-node/register examples/bot-whatsapp-mysql.mjs"
   },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/andresayac/bot-wa-baileys.git"
   },
   "keywords": [
-    "bot"
+    "bot",
+    "baileys",
+    "whatsapp",
+    "bot-whatsapp",
+    "flow",
+    "chatbot",
+    "whatsapp"
   ],
   "files": [
     "./lib/**/*"
   ],
   "dependencies": {
-    "@adiwajshing/keyed-db": "^0.2.4",   
-    "@whiskeysockets/baileys": "^6.3.1",
-    "@bot-whatsapp/bot": "latest",
-    "@bot-whatsapp/database": "latest",
     "@ffmpeg-installer/ffmpeg": "^1.1.0",
+    "@whiskeysockets/baileys": "^6.4.0",
     "fluent-ffmpeg": "^2.1.2",
     "qr-image": "^3.2.0",
     "qrcode-terminal": "^0.12.0",
@@ -42,7 +45,7 @@
   "devDependencies": {
     "@types/fluent-ffmpeg": "^2.1.21",
     "@types/mime-types": "^2.1.1",
-    "@types/node": "^20.4.1",
+    "@types/node": "^20.4.5",
     "ts-node": "^10.9.1",
     "typescript": "^5.1.6"
   }
