@@ -1,4 +1,4 @@
-test/*
+examples/*
 node_modules
 baileys_sessions
 baileys.log
