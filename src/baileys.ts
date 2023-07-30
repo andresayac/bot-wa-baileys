@@ -68,8 +68,8 @@ export class BaileysClass extends EventEmitter {
         super()
         this.vendor = null;
         this.store = null;
-        this.globalVendorArgs = { name: `bot`, gifPlayback: false, ...args };
-        this.NAME_DIR_SESSION = `${this.globalVendorArgs.name}_sessions`;
+        this.globalVendorArgs = { name: `bot`, gifPlayback: false, dir: './', ...args };
+        this.NAME_DIR_SESSION = `${this.globalVendorArgs.dir}${this.globalVendorArgs.name}_sessions`;
         this.initBailey();
 
         // is plugin?
@@ -99,9 +99,9 @@ export class BaileysClass extends EventEmitter {
         if (this.globalVendorArgs.debug) console.log(`using WA v${version.join('.')}, isLatest: ${isLatest}`)
 
         this.store = makeInMemoryStore({ logger })
-        this.store.readFromFile(`./${this.NAME_DIR_SESSION}/baileys_store.json`)
+        this.store.readFromFile(`${this.NAME_DIR_SESSION}/baileys_store.json`)
         setInterval(() => {
-            this.store.writeToFile(`./${this.NAME_DIR_SESSION}/baileys_store.json`)
+            this.store.writeToFile(`${this.NAME_DIR_SESSION}/baileys_store.json`)
         }, 10_000)
 
         try {
