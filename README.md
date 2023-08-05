@@ -27,6 +27,8 @@ Use as bot-whatsapp provider [bot-whatsapp](https://bot-whatsapp.netlify.app/doc
 ``` js
 const { BaileysClass } = require('@bot-wa/bot-wa-baileys') // OLD const BaileysProvider = require('@bot-whatsapp/provider/baileys')
 const adapterProvider = createProvider(BaileysClass) // ANTES -> const adapterProvider = createProvider(BaileysProvider)
+// OR CHANGE QR TO PAIRING CODE
+const adapterProvider = createProvider(BaileysClass, { usePairingCode: true, phoneNumber: 'XXXXXXXX' }) // ANTES -> const adapterProvider = createProvider(BaileysProvider)
 ```
 
 ## Example
@@ -77,7 +79,7 @@ More information [bot-whatsapp](https://bot-whatsapp.netlify.app/docs)
 Please note that these methods are asynchronous, meaning they return a promise that resolves once the action is completed.
 
 
-### Usage
+### Usage QR CODE
 
 Here is an example of how to use the `BaileysClass`:
 
@@ -88,6 +90,52 @@ const botBaileys = new BaileysClass({});
 
 botBaileys.on('auth_failure', async (error) => console.log("ERROR BOT: ", error));
 botBaileys.on('qr', (qr) => console.log("NEW QR CODE: ", qr));
+botBaileys.on('ready', async () => console.log('READY BOT'))
+
+let awaitingResponse = false;
+
+botBaileys.on('message', async (message) => {
+    if (!awaitingResponse) {
+        await botBaileys.sendPoll(message.from, 'Select an option', {
+            options: ['text', 'media', 'file', 'sticker'],
+            multiselect: false
+        });
+        awaitingResponse = true;
+    } else {
+        const command = message.body.toLowerCase().trim();
+        switch (command) {
+            case 'text':
+                await botBaileys.sendText(message.from, 'Hello world');
+                break;
+            case 'media':
+                await botBaileys.sendMedia(message.from, 'https://www.w3schools.com/w3css/img_lights.jpg', 'Hello world');
+                break;
+            case 'file':
+                await botBaileys.sendFile(message.from, 'https://github.com/pedrazadixon/sample-files/raw/main/sample_pdf.pdf');
+                break;
+            case 'sticker':
+                await botBaileys.sendSticker(message.from, 'https://gifimgs.com/animations/anime/dragon-ball-z/Goku/goku_34.gif', { pack: 'User', author: 'Me' });
+                break;
+            default:
+                await botBaileys.sendText(message.from, 'Sorry, I did not understand that command. Please select an option from the poll.');
+                break;
+        }
+        awaitingResponse = false;
+    }
+});
+```
+
+### Usage Pairing Code
+
+Here is an example of how to use the `BaileysClass`:
+
+```javascript
+import {BaileysClass} from '@bot-wa/bot-wa-baileys';
+
+const botBaileys = new BaileysClass({ usePairingCode: true, phoneNumber: 'XXXXXXXXXXX' });
+
+botBaileys.on('auth_failure', async (error) => console.log("ERROR BOT: ", error));
+botBaileys.on('pairing_code', (code) => console.log("NEW PAIRING CODE: ", code));
 botBaileys.on('ready', async () => console.log('READY BOT'))
 
 let awaitingResponse = false;

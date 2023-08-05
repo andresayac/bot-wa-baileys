@@ -68,7 +68,7 @@ export class BaileysClass extends EventEmitter {
         super()
         this.vendor = null;
         this.store = null;
-        this.globalVendorArgs = { name: `bot`, gifPlayback: false, dir: './', ...args };
+        this.globalVendorArgs = { name: `bot`, usePairingCode: false, phoneNumber: null, gifPlayback: false, dir: './', ...args };
         this.NAME_DIR_SESSION = `${this.globalVendorArgs.dir}${this.globalVendorArgs.name}_sessions`;
         this.initBailey();
 
@@ -115,7 +115,7 @@ export class BaileysClass extends EventEmitter {
         this.sock = makeWASocket({
             version,
             logger,
-            printQRInTerminal: this.plugin ? false : true,
+            printQRInTerminal: this.plugin || this.globalVendorArgs.usePairingCode ? false : true,
             auth: {
                 creds: state.creds,
                 keys: makeCacheableSignalKeyStore(state.keys, logger),
@@ -127,6 +127,25 @@ export class BaileysClass extends EventEmitter {
         })
 
         this.store?.bind(this.sock.ev)
+
+        if (this.globalVendorArgs.phoneNumber) {
+            await this.sock.waitForConnectionUpdate((update) => !!update.qr)
+            const code = await this.sock.requestPairingCode(this.globalVendorArgs.phoneNumber)
+            if (this.plugin) {
+                this.emit('require_action', {
+                    instructions: [
+                        `Acepta la notificación del WhatsApp ${this.globalVendorArgs.phoneNumber} en tu celular 👌`,
+                        `El token para la vinculación es: ${code}`,
+                        `Necesitas ayuda: https://link.codigoencasa.com/DISCORD`,
+                    ],
+                })
+            } else {
+                this.emit('pairing_code', code);
+            }
+        } else {
+            this.emit('auth_failure', 'phoneNumber is empty')
+        }
+
 
         this.sock.ev.on('connection.update', this.handleConnectionUpdate);
         this.sock.ev.on('creds.update', saveCreds)
@@ -147,7 +166,7 @@ export class BaileysClass extends EventEmitter {
             this.emit('ready', true);
         }
 
-        if (qr) {
+        if (qr && !this.globalVendorArgs.usePairingCode) {
             if (this.plugin) this.emit('require_action', {
                 instructions: [
                     `Debes escanear el QR Code 👌 ${this.globalVendorArgs.name}.qr.png`,
