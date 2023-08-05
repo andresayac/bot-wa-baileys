@@ -128,24 +128,25 @@ export class BaileysClass extends EventEmitter {
 
         this.store?.bind(this.sock.ev)
 
-        if (this.globalVendorArgs.phoneNumber) {
-            await this.sock.waitForConnectionUpdate((update) => !!update.qr)
-            const code = await this.sock.requestPairingCode(this.globalVendorArgs.phoneNumber)
-            if (this.plugin) {
-                this.emit('require_action', {
-                    instructions: [
-                        `Acepta la notificación del WhatsApp ${this.globalVendorArgs.phoneNumber} en tu celular 👌`,
-                        `El token para la vinculación es: ${code}`,
-                        `Necesitas ayuda: https://link.codigoencasa.com/DISCORD`,
-                    ],
-                })
+        if (this.globalVendorArgs.usePairingCode) {
+            if (this.globalVendorArgs.phoneNumber) {
+                await this.sock.waitForConnectionUpdate((update) => !!update.qr)
+                const code = await this.sock.requestPairingCode(this.globalVendorArgs.phoneNumber)
+                if (this.plugin) {
+                    this.emit('require_action', {
+                        instructions: [
+                            `Acepta la notificación del WhatsApp ${this.globalVendorArgs.phoneNumber} en tu celular 👌`,
+                            `El token para la vinculación es: ${code}`,
+                            `Necesitas ayuda: https://link.codigoencasa.com/DISCORD`,
+                        ],
+                    })
+                } else {
+                    this.emit('pairing_code', code);
+                }
             } else {
-                this.emit('pairing_code', code);
+                this.emit('auth_failure', 'phoneNumber is empty')
             }
-        } else {
-            this.emit('auth_failure', 'phoneNumber is empty')
         }
-
 
         this.sock.ev.on('connection.update', this.handleConnectionUpdate);
         this.sock.ev.on('creds.update', saveCreds)
