@@ -1,5 +1,5 @@
 import { EventEmitter } from 'events';
-import pino from 'pino'
+import pino, { Logger } from 'pino'
 import NodeCache from 'node-cache'
 import makeWASocket, {
     DisconnectReason,
@@ -13,9 +13,7 @@ import makeWASocket, {
     WAMessageContent,
     WAMessageKey
 } from '@whiskeysockets/baileys'
-import { readFileSync } from 'fs';
-
-import { Sticker } from 'wa-sticker-formatter'
+import { readFileSync, existsSync, rmSync } from 'fs';
 
 import ffmpeg from 'fluent-ffmpeg';
 import ffmpegInstaller from '@ffmpeg-installer/ffmpeg';
@@ -26,7 +24,6 @@ import utils from './utils';
 import { join } from 'path';
 
 
-import fs from 'fs-extra';
 
 interface Args {
     debug?: boolean;
@@ -92,7 +89,7 @@ export class BaileysClass extends EventEmitter {
 
     initBailey = async (): Promise<void> => {
 
-        const logger = pino({ level: this.globalVendorArgs.debug ? 'debug' : 'fatal' })
+        const logger : Logger = pino({ level: this.globalVendorArgs.debug ? 'debug' : 'fatal' })
         const { state, saveCreds } = await useMultiFileAuthState(this.NAME_DIR_SESSION);
         const { version, isLatest } = await fetchLatestBaileysVersion()
 
@@ -101,8 +98,11 @@ export class BaileysClass extends EventEmitter {
         this.store = makeInMemoryStore({ logger })
         this.store.readFromFile(`${this.NAME_DIR_SESSION}/baileys_store.json`)
         setInterval(() => {
-            this.store.writeToFile(`${this.NAME_DIR_SESSION}/baileys_store.json`)
-        }, 10_000)
+            const path = `${this.NAME_DIR_SESSION}/baileys_store.json`;
+            if(existsSync(path)) {
+                this.store.writeToFile(path);
+            }
+        }, 10_000);
 
         try {
             this.setUpBaileySock({ version, logger, state, saveCreds });
@@ -182,13 +182,8 @@ export class BaileysClass extends EventEmitter {
 
     clearSessionAndRestart = (): void => {
         const PATH_BASE = join(process.cwd(), this.NAME_DIR_SESSION);
-        fs.remove(PATH_BASE)
-            .then(() => {
-                this.initBailey();
-            })
-            .catch((err) => {
-                console.error('Error to delete directory:', err);
-            });
+        rmSync(PATH_BASE, { recursive: true, force: true });
+        this.initBailey();
     }
 
     busEvents = (): any[] => [
@@ -395,7 +390,7 @@ export class BaileysClass extends EventEmitter {
     }
 
     /**
-     *
+     * @deprecated
      * @param {string} number
      * @param {string} text
      * @param {string} footer
@@ -540,15 +535,13 @@ export class BaileysClass extends EventEmitter {
 
     sendSticker = async (remoteJid: string, url: string, stickerOptions: any, messages: any = null): Promise<void> => {
         const number = utils.formatPhone(remoteJid);
-        const sticker = new Sticker(url, {
-            ...stickerOptions,
-            quality: 50,
-            type: 'crop',
-        });
+        const fileDownloaded = await utils.generalDownload(url);
 
-        const buffer = await sticker.toMessage();
-
-        await this.vendor.sendMessage(number, buffer, { quoted: messages });
+        await this.vendor.sendMessage(number, {
+            sticker: {
+                url: fileDownloaded
+            },
+        }, { quoted: messages });
     }
 }
 

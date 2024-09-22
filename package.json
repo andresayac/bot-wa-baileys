@@ -6,11 +6,7 @@
   "types": "lib/baileys.d.ts",
   "scripts": {
     "build": "tsc",
-    "example": "tsc && node -r ts-node/register examples/bot.ts",
-    "example-bot-whatsapp-json": "tsc && node -r ts-node/register examples/bot-whatsapp-json.mjs",
-    "example-bot-whatsapp-memory": "tsc && node -r ts-node/register examples/bot-whatsapp-memory.mjs",
-    "example-bot-whatsapp-mongo": "tsc && node -r ts-node/register examples/bot-whatsapp-mongo.mjs",
-    "example-bot-whatsapp-mysql": "tsc && node -r ts-node/register examples/bot-whatsapp-mysql.mjs"
+    "example": "tsc && node -r ts-node/register examples/bot.ts"
   },
   "repository": {
     "type": "git",
@@ -30,11 +26,10 @@
   ],
   "dependencies": {
     "@ffmpeg-installer/ffmpeg": "^1.1.0",
-    "@whiskeysockets/baileys": "^6.4.0",
-    "fluent-ffmpeg": "^2.1.2",
+    "@whiskeysockets/baileys": "^6.7.8",
+    "fluent-ffmpeg": "^2.1.3",
     "qr-image": "^3.2.0",
-    "qrcode-terminal": "^0.12.0",
-    "wa-sticker-formatter": "^4.4.4"
+    "qrcode-terminal": "^0.12.0"
   },
   "author": "Andres Aya",
   "license": "MIT",
@@ -43,10 +38,10 @@
   },
   "homepage": "https://github.com/andresayac/bot-wa-baileys#readme",
   "devDependencies": {
-    "@types/fluent-ffmpeg": "^2.1.21",
-    "@types/mime-types": "^2.1.1",
-    "@types/node": "^20.4.5",
-    "ts-node": "^10.9.1",
-    "typescript": "^5.1.6"
+    "@types/fluent-ffmpeg": "^2.1.26",
+    "@types/mime-types": "^2.1.4",
+    "@types/node": "^22.5.5",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.6.2"
   }
 }

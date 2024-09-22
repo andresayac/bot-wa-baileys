@@ -22,35 +22,16 @@ import { BaileysClass } from '@bot-wa/bot-wa-baileys'
 const { BaileysClass } = require('@bot-wa/bot-wa-baileys');
 ```
 
-Use as bot-whatsapp provider [bot-whatsapp](https://bot-whatsapp.netlify.app/docs)
-
-``` js
-const { BaileysClass } = require('@bot-wa/bot-wa-baileys') // OLD const BaileysProvider = require('@bot-whatsapp/provider/baileys')
-const adapterProvider = createProvider(BaileysClass) // ANTES -> const adapterProvider = createProvider(BaileysProvider)
-// OR CHANGE QR TO PAIRING CODE
-const adapterProvider = createProvider(BaileysClass, { usePairingCode: true, phoneNumber: 'XXXXXXXX' }) // ANTES -> const adapterProvider = createProvider(BaileysProvider)
-```
-
 ## Example
 
 Follow these steps to deploy the application:
 
 - Clone this repository: `https://github.com/andresayac/bot-wa-baileys.git`
 - Enter the `bot-wa-baileys` directory
-- Run the command `npm i`
-- Run the command `npm run example` to start the bot
+- Run the command `pnpm i`
+- Run the command `pnpm run example` to start the bot
 - Scan the QR code in WhatsApp as if it were WhatsApp Web. You can find the QR code in `qr.png` or terminal
 - Done!
-
-## Example Bot-Whatsapp with https://github.com/codigoencasa/bot-whatsapp
-
-Follow the next example for create bot using bot-whatsapp this bot with provider 
-- Bot with Json `npm run example-json`
-- Bot with InMemory mock `npm run example-memory`
-- Bot with Mongo `npm run example-mongo`
-- Bot with MYSQL `npm run example-mysql`
-
-More information [bot-whatsapp](https://bot-whatsapp.netlify.app/docs)
 
 ### Key Methods
 

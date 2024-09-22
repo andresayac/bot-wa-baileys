@@ -1,4 +1,4 @@
-import { rename, createWriteStream, existsSync, readFileSync } from 'fs'
+import { rename, createWriteStream, existsSync, readFileSync, promises as fsPromises   } from 'fs'
 import { tmpdir } from 'os'
 import followRedirects, { HttpOptions, HttpClient, HttpsOptions, HttpsClient } from 'follow-redirects';
 import path from 'path';
@@ -158,20 +158,15 @@ const utils = {
         await utils.cleanImage(PATH_QR)
     },
     cleanImage: async (FROM: string): Promise<boolean> => {
-        const readBuffer = () => {
-            return new Promise((resolve, reject) => {
-                readFile(FROM, (err, data) => {
-                    if (err) reject(err)
-                    const imageBuffer = Buffer.from(data)
-                    resolve(imageBuffer)
-                })
-            })
+        const readBuffer = async (): Promise<Buffer> => {
+            const data = await fsPromises.readFile(FROM)
+            return Buffer.from(data)
         }
-
-        const imgBuffer = await readBuffer()
+    
+        const imgBuffer: Buffer = await readBuffer()
 
         return new Promise((resolve, reject) => {
-            sharp(imgBuffer)
+            sharp(imgBuffer, { failOnError: false })
                 .extend({
                     top: 15,
                     bottom: 15,
