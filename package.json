@@ -1,6 +1,6 @@
 {
   "name": "@bot-wa/bot-wa-baileys",
-  "version": "1.1.3",
+  "version": "1.1.4",
   "description": "Creacte a bot for whatsapp with baileys library or bot-whatsapp",
   "main": "lib/baileys.js",
   "types": "lib/baileys.d.ts",
