@@ -40,8 +40,8 @@
   "devDependencies": {
     "@types/fluent-ffmpeg": "^2.1.26",
     "@types/mime-types": "^2.1.4",
-    "@types/node": "^22.5.5",
+    "@types/node": "^22.7.8",
     "ts-node": "^10.9.2",
-    "typescript": "^5.6.2"
+    "typescript": "^5.6.3"
   }
 }
