@@ -39,7 +39,10 @@ Follow these steps to deploy the application:
 - `setUpBaileySock`: Sets up the connection socket with WhatsApp.
 - `handleConnectionUpdate`: Handles updates to the connection with WhatsApp.
 - `busEvents`: Defines various events that the bot can handle.
-- `sendMessage`, `sendMedia`, `sendImage`, `sendVideo`, `sendAudio`, `sendText`, `sendFile`, `sendButtons`, `sendPoll`, `sendLocation`, `sendContact`, `sendPresenceUpdate`, `sendSticker`: Methods for sending different types of messages through WhatsApp.
+- `sendMessage`, `sendMedia`, `sendImage`, `sendVideo`, `sendAudio`, `sendText`, `sendFile`, `sendPoll`, `sendLocation`, `sendContact`, `sendPresenceUpdate`, `sendSticker`: Methods for sending different types of messages through WhatsApp.
+
+### Deprecated Methods
+- `sendButtons`: It will be removed in the next update
 
 #### Method Parameters
 
@@ -50,7 +53,6 @@ Follow these steps to deploy the application:
 - `sendAudio(number, audioUrl)`: Sends audio to a given phone number. The audio is specified by a URL.
 - `sendText(number, message)`: Sends a text message to a given phone number.
 - `sendFile(number, filePath)`: Sends a file to a given phone number. The file is specified by a file path.
-- `sendButtons(number, text, buttons)`: Sends buttons to a given phone number. The buttons are displayed along with a given text.
 - `sendPoll(number, text, poll)`: Sends a poll to a given phone number. The poll options are displayed along with a given text.
 - `sendLocation(remoteJid, latitude, longitude, messages)`: Sends a location to a given chat ID. The location is specified by latitude and longitude, and additional messages can be sent along with the location.
 - `sendContact(remoteJid, contactNumber, displayName, messages)`: Sends a contact to a given chat ID. The contact is specified by a phone number and a display name, and additional messages can be sent along with the contact.
