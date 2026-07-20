@@ -13,6 +13,7 @@ Si tu bot v1 es simple (unos cuantos `addKeyword`/respuestas de texto), la migra
 | `addKeyword().addAnswer(txt, { capture })` | `flow(trigger).say(txt)` / `.ask(txt, stateKey)` (alias de compatibilidad: `addKeyword = flow`) |
 | `sendText/sendImage/sendVideo/sendAudio/sendFile/...` | Conservados en `bot.sendText`/`bot.send` + los helpers de contexto `ctx.reply/photo/video/audio/file/...` |
 | Eventos `qr` / `ready` | Iguales: `bot.on('qr', (qr) => ...)`, `bot.on('ready', () => ...)` |
+| `usePairingCode: true, phoneNumber: 'XXX'` + evento `pairing_code` | Config `pairingCode: '+57300XXXXXXX'` (formato internacional completo) + `bot.on('pairing_code', (code) => ...)` — el evento conserva su nombre v1 |
 | `auth_failure` | `bot.on('error', ({ error, ctx }) => ...)` |
 | `sendButtons` (ya deprecado en v1) | **Eliminado.** Usa `c.choose()` / `.choose()` (menú numerado) o `ctx.poll()` |
 

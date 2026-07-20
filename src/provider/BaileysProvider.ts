@@ -34,6 +34,7 @@ import type { BotConfig, ConnectionUpdate, ConnectionState, IProvider } from '..
 
 export interface ProviderEvents {
   connection: ConnectionUpdate
+  pairingCode: string
   rawMessage: { message: WAMessage; type: 'notify' | 'append' }
   messageUpdate: { key: WAMessageKey; update: any }
   reaction: { key: WAMessageKey; reaction: number | string; from: string }
@@ -74,6 +75,8 @@ export class BaileysProvider extends TypedEmitter<ProviderEvents> implements IPr
   private version: [number, number, number] = [0, 0, 0]
   private reconnectPending: boolean = false
   private isShuttingDown: boolean = false
+  /** True once a pairing code was requested for the current socket — QR refreshes every ~20s and must not re-request. */
+  private pairingCodeRequested: boolean = false
   /** LID <-> PN cache — every resolved pair is stored under both keys. */
   private lidCache = new Map<string, string>()
 
@@ -100,6 +103,8 @@ export class BaileysProvider extends TypedEmitter<ProviderEvents> implements IPr
 
   /** Start — open the socket and wait for `open` or first QR. */
   async start(): Promise<void> {
+    // A fresh socket invalidates any previously issued pairing code, so allow one new request.
+    this.pairingCodeRequested = false
     this.authState = await useMultiFileAuthState(this.sessionDir)
     const versionInfo = await fetchLatestBaileysVersion()
     this.version = versionInfo.version
@@ -363,6 +368,25 @@ export class BaileysProvider extends TypedEmitter<ProviderEvents> implements IPr
         isNewLogin,
         isOnline,
       })
+
+      // Pairing-code login (v1 parity): once a QR is available the socket is ready to
+      // issue a pairing code. Requires `config.pairingCode` to be the phone number in
+      // full international format (e.g. '+573001234567'); Baileys wants digits only.
+      if (
+        this.config.pairingCode &&
+        !this.authState?.state?.creds?.registered &&
+        !this.pairingCodeRequested &&
+        this.sock
+      ) {
+        this.pairingCodeRequested = true
+        try {
+          const phone = this.config.pairingCode.replace(/\D/g, '')
+          const code = await this.sock.requestPairingCode(phone)
+          this.emitTyped('pairingCode', code)
+        } catch (error) {
+          this.logger.warn({ error }, 'pairing code request failed — falling back to QR')
+        }
+      }
     }
 
     if (connection === 'open') {

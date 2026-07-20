@@ -44,6 +44,8 @@ await bot.start()   // escanea el QR
 
 Un ejemplo más completo (comandos, media, hooks, DI, scheduler) vive en [`examples/bot.ts`](examples/bot.ts).
 
+¿Sin cámara para escanear el QR? Configura `new Bot({ session: 'mi-bot', pairingCode: '+57300XXXXXXX' })` (número en formato internacional completo) y escucha `bot.on('pairing_code', (code) => console.log(code))` — igual que en v1.
+
 ## Características (v2)
 
 - **Flows declarativos que compilan a runtime async** — `flow().say().ask().choose()` se compila a un `bot.conversation` real; ya no hay motor de "arrays de pasos" por separado.

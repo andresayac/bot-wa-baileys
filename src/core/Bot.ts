@@ -118,6 +118,8 @@ class DisposableList {
 export interface BotEvents {
   ready: void
   qr: string
+  /** Pairing code issued when `config.pairingCode` is set (v1 event name preserved). */
+  pairing_code: string
   connection: ConnectionUpdate
   message: MessageContext
   error: { error: unknown; ctx?: MessageContext }
@@ -649,7 +651,7 @@ export class Bot extends EventEmitter {
     return (this.provider as unknown as BaileysProvider).auth.state.creds
   }
 
-  /** Wire connection + QR events. */
+  /** Wire connection + QR + pairing-code events. */
   private wireConnectionEvents(): void {
     this.providerEvents.onTyped('connection', (u) => {
       this.emit('connection', u)
@@ -658,6 +660,10 @@ export class Bot extends EventEmitter {
         this.renderQr(u.qr)
       }
       if (u.state === 'open') this.emit('ready')
+    })
+    // v1 parity: `pairing_code` fires when config.pairingCode triggered a code request.
+    this.providerEvents.onTyped('pairingCode', (code) => {
+      this.emit('pairing_code', code)
     })
   }
 

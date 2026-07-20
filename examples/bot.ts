@@ -48,6 +48,11 @@ bot.on('qr', () => {
   console.log('\n📱 Escanea este QR con tu WhatsApp:\n')
 })
 
+// Si configuras `pairingCode`, el código de emparejamiento llega aquí (igual que en v1):
+bot.on('pairing_code', (code) => {
+  console.log('🔑 Código de emparejamiento:', code)
+})
+
 bot.on('ready', () => {
   console.log('\n✅ Bot conectado y listo!\n')
 })
