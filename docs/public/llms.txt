@@ -1,0 +1,27 @@
+# @bot-wa/bot-wa-baileys
+
+> WhatsApp bot framework on Baileys 7. One import. Flows for beginners
+> (flow().say().ask()) compile to an async conversation runtime
+> (bot.conversation with c.ask/c.waitText/c.choose). Priority dispatcher:
+> commands > active conversation > matchers (normalized-equals default) >
+> catch-all; first consumer wins. No native buttons (dead in WhatsApp Web
+> protocol) — use c.choose numbered menus or polls. ESM-only, Node >= 20.
+
+## Docs
+- README: https://github.com/andresayac/bot-wa-baileys#readme
+- Migration v1→v2: https://github.com/andresayac/bot-wa-baileys/blob/main/docs/MIGRATION-v1-to-v2.md
+
+## API essentials
+- new Bot({ session }) ; await bot.start()
+- bot.when(trigger, handler) — trigger: 'texto' (equals normalizado) | RegExp | { pattern, match: 'contains'|'startsWith' } | fn
+- bot.command('reset', handler) — always beats active conversations
+- bot.use(flow('kw').say(t).ask(t, key, { validate, retries, timeout }).choose(p, {...}).do(fn))
+- bot.conversation(name, async (c, ctx) => { await c.ask(q); await c.waitText(); await c.choose(p, labels) })
+- Testing without WhatsApp: import { createTestBot } from '@bot-wa/bot-wa-baileys/testing'
+
+## Other exports worth knowing
+- Hooks/plugins: bot.before/after/onError(event, handler), bot.plug(plugin, config) (returns unplug()), bot.provide(name, value)
+- Scheduler: bot.schedule(cron, fn), bot.every(interval, fn), bot.delay(duration, fn)
+- Sub-APIs: bot.groups, bot.profile, bot.privacy, bot.chats, bot.presence
+- Media handlers: bot.onImage/onAudio/onVideo/onDocument/onSticker/onLocation/onContact/onPoll(handler)
+- ctx (MessageContext) helpers: ctx.reply/say/answer/text, ctx.photo/video/audio/voice/file/sticker/location/contact/poll, ctx.react/quote/markRead/typing, ctx.pass()/abort()
