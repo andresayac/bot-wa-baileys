@@ -2,6 +2,10 @@ import {
   ConversationCancelled, ConversationEnded, ConversationGoto,
   ConversationTimeout, RetriesExceeded,
 } from './errors.js'
+import type { CompiledFlow } from '../flows/FlowBuilder.js'
+import { flowToConversation, runSteps } from './interpreter.js'
+import type { ConversationControls } from './controls.js'
+import type { FlowCheckpoint } from '../store/IStore.js'
 
 export interface RuntimeMessage {
   from: string; sender: string; body: string; type: string; isGroup: boolean
@@ -26,6 +30,14 @@ export interface ConversationControlsBase {
 
 export type ConversationFn<C extends ConversationControlsBase = ConversationControlsBase> =
   (c: C, ctx: RuntimeMessage) => Promise<void>
+
+/** Minimal checkpoint persistence surface the runtime needs (Task 5). Implemented by IStore. */
+export interface CheckpointStore {
+  getCheckpoint(key: string): Promise<FlowCheckpoint | undefined>
+  setCheckpoint(key: string, cp: FlowCheckpoint): Promise<void>
+  clearCheckpoint(key: string): Promise<void>
+  listCheckpoints(): Promise<Array<[string, FlowCheckpoint]>>
+}
 
 export interface RuntimeConfig {
   defaultTimeoutMs?: number
@@ -59,11 +71,73 @@ const INBOX_CAP = 10
 export class ConversationRuntime {
   private registry = new Map<string, ConversationFn>()
   private active = new Map<string, ActiveConversation>()
+  private compiled = new Map<string, CompiledFlow>()
+  private store?: CheckpointStore
+  private dormant = new Map<string, FlowCheckpoint>()
 
   constructor(private cfg: RuntimeConfig = {}) {}
 
   register(name: string, fn: ConversationFn): void { this.registry.set(name, fn) }
   has(name: string): boolean { return this.registry.has(name) }
+
+  /** Wires a checkpoint-capable store; required for `persistent()` flows to actually persist. */
+  attachStore(store: CheckpointStore): void { this.store = store }
+
+  /** Registers a compiled DSL flow by its `flow.id`, wrapping it with checkpoint support when persistent. */
+  registerCompiled(flow: CompiledFlow): void {
+    this.compiled.set(flow.id, flow)
+    this.register(flow.id, this.wrapCompiled(flow))
+  }
+
+  private wrapCompiled(flow: CompiledFlow, startAt = 0): ConversationFn {
+    if (!flow.opts.persistent || !this.store) {
+      return startAt === 0
+        ? flowToConversation(flow)
+        : async (c, ctx) => { await runSteps(flow, ctx, c as ConversationControls, startAt) }
+    }
+    return async (c, ctx) => {
+      const key = this.keyFor(ctx)
+      try {
+        await runSteps(flow, ctx, c as ConversationControls, startAt, async (stepIndex) => {
+          await this.store!.setCheckpoint(key, {
+            flowId: flow.id,
+            step: stepIndex + 1,
+            state: { ...(c as ConversationControls).state },
+            updatedAt: Date.now(),
+          })
+        })
+      } finally {
+        await this.store!.clearCheckpoint(key).catch(() => {})
+      }
+    }
+  }
+
+  /** Loads all persisted checkpoints into the dormant map; call once at startup (Bot.start()). */
+  async loadDormant(): Promise<void> {
+    if (!this.store) return
+    for (const [key, cp] of await this.store.listCheckpoints()) this.dormant.set(key, cp)
+  }
+
+  /**
+   * If an incoming message's key has a dormant checkpoint, consumes it and resumes the flow
+   * at the checkpointed step with state restored. The waking message only wakes the flow —
+   * the pending step (e.g. an `ask`) re-runs and re-prompts. Returns false if there was nothing
+   * to resume (caller should fall through to normal trigger matching).
+   */
+  async resumeDormant(ctx: RuntimeMessage): Promise<boolean> {
+    const key = this.keyFor(ctx)
+    const cp = this.dormant.get(key)
+    if (!cp) return false
+    this.dormant.delete(key)
+    const flow = this.compiled.get(cp.flowId)
+    if (!flow) { await this.store?.clearCheckpoint(key).catch(() => {}); return false }
+    const resumed: ConversationFn = async (c, rctx) => {
+      Object.assign((c as ConversationControlsBase).state, cp.state)
+      await this.wrapCompiled(flow, cp.step)(c, rctx)
+    }
+    void this.enter(resumed, ctx)
+    return true
+  }
 
   keyFor(ctx: Pick<RuntimeMessage, 'from' | 'sender' | 'isGroup'>): string {
     const scope = this.cfg.scope ?? 'participant'

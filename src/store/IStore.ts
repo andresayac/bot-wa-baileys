@@ -30,9 +30,25 @@ export interface IStore {
   setFlowState(userId: string, state: Record<string, unknown>): Promise<void>
   clearFlowState(userId: string): Promise<void>
 
+  /* Flow checkpoints (Task 5) ----------------------------------------------
+   * Persists the "next step to run" for `persistent()` DSL flows, so they can
+   * survive a process restart via ConversationRuntime.loadDormant()/resumeDormant(). */
+  getCheckpoint(key: string): Promise<FlowCheckpoint | undefined>
+  setCheckpoint(key: string, cp: FlowCheckpoint): Promise<void>
+  clearCheckpoint(key: string): Promise<void>
+  listCheckpoints(): Promise<Array<[string, FlowCheckpoint]>>
+
   /* Lifecycle ------------------------------------------------------------- */
   start(): Promise<void>
   stop(): Promise<void>
+}
+
+/** Snapshot of a `persistent()` DSL flow: which step runs next and its accumulated state. */
+export interface FlowCheckpoint {
+  flowId: string
+  step: number
+  state: Record<string, unknown>
+  updatedAt: number
 }
 
 /** Helper to make the `messages.upsert` ↔ `getMessage` round-trip id lighter. */
