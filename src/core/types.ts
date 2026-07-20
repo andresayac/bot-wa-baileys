@@ -509,3 +509,23 @@ export interface BroadcastResult {
   sent: SentMessage[]
   failed: Array<{ jid: ChatId; error: Error }>
 }
+
+/* ============================================================================
+ * TRIGGER MATCHING (v2)
+ * ========================================================================== */
+
+export type MatchStrategy = 'equals' | 'contains' | 'startsWith' | 'endsWith'
+export type TriggerScope = 'dm' | 'group' | 'all'
+
+export interface TriggerObject {
+  pattern: string | RegExp | Array<string | RegExp>
+  match?: MatchStrategy
+  scope?: TriggerScope
+}
+
+export type Trigger =
+  | string
+  | RegExp
+  | Array<string | RegExp>
+  | TriggerObject
+  | ((ctx: { body: string; isGroup: boolean }) => boolean)
