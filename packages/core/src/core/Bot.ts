@@ -74,6 +74,7 @@ import type {
   SentMessage,
   Trigger,
   WAMessage,
+  WAMessageKey,
   GroupsAPI,
   ProfileAPI,
   PrivacyAPI,
@@ -116,14 +117,41 @@ class DisposableList {
 }
 
 export interface BotEvents {
+  /** Emitted once the provider's connection state reaches `'open'`. */
   ready: void
+  /** Emitted with the raw QR string whenever the provider issues one to scan. */
   qr: string
   /** Pairing code issued when `config.pairingCode` is set (v1 event name preserved). */
   pairing_code: string
+  /** Emitted on every provider connection-state transition (open/close/qr/...). */
   connection: ConnectionUpdate
+  /** Emitted after every dispatched inbound message finishes its pipeline (`Dispatcher.finish`). */
   message: MessageContext
+  /** Emitted for any internal/handler error — see {@link Bot.onError} for the hook-based alternative. */
   error: { error: unknown; ctx?: MessageContext }
+  /** Emitted once `start()` finishes bringing up store/runtime/provider/scheduler. */
+  started: void
+  /** Emitted once `stop()` finishes tearing everything down. */
+  stopped: void
+  /** Emitted by the Dispatcher for an unrecognized `/xyz` command (see {@link slashCommandsPlugin}). */
+  'command:unknown': { ctx: MessageContext; command: string }
+  /** Forwarded provider event: someone reacted to a message. */
+  reaction: { key: WAMessageKey; reaction: number | string; from: string }
+  /** Forwarded provider event: a poll's aggregated votes changed. */
+  poll: { key: WAMessageKey; votes: unknown[]; from: string }
+  /** Forwarded provider event: an incoming/outgoing call notification. */
+  call: { id: string; from: string; status: string }
+  /** Forwarded provider event: group participants changed (add/remove/promote/demote). */
+  group: { id: string; action: 'add' | 'remove' | 'promote' | 'demote'; participants: string[]; author?: string }
+  /** Forwarded provider event: a contact's presence (online/typing/...) changed. */
+  presence: { id: string; presences: Record<string, unknown> }
 }
+
+/**
+ * Listener/emit argument tuple for a given {@link BotEvents} key — `void`-payload events
+ * (e.g. `'ready'`) take zero arguments; every other event takes exactly one payload argument.
+ */
+type BotEventArgs<K extends keyof BotEvents> = BotEvents[K] extends void ? [] : [BotEvents[K]]
 
 export class Bot extends EventEmitter {
   readonly logger: Logger
@@ -260,6 +288,44 @@ export class Bot extends EventEmitter {
   /** Typed view of the provider's event emitter (both BaileysProvider and MockProvider are TypedEmitters). */
   private get providerEvents(): TypedEmitter<ProviderEvents> {
     return this.provider as unknown as TypedEmitter<ProviderEvents>
+  }
+
+  /* =========================================================================
+   * TYPED EVENTEMITTER OVERRIDES
+   *
+   * Bot extends Node's EventEmitter, whose own on/once/off/emit are typed with
+   * `(...args: any[])`. These overloads narrow the payload type for every known
+   * `BotEvents` key (editor autocomplete + compile-time payload checking) while
+   * keeping a second, string-keyed overload so arbitrary/custom events — plugin
+   * hook events, user-defined events — still compile exactly as before. The
+   * fallback's `any[]` is a deliberate escape hatch (mirrors EventEmitter's own
+   * signature): `unknown[]` there would reject any concretely-typed custom
+   * listener (e.g. `(payload: MyType) => void`) under `strictFunctionTypes`,
+   * since a listener param is a property-typed function checked contravariantly.
+   * ====================================================================== */
+
+  override on<K extends keyof BotEvents>(event: K, listener: (...args: BotEventArgs<K>) => void): this
+  override on(event: string, listener: (...args: any[]) => void): this
+  override on(event: string, listener: (...args: any[]) => void): this {
+    return super.on(event, listener)
+  }
+
+  override once<K extends keyof BotEvents>(event: K, listener: (...args: BotEventArgs<K>) => void): this
+  override once(event: string, listener: (...args: any[]) => void): this
+  override once(event: string, listener: (...args: any[]) => void): this {
+    return super.once(event, listener)
+  }
+
+  override off<K extends keyof BotEvents>(event: K, listener: (...args: BotEventArgs<K>) => void): this
+  override off(event: string, listener: (...args: any[]) => void): this
+  override off(event: string, listener: (...args: any[]) => void): this {
+    return super.off(event, listener)
+  }
+
+  override emit<K extends keyof BotEvents>(event: K, ...args: BotEventArgs<K>): boolean
+  override emit(event: string, ...args: any[]): boolean
+  override emit(event: string, ...args: any[]): boolean {
+    return super.emit(event, ...args)
   }
 
   /* =========================================================================
