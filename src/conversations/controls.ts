@@ -41,7 +41,7 @@ export function createControls(rt: ConversationRuntime, handle: ConversationHand
     state: rt.getState(handle),
     end: (farewell) => { throw new ConversationEnded(farewell) },
     goto: (name, args) => { throw new ConversationGoto(name, args) },
-    waitAny: (o) => rawWait(o as WaitOptions),
+    waitAny: (o) => rt.wait(handle, o ?? {}),
 
     waitText: (opts) => loopWait<string>(opts, async (m) => {
       if (m.type !== 'text') return { ok: false, message: opts?.otherwise ?? '✍️ Escribe tu respuesta como texto.' }
@@ -66,6 +66,8 @@ export function createControls(rt: ConversationRuntime, handle: ConversationHand
       await ctx.reply(menu)
       return loopWait<string>(opts, async (m) => {
         const body = normalizeText(m.body)
+        // Numeric input resolves by displayed 1-based menu position — intentionally,
+        // byIndex wins over a key that happens to be a numeric string (e.g. key '2').
         const byIndex = /^\d+$/.test(body) ? keys[parseInt(body, 10) - 1] : undefined
         const byKey = keys.find((k) => normalizeText(k) === body)
         const byLabel = keys.find((k) => normalizeText(options[k]) === body)

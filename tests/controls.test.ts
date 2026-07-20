@@ -93,6 +93,21 @@ describe('controls', () => {
     expect(got.type).toBe('image')
   })
 
+  it('waitAny honors caller timeoutMs', async () => {
+    vi.useFakeTimers()
+    try {
+      const rt = makeRt({ timeoutMessage: 'bye-timeout' })
+      const start = makeMsg('start')
+      const entry = rt.enter(async (c: any) => { await c.waitAny({ timeoutMs: 1000 }) }, start)
+      await vi.advanceTimersByTimeAsync(1001)
+      await entry
+      expect(start.reply).toHaveBeenCalledWith('bye-timeout')
+      expect(rt.hasActive(rt.keyFor(start))).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('say() after abort is silenced: no output reaches the peer and the entry settles cleanly', async () => {
     const rt = makeRt()
     const start = makeMsg('start')

@@ -543,7 +543,10 @@ export interface WaitOptions {
   validate?: (body: string, ctx: RuntimeMessage) => true | string | Promise<true | string>
   /** Max invalid attempts before throwing `RetriesExceeded`. Default 3. */
   retries?: number
-  /** Message sent when `waitMedia`/`choose` receive an invalid type/option. */
+  /**
+   * Message sent on an invalid attempt: overrides `waitMedia`'s wrong-type message,
+   * `choose`'s invalid-option re-prompt, and `waitText`/`ask`'s non-text-message reply.
+   */
   otherwise?: string
   /** Only resolve the wait for messages matching this predicate. */
   filter?: (ctx: RuntimeMessage) => boolean
