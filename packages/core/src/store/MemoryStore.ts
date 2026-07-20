@@ -1,14 +1,22 @@
 /**
- * MemoryStore — default in-process store.
+ * MemoryStore — default in-process store (transport-agnostic).
  *
- * Buffered Map of messages per chat (LRU capped), full chat/contact maps.
- * Auto-optional JSON dump/load for restarts.
+ * Buffered Map of messages per chat (capped), full chat/contact maps, flow
+ * checkpoints, AI conversation history, and delivery cursors. Optional JSON
+ * dump/load for restarts (messages are intentionally NOT persisted).
  */
 
-import type { proto, WAMessage, WAMessageKey, Chat, Contact } from '@whiskeysockets/baileys'
 import { existsSync } from 'fs'
 import { readFile, writeFile } from 'fs/promises'
-import type { FlowCheckpoint, IStore } from './IStore.js'
+import type {
+  AIMessage,
+  FlowCheckpoint,
+  IStore,
+  MessageRef,
+  StoredChat,
+  StoredContact,
+  StoredMessage,
+} from '../core/provider.js'
 
 /** Minimal logger surface — satisfied by pino and by a bare `console`. */
 export interface MemoryStoreLogger {
@@ -27,12 +35,12 @@ export interface MemoryStoreOptions {
 }
 
 export class MemoryStore implements IStore {
-  private messages = new Map<string, Map<string, WAMessage>>() // chatJid -> messageId -> msg
-  private chats = new Map<string, Chat>()
-  private contacts = new Map<string, Contact>()
-  private flowStates = new Map<string, Record<string, unknown>>()
+  private messages = new Map<string, Map<string, StoredMessage>>() // chatId -> messageId -> msg
+  private chats = new Map<string, StoredChat>()
+  private contacts = new Map<string, StoredContact>()
   private checkpoints = new Map<string, FlowCheckpoint>()
-  private conversations = new Map<string, import('./IStore.js').AIMessage[]>()
+  private conversations = new Map<string, AIMessage[]>()
+  private cursors = new Map<string, string>()
   private autoSaveTimer: NodeJS.Timeout | null = null
 
   constructor(private opts: MemoryStoreOptions = {}) {}
@@ -44,9 +52,9 @@ export class MemoryStore implements IStore {
         const data = JSON.parse(raw)
         if (data.chats) for (const c of data.chats) this.chats.set(c.id, c)
         if (data.contacts) for (const c of data.contacts) this.contacts.set(c.id, c)
-        if (data.flowStates) for (const [k, v] of Object.entries(data.flowStates)) this.flowStates.set(k, v as Record<string, unknown>)
         if (data.checkpoints) for (const [k, v] of Object.entries(data.checkpoints)) this.checkpoints.set(k, v as FlowCheckpoint)
-        if (data.conversations) for (const [k, v] of Object.entries(data.conversations)) this.conversations.set(k, v as any)
+        if (data.conversations) for (const [k, v] of Object.entries(data.conversations)) this.conversations.set(k, v as AIMessage[])
+        if (data.cursors) for (const [k, v] of Object.entries(data.cursors)) this.cursors.set(k, v as string)
         // Messages are intentionally NOT restored (privacy + size).
       } catch (err) {
         this.opts.logger?.error?.({ err, file: this.opts.file }, 'MemoryStore failed to load file')
@@ -71,9 +79,9 @@ export class MemoryStore implements IStore {
     const payload = {
       chats: [...this.chats.values()],
       contacts: [...this.contacts.values()],
-      flowStates: Object.fromEntries(this.flowStates),
       checkpoints: Object.fromEntries(this.checkpoints),
       conversations: Object.fromEntries(this.conversations),
+      cursors: Object.fromEntries(this.cursors),
     }
     try {
       await writeFile(this.opts.file, JSON.stringify(payload), 'utf8')
@@ -82,7 +90,7 @@ export class MemoryStore implements IStore {
     }
   }
 
-  private messagesFor(chatId: string): Map<string, WAMessage> {
+  private messagesFor(chatId: string): Map<string, StoredMessage> {
     let m = this.messages.get(chatId)
     if (!m) {
       m = new Map()
@@ -103,48 +111,42 @@ export class MemoryStore implements IStore {
     }
   }
 
-  async saveMessage(msg: WAMessage): Promise<void> {
-    if (!msg.key?.id || !msg.key?.remoteJid || !msg.message) return
-    const m = this.messagesFor(msg.key.remoteJid)
-    m.set(msg.key.id, msg)
-    this.trimChat(msg.key.remoteJid)
+  /* Messages -------------------------------------------------------------- */
+
+  async saveMessage(msg: StoredMessage): Promise<void> {
+    if (!msg.ref?.id || !msg.chatId) return
+    const m = this.messagesFor(msg.chatId)
+    m.set(msg.ref.id, msg)
+    this.trimChat(msg.chatId)
   }
 
-  async getMessage(key: WAMessageKey): Promise<proto.IMessage | undefined> {
-    const m = this.messages.get(key.remoteJid ?? '')
-    return m?.get(key.id ?? '')?.message ?? undefined
+  async getMessage(ref: MessageRef): Promise<StoredMessage | undefined> {
+    return this.messages.get(ref.chatId)?.get(ref.id)
   }
 
-  async getMessagesByChat(chatId: string, limit = 50): Promise<WAMessage[]> {
+  async getMessagesByChat(chatId: string, limit = 50): Promise<StoredMessage[]> {
     const m = this.messages.get(chatId)
     if (!m) return []
     const all = [...m.values()]
     return all.slice(Math.max(0, all.length - limit))
   }
 
-  async updateMessage(key: WAMessageKey, patch: Partial<WAMessage>): Promise<WAMessage | undefined> {
-    const m = this.messages.get(key.remoteJid ?? '')
-    const existing = m?.get(key.id ?? '')
-    if (!existing) return undefined
-    const updated = { ...existing, ...patch }
-    m!.set(key.id!, updated)
-    return updated
+  async deleteMessage(ref: MessageRef): Promise<void> {
+    this.messages.get(ref.chatId)?.delete(ref.id)
   }
 
-  async deleteMessage(key: WAMessageKey): Promise<void> {
-    this.messages.get(key.remoteJid ?? '')?.delete(key.id ?? '')
-  }
+  /* Chats ----------------------------------------------------------------- */
 
-  async upsertChat(chat: Partial<Chat> & { id: string }): Promise<void> {
+  async upsertChat(chat: StoredChat): Promise<void> {
     const existing = this.chats.get(chat.id)
-    this.chats.set(chat.id, { ...(existing as any), ...chat } as Chat)
+    this.chats.set(chat.id, { ...existing, ...chat })
   }
 
-  async getChat(chatId: string): Promise<Chat | undefined> {
+  async getChat(chatId: string): Promise<StoredChat | undefined> {
     return this.chats.get(chatId)
   }
 
-  async listChats(): Promise<Chat[]> {
+  async listChats(): Promise<StoredChat[]> {
     return [...this.chats.values()]
   }
 
@@ -153,30 +155,32 @@ export class MemoryStore implements IStore {
     this.messages.delete(chatId)
   }
 
-  async upsertContact(contact: Partial<Contact> & { id: string }): Promise<void> {
+  /* Contacts -------------------------------------------------------------- */
+
+  async upsertContact(contact: StoredContact): Promise<void> {
     const existing = this.contacts.get(contact.id)
-    this.contacts.set(contact.id, { ...(existing as any), ...contact } as Contact)
+    this.contacts.set(contact.id, { ...existing, ...contact })
   }
 
-  async getContact(userId: string): Promise<Contact | undefined> {
+  async getContact(userId: string): Promise<StoredContact | undefined> {
     return this.contacts.get(userId)
   }
 
-  async listContacts(): Promise<Contact[]> {
+  async listContacts(): Promise<StoredContact[]> {
     return [...this.contacts.values()]
   }
 
-  async getFlowState(userId: string): Promise<Record<string, unknown> | undefined> {
-    return this.flowStates.get(userId)
+  /* Delivery cursor ------------------------------------------------------- */
+
+  async getCursor(key: string): Promise<string | undefined> {
+    return this.cursors.get(key)
   }
 
-  async setFlowState(userId: string, state: Record<string, unknown>): Promise<void> {
-    this.flowStates.set(userId, state)
+  async setCursor(key: string, value: string): Promise<void> {
+    this.cursors.set(key, value)
   }
 
-  async clearFlowState(userId: string): Promise<void> {
-    this.flowStates.delete(userId)
-  }
+  /* Flow checkpoints ------------------------------------------------------ */
 
   async getCheckpoint(key: string): Promise<FlowCheckpoint | undefined> {
     return this.checkpoints.get(key)
@@ -194,13 +198,14 @@ export class MemoryStore implements IStore {
     return [...this.checkpoints.entries()]
   }
 
-  async getConversation(key: string): Promise<import('./IStore.js').AIMessage[] | undefined> {
-    // Return a shallow copy so callers can't mutate the internal array in place.
+  /* AI conversation history ----------------------------------------------- */
+
+  async getConversation(key: string): Promise<AIMessage[] | undefined> {
     const c = this.conversations.get(key)
     return c ? [...c] : undefined
   }
 
-  async setConversation(key: string, messages: import('./IStore.js').AIMessage[]): Promise<void> {
+  async setConversation(key: string, messages: AIMessage[]): Promise<void> {
     this.conversations.set(key, messages)
   }
 

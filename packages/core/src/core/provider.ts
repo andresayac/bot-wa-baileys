@@ -579,6 +579,12 @@ export interface StoredMessage {
   fromMe?: boolean
   raw?: unknown
 }
+
+/** One turn of AI conversation history (consumed by @bot-wa/ai). Transport-neutral. */
+export interface AIMessage {
+  role: 'user' | 'assistant'
+  content: string
+}
 export interface StoredChat {
   id: ChatId
   kind?: ChatKind
@@ -618,6 +624,11 @@ export interface IStore {
   /** Delivery cursor for long-poll/webhook transports (Telegram update_id). */
   getCursor?(key: string): Promise<string | undefined>
   setCursor?(key: string, value: string): Promise<void>
+
+  /* AI conversation history (@bot-wa/ai) — transport-neutral. */
+  getConversation(key: string): Promise<AIMessage[] | undefined>
+  setConversation(key: string, messages: AIMessage[]): Promise<void>
+  clearConversation(key: string): Promise<void>
 
   getCheckpoint(key: string): Promise<FlowCheckpoint | undefined>
   setCheckpoint(key: string, cp: FlowCheckpoint): Promise<void>
