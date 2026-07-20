@@ -11,6 +11,7 @@
 import type { Logger } from 'pino'
 import type { proto, WAMessageKey, WAMessage } from '@whiskeysockets/baileys'
 import type { RuntimeMessage } from '../conversations/ConversationRuntime.js'
+import type { Bot } from './Bot.js'
 
 export type { WAMessageKey, WAMessage }
 
@@ -236,10 +237,17 @@ export interface HookRegistration {
  * ========================================================================== */
 
 export interface PluginContext<TTools extends object = DefaultTools> {
-  bot: any                // forward ref to Bot — typed at use site
+  /**
+   * Scoped facade of the Bot: `command`/`when`/`onMessage`/`onType`/`before`/`after`/`onError`
+   * called through here auto-register their unsubscribers so `bot.plug()`'s returned `unplug()`
+   * reverts everything the plugin registered.
+   */
+  bot: Bot
   logger: Logger
   tools: TTools
   config: Record<string, unknown>
+  /** Register extra cleanup (e.g. `bot.off(...)`) to run when the plugin is unplugged. */
+  onDispose(fn: () => void): void
 }
 /**
  * Plugin spec — the shape returned by {@link definePlugin}.

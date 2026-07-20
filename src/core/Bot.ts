@@ -69,6 +69,7 @@ import type {
   MessageContext,
   MessageType,
   Plugin,
+  PluginContext,
   ScheduledTask,
   SentMessage,
   Trigger,
@@ -431,15 +432,30 @@ export class Bot extends EventEmitter {
   onPoll(handler: MessageHandler) { return this.onType('poll', handler) }
 
   /**
-   * Abort an active conversation by its chat-key or JID.
-   * A bare JID (no `:`) is also tried as its DM chat-key. Returns `true` if a
-   * conversation was actually aborted.
+   * Abort an active conversation, by chat-key/JID or by a message-context-shaped object.
+   *
+   * A bare string is tried as-is and, if it has no `:`, also as a DM chat-key. An object
+   * (e.g. a `MessageContext`) is resolved through the runtime's `keyFor` — this is what makes
+   * `/reset` work inside a group, where the active conversation is keyed per-participant
+   * (`${from}:${sender}`), not just by `from`.
+   *
+   * @example DM
+   * ```ts
+   * bot.command('reset', async (ctx) => { bot.abortConversation(ctx.from); await ctx.reply('ok') })
+   * ```
+   * @example Group-safe (recommended)
+   * ```ts
+   * bot.command('reset', async (ctx) => { bot.abortConversation(ctx); await ctx.reply('ok') })
+   * ```
    */
-  abortConversation(key: string): boolean {
-    const direct = this.runtime.abort(key)
-    if (key.includes(':')) return direct
-    const dmKey = this.runtime.keyFor({ from: key, sender: key, isGroup: false })
-    const dm = dmKey !== key ? this.runtime.abort(dmKey) : false
+  abortConversation(target: string | { from: string; sender: string; isGroup: boolean }): boolean {
+    if (typeof target !== 'string') {
+      return this.runtime.abort(this.runtime.keyFor(target))
+    }
+    const direct = this.runtime.abort(target)
+    if (target.includes(':')) return direct
+    const dmKey = this.runtime.keyFor({ from: target, sender: target, isGroup: false })
+    const dm = dmKey !== target ? this.runtime.abort(dmKey) : false
     return direct || dm
   }
 
@@ -474,19 +490,71 @@ export class Bot extends EventEmitter {
 
   /**
    * Install a plugin with optional config. The plugin's `install(ctx, config)`
-   * is called immediately with a {@link PluginContext} containing `bot`, `logger`,
-   * `tools` and `config`.
+   * is called immediately with a {@link PluginContext} containing a *scoped* `bot`
+   * facade, `logger`, `tools` and `config`.
+   *
+   * Every `command`/`when`/`onMessage`/`onType`/`before`/`after`/`onError` call made
+   * through `ctx.bot` — plus anything passed to `ctx.onDispose(fn)` — is tracked, so the
+   * returned `unplug()` reverts everything the plugin registered (handlers, hooks, and
+   * any custom disposables such as `bot.off(...)` listeners).
+   *
+   * @example
+   * ```ts
+   * const unplug = bot.plug(slashCommandsPlugin, { greeting: 'Hi!' })
+   * // later, to fully remove it:
+   * unplug()
+   * ```
    */
-  plug(plugin: Plugin, config?: Record<string, unknown>): this {
+  plug(plugin: Plugin, config?: Record<string, unknown>): () => void {
     const spec = typeof plugin === 'function' ? plugin(config) : plugin
-    const ctx = {
-      bot: this,
+    const disposables: Array<() => void> = []
+    const track = <A extends unknown[]>(fn: (...a: A) => () => void) =>
+      (...a: A): (() => void) => {
+        const un = fn(...a)
+        disposables.push(un)
+        return un
+      }
+
+    const scopedBot = Object.create(this) as Bot
+    // `Object.create(this)` makes scopedBot delegate reads to the real bot for anything we
+    // don't override (send, provide, sub-APIs, …). EventEmitter methods are the one trap:
+    // `EventEmitter.prototype.on/off` read+write `this._events`/`this._eventsCount`, and when
+    // called with `this === scopedBot` a `--this._eventsCount === 0` (e.g. the plugin's LAST
+    // listener being removed) reassigns a *shadow* `_events` on scopedBot instead of clearing
+    // the real bot's shared map — the listener would silently keep firing after unplug(). Bind
+    // these straight to the real bot so plugin `on`/`off`/`once`/`emit` calls act on it directly.
+    scopedBot.on = this.on.bind(this) as Bot['on']
+    scopedBot.off = this.off.bind(this) as Bot['off']
+    scopedBot.once = this.once.bind(this) as Bot['once']
+    scopedBot.emit = this.emit.bind(this) as Bot['emit']
+    scopedBot.command = track(this.command.bind(this))
+    scopedBot.when = track(this.when.bind(this))
+    scopedBot.onMessage = track(this.onMessage.bind(this))
+    scopedBot.onType = track(this.onType.bind(this))
+    // before/after/onError return `this` on the real Bot — the scoped versions register
+    // the unsubscribe with the HookSystem directly and return the scoped bot for chaining.
+    scopedBot.before = ((event: HookEvent, handler: HookHandler, priority = 0) => {
+      disposables.push(this.hooks.register(event, 'before', handler, priority))
+      return scopedBot
+    }) as Bot['before']
+    scopedBot.after = ((event: HookEvent, handler: HookHandler, priority = 0) => {
+      disposables.push(this.hooks.register(event, 'after', handler, priority))
+      return scopedBot
+    }) as Bot['after']
+    scopedBot.onError = ((event: HookEvent, handler: HookHandler) => {
+      disposables.push(this.hooks.register(event, 'error', handler, 0))
+      return scopedBot
+    }) as Bot['onError']
+
+    const ctx: PluginContext = {
+      bot: scopedBot,
       logger: this.logger.child({ plugin: spec.name }),
       tools: this.tools,
       config: config ?? {},
+      onDispose: (fn: () => void) => disposables.push(fn),
     }
-    spec.install(ctx as never, config as never)
-    return this
+    spec.install(ctx, config)
+    return () => { while (disposables.length) disposables.pop()!() }
   }
 
   /* =========================================================================
