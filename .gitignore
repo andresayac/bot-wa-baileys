@@ -24,4 +24,7 @@ baileys_store.json
 # both the repo root and packages/*/examples after the monorepo split.
 **/examples/*.js
 **/examples/examples/
-**/examples/src/.claude/
+**/examples/src/
+
+# Claude Code scratch / tooling — may contain secrets; never commit
+.claude/
