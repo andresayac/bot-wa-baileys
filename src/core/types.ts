@@ -30,8 +30,8 @@ export interface IProvider {
   start(): Promise<void>
   stop(): Promise<void>
   send(jid: string, content: Record<string, unknown>, options?: Record<string, unknown>): Promise<{ key: { id?: string | null; remoteJid?: string | null; fromMe?: boolean | null } }>
-  onTyped(event: string, listener: (payload: any) => void): unknown
-  offTyped(event: string, listener: (payload: any) => void): unknown
+  onTyped(event: string, listener: (payload: unknown) => void): unknown
+  offTyped(event: string, listener: (payload: unknown) => void): unknown
   downloadMedia?(message: unknown): Promise<Buffer | NodeJS.ReadableStream>
   readMessages?(keys: unknown[]): Promise<void>
   readonly socket: unknown | null

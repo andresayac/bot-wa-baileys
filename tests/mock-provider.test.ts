@@ -30,4 +30,22 @@ describe('MockProvider', () => {
     expect(raw.message.key.fromMe).toBe(false)
     expect(raw.message.message.conversation).toBe('hola')
   })
+
+  it('incoming voice type emits audioMessage with ptt true', async () => {
+    const p = new MockProvider()
+    let raw: any
+    p.onTyped('rawMessage', (r: any) => { raw = r })
+    p.incoming('x', { type: 'voice' })
+    expect(raw.message.message.audioMessage).toBeDefined()
+    expect(raw.message.message.audioMessage.ptt).toBe(true)
+  })
+
+  it('incoming poll type emits pollCreationMessage', async () => {
+    const p = new MockProvider()
+    let raw: any
+    p.onTyped('rawMessage', (r: any) => { raw = r })
+    p.incoming('opt', { type: 'poll' })
+    expect(raw.message.message.pollCreationMessage).toBeDefined()
+    expect(raw.message.message.pollCreationMessage.name).toBe('opt')
+  })
 })

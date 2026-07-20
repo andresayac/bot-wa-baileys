@@ -22,12 +22,31 @@ export class MockProvider extends TypedEmitter<ProviderEvents> implements IProvi
   async readMessages(): Promise<void> {}
   async downloadMedia(): Promise<Buffer> { return Buffer.alloc(0) }
 
-  /** Simula un mensaje entrante de WhatsApp. */
+  /** Simulate an incoming WhatsApp message. */
   incoming(text: string, opts: { from?: string; participant?: string; type?: string; id?: string } = {}): void {
     const from = opts.from ?? 'user@s.whatsapp.net'
+    const type = opts.type ?? 'text'
     const message: Record<string, unknown> = {}
-    if ((opts.type ?? 'text') === 'text') message.conversation = text
-    else message[`${opts.type}Message`] = { caption: text }
+    switch (type) {
+      case 'text':
+        message.conversation = text
+        break
+      case 'voice':
+        message.audioMessage = { ptt: true, caption: text }
+        break
+      case 'poll':
+        message.pollCreationMessage = { name: text }
+        break
+      case 'buttons':
+        message.buttonsResponseMessage = { selectedButtonId: text }
+        break
+      case 'list':
+        message.listResponseMessage = { title: text }
+        break
+      default:
+        // image / video / audio / document / sticker / location / contact ...
+        message[`${type}Message`] = { caption: text }
+    }
     this.emitTyped('rawMessage', {
       message: {
         key: { remoteJid: from, fromMe: false, id: opts.id ?? `in-${++counter}`, participant: opts.participant },
