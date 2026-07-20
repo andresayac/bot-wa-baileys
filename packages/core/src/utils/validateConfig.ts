@@ -36,7 +36,7 @@ function assertStringOrNumber(field: string, value: unknown): void {
  * Validate a BotConfig object at construction time. Throws
  * {@link ConfigValidationError} with a clear message on invalid input.
  */
-export function validateConfig(config: BotConfig): BotConfig {
+export function validateConfig<T extends Partial<BotConfig>>(config: T): T {
   assertType('session', config.session, 'string')
   assertType('commandPrefix', config.commandPrefix, 'string')
   assertType('debug', config.debug, 'boolean')

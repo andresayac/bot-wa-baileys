@@ -39,13 +39,6 @@ describe('Bot integration (MockProvider)', () => {
     await chat.expectReply('🎫 registrado: no anda nada')
   })
 
-  it("forwards the provider's pairingCode event as 'pairing_code' (v1 name)", async () => {
-    const { bot, provider } = await createTestBot()
-    const received = new Promise<string>((resolve) => bot.on('pairing_code', resolve))
-    provider.emitTyped('pairingCode', '12345678')
-    expect(await received).toBe('12345678')
-  })
-
   it('command /reset escapes an active flow', async () => {
     const { bot, chat } = await createTestBot()
     bot.command('reset', async (ctx) => { bot.abortConversation(ctx.from); await ctx.reply('✅ reiniciado') })
@@ -92,7 +85,7 @@ describe('Bot integration (MockProvider)', () => {
   it('before("send") abort skips the send and flags skipped (I3)', async () => {
     const { bot, provider } = await createTestBot()
     bot.before('send', async (payload: any) => { payload.abort() })
-    const sent = await bot.send('user@s.whatsapp.net', { text: 'no debe salir' })
+    const sent = await bot.send('user@s.whatsapp.net', { kind: 'text', text: 'no debe salir' })
     expect(sent.skipped).toBe(true)
     expect(provider.outbox).toHaveLength(0)
   })

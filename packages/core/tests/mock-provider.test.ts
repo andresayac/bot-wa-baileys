@@ -1,51 +1,58 @@
 import { describe, it, expect } from 'vitest'
 import { MockProvider } from '../src/testing/MockProvider.js'
+import type { InboundEvent } from '../src/core/provider.js'
 
-describe('MockProvider', () => {
-  it('start emits open connection', async () => {
+describe('MockProvider (v2)', () => {
+  it('start emits a ready connection event', async () => {
     const p = new MockProvider()
     const states: string[] = []
-    p.onTyped('connection', (u: any) => states.push(u.state))
+    p.onEvent((e) => { if (e.kind === 'connection') states.push(e.update.state) })
     await p.start()
-    expect(states).toContain('open')
+    expect(states).toContain('ready')
   })
 
-  it('send accumulates outbox and emits sent', async () => {
+  it('send accumulates the outbox as OutboundContent', async () => {
     const p = new MockProvider()
-    const sent: any[] = []
-    p.on('sent', (m) => sent.push(m))
-    await p.send('x@s.whatsapp.net', { text: 'hola' })
+    const res = await p.send('x', { kind: 'text', text: 'hola' })
     expect(p.outbox).toHaveLength(1)
-    expect(p.outbox[0].content).toEqual({ text: 'hola' })
-    expect(sent).toHaveLength(1)
+    expect(p.outbox[0].content).toEqual({ kind: 'text', text: 'hola' })
+    expect(res.ref.chatId).toBe('x')
   })
 
-  it('incoming emits a rawMessage Baileys-shaped', async () => {
+  it('incoming emits a normalized message event', async () => {
     const p = new MockProvider()
-    let raw: any
-    p.onTyped('rawMessage', (r: any) => { raw = r })
-    p.incoming('hola', { from: 'user@s.whatsapp.net' })
-    expect(raw.type).toBe('notify')
-    expect(raw.message.key.remoteJid).toBe('user@s.whatsapp.net')
-    expect(raw.message.key.fromMe).toBe(false)
-    expect(raw.message.message.conversation).toBe('hola')
+    let ev: InboundEvent | undefined
+    p.onEvent((e) => { ev = e })
+    p.incoming('hola', { from: 'user-1' })
+    expect(ev?.kind).toBe('message')
+    if (ev?.kind === 'message') {
+      expect(ev.message.chatId).toBe('user-1')
+      expect(ev.message.fromMe).toBe(false)
+      expect(ev.message.type).toBe('text')
+      expect(ev.message.body).toBe('hola')
+    }
   })
 
-  it('incoming voice type emits audioMessage with ptt true', async () => {
+  it('incoming with a media type attaches a MediaRef', async () => {
     const p = new MockProvider()
-    let raw: any
-    p.onTyped('rawMessage', (r: any) => { raw = r })
-    p.incoming('x', { type: 'voice' })
-    expect(raw.message.message.audioMessage).toBeDefined()
-    expect(raw.message.message.audioMessage.ptt).toBe(true)
+    let ev: InboundEvent | undefined
+    p.onEvent((e) => { ev = e })
+    p.incoming('cap', { type: 'image' })
+    if (ev?.kind === 'message') {
+      expect(ev.message.type).toBe('image')
+      expect(ev.message.media?.kind).toBe('image')
+    }
   })
 
-  it('incoming poll type emits pollCreationMessage', async () => {
+  it('interaction emits an interaction event', async () => {
     const p = new MockProvider()
-    let raw: any
-    p.onTyped('rawMessage', (r: any) => { raw = r })
-    p.incoming('opt', { type: 'poll' })
-    expect(raw.message.message.pollCreationMessage).toBeDefined()
-    expect(raw.message.message.pollCreationMessage.name).toBe('opt')
+    let ev: InboundEvent | undefined
+    p.onEvent((e) => { ev = e })
+    p.interaction('btn_yes', { from: 'user-1' })
+    expect(ev?.kind).toBe('interaction')
+    if (ev?.kind === 'interaction') {
+      expect(ev.interaction.data).toBe('btn_yes')
+      expect(ev.interaction.kind).toBe('button')
+    }
   })
 })

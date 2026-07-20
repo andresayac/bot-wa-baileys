@@ -52,11 +52,11 @@ describe('slashCommandsPlugin', () => {
     const groupJid = 'g@g.us'
     const sender = 'u1@s.whatsapp.net'
     const send = (text: string) => {
-      provider.incoming(text, { from: groupJid, participant: sender })
+      provider.incoming(text, { from: groupJid, sender, isGroup: true })
       return new Promise((r) => setTimeout(r, 0))
     }
-    const textOf = (m: { content: unknown }) => String((m.content as { text?: string }).text ?? '')
-    const repliesTo = (jid: string) => provider.outbox.filter((m) => m.jid === jid).map(textOf)
+    const textOf = (m: { content: { kind: string; text?: string } }) => (m.content.kind === 'text' ? m.content.text ?? '' : '')
+    const repliesTo = (jid: string) => provider.outbox.filter((m) => m.chatId === jid).map(textOf)
 
     await send('registrar')
     expect(repliesTo(groupJid).some((r) => r.includes('¿nombre?'))).toBe(true)
