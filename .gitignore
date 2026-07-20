@@ -4,6 +4,9 @@ baileys.log
 core.class.log
 db.json
 lib/
+
+# Stale npm lockfile — this is a pnpm repo (see pnpm-lock.yaml)
+package-lock.json
 *.qr.png
 venom/
 old_project/
