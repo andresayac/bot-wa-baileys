@@ -106,42 +106,47 @@ const bot = new Bot({ session: 'my-bot', sessionsDir: './sessions' })
 
 ### Persistencia del store (conversaciones e historial)
 
-El `MemoryStore` por defecto vive solo en memoria. Si usas
-`flow(...).persistent()` en algún lugar, sus checkpoints no sobrevivirán a
-un reinicio del proceso a menos que respaldes el store con un archivo:
+El `MemoryStore` por defecto vive solo en memoria. Para producción, usa **`SQLiteStore`** — una base de datos real que persiste mensajes, chats, contactos, estado de flujos, checkpoints y conversaciones AI:
 
 ```ts
+import { Bot, SQLiteStore } from '@bot-wa/bot-wa-baileys'
+
 const bot = new Bot({
-  storeConfig: { file: './store.json' },
+  session: 'mi-bot',
+  store: new SQLiteStore({ file: './data/bot.db' }),
 })
 ```
 
-Respalda la carpeta y el archivo juntos — son lo que le permite a un bot
-redesplegado continuar sin volver a escanear el QR ni perder conversaciones
-en curso:
+Con `SQLiteStore`, los checkpoints de `flow(...).persistent()` sobreviven reinicios automáticamente. Ver la [guía de Store Persistente](./store) para más detalles.
+
+Respalda la carpeta y el archivo juntos — son lo que le permite a un bot redesplegado continuar sin volver a escanear el QR ni perder conversaciones en curso:
 
 ```bash
-tar -czf backup.tar.gz sessions/ store.json
+tar -czf backup.tar.gz sessions/ data/
 tar -xzf backup.tar.gz
 ```
 
 ### Apagado ordenado
 
-`bot.stop()` desmonta el provider y aborta las conversaciones activas (los
-checkpoints persistentes se conservan si el store tiene un archivo
-detrás):
+`bot.stop()` desmonta el provider y aborta las conversaciones activas. Usa `{ drain: true }` para **esperar los envíos en vuelo** antes de cerrar (evita mensajes perdidos durante deploys):
 
 ```ts
 process.on('SIGINT', async () => {
-  await bot.stop()
+  console.log('Apagando ordenadamente...')
+  await bot.stop({ drain: true, timeout: 15_000 }) // espera hasta 15s por envíos pendientes
   process.exit(0)
 })
 
 process.on('SIGTERM', async () => {
-  await bot.stop()
+  await bot.stop({ drain: true, timeout: 15_000 })
   process.exit(0)
 })
 ```
+
+| Opción | Tipo | Default | Descripción |
+|---|---|---|---|
+| `drain` | `boolean` | `false` | Esperar a que los envíos en vuelo terminen |
+| `timeout` | `number` | `10000` | Máx ms a esperar por el drain antes de forzar el cierre |
 
 ### Logging
 

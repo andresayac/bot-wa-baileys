@@ -379,6 +379,15 @@ export interface BotConfig {
     /** Sent when a conversation is cancelled (only if set). */
     cancelledMessage?: string
   }
+  /**
+   * How the bot handles group messages:
+   * - `'all'` — respond to every group message (default).
+   * - `'mentions'` — only respond when the bot is @mentioned.
+   * - `'commands'` — only respond to messages starting with `commandPrefix`.
+   */
+  groupMode?: 'all' | 'mentions' | 'commands'
+  /** Rate limiting for outbound messages (anti-ban). Enabled by default. */
+  rateLimit?: import('../ratelimit/RateLimiter.js').RateLimitConfig
 }
 
 /* ============================================================================

@@ -53,6 +53,8 @@ export default defineConfig({
                 { text: 'AI plugin', link: '/guide/ai' },
                 { text: 'Dependency injection', link: '/guide/di' },
                 { text: 'Scheduler', link: '/guide/scheduler' },
+                { text: 'Rate limiting (anti-ban)', link: '/guide/rate-limiting' },
+                { text: 'Persistent store', link: '/guide/store' },
               ],
             },
             {
@@ -117,6 +119,8 @@ export default defineConfig({
                 { text: 'Plugin de IA', link: '/es/guide/ai' },
                 { text: 'Inyección de dependencias', link: '/es/guide/di' },
                 { text: 'Scheduler', link: '/es/guide/scheduler' },
+                { text: 'Rate limiting (anti-ban)', link: '/es/guide/rate-limiting' },
+                { text: 'Store persistente', link: '/es/guide/store' },
               ],
             },
             {

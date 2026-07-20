@@ -53,12 +53,73 @@ Un ejemplo más completo (comandos, media, hooks, DI, scheduler) vive en [`examp
 - **Flows declarativos que compilan a runtime async** — `flow().say().ask().choose()` se compila a un `bot.conversation` real; ya no hay motor de "arrays de pasos" por separado.
 - **Dispatcher por especificidad** — comandos (`/reset`) > conversación activa > matchers (`equals` normalizado por defecto, o `contains`/`startsWith`/`endsWith`) > catch-all; el primer handler que "consume" el mensaje gana.
 - **Runtime de conversaciones async** — `c.ask`, `c.waitText`, `c.waitMedia`, `c.choose`, con validación, reintentos y timeouts configurables por espera.
+- **Rate limiter anti-ban** — token bucket por chat y global con cola FIFO y jitter human-like. Configuración declarativa en `config.rateLimit`.
+- **SQLiteStore persistente** — store de producción con `better-sqlite3` (WAL, migraciones automáticas). `new Bot({ store: new SQLiteStore({ file: './bot.db' }) })`.
+- **Validación de config en runtime** — el constructor valida tipos y lanza `ConfigValidationError` con mensaje claro (campo + tipo esperado). Sin dependencias externas.
+- **Group mode** — `config.groupMode: 'all' | 'mentions' | 'commands'` para controlar cuándo responde el bot en grupos.
+- **Graceful shutdown con drain** — `bot.stop({ drain: true })` espera envíos en vuelo antes de cerrar.
 - **Testing kit sin WhatsApp real** — `createTestBot()` desde `@bot-wa/bot-wa-baileys/testing`, con un `MockProvider` y aserciones sobre el outbox.
 - **100% ESM + TypeScript estricto** — cero `any` en la API pública, Baileys 7 como motor de transporte.
 - **Sin botones nativos** — están muertos en el protocolo actual de WhatsApp Web; usa menús numerados (`c.choose()` / `.choose()`) o `ctx.poll()`.
 - **Hooks y plugins con DI** — `before`/`after`/`onError` como middleware, `bot.plug()` con `unplug()` automático, `bot.provide()` para inyectar dependencias.
 - **Scheduler integrado** — `bot.schedule()` (cron), `bot.every()`, `bot.delay()`.
 - **Sub-APIs tipadas** — `bot.groups`, `bot.profile`, `bot.privacy`, `bot.chats`, `bot.presence`.
+
+## Rate Limiting (anti-ban)
+
+WhatsApp banea cuentas que envían demasiados mensajes en poco tiempo. El rate limiter está **activo por defecto** y se integra en cada envío:
+
+```ts
+const bot = new Bot({
+  session: 'mi-bot',
+  rateLimit: {
+    perChat: { max: 5, window: '10s' },   // máx 5 msgs por chat cada 10s
+    global: { max: 50, window: '60s' },    // máx 50 msgs totales cada 60s
+    jitter: { min: 500, max: 1500 },       // delay aleatorio entre envíos (ms)
+  },
+})
+```
+
+Los mensajes que exceden el límite se **encolan** (no se descartan) y se liberan cuando el bucket se recarga. Para desactivar: `rateLimit: { enabled: false }`.
+
+## Store persistente (SQLite)
+
+El `MemoryStore` por defecto es ideal para desarrollo. Para producción usa `SQLiteStore`:
+
+```ts
+import { Bot, SQLiteStore } from '@bot-wa/bot-wa-baileys'
+
+const bot = new Bot({
+  session: 'mi-bot',
+  store: new SQLiteStore({ file: './data/bot.db' }),
+})
+```
+
+- **WAL mode** para lecturas concurrentes.
+- **Migraciones automáticas** de schema al arrancar.
+- Persiste mensajes, chats, contactos, flow states, checkpoints y conversaciones AI.
+- Los flows `.persistent()` sobreviven reinicios del proceso.
+
+## Group Mode
+
+Controla cuándo responde el bot en grupos:
+
+```ts
+const bot = new Bot({
+  groupMode: 'mentions',  // solo responde si lo @mencionan
+  // groupMode: 'commands',  // solo responde a comandos (/help, /reset, etc.)
+  // groupMode: 'all',       // responde a todo (default)
+})
+```
+
+## Graceful Shutdown
+
+Para no perder mensajes en vuelo al detener el bot:
+
+```ts
+// Espera hasta 15s a que los envíos pendientes terminen
+await bot.stop({ drain: true, timeout: 15_000 })
+```
 
 ## Documentación
 

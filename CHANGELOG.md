@@ -34,6 +34,11 @@ Rewrite del core sobre Baileys 7 (ver [guía de migración](docs/MIGRATION-v1-to
 - Sistema de hooks (`before/after/onError`, evento `send`), plugins con `unplug`, DI (`bot.provide`), scheduler, sub-APIs (groups/profile/privacy/chats/presence).
 - Capa de identidad LID/PN (Baileys 7), login por pairing code, testing kit (`createTestBot`, `MockProvider`).
 - Migración a **ESM-only** (Node >= 20), `@whiskeysockets/baileys` fijado en `7.0.0-rc13`.
+- **Rate limiter anti-ban** (`config.rateLimit`): token bucket por chat y global, cola FIFO (no descarta mensajes), jitter human-like opcional. Integrado en `sendThrough()` — cada mensaje saliente pasa por el limiter automáticamente.
+- **SQLiteStore** (`better-sqlite3`): store persistente con WAL mode, migraciones automáticas, índices. Implementa todo `IStore` (mensajes, chats, contactos, flow states, checkpoints, conversaciones AI). `new Bot({ store: new SQLiteStore({ file: './bot.db' }) })`.
+- **Validación de config en runtime** (`validateConfig`): el constructor de `Bot` valida tipos y valores, lanza `ConfigValidationError` con mensaje claro (campo + tipo esperado).
+- **Group mode** (`config.groupMode`): `'all'` (default), `'mentions'` (solo si mencionan al bot), `'commands'` (solo comandos con prefijo). Detecta el JID del bot automáticamente al conectar.
+- **Graceful shutdown con drain** (`bot.stop({ drain: true, timeout: 15_000 })`): espera a que los envíos en vuelo terminen antes de cerrar; limpia el rate limiter.
 
 **Cambios de comportamiento vs v1**
 - Matching por defecto = `equals` normalizado (no `contains`).

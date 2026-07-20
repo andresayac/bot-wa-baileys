@@ -117,9 +117,18 @@ export { BaileysProvider, TypedEmitter } from './provider/BaileysProvider.js'
 
 // Store
 export { MemoryStore } from './store/MemoryStore.js'
+export { SQLiteStore } from './store/SQLiteStore.js'
 export type { IStore, AIMessage } from './store/IStore.js'
 export type { MemoryStoreOptions } from './store/MemoryStore.js'
+export type { SQLiteStoreOptions } from './store/SQLiteStore.js'
 export { messageKey } from './store/IStore.js'
+
+// Rate limiting
+export { RateLimiter } from './ratelimit/RateLimiter.js'
+export type { RateLimitConfig, RateLimitBucketConfig, RateLimitJitterConfig } from './ratelimit/RateLimiter.js'
+
+// Config validation
+export { validateConfig, ConfigValidationError } from './utils/validateConfig.js'
 
 // Media
 export {

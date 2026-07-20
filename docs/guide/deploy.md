@@ -106,40 +106,47 @@ const bot = new Bot({ session: 'my-bot', sessionsDir: './sessions' })
 
 ### Store persistence (conversations & history)
 
-The default `MemoryStore` lives in memory only. If you use
-`flow(...).persistent()` anywhere, its checkpoints won't survive a process
-restart unless you back the store with a file:
+The default `MemoryStore` lives in memory only. For production, use **`SQLiteStore`** — a real database that persists messages, chats, contacts, flow state, checkpoints and AI conversations:
 
 ```ts
+import { Bot, SQLiteStore } from '@bot-wa/bot-wa-baileys'
+
 const bot = new Bot({
-  storeConfig: { file: './store.json' },
+  session: 'my-bot',
+  store: new SQLiteStore({ file: './data/bot.db' }),
 })
 ```
 
-Back up both directories/files together — they're what let a redeployed
-bot resume without re-scanning the QR or losing in-flight conversations:
+With `SQLiteStore`, `flow(...).persistent()` checkpoints survive restarts automatically. See the [Persistent Store guide](./store) for details.
+
+Back up both directories/files together — they're what let a redeployed bot resume without re-scanning the QR or losing in-flight conversations:
 
 ```bash
-tar -czf backup.tar.gz sessions/ store.json
+tar -czf backup.tar.gz sessions/ data/
 tar -xzf backup.tar.gz
 ```
 
 ### Graceful shutdown
 
-`bot.stop()` tears down the provider and aborts active conversations
-(persistent checkpoints are preserved if the store is file-backed):
+`bot.stop()` tears down the provider and aborts active conversations. Use `{ drain: true }` to **wait for in-flight sends** before closing (prevents lost messages during deploys):
 
 ```ts
 process.on('SIGINT', async () => {
-  await bot.stop()
+  console.log('Shutting down gracefully...')
+  await bot.stop({ drain: true, timeout: 15_000 }) // wait up to 15s for pending sends
   process.exit(0)
 })
 
 process.on('SIGTERM', async () => {
-  await bot.stop()
+  await bot.stop({ drain: true, timeout: 15_000 })
   process.exit(0)
 })
 ```
+
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `drain` | `boolean` | `false` | Wait for in-flight sends to complete |
+| `timeout` | `number` | `10000` | Max ms to wait for drain before forcing stop |
 
 ### Logging
 

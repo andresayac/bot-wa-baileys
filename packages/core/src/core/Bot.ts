@@ -100,6 +100,9 @@ import { PresenceAPIImpl } from '../api/PresenceAPI.js'
 import { Scheduler } from '../scheduler/Scheduler.js'
 import { parseDuration } from '../utils/duration.js'
 import { toMediaUpload, makeSticker, transcodeToOpus } from '../media/MediaProcessor.js'
+import { RateLimiter } from '../ratelimit/RateLimiter.js'
+import { validateConfig } from '../utils/validateConfig.js'
+import { sameUser } from '../utils/jid.js'
 
 /** A user message handler — receives the full inbound {@link MessageContext}. */
 export type MessageHandler = (ctx: MessageContext) => unknown | Promise<unknown>
@@ -165,9 +168,14 @@ export class Bot extends EventEmitter {
   private dispatcher: Dispatcher
   private scheduler = new Scheduler()
   private identity = new IdentityStore()
+  private rateLimiter: RateLimiter
   private tools: Record<string, unknown> = {}
   private disposables = new DisposableList()
   private isStarted = false
+  /** The bot's own JID — populated once the connection opens. Used for group mention filtering. */
+  private botJid: string | null = null
+  /** In-flight outbound sends — tracked so `stop({ drain: true })` can wait for them. */
+  private inflightSends = new Set<Promise<unknown>>()
 
   /**
    * Promise resolved when the bot reaches the `'open'` connection state.
@@ -184,6 +192,7 @@ export class Bot extends EventEmitter {
 
   constructor(config: BotConfig = {}) {
     super()
+    validateConfig(config)
     this.config = {
       session: 'default',
       sessionsDir: './sessions',
@@ -204,6 +213,7 @@ export class Bot extends EventEmitter {
     })
 
     this.hooks = new HookSystem(this.logger.child({ module: 'hooks' }))
+    this.rateLimiter = new RateLimiter(this.config.rateLimit)
 
     // Store
     this.store =
@@ -346,12 +356,30 @@ export class Bot extends EventEmitter {
     this.emit('started')
   }
 
-  async stop(): Promise<void> {
+  /**
+   * Stop the bot. By default aborts conversations and tears down immediately.
+   *
+   * @param opts.drain - Wait for in-flight sends to complete before stopping (default false).
+   * @param opts.timeout - Max ms to wait for drain before forcing stop (default 10000).
+   */
+  async stop(opts?: { drain?: boolean; timeout?: number }): Promise<void> {
     if (!this.isStarted) return
     this.isStarted = false
     this.scheduler.stop()
+
+    // Optionally drain in-flight sends so no message is lost mid-flight.
+    if (opts?.drain && this.inflightSends.size > 0) {
+      const timeout = opts.timeout ?? 10_000
+      await Promise.race([
+        Promise.allSettled([...this.inflightSends]),
+        new Promise<void>((resolve) => setTimeout(resolve, timeout)),
+      ])
+    }
+
     // Abort active conversations so their pending wait timers stop keeping the event loop alive.
     this.runtime.abortAll()
+    // Reset the rate limiter (rejects any queued sends, clears buckets).
+    this.rateLimiter.reset()
     // NOTE: we intentionally do NOT call `this.disposables.disposeAll()` here. `disposables`
     // only holds user REGISTRATION unsubscribers (when/command/onMessage/hooks/flows); disposing
     // them on stop() would leave a restarted bot deaf. Registrations must survive stop()/start().
@@ -391,7 +419,14 @@ export class Bot extends EventEmitter {
         skipped: true,
       }
     }
-    const msg = await this.provider.send(payload.jid, payload.content, payload.options)
+    // Track the WHOLE operation (rate-limit wait + provider send) as one in-flight
+    // promise so stop({ drain: true }) also waits for sends still queued in the limiter.
+    const op = (async () => {
+      await this.rateLimiter.acquire(payload.jid)
+      return this.provider.send(payload.jid, payload.content, payload.options)
+    })()
+    this.inflightSends.add(op)
+    const msg = await op.finally(() => { this.inflightSends.delete(op) })
     await this.hooks.runAfter('send', payload)
     return { jid: payload.jid, messageId: msg.key.id ?? '', key: msg.key as SentMessage['key'], raw: msg as unknown as WAMessage }
   }
@@ -787,7 +822,14 @@ export class Bot extends EventEmitter {
         this.emit('qr', u.qr)
         this.renderQr(u.qr)
       }
-      if (u.state === 'open') this.emit('ready')
+      if (u.state === 'open') {
+        // Capture the bot's own JID for group mention filtering.
+        try {
+          const creds = this.requireAuthCreds()
+          this.botJid = (creds as { me?: { id?: string } }).me?.id ?? null
+        } catch { /* provider may not expose creds (e.g. MockProvider) */ }
+        this.emit('ready')
+      }
     })
     // v1 parity: `pairing_code` fires when config.pairingCode triggered a code request.
     this.providerEvents.onTyped('pairingCode', (code) => {
@@ -873,6 +915,22 @@ export class Bot extends EventEmitter {
     ;(ctx as unknown as { __mediaDownloader?: (m: WAMessage) => Promise<Buffer | NodeJS.ReadableStream> }).__mediaDownloader =
       (m) => this.provider.downloadMedia?.(m) ?? Promise.resolve(Buffer.alloc(0))
 
+    // Group mode filter: skip group messages that don't match the configured mode.
+    if (ctx.isGroup && this.config.groupMode && this.config.groupMode !== 'all') {
+      const prefix = this.config.commandPrefix ?? '/'
+      if (this.config.groupMode === 'mentions') {
+        // Only respond if the bot itself is @mentioned. Compare through the identity
+        // store so a mention by the LID twin still matches our PN JID (and vice-versa).
+        const botMentioned = this.botJid
+          ? ctx.mentions.some((m) => this.mentionsBot(m))
+          : ctx.mentions.length > 0 // fallback: any mention until we learn our own JID
+        if (!botMentioned) return
+      }
+      if (this.config.groupMode === 'commands' && !ctx.body.startsWith(prefix)) {
+        return
+      }
+    }
+
     this.logger.debug({ from: ctx.from, type: ctx.type }, 'dispatching message')
     await this.dispatcher.dispatch(ctx as unknown as DispatchContext)
   }
@@ -892,6 +950,14 @@ export class Bot extends EventEmitter {
       const pn = await resolve(jid).catch(() => undefined)
       if (pn) this.identity.observe(jid, pn)
     }
+  }
+
+  /** True if `mentioned` refers to the bot's own JID, tolerant of LID/PN duality and device suffixes. */
+  private mentionsBot(mentioned: string): boolean {
+    if (!this.botJid) return false
+    const a = this.identity.canonical(mentioned)
+    const b = this.identity.canonical(this.botJid)
+    return a === b || sameUser(a, b)
   }
 
   private async dispatchHookEvent(event: HookEvent, payload: unknown): Promise<void> {

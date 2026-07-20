@@ -62,11 +62,21 @@
     "url": "https://github.com/andresayac/bot-wa-baileys/issues"
   },
   "homepage": "https://github.com/andresayac/bot-wa-baileys#readme",
+  "peerDependencies": {
+    "better-sqlite3": "^11.7.0"
+  },
+  "peerDependenciesMeta": {
+    "better-sqlite3": {
+      "optional": true
+    }
+  },
   "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
     "@types/fluent-ffmpeg": "^2.1.28",
     "@types/mime-types": "^3.0.1",
     "@types/node": "^26.1.1",
     "@types/qrcode-terminal": "^0.12.2",
+    "better-sqlite3": "^11.7.0",
     "typescript": "^7.0.2",
     "vite": "^7.3.6",
     "vitest": "^4.1.10"
