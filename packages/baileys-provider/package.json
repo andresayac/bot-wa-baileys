@@ -42,7 +42,7 @@
     "prepublishOnly": "pnpm build"
   },
   "dependencies": {
-    "@bot-wa/bot-wa-baileys": "workspace:*",
+    "@bot-wa/core": "workspace:*",
     "@cacheable/node-cache": "^1.5.0",
     "@ffmpeg-installer/ffmpeg": "^1.1.0",
     "@hapi/boom": "^10.0.1",

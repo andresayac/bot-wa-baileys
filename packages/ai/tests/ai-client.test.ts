@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { MemoryStore } from '@bot-wa/bot-wa-baileys'
+import { MemoryStore } from '@bot-wa/core'
 import { MockAIProvider } from '../src/MockAIProvider.js'
 import { ContextManager } from '../src/ContextManager.js'
 import { AIClient } from '../src/AIClient.js'

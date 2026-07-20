@@ -6,7 +6,7 @@
  */
 
 import type { WAMessage, WAMessageKey } from '@whiskeysockets/baileys'
-import type { ChatInfo, ChatKind, InboundMessage, MediaRef, MessageType, SenderInfo } from '@bot-wa/bot-wa-baileys'
+import type { ChatInfo, ChatKind, InboundMessage, MediaRef, MessageType, SenderInfo } from '@bot-wa/core'
 import { normalize, normalizeInboundKey, isPnUser, isLidUser } from './jid.js'
 import type { IdentityStore } from './identity.js'
 

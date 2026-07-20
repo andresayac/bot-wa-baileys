@@ -1,4 +1,4 @@
-import type { AIMessage } from '@bot-wa/bot-wa-baileys'
+import type { AIMessage } from '@bot-wa/core'
 import type { AIProvider, GenerateInput, GenerateResult, Effort } from './types.js'
 import type { ContextManager } from './ContextManager.js'
 

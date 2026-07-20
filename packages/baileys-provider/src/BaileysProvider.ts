@@ -38,7 +38,7 @@ import type {
   SendOptions,
   SendResult,
   UserId,
-} from '@bot-wa/bot-wa-baileys'
+} from '@bot-wa/core'
 import { classifyDisconnect, backoffDelay, MAX_RECONNECT_ATTEMPTS } from './reconnect.js'
 import { putBounded } from './boundedMap.js'
 import { IdentityStore } from './identity.js'

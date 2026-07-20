@@ -21,7 +21,7 @@
  * ```
  */
 
-import { definePlugin, type MessageContext, type PluginContext, type PluginSpec } from '@bot-wa/bot-wa-baileys'
+import { definePlugin, type MessageContext, type PluginContext, type PluginSpec } from '@bot-wa/core'
 import type { AIConfig, AIProvider } from './types.js'
 import { ContextManager } from './ContextManager.js'
 import { AIClient } from './AIClient.js'

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { createTestBot } from '@bot-wa/bot-wa-baileys/testing'
+import { createTestBot } from '@bot-wa/core/testing'
 import { MockAIProvider } from '../src/MockAIProvider.js'
 import { LazyProvider } from '../src/providers/LazyProvider.js'
 import type { AIProvider } from '../src/types.js'

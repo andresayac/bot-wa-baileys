@@ -3,7 +3,7 @@
   "entryPoints": ["src/index.ts"],
   "tsconfig": "tsconfig.json",
   "out": "../../docs/api",
-  "name": "@bot-wa/bot-wa-baileys",
+  "name": "@bot-wa/core",
   "includeVersion": true,
   "readme": "README.md",
   "theme": "default",

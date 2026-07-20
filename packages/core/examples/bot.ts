@@ -2,7 +2,7 @@
  * bot-wa-baileys v2 — ejemplo de referencia
  * ==========================================
  *
- * Cubre la API pública real de @bot-wa/bot-wa-baileys@2:
+ * Cubre la API pública real de @bot-wa/core@2:
  *   - new Bot(config) + eventos de conexión (qr/ready/connection/error)
  *   - bot.plug(slashCommandsPlugin)
  *   - bot.when(trigger, handler) — texto / lista / regex
@@ -74,7 +74,7 @@ bot.on('error', ({ error, ctx }) => {
 
 bot.plug(slashCommandsPlugin, {
   greeting: [
-    '🤖 *Demo Bot* — hecho con @bot-wa/bot-wa-baileys v2',
+    '🤖 *Demo Bot* — hecho con @bot-wa/core v2',
     '',
     'Comandos:',
     '  /help  — este mensaje',

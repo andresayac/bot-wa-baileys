@@ -1,5 +1,5 @@
-export type { AIMessage } from '@bot-wa/bot-wa-baileys'
-import type { AIMessage } from '@bot-wa/bot-wa-baileys'
+export type { AIMessage } from '@bot-wa/core'
+import type { AIMessage } from '@bot-wa/core'
 
 export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 

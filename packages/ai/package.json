@@ -2,7 +2,7 @@
   "name": "@bot-wa/ai",
   "version": "0.1.0",
   "type": "module",
-  "description": "Multi-provider AI autoresponder plugin (Anthropic / OpenAI / Ollama) for @bot-wa/bot-wa-baileys, with per-chat conversation memory and a ctx.tools.ai client.",
+  "description": "Multi-provider AI autoresponder plugin (Anthropic / OpenAI / Ollama) for @bot-wa/core, with per-chat conversation memory and a ctx.tools.ai client.",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
   "exports": {
@@ -47,7 +47,7 @@
     "prepublishOnly": "pnpm build"
   },
   "dependencies": {
-    "@bot-wa/bot-wa-baileys": "workspace:*"
+    "@bot-wa/core": "workspace:*"
   },
   "peerDependencies": {
     "@anthropic-ai/sdk": "^0.68.0",

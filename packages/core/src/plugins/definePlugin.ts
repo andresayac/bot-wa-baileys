@@ -6,7 +6,7 @@
  *
  * @example Static plugin
  * ```ts
- * import { definePlugin } from '@bot-wa/bot-wa-baileys'
+ * import { definePlugin } from '@bot-wa/core'
  *
  * const loggingPlugin = definePlugin({
  *   name: 'logging',
