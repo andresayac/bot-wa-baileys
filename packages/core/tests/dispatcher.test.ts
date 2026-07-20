@@ -95,15 +95,45 @@ describe('Dispatcher', () => {
     expect(second).toHaveBeenCalledOnce()
   })
 
-  it('unknown /command emits event and can still feed a conversation', async () => {
+  it('unknown /command feeds an active conversation WITHOUT emitting command:unknown (no double reply)', async () => {
     const { d, runtime, emitted } = makeDispatcher()
     const start = makeCtx('start')
     const got: string[] = []
     const entry = runtime.enter(async (c) => { got.push((await c.waitAny()).body) }, start)
     await d.dispatch(makeCtx('/xyz'))
-    expect(emitted.some(([e]) => e === 'command:unknown')).toBe(true)
+    // Previously this always emitted 'command:unknown' even with an active conversation,
+    // which made a real 'command:unknown' listener (e.g. slashCommandsPlugin) reply
+    // "Comando desconocido" AND the conversation consume "/xyz" as its answer — a double
+    // behavior. With an active conversation, the emit must not happen at all.
+    expect(emitted.some(([e]) => e === 'command:unknown')).toBe(false)
     await entry
     expect(got).toEqual(['/xyz'])
+  })
+
+  it('active conversation: unknown /command is never emitted, even when a listener would consume it', async () => {
+    const runtime = new ConversationRuntime({ controlsFactory: (r, k, c) => createControls(r, k, c) })
+    const emitted: Array<[string, unknown]> = []
+    // Simulates a real bot with a 'command:unknown' listener attached (emit returns true).
+    const d = new Dispatcher({ hooks: { ...noopHooks }, runtime, emit: (e, p) => { emitted.push([e, p]); return true } })
+    const start = makeCtx('start')
+    const got: string[] = []
+    const entry = runtime.enter(async (c) => { got.push((await c.waitAny()).body) }, start)
+    await d.dispatch(makeCtx('/typo'))
+    expect(emitted.some(([e]) => e === 'command:unknown')).toBe(false)
+    await entry
+    expect(got).toEqual(['/typo'])
+  })
+
+  it('no active conversation: unknown /command DOES emit command:unknown', async () => {
+    const runtime = new ConversationRuntime({ controlsFactory: (r, k, c) => createControls(r, k, c) })
+    const emitted: Array<[string, unknown]> = []
+    const d = new Dispatcher({ hooks: { ...noopHooks }, runtime, emit: (e, p) => { emitted.push([e, p]); return true } })
+    const fallback = vi.fn()
+    d.catchAll(fallback)
+    await d.dispatch(makeCtx('/typo'))
+    expect(emitted.some(([e]) => e === 'command:unknown')).toBe(true)
+    // handled === true (a listener existed) and no active conversation -> dispatch stops here.
+    expect(fallback).not.toHaveBeenCalled()
   })
 
   it('constructor throws on an empty commandPrefix (P3)', () => {
