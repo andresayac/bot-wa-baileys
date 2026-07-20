@@ -2,11 +2,23 @@
   "name": "bot-wa-monorepo",
   "private": true,
   "type": "module",
+  "packageManager": "pnpm@11.9.0",
   "engines": { "node": ">=20" },
   "scripts": {
     "build": "pnpm -r build",
     "test": "pnpm -r test",
-    "docs": "vitepress build docs"
+    "docs:api": "node scripts/typedoc-docs.cjs --options packages/core/typedoc.json",
+    "docs": "pnpm run docs:api && vitepress build docs && node scripts/copy-api-docs.cjs",
+    "docs:site": "vitepress build docs",
+    "docs:dev": "vitepress dev docs",
+    "docs:serve": "vitepress serve docs"
   },
-  "devDependencies": { "typescript": "^7.0.2", "vitest": "^4.1.10", "vite": "^7.3.6", "vitepress": "^1.6.4" }
+  "devDependencies": {
+    "typescript": "5.9.3",
+    "typedoc": "^0.28.20",
+    "typedoc-plugin-missing-exports": "^4.1.4",
+    "vite": "^7.3.6",
+    "vitepress": "^1.6.4",
+    "vitest": "^4.1.10"
+  }
 }

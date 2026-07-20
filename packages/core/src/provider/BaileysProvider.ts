@@ -31,6 +31,10 @@ import type { Logger } from 'pino'
 
 import type { BotConfig, ConnectionUpdate, ConnectionState, IProvider } from '../core/types.js'
 import { classifyDisconnect, backoffDelay, MAX_RECONNECT_ATTEMPTS } from './reconnect.js'
+import { putBounded } from '../utils/boundedMap.js'
+
+/** Max entries kept in `lidCache` — every resolved LID<->PN pair costs 2 (one per direction). */
+const LID_CACHE_MAX = 2000
 
 export interface ProviderEvents {
   connection: ConnectionUpdate
@@ -164,10 +168,7 @@ export class BaileysProvider extends TypedEmitter<ProviderEvents> implements IPr
     const cached = this.lidCache.get(lid)
     if (cached) return cached
     const pn = await this.sock?.signalRepository.lidMapping.getPNForLID(lid).catch(() => null)
-    if (pn) {
-      this.lidCache.set(lid, pn)
-      this.lidCache.set(pn, lid)
-    }
+    if (pn) this.cacheLid(lid, pn)
     return pn ?? undefined
   }
 
@@ -176,11 +177,13 @@ export class BaileysProvider extends TypedEmitter<ProviderEvents> implements IPr
     const cached = this.lidCache.get(pn)
     if (cached) return cached
     const lid = await this.sock?.signalRepository.lidMapping.getLIDForPN(pn).catch(() => null)
-    if (lid) {
-      this.lidCache.set(pn, lid)
-      this.lidCache.set(lid, pn)
-    }
+    if (lid) this.cacheLid(pn, lid)
     return lid ?? undefined
+  }
+
+  /** Stores a LID<->PN pair under both keys, bounded to `LID_CACHE_MAX` entries (oldest evicted first). */
+  private cacheLid(a: string, b: string): void {
+    putBounded(this.lidCache, a, b, LID_CACHE_MAX)
   }
 
   /**
@@ -196,16 +199,12 @@ export class BaileysProvider extends TypedEmitter<ProviderEvents> implements IPr
       if (entry && typeof entry === 'object' && 'lid' in entry && 'pn' in entry) {
         sawPairShape = true
         const { lid, pn } = entry as { lid?: string; pn?: string }
-        if (lid && pn) {
-          this.lidCache.set(lid, pn)
-          this.lidCache.set(pn, lid)
-        }
+        if (lid && pn) this.cacheLid(lid, pn)
       }
     }
     if (!sawPairShape && !Array.isArray(update)) {
       for (const [a, b] of Object.entries(update as Record<string, string>)) {
-        this.lidCache.set(a, b)
-        this.lidCache.set(b, a)
+        this.cacheLid(a, b)
       }
     }
   }

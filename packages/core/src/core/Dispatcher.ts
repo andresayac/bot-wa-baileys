@@ -94,11 +94,15 @@ export class Dispatcher {
           await handler(ctx, args)
           return this.finish(ctx)
         }
-        const handled = emit('command:unknown', { ctx, command: raw })
-        // If a listener consumed the unknown command AND there is no active conversation for
-        // this chat-key, stop here — otherwise the catch-all would ALSO reply (double reply).
-        // If a conversation IS active, keep going so it can consume "/xyz" as an answer.
-        if (handled && !runtime.hasActive(runtime.keyFor(ctx))) return this.finish(ctx)
+        // Only emit 'command:unknown' when there is no active conversation for this chat-key.
+        // If a conversation IS active, the emit must not fire at all — otherwise a real
+        // 'command:unknown' listener (e.g. slashCommandsPlugin) would reply "Comando
+        // desconocido" AND the conversation would ALSO consume "/xyz" as its answer below
+        // (double behavior). Falling through here lets step 2 (runtime.deliver) consume it.
+        if (!runtime.hasActive(runtime.keyFor(ctx))) {
+          const handled = emit('command:unknown', { ctx, command: raw })
+          if (handled) return this.finish(ctx)
+        }
         // continúa: una conversación puede consumir "/xyz" como texto
       }
 

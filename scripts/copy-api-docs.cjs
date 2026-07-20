@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 /**
- * copy-api-docs.js — copies the TypeDoc API reference (docs/api/) into the
+ * copy-api-docs.cjs — copy the TypeDoc API reference (docs/api/) into the
  * VitePress build output (docs/dist/api/) so both are served together.
+ *
+ * `.cjs` because the workspace root is `"type": "module"`.
  */
 'use strict'
 
@@ -20,4 +22,4 @@ if (!existsSync(src)) {
 
 mkdirSync(resolve(root, 'docs', 'dist'), { recursive: true })
 cpSync(src, dest, { recursive: true })
-console.log('[copy-api-docs] Copied docs/api → docs/dist/api')
+console.log('[copy-api-docs] Copied docs/api -> docs/dist/api')
