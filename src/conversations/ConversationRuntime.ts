@@ -13,6 +13,9 @@ export interface ResolvedWaitOptions {
   filter?: (ctx: RuntimeMessage) => boolean
 }
 
+/** Identidad opaca de una conversación activa; impide que un teardown viejo toque la entry nueva. */
+export interface ConversationHandle { readonly key: string }
+
 /** Interfaz mínima; controls.ts (Task 3) la extiende con ask/waitText/choose/... */
 export interface ConversationControlsBase {
   waitAny(opts?: ResolvedWaitOptions): Promise<RuntimeMessage>
@@ -34,7 +37,7 @@ export interface RuntimeConfig {
   logger?: { debug?: (...a: unknown[]) => void; warn?: (...a: unknown[]) => void; error?: (...a: unknown[]) => void }
   onError?: (error: unknown, ctx: RuntimeMessage) => void
   /** Task 3 inyecta la factory completa de controls; default = base. */
-  controlsFactory?: (rt: ConversationRuntime, key: string, ctx: RuntimeMessage) => ConversationControlsBase
+  controlsFactory?: (rt: ConversationRuntime, handle: ConversationHandle, ctx: RuntimeMessage) => ConversationControlsBase
 }
 
 interface PendingWait {
@@ -44,8 +47,7 @@ interface PendingWait {
   timer?: NodeJS.Timeout
 }
 
-interface ActiveConversation {
-  key: string
+interface ActiveConversation extends ConversationHandle {
   state: Record<string, unknown>
   inbox: RuntimeMessage[]
   pending?: PendingWait
@@ -80,7 +82,7 @@ export class ConversationRuntime {
     const entry: ActiveConversation = { key, state: {}, inbox: [] }
     this.active.set(key, entry)
 
-    const controls = (this.cfg.controlsFactory ?? defaultControlsFactory)(this, key, ctx)
+    const controls = (this.cfg.controlsFactory ?? defaultControlsFactory)(this, entry, ctx)
 
     let goto: ConversationGoto | undefined
     try {
@@ -102,7 +104,7 @@ export class ConversationRuntime {
         await this.safeReply(ctx, this.cfg.errorMessage ?? '⚠️ Ocurrió un error. La conversación terminó.')
       }
     } finally {
-      this.cleanup(key)
+      this.cleanup(entry)
     }
     if (goto) await this.enter(goto.target, ctx)
   }
@@ -120,20 +122,22 @@ export class ConversationRuntime {
     return true
   }
 
-  abort(key: string, _reason?: string): boolean {
+  abort(key: string): boolean {
     const entry = this.active.get(key)
     if (!entry) return false
     const cancel = new ConversationCancelled(true)
+    entry.cancelled = cancel
     if (entry.pending) entry.pending.reject(cancel)
-    else entry.cancelled = cancel
+    this.active.delete(key)
     return true
   }
 
   /** Usado por controls. */
-  wait(key: string, opts: ResolvedWaitOptions = {}): Promise<RuntimeMessage> {
-    const entry = this.active.get(key)
-    if (!entry) return Promise.reject(new ConversationCancelled(true))
-    if (entry.cancelled) return Promise.reject(entry.cancelled)
+  wait(handle: ConversationHandle, opts: ResolvedWaitOptions = {}): Promise<RuntimeMessage> {
+    const entry = handle as ActiveConversation
+    if (this.active.get(entry.key) !== entry || entry.cancelled) {
+      return Promise.reject(entry.cancelled ?? new ConversationCancelled(true))
+    }
     const queued = opts.filter ? undefined : entry.inbox.shift()
     if (queued) return Promise.resolve(queued)
 
@@ -151,12 +155,13 @@ export class ConversationRuntime {
     })
   }
 
-  getState(key: string): Record<string, unknown> | undefined { return this.active.get(key)?.state }
+  getState(handle: ConversationHandle): Record<string, unknown> {
+    return (handle as ActiveConversation).state
+  }
 
-  private cleanup(key: string): void {
-    const entry = this.active.get(key)
-    if (entry?.pending?.timer) clearTimeout(entry.pending.timer)
-    this.active.delete(key)
+  private cleanup(entry: ActiveConversation): void {
+    if (entry.pending?.timer) clearTimeout(entry.pending.timer)
+    if (this.active.get(entry.key) === entry) this.active.delete(entry.key)
   }
 
   private async safeReply(ctx: RuntimeMessage, text: string): Promise<void> {
@@ -164,11 +169,11 @@ export class ConversationRuntime {
   }
 }
 
-function defaultControlsFactory(rt: ConversationRuntime, key: string, ctx: RuntimeMessage): ConversationControlsBase {
+function defaultControlsFactory(rt: ConversationRuntime, handle: ConversationHandle, ctx: RuntimeMessage): ConversationControlsBase {
   return {
-    waitAny: (opts) => rt.wait(key, opts ?? {}),
+    waitAny: (opts) => rt.wait(handle, opts ?? {}),
     say: async (text) => { await ctx.reply(text) },
-    state: rt.getState(key) ?? {},
+    state: rt.getState(handle),
     end: (farewell) => { throw new ConversationEnded(farewell) },
   }
 }
