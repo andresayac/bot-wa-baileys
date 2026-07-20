@@ -21,7 +21,10 @@ const noopHooks = {
 function makeDispatcher(rt?: ConversationRuntime) {
   const runtime = rt ?? new ConversationRuntime({ controlsFactory: (r, k, c) => createControls(r, k, c) })
   const emitted: Array<[string, unknown]> = []
-  const d = new Dispatcher({ hooks: { ...noopHooks }, runtime, emit: (e, p) => emitted.push([e, p]) })
+  // emit() now returns "had listeners" (mirrors EventEmitter.emit / Bot.emit). This harness
+  // records emissions but registers no real listeners, so it returns false — matching a bot
+  // with no 'command:unknown' listener, where an unknown command falls through to the catch-all.
+  const d = new Dispatcher({ hooks: { ...noopHooks }, runtime, emit: (e, p) => { emitted.push([e, p]); return false } })
   return { d, runtime, emitted }
 }
 
@@ -101,6 +104,12 @@ describe('Dispatcher', () => {
     expect(emitted.some(([e]) => e === 'command:unknown')).toBe(true)
     await entry
     expect(got).toEqual(['/xyz'])
+  })
+
+  it('constructor throws on an empty commandPrefix (P3)', () => {
+    const runtime = new ConversationRuntime()
+    expect(() => new Dispatcher({ hooks: { ...noopHooks }, runtime, commandPrefix: '', emit: () => false }))
+      .toThrow(/commandPrefix/)
   })
 
   it('messages of same chat are serialized (FIFO)', async () => {

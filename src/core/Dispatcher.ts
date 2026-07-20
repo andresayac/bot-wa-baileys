@@ -22,7 +22,8 @@ export interface DispatcherDeps {
   runtime: ConversationRuntime
   commandPrefix?: string
   logger?: { debug?: (...a: unknown[]) => void; error?: (...a: unknown[]) => void }
-  emit: (event: string, payload: unknown) => void
+  /** Emit an event; returns `true` when the event had listeners (mirrors `EventEmitter.emit`). */
+  emit: (event: string, payload: unknown) => boolean
 }
 
 interface MatcherEntry { seq: number; trigger: Trigger; specificity: number; handler: MessageHandler }
@@ -34,7 +35,13 @@ export class Dispatcher {
   private queues = new Map<string, Promise<void>>()
   private seq = 0
 
-  constructor(private deps: DispatcherDeps) {}
+  constructor(private deps: DispatcherDeps) {
+    // An empty prefix would turn EVERY message into a command attempt (''.startsWith('') === true),
+    // silently swallowing all normal text. Reject it loudly at construction time.
+    if (deps.commandPrefix === '') {
+      throw new Error('commandPrefix must not be an empty string — omit it to use the default "/"')
+    }
+  }
 
   command(name: string, handler: CommandHandler): () => void {
     const key = normalizeText(name)
@@ -87,7 +94,11 @@ export class Dispatcher {
           await handler(ctx, args)
           return this.finish(ctx)
         }
-        emit('command:unknown', { ctx, command: raw })
+        const handled = emit('command:unknown', { ctx, command: raw })
+        // If a listener consumed the unknown command AND there is no active conversation for
+        // this chat-key, stop here — otherwise the catch-all would ALSO reply (double reply).
+        // If a conversation IS active, keep going so it can consume "/xyz" as an answer.
+        if (handled && !runtime.hasActive(runtime.keyFor(ctx))) return this.finish(ctx)
         // continúa: una conversación puede consumir "/xyz" como texto
       }
 

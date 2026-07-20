@@ -57,4 +57,14 @@ describe('E2E: transcript 2026-07-18', () => {
     await new Promise((r) => setTimeout(r, 30))
     expect(chat.replies().filter((r) => r.includes('Vamos a registrarte'))).toHaveLength(0)
   })
+
+  it('unknown /command with slash-plugin + catch-all produces EXACTLY one reply (C1)', async () => {
+    const { chat } = await setupDemoBot()
+    await chat.send('/comandoinventado')
+    await chat.expectReply('Comando desconocido')     // el plugin lo consumió
+    await new Promise((r) => setTimeout(r, 30))
+    // El catch-all NO debe volver a responder: exactamente 1 respuesta en total.
+    expect(chat.replies()).toHaveLength(1)
+    expect(chat.replies().filter((r) => r.includes('No reconocí'))).toHaveLength(0)
+  })
 })

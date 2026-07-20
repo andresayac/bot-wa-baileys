@@ -149,4 +149,5 @@ export { PrivacyAPIImpl } from './api/PrivacyAPI.js'
 export { ChatsAPIImpl } from './api/ChatsAPI.js'
 export { PresenceAPIImpl } from './api/PresenceAPI.js'
 
-// v1 LEGACY — preserved on disk under src/legacy/ but not part of the build.
+// Testing helpers live under the "./testing" subpath export (import from
+// '@bot-wa/bot-wa-baileys/testing') — not re-exported here to keep the runtime entry lean.

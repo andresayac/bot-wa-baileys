@@ -21,8 +21,15 @@ export interface RegisteredHook {
   priority: number
 }
 
+/** Minimal logger surface — satisfied by pino and by a bare `console`. */
+export interface HookLogger {
+  error?: (...args: unknown[]) => void
+}
+
 export class HookSystem {
   private hooks = new Map<`${HookEvent}:${HookPhase}`, RegisteredHook[]>()
+
+  constructor(private logger?: HookLogger) {}
 
   /** Register a hook. Returns an unsubscribe function. */
   register(
@@ -110,7 +117,7 @@ export class HookSystem {
         await (h.handler as any)(ctx)
       } catch (err) {
         // After hooks shouldn't break the flow; surface but continue
-        console.error(`[hooks] after-${event} handler ${h.id} threw:`, err)
+        this.logger?.error?.({ err, event, hook: h.id }, `after-${event} hook threw`)
       }
     }
   }
@@ -123,7 +130,7 @@ export class HookSystem {
       try {
         await (h.handler as any)(ctx, error)
       } catch (err) {
-        console.error(`[hooks] error-${event} handler ${h.id} threw:`, err)
+        this.logger?.error?.({ err, event, hook: h.id }, `error-${event} hook threw`)
       }
     }
   }

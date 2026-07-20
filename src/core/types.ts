@@ -3,7 +3,7 @@
  * =====================================
  *
  * Naming philosophy:
- *  - `when()` is universal (tod88 understands "when X happens, do Y").
+ *  - `when()` is universal (everyone understands "when X happens, do Y").
  *  - Short names, fluent API, progressive disclosure.
  *  - No external framework copied verbatim — own identity.
  */
@@ -201,6 +201,11 @@ export interface SentMessage {
   messageId: string
   key: WAMessageKey
   raw: WAMessage
+  /**
+   * `true` when a `before('send')` hook aborted the send — nothing was actually
+   * transmitted. `messageId` is `'skipped'` and `raw` is `undefined` in that case.
+   */
+  skipped?: boolean
 }
 
 /* ============================================================================

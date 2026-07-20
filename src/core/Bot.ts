@@ -129,7 +129,7 @@ export class Bot extends EventEmitter {
   readonly logger: Logger
 
   private config: Required<Pick<BotConfig, 'session' | 'sessionsDir' | 'debug'>> & BotConfig
-  private hooks = new HookSystem()
+  private hooks: HookSystem
   private store: IStore
   private provider: IProvider
   private runtime: ConversationRuntime
@@ -173,6 +173,8 @@ export class Bot extends EventEmitter {
         : undefined,
     })
 
+    this.hooks = new HookSystem(this.logger.child({ module: 'hooks' }))
+
     // Store
     this.store =
       (typeof this.config.store === 'object' && this.config.store !== null
@@ -182,6 +184,7 @@ export class Bot extends EventEmitter {
         file: (this.config.storeConfig as { file?: string } | undefined)?.file,
         maxMessagesPerChat: (this.config.storeConfig as { maxMessagesPerChat?: number } | undefined)?.maxMessagesPerChat,
         autoSaveInterval: (this.config.storeConfig as { autoSaveInterval?: number } | undefined)?.autoSaveInterval,
+        logger: this.logger.child({ module: 'store' }),
       })
 
     // Conversation runtime (replaces the old step-based FlowEngine)
@@ -195,7 +198,7 @@ export class Bot extends EventEmitter {
       cancelledMessage: conv.cancelledMessage,
       scope: this.config.conversationScope === 'chat' ? 'chat' : 'participant',
       logger: this.logger.child({ module: 'conversations' }),
-      onError: (error, ctx) => this.emit('error', { error, ctx }),
+      onError: (error, ctx) => this.emitError({ error, ctx: ctx as unknown as MessageContext }),
     })
     if (typeof (this.store as Partial<CheckpointStore>).setCheckpoint === 'function') {
       this.runtime.attachStore(this.store as CheckpointStore)
@@ -207,7 +210,16 @@ export class Bot extends EventEmitter {
       runtime: this.runtime,
       commandPrefix: this.config.commandPrefix,
       logger: this.logger.child({ module: 'dispatcher' }),
-      emit: (event, payload) => { this.emit(event, payload) },
+      emit: (event, payload) => {
+        // Route 'error' through emitError so a bot with no 'error' listener never crashes
+        // (EventEmitter throws on emit('error') with zero listeners). Other events return
+        // whether they had listeners — the Dispatcher relies on this for 'command:unknown'.
+        if (event === 'error') {
+          this.emitError(payload as { error: unknown; ctx?: MessageContext })
+          return this.listenerCount('error') > 0
+        }
+        return this.emit(event, payload)
+      },
     })
 
     // Provider — injected (tests) or a real BaileysProvider. Only touch the
@@ -270,7 +282,11 @@ export class Bot extends EventEmitter {
     if (!this.isStarted) return
     this.isStarted = false
     this.scheduler.stop()
-    this.disposables.disposeAll()
+    // Abort active conversations so their pending wait timers stop keeping the event loop alive.
+    this.runtime.abortAll()
+    // NOTE: we intentionally do NOT call `this.disposables.disposeAll()` here. `disposables`
+    // only holds user REGISTRATION unsubscribers (when/command/onMessage/hooks/flows); disposing
+    // them on stop() would leave a restarted bot deaf. Registrations must survive stop()/start().
     await this.provider.stop()
     await this.store.stop()
     this.emit('stopped')
@@ -279,10 +295,37 @@ export class Bot extends EventEmitter {
   /**
    * Send any content to any JID — lowest-level helper.
    * `content` is a Baileys message payload object (e.g. `{ text }`, `{ image, caption }`).
+   *
+   * Runs the `before('send')` / `after('send')` hook pipeline. A `before('send')` hook may
+   * mutate `payload.content` (middleware) or `abort()` to skip the send — in which case the
+   * returned {@link SentMessage} has `skipped: true` and nothing is transmitted.
    */
   async send(jid: ChatId, content: Record<string, unknown>, options?: Record<string, unknown>): Promise<SentMessage> {
-    const msg = await this.provider.send(jid, content, options)
-    return { jid, messageId: msg.key.id ?? '', key: msg.key as SentMessage['key'], raw: msg as unknown as WAMessage }
+    return this.sendThrough(jid, content, options)
+  }
+
+  /**
+   * Central outbound path: runs `before('send')` (mutable payload / abortable), performs the
+   * actual provider send, then `after('send')`. Both {@link send} and the per-message reply
+   * helpers (`ctx.reply`, `ctx.photo`, …) route through here so the `send` hooks fire for EVERY
+   * outbound message.
+   */
+  private async sendThrough(jid: ChatId, content: Record<string, unknown>, options?: Record<string, unknown>): Promise<SentMessage> {
+    const payload: { jid: ChatId; content: Record<string, unknown>; options?: Record<string, unknown> } = { jid, content, options }
+    const proceed = await this.hooks.runBefore('send', payload as typeof payload & { abort(): void })
+    if (!proceed) {
+      // A before('send') hook aborted — do not transmit anything.
+      return {
+        jid: payload.jid,
+        messageId: 'skipped',
+        key: { id: 'skipped', remoteJid: payload.jid, fromMe: true },
+        raw: undefined as unknown as WAMessage,
+        skipped: true,
+      }
+    }
+    const msg = await this.provider.send(payload.jid, payload.content, payload.options)
+    await this.hooks.runAfter('send', payload)
+    return { jid: payload.jid, messageId: msg.key.id ?? '', key: msg.key as SentMessage['key'], raw: msg as unknown as WAMessage }
   }
 
   /** Helper to send plain text to a JID. */
@@ -436,7 +479,7 @@ export class Bot extends EventEmitter {
   /**
    * Abort an active conversation, by chat-key/JID or by a message-context-shaped object.
    *
-   * A bare string is tried as-is and, if it has no `:`, also as a DM chat-key. An object
+   * A bare string is used as the chat-key as-is (in a DM the key IS the JID). An object
    * (e.g. a `MessageContext`) is resolved through the runtime's `keyFor` — this is what makes
    * `/reset` work inside a group, where the active conversation is keyed per-participant
    * (`${from}:${sender}`), not just by `from`.
@@ -454,11 +497,9 @@ export class Bot extends EventEmitter {
     if (typeof target !== 'string') {
       return this.runtime.abort(this.runtime.keyFor(target))
     }
-    const direct = this.runtime.abort(target)
-    if (target.includes(':')) return direct
-    const dmKey = this.runtime.keyFor({ from: target, sender: target, isGroup: false })
-    const dm = dmKey !== target ? this.runtime.abort(dmKey) : false
-    return direct || dm
+    // A DM's chat-key equals its JID, so a bare string is aborted directly. (There is no
+    // participant-scoped fallback to try: keyFor({ from, sender, isGroup: false }) === from.)
+    return this.runtime.abort(target)
   }
 
   /* =========================================================================
@@ -529,6 +570,12 @@ export class Bot extends EventEmitter {
     scopedBot.off = this.off.bind(this) as Bot['off']
     scopedBot.once = this.once.bind(this) as Bot['once']
     scopedBot.emit = this.emit.bind(this) as Bot['emit']
+    // The remaining EventEmitter mutators have the exact same `_events` shadowing trap as
+    // on/off above — bind them to the real bot too so plugin listener management is coherent.
+    scopedBot.addListener = this.addListener.bind(this) as Bot['addListener']
+    scopedBot.removeListener = this.removeListener.bind(this) as Bot['removeListener']
+    scopedBot.prependListener = this.prependListener.bind(this) as Bot['prependListener']
+    scopedBot.prependOnceListener = this.prependOnceListener.bind(this) as Bot['prependOnceListener']
     scopedBot.command = track(this.command.bind(this))
     scopedBot.when = track(this.when.bind(this))
     scopedBot.onMessage = track(this.onMessage.bind(this))
@@ -625,6 +672,19 @@ export class Bot extends EventEmitter {
   }
 
   /**
+   * Emit the `'error'` event safely. Node's EventEmitter THROWS when `emit('error')`
+   * runs with zero listeners, which would crash the process from deep inside async
+   * callbacks (runtime onError, flow `.catch`, provider-event handlers). Guard it: only
+   * emit when someone is listening, otherwise log through the bot logger. All internal
+   * error emissions route through here — we deliberately do NOT register a default
+   * `'error'` listener (that would mask the "no listener" case); this guard is enough.
+   */
+  private emitError(payload: { error: unknown; ctx?: MessageContext }): void {
+    if (this.listenerCount('error') > 0) this.emit('error', payload)
+    else this.logger.error({ err: payload.error }, 'unhandled bot error')
+  }
+
+  /**
    * Register a Dispatcher matcher that STARTS a conversation/flow when `trigger` fires.
    *
    * The handler is intentionally fire-and-forget: `runtime.enter()` only resolves when the
@@ -635,7 +695,7 @@ export class Bot extends EventEmitter {
    */
   private registerEnterMatcher(trigger: Trigger, target: string): () => void {
     const unsub = this.dispatcher.matcher(trigger, (ctx) => {
-      void this.runtime.enter(target, ctx).catch((error) => this.emit('error', { error, ctx }))
+      void this.runtime.enter(target, ctx).catch((error) => this.emitError({ error, ctx: ctx as unknown as MessageContext }))
     })
     this.disposables.add(unsub)
     return unsub
@@ -720,7 +780,12 @@ export class Bot extends EventEmitter {
     const ctx = buildMessageContext({
       rawMessage: message,
       tools: this.tools,
-      send: (jid, content, opts) => this.provider.send(jid, content, opts) as unknown as Promise<WAMessage>,
+      // Route replies through sendThrough so before/after('send') hooks fire for ctx.reply/photo/…
+      // A skipped send (before('send') abort) yields no raw message; synthesize a key-only shape.
+      send: async (jid, content, opts) => {
+        const sent = await this.sendThrough(jid, content, opts)
+        return (sent.raw ?? { key: sent.key }) as unknown as WAMessage
+      },
       markRead: async (k) => { await this.provider.readMessages?.([k]) },
       presence: (s, jid) => {
         const sock = this.provider.socket as { sendPresenceUpdate?: (state: string, jid?: string) => Promise<void> } | null
@@ -744,7 +809,7 @@ export class Bot extends EventEmitter {
       this.emit(event, payload)
     } catch (error) {
       try { await this.hooks.runError(event, payload, error) } catch { /* no error hook registered */ }
-      this.emit('error', { error })
+      this.emitError({ error })
     }
   }
 
@@ -755,14 +820,20 @@ export class Bot extends EventEmitter {
         mod.generate(qr, { small: cfg.small ?? true }, (output: string) =>
           process.stdout.write(`${output}\n`)
         )
-      }).catch(() => {})
+      }).catch((err) => this.logger.warn({ err }, 'failed to render QR in terminal'))
     }
     if (cfg.file) {
       const file = `${this.config.session ?? 'default'}.qr.png`
-      import('qr-image').then((mod) => {
-        const fs = require('fs')
-        mod.image(qr, { type: 'png' }).pipe(fs.createWriteStream(file))
-      }).catch(() => {})
+      // ESM: `require('fs')` is unavailable — use dynamic import. Any failure is logged
+      // (not silently swallowed) so a broken `qr.file` option is diagnosable.
+      void (async () => {
+        try {
+          const [{ image }, { createWriteStream }] = await Promise.all([import('qr-image'), import('fs')])
+          image(qr, { type: 'png' }).pipe(createWriteStream(file))
+        } catch (err) {
+          this.logger.warn({ err }, `failed to write QR image to ${file}`)
+        }
+      })()
     }
     if (cfg.handler) cfg.handler(qr)
   }

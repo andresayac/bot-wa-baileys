@@ -74,6 +74,8 @@ export class ConversationRuntime {
   private compiled = new Map<string, CompiledFlow>()
   private store?: CheckpointStore
   private dormant = new Map<string, FlowCheckpoint>()
+  /** Keys whose persistent checkpoint must NOT be cleared on unwind (shutdown teardown). */
+  private preserveOnAbort = new Set<string>()
 
   constructor(private cfg: RuntimeConfig = {}) {}
 
@@ -107,7 +109,13 @@ export class ConversationRuntime {
           })
         })
       } finally {
-        await this.store!.clearCheckpoint(key).catch(() => {})
+        // On a graceful shutdown (abortAll) we KEEP the checkpoint so a restart can resume it.
+        // Every other exit (completion, error, timeout, user /reset) clears it.
+        if (this.preserveOnAbort.delete(key)) {
+          // preserved — leave the persisted checkpoint intact for resume-on-restart
+        } else {
+          await this.store!.clearCheckpoint(key).catch(() => {})
+        }
       }
     }
   }
@@ -135,7 +143,12 @@ export class ConversationRuntime {
       Object.assign((c as ConversationControlsBase).state, cp.state)
       await this.wrapCompiled(flow, cp.step)(c, rctx)
     }
-    void this.enter(resumed, ctx)
+    // enter() is fire-and-forget (it only resolves when the resumed flow ends); a rejection
+    // here (e.g. a bad goto target) would otherwise become an unhandled rejection → crash.
+    void this.enter(resumed, ctx).catch((e) => {
+      this.cfg.onError?.(e, ctx)
+      this.cfg.logger?.error?.('resume failed', e)
+    })
     return true
   }
 
@@ -151,6 +164,9 @@ export class ConversationRuntime {
     if (!fn) throw new Error(`Conversation "${String(nameOrFn)}" is not registered`)
 
     const key = this.keyFor(ctx)
+    // A fresh conversation on this key must not inherit a stale shutdown-preserve flag
+    // (relevant when the runtime is reused across a stop()/start() cycle).
+    this.preserveOnAbort.delete(key)
     if (this.active.has(key)) this.abort(key)
 
     const entry: ActiveConversation = { key, state: {}, inbox: [] }
@@ -206,6 +222,22 @@ export class ConversationRuntime {
     if (entry.pending) entry.pending.reject(cancel)
     this.active.delete(key)
     return true
+  }
+
+  /**
+   * Abort every active conversation — used by `Bot.stop()` so pending wait timers
+   * don't keep the event loop alive after shutdown. Unlike a user `/reset`, this is a
+   * teardown: any persistent checkpoint is PRESERVED so the flow resumes on restart.
+   * Returns the number aborted.
+   */
+  abortAll(): number {
+    let n = 0
+    for (const key of [...this.active.keys()]) {
+      this.preserveOnAbort.add(key)   // consumed by wrapCompiled's finally (deleted there)
+      if (this.abort(key)) n++
+      else this.preserveOnAbort.delete(key)
+    }
+    return n
   }
 
   /** Usado por controls. */

@@ -10,6 +10,11 @@ import { existsSync } from 'fs'
 import { readFile, writeFile } from 'fs/promises'
 import type { FlowCheckpoint, IStore } from './IStore.js'
 
+/** Minimal logger surface — satisfied by pino and by a bare `console`. */
+export interface MemoryStoreLogger {
+  error?: (...args: unknown[]) => void
+}
+
 export interface MemoryStoreOptions {
   /** Max messages retained per chat. Default 1000. */
   maxMessagesPerChat?: number
@@ -17,6 +22,8 @@ export interface MemoryStoreOptions {
   file?: string
   /** Auto-save interval in ms. Set 0 to disable. Default 60_000. */
   autoSaveInterval?: number
+  /** Optional logger for load/persist failures. Falls back to silence when omitted. */
+  logger?: MemoryStoreLogger
 }
 
 export class MemoryStore implements IStore {
@@ -40,7 +47,7 @@ export class MemoryStore implements IStore {
         if (data.checkpoints) for (const [k, v] of Object.entries(data.checkpoints)) this.checkpoints.set(k, v as FlowCheckpoint)
         // Messages are intentionally NOT restored (privacy + size).
       } catch (err) {
-        console.error('[MemoryStore] failed to load file:', err)
+        this.opts.logger?.error?.({ err, file: this.opts.file }, 'MemoryStore failed to load file')
       }
     }
     const interval = this.opts.autoSaveInterval ?? 60_000
@@ -68,7 +75,7 @@ export class MemoryStore implements IStore {
     try {
       await writeFile(this.opts.file, JSON.stringify(payload), 'utf8')
     } catch (err) {
-      console.error('[MemoryStore] failed to persist:', err)
+      this.opts.logger?.error?.({ err, file: this.opts.file }, 'MemoryStore failed to persist')
     }
   }
 
