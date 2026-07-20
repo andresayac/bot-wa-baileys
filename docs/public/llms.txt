@@ -25,3 +25,10 @@
 - Sub-APIs: bot.groups, bot.profile, bot.privacy, bot.chats, bot.presence
 - Media handlers: bot.onImage/onAudio/onVideo/onDocument/onSticker/onLocation/onContact/onPoll(handler)
 - ctx (MessageContext) helpers: ctx.reply/say/answer/text, ctx.photo/video/audio/voice/file/sticker/location/contact/poll, ctx.react/quote/markRead/typing, ctx.pass()/abort()
+
+## @bot-wa/ai (separate package)
+- Install: pnpm add @bot-wa/ai + the chosen provider's SDK (@anthropic-ai/sdk or openai; ollama needs none, it talks plain HTTP via fetch)
+- bot.plug(aiPlugin({ provider: 'anthropic'|'openai'|'ollama', model, apiKey, baseUrl, persona, maxTokens, effort, context: { maxMessages }, autoReply, resetCommand, errorMessage, refusalMessage, humanizeTyping })) — catch-all text autoresponder with per-chat history + a /reset command (install after slashCommandsPlugin so its /reset wins)
+- ctx.tools.ai (AIClient, via bot.provide('ai', client)): ask(prompt), generate(input), stream(input)
+- Providers: anthropic (default model claude-opus-4-8), openai and ollama require `model` explicitly (no default)
+- Testing: MockAIProvider (implements AIProvider, no network) + ContextManager/AIClient exported for unit tests

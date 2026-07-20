@@ -8,5 +8,5 @@
     "test": "pnpm -r test",
     "docs": "pnpm --filter @bot-wa/bot-wa-baileys docs"
   },
-  "devDependencies": { "typescript": "^7.0.2", "vitest": "^4.1.10", "vite": "^7.3.6" }
+  "devDependencies": { "typescript": "^7.0.2", "vitest": "^4.1.10", "vite": "^7.3.6", "vitepress": "^1.6.4" }
 }
