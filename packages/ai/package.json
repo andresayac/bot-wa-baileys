@@ -51,10 +51,14 @@
   },
   "peerDependencies": {
     "@anthropic-ai/sdk": "^0.68.0",
+    "@google/generative-ai": "^0.21.0",
     "openai": "^6.48.0"
   },
   "peerDependenciesMeta": {
     "@anthropic-ai/sdk": {
+      "optional": true
+    },
+    "@google/generative-ai": {
       "optional": true
     },
     "openai": {

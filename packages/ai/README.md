@@ -20,6 +20,8 @@ corresponda:
 | `anthropic` (default) | `@anthropic-ai/sdk` |
 | `openai` | `openai` |
 | `ollama` | ninguno (habla HTTP directo con `fetch` contra un servidor Ollama) |
+| `gemini` | `@google/generative-ai` |
+| `deepseek` · `qwen` · `glm` · `kimi` · `groq` · `openrouter` · `mistral` · `grok` · `together` | `openai` (son OpenAI-compatible; usan su `baseURL`, **sin SDK extra**) |
 
 Requiere **Node >= 20** y `@bot-wa/core` ya instalado en tu proyecto.
 
@@ -79,7 +81,7 @@ bot.conversation('resumen', async (c, ctx) => {
 - `stream(input): AsyncIterable<string>` — igual que `generate` pero
   entregando el texto en fragmentos (`for await (const delta of ...)`).
 
-## Los 3 proveedores
+## Proveedores
 
 ### Anthropic (default)
 
@@ -114,10 +116,51 @@ bot.plug(aiPlugin({
 }))
 ```
 
+### Presets OpenAI-compatible (DeepSeek, Qwen, GLM, Kimi, Groq, OpenRouter, Mistral, Grok, Together)
+
+Todos estos hablan el protocolo de OpenAI, así que se resuelven con el SDK
+`openai` apuntando a su endpoint — **sin instalar nada extra**. Cada preset
+trae un modelo por defecto y lee la API key de su variable de entorno
+convencional:
+
+```ts
+bot.plug(aiPlugin({ provider: 'deepseek' }))              // DEEPSEEK_API_KEY, modelo deepseek-chat
+bot.plug(aiPlugin({ provider: 'qwen', model: 'qwen-max' })) // DASHSCOPE_API_KEY, override de modelo
+bot.plug(aiPlugin({ provider: 'groq' }))                  // GROQ_API_KEY, llama-3.3-70b-versatile
+bot.plug(aiPlugin({ provider: 'openrouter' }))            // OPENROUTER_API_KEY, openrouter/auto
+```
+
+| Preset | Modelo default | Env de la API key |
+|---|---|---|
+| `deepseek` | `deepseek-chat` | `DEEPSEEK_API_KEY` |
+| `qwen` | `qwen-plus` | `DASHSCOPE_API_KEY` |
+| `glm` | `glm-4-plus` | `ZHIPUAI_API_KEY` |
+| `kimi` | `moonshot-v1-8k` | `MOONSHOT_API_KEY` |
+| `groq` | `llama-3.3-70b-versatile` | `GROQ_API_KEY` |
+| `openrouter` | `openrouter/auto` | `OPENROUTER_API_KEY` |
+| `mistral` | `mistral-small-latest` | `MISTRAL_API_KEY` |
+| `grok` | `grok-2-latest` | `XAI_API_KEY` |
+| `together` | `meta-llama/Llama-3.3-70B-Instruct-Turbo` | `TOGETHER_API_KEY` |
+
+Puedes sobreescribir `model` y `baseUrl` en cualquier preset.
+
+### Gemini (nativo)
+
+```ts
+bot.plug(aiPlugin({
+  provider: 'gemini',
+  // model: 'gemini-2.0-flash',   // default
+}))
+```
+
+Requiere `@google/generative-ai`. La API key se lee de `apiKey`, `GEMINI_API_KEY`
+o `GOOGLE_API_KEY`.
+
 > **`model` obligatorio en `openai` y `ollama`.** ninguno de los dos trae un
 > default razonable (hay demasiados modelos válidos y cambian seguido); si lo
 > omites, el provider lanza un error explícito al primer `generate`/`stream`.
-> `anthropic` sí trae default (`claude-opus-4-8`).
+> `anthropic` (`claude-opus-4-8`), `gemini` (`gemini-2.0-flash`) y todos los
+> **presets** sí traen default.
 
 Si el proveedor está mal configurado (SDK sin instalar, proveedor
 desconocido, API key ausente), `aiPlugin` **no revienta el proceso**: `install`
@@ -130,10 +173,10 @@ configurado en vez de tumbar el bot.
 
 | Campo | Tipo | Default | Descripción |
 |---|---|---|---|
-| `provider` | `'anthropic' \| 'openai' \| 'ollama'` | `'anthropic'` | proveedor a resolver |
-| `model` | `string` | según proveedor | modelo a usar (obligatorio en openai/ollama) |
-| `apiKey` | `string` | — | API key (anthropic/openai; si se omite, el SDK del proveedor intenta leerla del entorno) |
-| `baseUrl` | `string` | — | override de endpoint (`baseURL` de openai / host de ollama) |
+| `provider` | `'anthropic' \| 'openai' \| 'ollama' \| 'gemini' \| 'deepseek' \| 'qwen' \| 'glm' \| 'kimi' \| 'groq' \| 'openrouter' \| 'mistral' \| 'grok' \| 'together'` | `'anthropic'` | proveedor a resolver (los presets son OpenAI-compatible) |
+| `model` | `string` | según proveedor | modelo a usar (obligatorio en openai/ollama; presets/gemini/anthropic traen default) |
+| `apiKey` | `string` | env del preset | API key; en presets cae a su env convencional (p.ej. `DEEPSEEK_API_KEY`) |
+| `baseUrl` | `string` | endpoint del preset | override de endpoint (`baseURL` de openai/presets / host de ollama) |
 | `persona` | `string` | — | system prompt |
 | `maxTokens` | `number` | `4096` (anthropic) / `1024` (openai) | límite de tokens de salida (anthropic/openai; ollama lo ignora hoy) |
 | `effort` | `'low' \| 'medium' \| 'high' \| 'xhigh' \| 'max'` | — | esfuerzo de razonamiento (solo lo usa Anthropic) |

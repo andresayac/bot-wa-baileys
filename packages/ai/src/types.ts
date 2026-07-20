@@ -1,7 +1,16 @@
 export type { AIMessage } from '@bot-wa/core'
 import type { AIMessage } from '@bot-wa/core'
+import type { PresetName } from './providers/presets.js'
 
 export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+
+/**
+ * Which AI backend to use. Besides the three native providers, any OpenAI-
+ * compatible preset (DeepSeek, Qwen, GLM, Kimi, Groq, OpenRouter, Mistral,
+ * Grok, Together) is accepted — each resolves to the OpenAI client pointed at
+ * that vendor's endpoint.
+ */
+export type AIProviderName = 'anthropic' | 'openai' | 'ollama' | 'gemini' | PresetName
 
 export interface GenerateInput {
   system?: string
@@ -23,7 +32,7 @@ export interface AIProvider {
   stream(input: GenerateInput): AsyncIterable<string>
 }
 export interface AIConfig {
-  provider?: 'anthropic' | 'openai' | 'ollama'
+  provider?: AIProviderName
   model?: string
   apiKey?: string
   baseUrl?: string
