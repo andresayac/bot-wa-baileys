@@ -161,6 +161,18 @@ export class ConversationRuntime {
     return (handle as ActiveConversation).state
   }
 
+  /**
+   * Throws if `handle` is no longer the live entry for its key (aborted/replaced).
+   * Controls call this before emitting any output, so a cancelled conversation
+   * cannot produce further side effects — it unwinds silently instead.
+   */
+  assertAlive(handle: ConversationHandle): void {
+    const entry = handle as ActiveConversation
+    if (this.active.get(entry.key) !== entry || entry.cancelled) {
+      throw entry.cancelled ?? new ConversationCancelled(true)
+    }
+  }
+
   private cleanup(entry: ActiveConversation): void {
     if (entry.pending?.timer) clearTimeout(entry.pending.timer)
     if (this.active.get(entry.key) === entry) this.active.delete(entry.key)

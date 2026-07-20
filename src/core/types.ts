@@ -10,6 +10,7 @@
 
 import type { Logger } from 'pino'
 import type { proto, WAMessageKey, WAMessage } from '@whiskeysockets/baileys'
+import type { RuntimeMessage } from '../conversations/ConversationRuntime.js'
 
 export type { WAMessageKey, WAMessage }
 
@@ -529,3 +530,21 @@ export type Trigger =
   | Array<string | RegExp>
   | TriggerObject
   | ((ctx: { body: string; isGroup: boolean }) => boolean)
+
+/* ============================================================================
+ * CONVERSATIONS — CONTROLS (Task 3)
+ * ========================================================================== */
+
+/** Options shared by the conversation controls that wait for an inbound message. */
+export interface WaitOptions {
+  /** Timeout for this wait: ms number or duration string ('30s', '2m', '1h'). */
+  timeout?: number | string
+  /** Validate the captured body. Return `true` to accept, or an error string to reject and retry. */
+  validate?: (body: string, ctx: RuntimeMessage) => true | string | Promise<true | string>
+  /** Max invalid attempts before throwing `RetriesExceeded`. Default 3. */
+  retries?: number
+  /** Message sent when `waitMedia`/`choose` receive an invalid type/option. */
+  otherwise?: string
+  /** Only resolve the wait for messages matching this predicate. */
+  filter?: (ctx: RuntimeMessage) => boolean
+}
