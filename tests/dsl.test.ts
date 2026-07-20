@@ -63,4 +63,46 @@ describe('FlowBuilder + interpreter', () => {
   it('persistent() without string id throws at compile', () => {
     expect(() => flow(/x/).persistent().compile()).toThrow(/id/)
   })
+
+  it('two anonymous flows with IDENTICAL steps compile to distinct ids (I4)', () => {
+    // Same kinds AND same content — only the monotonic counter can distinguish them.
+    const a = flow(/^a$/).say('hola').ask('¿?', 'x').compile()
+    const b = flow(/^b$/).say('hola').ask('¿?', 'x').compile()
+    expect(a.id).not.toBe(b.id)
+  })
+
+  it('compile() copies steps — later builder mutations do not leak (I4)', () => {
+    const builder = flow('x').say('uno')
+    const compiled = builder.compile()
+    builder.say('dos')   // mutate the builder AFTER compiling
+    expect(compiled.steps).toHaveLength(1)
+  })
+
+  it('choose stores the picked key in state.choice for later steps (I5)', async () => {
+    const rt = makeRt()
+    const f = flow('confirmar')
+      .choose('¿Confirmas?', { si: 'Sí', no: 'No' })
+      .say((_ctx, c) => `elegiste: ${c.state.choice}`)
+      .compile()
+    const start = makeMsg('confirmar')
+    const entry = rt.enter(flowToConversation(f), start)
+    await vi.waitFor(() => expect(start.reply).toHaveBeenCalled())   // menú enviado
+    rt.deliver(makeMsg('1'))                                         // opción 1 = 'si'
+    await entry
+    expect(start.reply).toHaveBeenCalledWith('elegiste: si')
+  })
+
+  it('choose stores selection under a custom stateKey (I5)', async () => {
+    const rt = makeRt()
+    const f = flow('confirmar')
+      .choose('¿Confirmas?', { si: 'Sí', no: 'No' }, 'confirmacion')
+      .say((_ctx, c) => `k=${c.state.confirmacion}`)
+      .compile()
+    const start = makeMsg('confirmar')
+    const entry = rt.enter(flowToConversation(f), start)
+    await vi.waitFor(() => expect(start.reply).toHaveBeenCalled())
+    rt.deliver(makeMsg('2'))   // opción 2 = 'no'
+    await entry
+    expect(start.reply).toHaveBeenCalledWith('k=no')
+  })
 })

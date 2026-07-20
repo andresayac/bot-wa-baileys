@@ -33,6 +33,8 @@ export async function runSteps(
       case 'choose': {
         const labels = Object.fromEntries(Object.entries(step.options).map(([k, v]) => [k, v.label]))
         const picked = await c.choose(step.prompt, labels, { timeout: flow.opts.timeoutMs, ...step.opts })
+        // Persist the selection so downstream steps can read it (default key: 'choice').
+        c.state[step.stateKey ?? 'choice'] = picked
         const then = step.options[picked]?.then
         if (isCompiledFlow(then)) await runSteps(then, ctx, c, 0, undefined)   // sub-flow y RETORNA al padre
         else if (typeof then === 'function') await (then as FlowAction)(ctx, c)

@@ -11,7 +11,7 @@ export type CompiledStep =
   | { kind: 'say'; text: string | DynamicText }
   | { kind: 'ask'; text: string | DynamicText; stateKey: string; opts?: WaitOptions }
   | { kind: 'do'; fn: FlowAction }
-  | { kind: 'choose'; prompt: string; options: Record<string, { label: string; then?: CompiledFlow | FlowAction }>; opts?: WaitOptions }
+  | { kind: 'choose'; prompt: string; options: Record<string, { label: string; then?: CompiledFlow | FlowAction }>; stateKey?: string; opts?: WaitOptions }
   | { kind: 'goto'; target: string }
 
 export interface CompiledFlow {
@@ -51,7 +51,15 @@ export class FlowBuilder {
     return this
   }
 
-  choose(prompt: string, options: Record<string, string | { label: string; then?: FlowBuilder | CompiledFlow | FlowAction }>): this {
+  /**
+   * Present a numbered menu and capture the selection. The picked option KEY is stored in
+   * `c.state[stateKey]` (defaults to `c.state.choice`), so a later `.say`/`.do` can read it.
+   */
+  choose(
+    prompt: string,
+    options: Record<string, string | { label: string; then?: FlowBuilder | CompiledFlow | FlowAction }>,
+    stateKey?: string,
+  ): this {
     const compiled: Record<string, { label: string; then?: CompiledFlow | FlowAction }> = {}
     for (const [key, value] of Object.entries(options)) {
       if (typeof value === 'string') compiled[key] = { label: value }
@@ -60,7 +68,7 @@ export class FlowBuilder {
         then: value.then instanceof FlowBuilder ? value.then.compile() : value.then,
       }
     }
-    this.steps.push({ kind: 'choose', prompt, options: compiled })
+    this.steps.push({ kind: 'choose', prompt, options: compiled, stateKey })
     return this
   }
 
@@ -80,13 +88,19 @@ export class FlowBuilder {
       if (this._persistent) throw new Error('persistent() flows need a string trigger or an explicit .id("name")')
     }
     return {
-      id: id ?? `flow_${Math.abs(hashSteps(this.steps))}`,
+      // Anonymous flows (no string trigger / explicit id) get a content hash PLUS a monotonic
+      // counter so two structurally-identical anonymous flows can never collide on the same id
+      // (which previously misrouted one flow's trigger into the other).
+      id: id ?? `flow_${Math.abs(hashSteps(this.steps))}_${anonCounter++}`,
       trigger: this.trigger,
-      steps: this.steps,
+      steps: [...this.steps],   // copy: later builder mutations must not leak into a compiled flow
       opts: { timeoutMs: this._timeoutMs, persistent: this._persistent, scope: this._scope },
     }
   }
 }
+
+/** Module-level monotonic counter — guarantees unique anonymous flow ids per process. */
+let anonCounter = 0
 
 function deriveId(trigger: Trigger): string | undefined {
   if (typeof trigger === 'string') return normalizeText(trigger)
@@ -101,7 +115,32 @@ function deriveId(trigger: Trigger): string | undefined {
 }
 
 function hashSteps(steps: CompiledStep[]): number {
-  const s = steps.map((x) => x.kind).join('|')
+  // Hash structure AND content so distinct flows hash distinctly. Functions can't be hashed
+  // meaningfully, so they contribute the literal 'fn'; the anonymous-id counter guarantees
+  // uniqueness regardless. Included: kind, text, stateKey, choose option keys, goto target.
+  const s = steps
+    .map((step) => {
+      const parts: string[] = [step.kind]
+      switch (step.kind) {
+        case 'say':
+          parts.push(typeof step.text === 'string' ? step.text : 'fn')
+          break
+        case 'ask':
+          parts.push(typeof step.text === 'string' ? step.text : 'fn', step.stateKey)
+          break
+        case 'choose':
+          parts.push(step.prompt, Object.keys(step.options).join(','))
+          break
+        case 'goto':
+          parts.push(step.target)
+          break
+        case 'do':
+          parts.push('fn')
+          break
+      }
+      return parts.join('~')
+    })
+    .join('|')
   let h = 0
   for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0
   return h
