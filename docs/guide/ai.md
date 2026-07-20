@@ -121,9 +121,12 @@ on the first `generate`/`stream` call. `anthropic` does have a default
 (`claude-opus-4-8`).
 :::
 
-If the chosen provider's SDK isn't installed, `aiPlugin` fails at install
-time with an actionable error (it tells you which `pnpm add` to run) instead
-of crashing in production on the first reply.
+If the provider is misconfigured (SDK not installed, unknown provider, missing
+API key), `aiPlugin` **does not crash the process**: `install` is synchronous
+and resolves the provider lazily. At startup a "warmup" logs the problem to the
+error log (with the `pnpm add` hint when an SDK is missing), and from then on
+each message replies the configured `errorMessage` instead of taking the bot
+down.
 
 ## Full `aiPlugin(config)` reference
 
@@ -134,7 +137,7 @@ of crashing in production on the first reply.
 | `apiKey` | `string` | — | API key (anthropic/openai; if omitted, the provider's SDK tries to read it from the environment) |
 | `baseUrl` | `string` | — | endpoint override (openai `baseURL` / ollama host) |
 | `persona` | `string` | — | system prompt |
-| `maxTokens` | `number` | `1024` | output token limit (anthropic/openai; ollama currently ignores it) |
+| `maxTokens` | `number` | `4096` (anthropic) / `1024` (openai) | output token limit (anthropic/openai; ollama currently ignores it) |
 | `effort` | `'low' \| 'medium' \| 'high' \| 'xhigh' \| 'max'` | — | reasoning effort (Anthropic only) |
 | `context.maxMessages` | `number` | `20` | history window kept per chat |
 | `autoReply` | `boolean` | `true` | registers the catch-all autoresponder |
