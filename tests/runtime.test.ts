@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import { ConversationRuntime } from '../src/conversations/ConversationRuntime.js'
+import { ConversationGoto } from '../src/conversations/errors.js'
 
 function msg(body: string, over: Partial<Parameters<ConversationRuntime['deliver']>[0]> = {}) {
   return { from: 'a@s.whatsapp.net', sender: 'a@s.whatsapp.net', body, type: 'text', isGroup: false, reply: vi.fn(async () => {}), ...over }
@@ -134,5 +135,40 @@ describe('ConversationRuntime', () => {
     expect(rt.deliver(msg('to-b'))).toBe(true)            // B keeps its own wait
     await entryB
     expect(gotB).toEqual(['to-b'])
+  })
+
+  it('stale conversation goto does not hijack the new conversation', async () => {
+    const rt = new ConversationRuntime()
+    const start = msg('start')
+    const key = rt.keyFor(start)
+    let otherRan = false
+    rt.register('other', async () => { otherRan = true })
+    let release!: () => void
+    const gate = new Promise<void>((r) => { release = r })
+    const entryA = rt.enter(async () => { await gate; throw new ConversationGoto('other') }, start)
+    rt.abort(key)                                         // A parked on gate: flagged cancelled
+    const gotB: string[] = []
+    const entryB = rt.enter(async (c) => { gotB.push((await c.waitAny()).body) }, msg('start-b'))
+    release()
+    await entryA                                          // A unwinds; its goto must be ignored
+    expect(otherRan).toBe(false)
+    expect(rt.hasActive(key)).toBe(true)                  // B untouched
+    expect(rt.deliver(msg('to-b'))).toBe(true)
+    await entryB
+    expect(gotB).toEqual(['to-b'])
+  })
+
+  it('cancelled conversation produces no farewell side effects', async () => {
+    const onError = vi.fn()
+    const rt = new ConversationRuntime({ errorMessage: 'boom-msg', onError })
+    const start = msg('start')
+    let release!: () => void
+    const gate = new Promise<void>((r) => { release = r })
+    const entry = rt.enter(async () => { await gate; throw new Error('boom') }, start)
+    rt.abort(rt.keyFor(start))                            // cancelled before the throw surfaces
+    release()
+    await entry
+    expect(start.reply).not.toHaveBeenCalledWith('boom-msg')
+    expect(onError).not.toHaveBeenCalled()
   })
 })

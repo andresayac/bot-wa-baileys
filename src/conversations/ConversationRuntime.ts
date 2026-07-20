@@ -88,7 +88,9 @@ export class ConversationRuntime {
     try {
       await fn(controls as never, ctx)
     } catch (e) {
-      if (e instanceof ConversationEnded) {
+      if (entry.cancelled) {
+        // Conversación reemplazada/abortada: muere en silencio, sin efectos visibles.
+      } else if (e instanceof ConversationEnded) {
         if (e.farewell) await this.safeReply(ctx, e.farewell)
       } else if (e instanceof ConversationGoto) {
         goto = e
@@ -106,7 +108,7 @@ export class ConversationRuntime {
     } finally {
       this.cleanup(entry)
     }
-    if (goto) await this.enter(goto.target, ctx)
+    if (goto && !entry.cancelled) await this.enter(goto.target, ctx)
   }
 
   deliver(ctx: RuntimeMessage): boolean {
