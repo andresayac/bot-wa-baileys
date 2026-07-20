@@ -23,7 +23,19 @@ export class MockProvider extends TypedEmitter<ProviderEvents> implements IProvi
   async downloadMedia(): Promise<Buffer> { return Buffer.alloc(0) }
 
   /** Simulate an incoming WhatsApp message. */
-  incoming(text: string, opts: { from?: string; participant?: string; type?: string; id?: string } = {}): void {
+  incoming(
+    text: string,
+    opts: {
+      from?: string
+      participant?: string
+      /** PN twin of `from`, for simulating a LID-addressed DM (Baileys 7). */
+      remoteJidAlt?: string
+      /** PN twin of `participant`, for simulating a LID-addressed group sender. */
+      participantAlt?: string
+      type?: string
+      id?: string
+    } = {},
+  ): void {
     const from = opts.from ?? 'user@s.whatsapp.net'
     const type = opts.type ?? 'text'
     const message: Record<string, unknown> = {}
@@ -49,7 +61,14 @@ export class MockProvider extends TypedEmitter<ProviderEvents> implements IProvi
     }
     this.emitTyped('rawMessage', {
       message: {
-        key: { remoteJid: from, fromMe: false, id: opts.id ?? `in-${++counter}`, participant: opts.participant },
+        key: {
+          remoteJid: from,
+          fromMe: false,
+          id: opts.id ?? `in-${++counter}`,
+          participant: opts.participant,
+          remoteJidAlt: opts.remoteJidAlt,
+          participantAlt: opts.participantAlt,
+        },
         message,
         messageTimestamp: Math.floor(Date.now() / 1000),
         pushName: 'Test User',

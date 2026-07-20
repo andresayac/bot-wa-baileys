@@ -95,7 +95,12 @@ export type MessageType =
 
 /** Sender information extracted from an inbound message. */
 export interface SenderInfo {
+  /** PN-preferred sender id — same value as {@link MessageContext.sender}. */
   id: UserId
+  /** Phone-number-form JID (`@s.whatsapp.net`), when the sender resolved to one. */
+  phoneNumber?: string
+  /** LID-form JID (`@lid`), when the raw inbound identity was a LID (Baileys 7). */
+  lid?: string
   name?: string
   pushName?: string
   isBusiness?: boolean
@@ -137,6 +142,8 @@ export interface MessageContext<TTools extends object = DefaultTools> {
   from: ChatId
   /** Who sent it — string JID. In DMs equals `from`; in groups the participant. */
   sender: UserId
+  /** LID/PN-aware sender identity — see {@link SenderInfo}. */
+  senderInfo: SenderInfo
   /** Sender's WhatsApp display name, when present on the inbound message. */
   pushName?: string
   chat: ChatInfo

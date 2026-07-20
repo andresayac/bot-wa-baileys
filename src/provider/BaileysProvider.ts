@@ -74,6 +74,8 @@ export class BaileysProvider extends TypedEmitter<ProviderEvents> implements IPr
   private version: [number, number, number] = [0, 0, 0]
   private reconnectPending: boolean = false
   private isShuttingDown: boolean = false
+  /** LID <-> PN cache — every resolved pair is stored under both keys. */
+  private lidCache = new Map<string, string>()
 
   constructor(
     private config: BotConfig,
@@ -146,14 +148,59 @@ export class BaileysProvider extends TypedEmitter<ProviderEvents> implements IPr
   /** Resolve a LID JID to a PN JID if needed for sending. */
   private async resolveJid(jid: string): Promise<string> {
     if (!jid.endsWith('@lid')) return jid
-    try {
-      // Try to get the PN mapping from the signal repository
-      const pn = await (this.sock as any).signalRepository?.lidMapping?.getPNForLID?.(jid)
-      if (pn) return pn
-    } catch {}
-    // Fallback: try the store / contacts for a PN matching this LID
     // If we can't resolve, send to the LID anyway (Baileys may handle it)
-    return jid
+    return (await this.getPNForLID(jid)) ?? jid
+  }
+
+  /** PN for a LID — checks the local cache first, then the signal repository. */
+  async getPNForLID(lid: string): Promise<string | undefined> {
+    const cached = this.lidCache.get(lid)
+    if (cached) return cached
+    const pn = await this.sock?.signalRepository.lidMapping.getPNForLID(lid).catch(() => null)
+    if (pn) {
+      this.lidCache.set(lid, pn)
+      this.lidCache.set(pn, lid)
+    }
+    return pn ?? undefined
+  }
+
+  /** LID for a PN — checks the local cache first, then the signal repository. */
+  async getLIDForPN(pn: string): Promise<string | undefined> {
+    const cached = this.lidCache.get(pn)
+    if (cached) return cached
+    const lid = await this.sock?.signalRepository.lidMapping.getLIDForPN(pn).catch(() => null)
+    if (lid) {
+      this.lidCache.set(pn, lid)
+      this.lidCache.set(lid, pn)
+    }
+    return lid ?? undefined
+  }
+
+  /**
+   * Cache a `lid-mapping.update` payload. The observed shape (Baileys 7.0.0-rc13)
+   * is a single `{ lid, pn }` pair, but this is coded defensively in case a build
+   * emits an array of pairs or a plain `{ [a]: b }` record instead.
+   */
+  private cacheLidMapping(update: unknown): void {
+    if (!update || typeof update !== 'object') return
+    const pairs = Array.isArray(update) ? update : [update]
+    let sawPairShape = false
+    for (const entry of pairs) {
+      if (entry && typeof entry === 'object' && 'lid' in entry && 'pn' in entry) {
+        sawPairShape = true
+        const { lid, pn } = entry as { lid?: string; pn?: string }
+        if (lid && pn) {
+          this.lidCache.set(lid, pn)
+          this.lidCache.set(pn, lid)
+        }
+      }
+    }
+    if (!sawPairShape && !Array.isArray(update)) {
+      for (const [a, b] of Object.entries(update as Record<string, string>)) {
+        this.lidCache.set(a, b)
+        this.lidCache.set(b, a)
+      }
+    }
   }
 
   /** Read receipts — mark messages read. */
@@ -297,6 +344,11 @@ export class BaileysProvider extends TypedEmitter<ProviderEvents> implements IPr
       /* Presence ---------------------------------------------------------- */
       if (events['presence.update']) {
         this.emitTyped('presenceUpdate', events['presence.update'])
+      }
+
+      /* LID/PN identity ----------------------------------------------------- */
+      if (events['lid-mapping.update']) {
+        this.cacheLidMapping(events['lid-mapping.update'])
       }
     })
   }

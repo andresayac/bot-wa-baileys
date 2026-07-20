@@ -45,11 +45,12 @@ import type {
   MessageContext as IMessageContext,
   MessageType,
   ChatInfo,
+  SenderInfo,
   SentMessage,
   UserId,
 } from './types.js'
 
-import { normalize } from '../utils/jid.js'
+import { normalize, normalizeInboundKey, isPnUser, isLidUser } from '../utils/jid.js'
 import { humanTypingDelay, sleep } from '../utils/timers.js'
 
 export interface MediaProcessorAPI {
@@ -78,26 +79,37 @@ export function buildMessageContext(deps: BuildContextDeps): IMessageContext {
   const { rawMessage, send, tools, media: mediaApi } = deps
   const msg = rawMessage
   const key = (msg.key ?? { remoteJid: '', fromMe: false }) as WAMessageKey
-  // Baileys 7: prefer PN JID (@s.whatsapp.net) over LID (@lid) for sending replies
-  // key.remoteJid may be @lid, but key.remoteJidAlt has the @s.whatsapp.net form
-  const rawFrom = (key as any).remoteJidAlt ?? key.remoteJid ?? ''
-  const from = normalize(rawFrom as string) as ChatId
+  // Baileys 7 delivers private-chat & group-sender identities as LID (`@lid`); the
+  // PN twin (`@s.whatsapp.net`) rides along in remoteJidAlt/participantAlt. Group
+  // JIDs themselves are always @g.us (never LID), so it's safe to classify
+  // group-ness off the raw remoteJid before resolving the PN-preferred pair.
+  const isGroupRaw = (key.remoteJid ?? '').endsWith('@g.us')
+  const rawParticipant = msg.participant ?? key.participant ?? null
+  const { chat: rawChat, sender: rawSender } = normalizeInboundKey(
+    {
+      remoteJid: key.remoteJid,
+      remoteJidAlt: key.remoteJidAlt,
+      participant: rawParticipant,
+      participantAlt: key.participantAlt,
+      fromMe: key.fromMe,
+    },
+    isGroupRaw,
+  )
+  const from = normalize(rawChat) as ChatId
+  // `sender` identifies WHO spoke — string form, aligned with RuntimeMessage.sender so
+  // this same object flows straight into the Dispatcher/ConversationRuntime keying.
+  const sender: UserId = normalize(rawSender) as UserId
 
   const isGroup = from.endsWith('@g.us')
   const isPrivate = !isGroup && from.endsWith('@s.whatsapp.net')
-  // `sender` identifies WHO spoke — string form, aligned with RuntimeMessage.sender so
-  // this same object flows straight into the Dispatcher/ConversationRuntime keying.
-  // In groups prefer the PN JID (participantAlt) over LID; in DMs the sender IS the chat.
-  // (Rich sender metadata / full LID resolution lands in Task 10.)
-  const sender: UserId = isGroup
-    ? (normalize(
-        ((key as { participantAlt?: string }).participantAlt ??
-          (msg as { participant?: string }).participant ??
-          (key as { participant?: string }).participant ??
-          key.remoteJid ??
-          '') as string,
-      ) as UserId)
-    : from
+
+  // Rich LID/PN identity — no async lookups here, just what the inbound key told us.
+  const rawIdentity = (isGroupRaw ? rawParticipant : key.remoteJid) ?? ''
+  const senderInfo: SenderInfo = {
+    id: sender,
+    phoneNumber: isPnUser(sender) ? sender : undefined,
+    lid: isLidUser(rawIdentity) ? rawIdentity : undefined,
+  }
   const pushName = msg.pushName ?? undefined
 
   const chat: ChatInfo = {
@@ -177,6 +189,7 @@ export function buildMessageContext(deps: BuildContextDeps): IMessageContext {
     body,
     from,
     sender,
+    senderInfo,
     pushName,
     chat,
     type,
