@@ -32,6 +32,7 @@ export class MemoryStore implements IStore {
   private contacts = new Map<string, Contact>()
   private flowStates = new Map<string, Record<string, unknown>>()
   private checkpoints = new Map<string, FlowCheckpoint>()
+  private conversations = new Map<string, import('./IStore.js').AIMessage[]>()
   private autoSaveTimer: NodeJS.Timeout | null = null
 
   constructor(private opts: MemoryStoreOptions = {}) {}
@@ -45,6 +46,7 @@ export class MemoryStore implements IStore {
         if (data.contacts) for (const c of data.contacts) this.contacts.set(c.id, c)
         if (data.flowStates) for (const [k, v] of Object.entries(data.flowStates)) this.flowStates.set(k, v as Record<string, unknown>)
         if (data.checkpoints) for (const [k, v] of Object.entries(data.checkpoints)) this.checkpoints.set(k, v as FlowCheckpoint)
+        if (data.conversations) for (const [k, v] of Object.entries(data.conversations)) this.conversations.set(k, v as any)
         // Messages are intentionally NOT restored (privacy + size).
       } catch (err) {
         this.opts.logger?.error?.({ err, file: this.opts.file }, 'MemoryStore failed to load file')
@@ -71,6 +73,7 @@ export class MemoryStore implements IStore {
       contacts: [...this.contacts.values()],
       flowStates: Object.fromEntries(this.flowStates),
       checkpoints: Object.fromEntries(this.checkpoints),
+      conversations: Object.fromEntries(this.conversations),
     }
     try {
       await writeFile(this.opts.file, JSON.stringify(payload), 'utf8')
@@ -189,5 +192,17 @@ export class MemoryStore implements IStore {
 
   async listCheckpoints(): Promise<Array<[string, FlowCheckpoint]>> {
     return [...this.checkpoints.entries()]
+  }
+
+  async getConversation(key: string): Promise<import('./IStore.js').AIMessage[] | undefined> {
+    return this.conversations.get(key)
+  }
+
+  async setConversation(key: string, messages: import('./IStore.js').AIMessage[]): Promise<void> {
+    this.conversations.set(key, messages)
+  }
+
+  async clearConversation(key: string): Promise<void> {
+    this.conversations.delete(key)
   }
 }
