@@ -1,9 +1,15 @@
 /**
  * aiPlugin — installs a multi-provider AI autoresponder + `ctx.tools.ai` into a Bot.
  *
- * On install it resolves the provider (or accepts one already built via the
- * TEST-ONLY `__provider` hook), wires a {@link ContextManager} on top of the
- * bot's store, builds an {@link AIClient} and injects it as `ctx.tools.ai`.
+ * `install` is **synchronous**: it wires a {@link ContextManager} on top of the
+ * bot's store, builds an {@link AIClient} on a {@link LazyProvider} and injects
+ * it as `ctx.tools.ai` immediately (so `unplug()` is honoured and `ctx.tools.ai`
+ * is never briefly undefined). The real provider is resolved lazily on first use
+ * and, at startup, warmed up eagerly: a misconfiguration (missing SDK, unknown
+ * provider, bad api key) is **logged as an error** and then degrades to the
+ * configured `errorMessage` on each message — the process never crashes. A
+ * pre-built provider can be injected via the TEST-ONLY `__provider` hook.
+ *
  * Unless disabled it also registers a catch-all autoresponder (`onMessage`,
  * text-only) and a `/reset` command that clears the chat's AI context.
  *
@@ -20,10 +26,14 @@ import type { AIConfig, AIProvider } from './types.js'
 import { ContextManager } from './ContextManager.js'
 import { AIClient } from './AIClient.js'
 import { resolveProvider } from './providers/resolve.js'
+import { LazyProvider } from './providers/LazyProvider.js'
 import { chatKeyOf } from './chatKey.js'
 
-/** Public config for {@link aiPlugin}. `__provider` is a TEST-ONLY injection hook. */
-export type AIPluginConfig = AIConfig & { __provider?: AIProvider }
+/** Public config for {@link aiPlugin}. */
+export type AIPluginConfig = AIConfig & {
+  /** @internal test-only injection hook — pre-built provider, bypasses lazy resolution. */
+  __provider?: AIProvider
+}
 
 const DEFAULT_ERROR_MESSAGE = '⚠️ Ahora no puedo responder, intenta luego.'
 const DEFAULT_RESET_REPLY = '✅ Conversación reiniciada.'
@@ -33,9 +43,11 @@ export function aiPlugin(config: AIPluginConfig = {}): PluginSpec<AIPluginConfig
     name: 'ai',
     version: '0.1.0',
     description: 'Multi-provider AI autoresponder + ctx.tools.ai',
-    async install(ctx: PluginContext, cfg: AIPluginConfig = config) {
+    install(ctx: PluginContext, cfg: AIPluginConfig = config) {
       const bot = ctx.bot
-      const provider = cfg.__provider ?? (await resolveProvider(cfg))
+      // Resolve lazily so install stays sync: a bad config can't crash the process.
+      const lazy = cfg.__provider ? undefined : new LazyProvider(() => resolveProvider(cfg))
+      const provider: AIProvider = cfg.__provider ?? lazy!
       const ctxMgr = new ContextManager(bot.getStore(), { maxMessages: cfg.context?.maxMessages })
       const client = new AIClient(provider, ctxMgr, {
         persona: cfg.persona,
@@ -69,6 +81,14 @@ export function aiPlugin(config: AIPluginConfig = {}): PluginSpec<AIPluginConfig
           bot.abortConversation(mctx)
           await mctx.reply(DEFAULT_RESET_REPLY)
         })
+      }
+
+      // Surface a misconfigured provider loudly-but-non-fatally at startup: warm
+      // the lazy provider so a missing SDK / unknown provider / failing SDK ctor
+      // is logged now instead of silently waiting for the first message. It stays
+      // non-fatal — the autoreply try/catch replies `errorMessage` per message.
+      if (lazy) {
+        void lazy.warmup().catch((err) => ctx.logger.error({ err }, 'ai provider failed to resolve'))
       }
     },
   })

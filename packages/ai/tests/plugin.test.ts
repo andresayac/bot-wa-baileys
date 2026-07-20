@@ -1,12 +1,14 @@
 import { describe, it, expect } from 'vitest'
 import { createTestBot } from '@bot-wa/bot-wa-baileys/testing'
 import { MockAIProvider } from '../src/MockAIProvider.js'
+import { LazyProvider } from '../src/providers/LazyProvider.js'
+import type { AIProvider } from '../src/types.js'
 import { aiPlugin } from '../src/plugin.js'
 
-async function botWithAI(cfg = {}, mock = new MockAIProvider({ reply: 'IA responde' })) {
+async function botWithAI(cfg = {}, mock: AIProvider = new MockAIProvider({ reply: 'IA responde' })) {
   const { bot, chat } = await createTestBot()
-  bot.plug(aiPlugin({ __provider: mock, persona: 'ACME', ...cfg } as any))
-  return { bot, chat, mock }
+  const unplug = bot.plug(aiPlugin({ __provider: mock, persona: 'ACME', ...cfg } as any))
+  return { bot, chat, mock, unplug }
 }
 
 describe('aiPlugin', () => {
@@ -51,5 +53,41 @@ describe('aiPlugin', () => {
     const { chat } = await botWithAI({ errorMessage: 'sin servicio' }, mock)
     await chat.send('hola')
     await chat.expectReply('sin servicio')
+  })
+  it('unplug removes the catch-all and /reset', async () => {
+    const { chat, unplug } = await botWithAI()
+    unplug()
+    await chat.send('x')
+    await chat.send('/reset')
+    await new Promise((r) => setTimeout(r, 30))
+    expect(chat.replies().filter((r) => r.includes('IA responde'))).toHaveLength(0)
+    expect(chat.replies().filter((r) => r.includes('reiniciada'))).toHaveLength(0)
+  })
+  it('autoReply:false does not register the catch-all but still provides ai', async () => {
+    const { bot, chat } = await botWithAI({ autoReply: false })
+    await chat.send('x')
+    await new Promise((r) => setTimeout(r, 30))
+    expect(chat.replies().filter((r) => r.includes('IA responde'))).toHaveLength(0)
+    bot.conversation('q', async (c, ctx) => {
+      const a = await (ctx.tools as any).ai.ask('algo')
+      await ctx.reply(`ai dijo: ${a}`)
+    })
+    await chat.send('q')
+    await chat.expectReply('ai dijo: IA responde')
+  })
+  it('provider that fails to resolve → each message replies errorMessage, no crash', async () => {
+    const rejections: unknown[] = []
+    const onRej = (e: unknown) => rejections.push(e)
+    process.on('unhandledRejection', onRej)
+    try {
+      const failing = new LazyProvider(async () => { throw new Error('no SDK installed') })
+      const { chat } = await botWithAI({ errorMessage: 'sin servicio' }, failing)
+      await chat.send('hola'); await chat.expectReply('sin servicio')
+      await chat.send('otra'); await chat.expectReply('sin servicio')
+      await new Promise((r) => setTimeout(r, 10))
+    } finally {
+      process.off('unhandledRejection', onRej)
+    }
+    expect(rejections).toHaveLength(0)
   })
 })
