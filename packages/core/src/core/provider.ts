@@ -417,6 +417,9 @@ export interface IProvider<TRaw = unknown> {
   readonly id: string
   readonly capabilities: ProviderCapabilities
 
+  /** The bot's own user id once connected (for group @mention matching). Optional. */
+  readonly selfId?: UserId | null
+
   start(): Promise<void>
   stop(): Promise<void>
 

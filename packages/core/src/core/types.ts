@@ -55,6 +55,11 @@ export type {
   StoreKind,
   BotConfig,
   LoggerLike,
+  StoredMessage,
+  StoredChat,
+  StoredContact,
+  FlowCheckpoint,
+  AIMessage,
 } from './provider.js'
 export {
   ProviderError,
