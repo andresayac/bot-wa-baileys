@@ -45,12 +45,15 @@ describe('AnthropicProvider', () => {
 describe('OpenAIProvider', () => {
   it('prepends system and reads choice content', async () => {
     const client = { chat: { completions: { create: vi.fn(async () => ({ choices: [{ message: { content: 'hey' }, finish_reason: 'stop' }], model: 'gpt-x', usage: { prompt_tokens: 1, completion_tokens: 1 } })) } } }
-    const p = new OpenAIProvider(client as any, { model: 'gpt-x' })
+    const p = new OpenAIProvider(client as any, { model: 'gpt-x', maxTokens: 512 })
     const r = await p.generate({ system: 'S', messages: [{ role: 'user', content: 'hi' }] })
     expect(r.text).toBe('hey')
     const args = client.chat.completions.create.mock.calls[0][0]
     expect(args.messages[0]).toEqual({ role: 'system', content: 'S' })
     expect(args.messages[1]).toEqual({ role: 'user', content: 'hi' })
+    // Current OpenAI chat models require max_completion_tokens, not max_tokens.
+    expect(args.max_completion_tokens).toBe(512)
+    expect('max_tokens' in args).toBe(false)
   })
 })
 

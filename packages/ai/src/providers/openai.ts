@@ -45,7 +45,8 @@ export class OpenAIProvider implements AIProvider {
     const res = (await this.client.chat.completions.create({
       model: this.model(input),
       messages: this.messagesFor(input),
-      max_tokens: input.maxTokens ?? this.cfg.maxTokens ?? 1024,
+      // Current OpenAI chat models (o-series, gpt-5 family) reject `max_tokens`.
+      max_completion_tokens: input.maxTokens ?? this.cfg.maxTokens ?? 1024,
     })) as OpenAIChatCompletion
     return {
       text: res.choices[0]?.message?.content ?? '',
@@ -59,7 +60,8 @@ export class OpenAIProvider implements AIProvider {
     const s = (await this.client.chat.completions.create({
       model: this.model(input),
       messages: this.messagesFor(input),
-      max_tokens: input.maxTokens ?? this.cfg.maxTokens ?? 1024,
+      // Current OpenAI chat models (o-series, gpt-5 family) reject `max_tokens`.
+      max_completion_tokens: input.maxTokens ?? this.cfg.maxTokens ?? 1024,
       stream: true,
     })) as AsyncIterable<OpenAIStreamChunk>
     for await (const chunk of s) {

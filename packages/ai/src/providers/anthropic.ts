@@ -26,6 +26,9 @@ export interface AnthropicLike {
 }
 
 const DEFAULT_MODEL = 'claude-opus-4-8'
+// Adaptive thinking shares this budget with the visible reply; 1024 risks
+// truncated/empty replies once reasoning tokens are spent, so default higher.
+const DEFAULT_MAX_TOKENS = 4096
 
 export class AnthropicProvider implements AIProvider {
   readonly name = 'anthropic'
@@ -37,7 +40,7 @@ export class AnthropicProvider implements AIProvider {
   private buildArgs(input: GenerateInput): Record<string, unknown> {
     const args: Record<string, unknown> = {
       model: input.model ?? this.cfg.model ?? DEFAULT_MODEL,
-      max_tokens: input.maxTokens ?? this.cfg.maxTokens ?? 1024,
+      max_tokens: input.maxTokens ?? this.cfg.maxTokens ?? DEFAULT_MAX_TOKENS,
       messages: input.messages,
       thinking: { type: 'adaptive' },
     }
