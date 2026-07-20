@@ -88,6 +88,7 @@ import { MemoryStore } from '../store/MemoryStore.js'
 import type { IStore } from '../store/IStore.js'
 import { Dispatcher, type DispatchContext } from './Dispatcher.js'
 import { buildMessageContext } from './context.js'
+import { IdentityStore } from './identity.js'
 import { ConversationRuntime, type CheckpointStore, type ConversationFn } from '../conversations/ConversationRuntime.js'
 import { createControls, type ConversationControls } from '../conversations/controls.js'
 import { FlowBuilder, isCompiledFlow, type CompiledFlow } from '../flows/FlowBuilder.js'
@@ -163,6 +164,7 @@ export class Bot extends EventEmitter {
   private runtime: ConversationRuntime
   private dispatcher: Dispatcher
   private scheduler = new Scheduler()
+  private identity = new IdentityStore()
   private tools: Record<string, unknown> = {}
   private disposables = new DisposableList()
   private isStarted = false
@@ -846,6 +848,7 @@ export class Bot extends EventEmitter {
     const ctx = buildMessageContext({
       rawMessage: message,
       tools: this.tools,
+      identity: this.identity,
       // Route replies through sendThrough so before/after('send') hooks fire for ctx.reply/photo/…
       // A skipped send (before('send') abort) yields no raw message; synthesize a key-only shape.
       send: async (jid, content, opts) => {

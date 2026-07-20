@@ -52,6 +52,7 @@ import type {
 
 import { normalize, normalizeInboundKey, isPnUser, isLidUser } from '../utils/jid.js'
 import { humanTypingDelay, sleep } from '../utils/timers.js'
+import type { IdentityStore } from './identity.js'
 
 export interface MediaProcessorAPI {
   toMediaUpload: (source: MediaSource) => any
@@ -72,6 +73,13 @@ export interface BuildContextDeps {
   deleteMessage?: (key: WAMessageKey) => Promise<void>
   /** Media processor functions (injected, no dynamic imports) */
   media: MediaProcessorAPI
+  /**
+   * Cross-message LID↔PN identity store. When provided, inbound identities are
+   * canonicalised to a stable PN so a conversation key never flips mid-flow
+   * (Baileys 7 drops the PN twin on some messages). Optional: tests/embedders
+   * that don't care about identity stability can omit it.
+   */
+  identity?: IdentityStore
 }
 
 /** Build the canonical MessageContext from a raw Baileys message. */
@@ -85,6 +93,10 @@ export function buildMessageContext(deps: BuildContextDeps): IMessageContext {
   // group-ness off the raw remoteJid before resolving the PN-preferred pair.
   const isGroupRaw = (key.remoteJid ?? '').endsWith('@g.us')
   const rawParticipant = msg.participant ?? key.participant ?? null
+  // Learn any LID↔PN pairing this key exposes BEFORE resolving, so a bare-LID
+  // twin on a later message can still be canonicalised back to this PN.
+  deps.identity?.observe(key.remoteJid, key.remoteJidAlt)
+  deps.identity?.observe(rawParticipant, key.participantAlt)
   const { chat: rawChat, sender: rawSender } = normalizeInboundKey(
     {
       remoteJid: key.remoteJid,
@@ -95,10 +107,13 @@ export function buildMessageContext(deps: BuildContextDeps): IMessageContext {
     },
     isGroupRaw,
   )
-  const from = normalize(rawChat) as ChatId
+  // Canonicalise to the stable PN identity (when learned). This is what keeps the
+  // conversation key from flipping PN<->LID across messages — the live "flujos
+  // tienen líos" bug. Groups keep their @g.us chat; only the sender is remapped.
+  const from = normalize(deps.identity?.canonical(rawChat) ?? rawChat) as ChatId
   // `sender` identifies WHO spoke — string form, aligned with RuntimeMessage.sender so
   // this same object flows straight into the Dispatcher/ConversationRuntime keying.
-  const sender: UserId = normalize(rawSender) as UserId
+  const sender: UserId = normalize(deps.identity?.canonical(rawSender) ?? rawSender) as UserId
 
   const isGroup = from.endsWith('@g.us')
   const isPrivate = !isGroup && from.endsWith('@s.whatsapp.net')
