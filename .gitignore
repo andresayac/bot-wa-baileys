@@ -20,7 +20,8 @@ docs/.vitepress/cache/
 # Store serializado (contiene conversaciones) — nunca commitear
 baileys_store.json
 
-# Build output del ejemplo (tsc -p examples)
-examples/*.js
-examples/examples/
-examples/src/
+# Build output del ejemplo (tsc -p examples) — anchored with ** so it matches
+# both the repo root and packages/*/examples after the monorepo split.
+**/examples/*.js
+**/examples/examples/
+**/examples/src/

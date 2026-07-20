@@ -1,0 +1,13 @@
+{
+    "extends": "../../tsconfig.base.json",
+    "compilerOptions": {
+        "experimentalDecorators": true,
+        "allowJs": false,
+        "checkJs": false,
+        "rootDir": "src",
+        "outDir": "lib",
+        "resolveJsonModule": true,
+        "forceConsistentCasingInFileNames": true
+    },
+    "include": ["src/**/*.ts"]
+}
