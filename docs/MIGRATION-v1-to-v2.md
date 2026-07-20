@@ -14,7 +14,7 @@ Si tu bot v1 es simple (unos cuantos `addKeyword`/respuestas de texto), la migra
 | `sendText/sendImage/sendVideo/sendAudio/sendFile/...` | Conservados en `bot.sendText`/`bot.send` + los helpers de contexto `ctx.reply/photo/video/audio/file/...` |
 | Eventos `qr` / `ready` | Iguales: `bot.on('qr', (qr) => ...)`, `bot.on('ready', () => ...)` |
 | `usePairingCode: true, phoneNumber: 'XXX'` + evento `pairing_code` | Config `pairingCode: '+57300XXXXXXX'` (formato internacional completo) + `bot.on('pairing_code', (code) => ...)` — el evento conserva su nombre v1 |
-| `auth_failure` | `bot.on('error', ({ error, ctx }) => ...)` |
+| `auth_failure` | No hay evento `auth_failure` dedicado: los fallos de credenciales llegan como un cierre de conexión → `bot.on('connection', (u) => { if (u.state === 'close') ... })` (revisa `u.lastDisconnect`). El evento `bot.on('error', ...)` es para errores de procesamiento de mensajes, no de auth. |
 | `sendButtons` (ya deprecado en v1) | **Eliminado.** Usa `c.choose()` / `.choose()` (menú numerado) o `ctx.poll()` |
 
 ## Ejemplos antes / después
@@ -90,11 +90,12 @@ await botBaileys.sendButtons(jid, 'Elige una opción', [
 ```
 
 ```ts
-// v2 — dentro de un flow
+// v2 — dentro de un flow. `choose` guarda la KEY elegida en c.state.choice
+// (o en la key que pases como 3er argumento: .choose(prompt, opciones, 'confirmacion')).
 bot.use(
   flow('confirmar')
     .choose('¿Confirmas tu pedido?', { si: 'Sí', no: 'No' })
-    .say((_ctx, c) => c.state ? '✅ Confirmado' : '')
+    .say((_ctx, c) => c.state.choice === 'si' ? '✅ Confirmado' : '❌ Cancelado')
 )
 
 // o dentro de una conversación async
@@ -161,6 +162,33 @@ El paquete es **ESM puro** (`"type": "module"`, sin build CommonJS). Tu proyecto
 - Estar en Node **>= 22.12**, donde `require('@bot-wa/bot-wa-baileys')` funciona vía el soporte experimental de Node para `require(esm)`.
 
 Mínimo soportado: **Node >= 20**. Baileys 7 (el motor de transporte) también es ESM-only — es una de las razones por las que la v2 no ofrece un build CJS.
+
+## Desviaciones respecto a la API v1 / BuilderBot
+
+Detalles concretos donde la forma v2 NO coincide 1:1 con lo que quizá esperas de v1 o de bot-whatsapp/BuilderBot:
+
+- **`.timeout(ms)` no lleva mensaje.** En el DSL, `flow(...).timeout('30s')` fija solo la duración del `wait`. El texto que se envía al expirar NO es un parámetro de `.timeout()` — se configura globalmente al crear el bot con `conversation.timeoutMessage`:
+
+  ```ts
+  const bot = new Bot({ conversation: { timeout: '30s', timeoutMessage: '⏰ Se acabó el tiempo.' } })
+  ```
+
+- **`addKeyword` es el ÚNICO alias de compatibilidad.** `addKeyword` existe como alias directo de `flow`. Los métodos de BuilderBot `.addAnswer(...)` y `.addAction(...)` **no existen** — usa el DSL v2: `.say(text)`, `.ask(text, stateKey)`, `.do(fn)`, `.choose(prompt, opciones, stateKey?)`.
+
+- **`.persistent()` requiere un store con archivo.** Ver la nota de [flujos persistentes](#flujos-persistentes-persistent) más abajo.
+
+## Flujos persistentes (`.persistent()`)
+
+`flow(...).persistent()` solo **sobrevive a reinicios del proceso** si el store está respaldado por un archivo. El store por defecto (`MemoryStore`) vive en memoria: sin `file`, los checkpoints se pierden al reiniciar. Para persistencia real:
+
+```ts
+const bot = new Bot({
+  storeConfig: { file: './store.json' },   // MemoryStore respaldado por disco
+})
+bot.use(flow('registrar').persistent().ask('¿Nombre?', 'name').say('listo'))
+```
+
+Sin `storeConfig.file`, `.persistent()` sigue funcionando dentro de la misma ejecución (checkpoints en memoria) pero un reinicio empieza de cero.
 
 ## Ver también
 

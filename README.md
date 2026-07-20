@@ -46,6 +46,8 @@ Un ejemplo más completo (comandos, media, hooks, DI, scheduler) vive en [`examp
 
 ¿Sin cámara para escanear el QR? Configura `new Bot({ session: 'mi-bot', pairingCode: '+57300XXXXXXX' })` (número en formato internacional completo) y escucha `bot.on('pairing_code', (code) => console.log(code))` — igual que en v1.
 
+> **Flujos persistentes:** `flow(...).persistent()` solo sobrevive a un reinicio del proceso si el store está respaldado por un archivo. El `MemoryStore` por defecto vive en memoria; para conservar los checkpoints entre reinicios crea el bot con `new Bot({ storeConfig: { file: './store.json' } })`. Ver la [guía de migración](docs/MIGRATION-v1-to-v2.md#flujos-persistentes-persistent).
+
 ## Características (v2)
 
 - **Flows declarativos que compilan a runtime async** — `flow().say().ask().choose()` se compila a un `bot.conversation` real; ya no hay motor de "arrays de pasos" por separado.
