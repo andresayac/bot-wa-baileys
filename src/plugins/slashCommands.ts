@@ -70,7 +70,7 @@ export const slashCommandsPlugin = definePlugin<SlashCommandsConfig>({
             }
             case `${prefix}reset`:
             case `${prefix}cancel`: {
-              bot.abortFlow(ctx.from)
+              bot.abortConversation(ctx.from)
               await ctx.say('✅ Conversación reiniciada.')
               break
             }

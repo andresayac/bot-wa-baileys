@@ -38,7 +38,7 @@ export class MockProvider extends TypedEmitter<ProviderEvents> implements IProvi
         message.pollCreationMessage = { name: text }
         break
       case 'buttons':
-        message.buttonsResponseMessage = { selectedButtonId: text }
+        message.buttonsResponseMessage = { selectedButtonId: text, selectedDisplayText: text }
         break
       case 'list':
         message.listResponseMessage = { title: text }

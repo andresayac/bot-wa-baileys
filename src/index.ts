@@ -9,7 +9,7 @@
  * import { Bot, flow, definePlugin, slashCommandsPlugin } from '@bot-wa/bot-wa-baileys'
  *
  * const bot = new Bot({ session: 'demo-bot', qr: { terminal: true, small: true } })
- * bot.on('ready', () => console.log('✅ ready'))
+ * bot.on('ready', () => bot.logger.info('ready'))
  * await bot.start()
  * ```
  *
@@ -41,9 +41,11 @@
 
 // Core
 export { Bot } from './core/Bot.js'
-export { MessageRouter } from './core/MessageRouter.js'
+export type { BotEvents, MessageHandler, CommandHandler } from './core/Bot.js'
 export { buildMessageContext, loadMediaOf } from './core/context.js'
 export type { MediaProcessorAPI, BuildContextDeps } from './core/context.js'
+export { Dispatcher } from './core/Dispatcher.js'
+export type { DispatchContext } from './core/Dispatcher.js'
 export type {
   BotConfig,
   BotConfig as Config,
@@ -52,6 +54,8 @@ export type {
   ChatId,
   ChatInfo,
   DefaultTools,
+  IProvider,
+  OutgoingMessage,
   GroupsAPI,
   ProfileAPI,
   PrivacyAPI,
@@ -76,23 +80,32 @@ export type {
   SentMessage,
   StoreKind,
   UserId,
+  // Trigger matching
+  Trigger,
+  TriggerObject,
+  TriggerScope,
+  MatchStrategy,
+  // Conversations
+  WaitOptions,
 } from './core/types.js'
 
 // Flows DSL
-export { flow, addKeyword, FlowBuilder, matchKeyword } from './flows/FlowBuilder.js'
-export { FlowEngine } from './flows/FlowEngine.js'
-export type {
-  Flow,
-  FlowAction,
-  FlowMatchOptions,
-  FlowMatcher,
-  FlowMatcher as Matcher,
-  FlowState,
-  FlowStep,
-  FlowStepOptions,
-  FlowTools,
-  KeywordMatcher,
-} from './core/types.js'
+export { flow, addKeyword, FlowBuilder, isCompiledFlow } from './flows/FlowBuilder.js'
+export type { CompiledFlow, CompiledStep, DynamicText, FlowAction } from './flows/FlowBuilder.js'
+
+// Conversations (async runtime)
+export { ConversationRuntime } from './conversations/ConversationRuntime.js'
+export type { RuntimeMessage, ConversationFn, ConversationControlsBase, RuntimeConfig } from './conversations/ConversationRuntime.js'
+export { createControls } from './conversations/controls.js'
+export type { ConversationControls } from './conversations/controls.js'
+export {
+  ConversationError,
+  ConversationTimeout,
+  ConversationCancelled,
+  ConversationEnded,
+  ConversationGoto,
+  RetriesExceeded,
+} from './conversations/errors.js'
 
 // Hooks & plugins
 export { HookSystem } from './hooks/HookSystem.js'

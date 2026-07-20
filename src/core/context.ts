@@ -44,7 +44,6 @@ import type {
   MediaSource,
   MessageContext as IMessageContext,
   MessageType,
-  SenderInfo,
   ChatInfo,
   SentMessage,
   UserId,
@@ -86,17 +85,20 @@ export function buildMessageContext(deps: BuildContextDeps): IMessageContext {
 
   const isGroup = from.endsWith('@g.us')
   const isPrivate = !isGroup && from.endsWith('@s.whatsapp.net')
-  const senderId = normalize(
-    isGroup
-      ? ((msg as any).participant ?? (key as any).participantAlt ?? (key as any).participant ?? key.remoteJid ?? '')
-      : (key.remoteJid ?? '')
-  ) as UserId
-
-  const sender: SenderInfo = {
-    id: senderId,
-    name: undefined,
-    pushName: msg.pushName ?? undefined,
-  }
+  // `sender` identifies WHO spoke — string form, aligned with RuntimeMessage.sender so
+  // this same object flows straight into the Dispatcher/ConversationRuntime keying.
+  // In groups prefer the PN JID (participantAlt) over LID; in DMs the sender IS the chat.
+  // (Rich sender metadata / full LID resolution lands in Task 10.)
+  const sender: UserId = isGroup
+    ? (normalize(
+        ((key as { participantAlt?: string }).participantAlt ??
+          (msg as { participant?: string }).participant ??
+          (key as { participant?: string }).participant ??
+          key.remoteJid ??
+          '') as string,
+      ) as UserId)
+    : from
+  const pushName = msg.pushName ?? undefined
 
   const chat: ChatInfo = {
     id: from,
@@ -175,6 +177,7 @@ export function buildMessageContext(deps: BuildContextDeps): IMessageContext {
     body,
     from,
     sender,
+    pushName,
     chat,
     type,
     isGroup,
@@ -283,10 +286,13 @@ export function buildMessageContext(deps: BuildContextDeps): IMessageContext {
       await deps.deleteMessage?.(key)
     },
 
-    /* Flow control ------------------------------------------------------ */
+    /* Dispatch control -------------------------------------------------- */
+    // `_passed` / `_aborted` are the Dispatcher's per-message bookkeeping flags.
+    pass() {
+      ;(ctx as unknown as { _passed?: boolean })._passed = true
+    },
     abort() {
-      // Signal picked up by HookSystem.runBefore
-      ;(ctx as any).__aborted = true
+      ;(ctx as unknown as { _aborted?: boolean })._aborted = true
     },
     tools: tools as DefaultTools,
   }

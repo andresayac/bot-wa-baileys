@@ -106,13 +106,3 @@ function hashSteps(steps: CompiledStep[]): number {
   for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0
   return h
 }
-
-/* ------------------------------------------------------------------------
- * TEMPORARY compat shims for the legacy v2-alpha engine (removed in Task 8).
- * Do not use in new code.
- * ---------------------------------------------------------------------- */
-export function matchKeyword(keyword: unknown, body: string, _opts: Record<string, unknown> = {}): boolean {
-  const matchers = Array.isArray(keyword) ? keyword : [keyword]
-  const lower = body.toLowerCase()
-  return matchers.some((m) => (m instanceof RegExp ? m.test(body) : lower.includes(String(m).toLowerCase())))
-}
