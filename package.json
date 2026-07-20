@@ -1,12 +1,19 @@
 {
   "name": "@bot-wa/bot-wa-baileys",
-  "version": "1.1.5",
-  "description": "Creacte a bot for whatsapp with baileys library or bot-whatsapp",
-  "main": "lib/baileys.js",
-  "types": "lib/baileys.d.ts",
+  "version": "2.0.0-alpha.0",
+  "description": "A modern WhatsApp bot framework built on Baileys 7 — flows, hooks, plugins, sub-APIs.",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
   "scripts": {
     "build": "tsc",
-    "example": "tsc && node -r ts-node/register examples/bot.ts"
+    "dev": "tsc -w",
+    "start": "pnpm run build && tsc -p examples/tsconfig.json && node examples/bot.js",
+    "example": "pnpm run start",
+    "docs:api": "node scripts/typedoc-docs.js",
+    "docs:build": "pnpm run docs:api && vitepress build docs && node scripts/copy-api-docs.js",
+    "docs:dev": "vitepress dev docs",
+    "docs:serve": "vitepress serve docs",
+    "docs": "pnpm run docs:build"
   },
   "repository": {
     "type": "git",
@@ -25,11 +32,17 @@
     "./lib/**/*"
   ],
   "dependencies": {
+    "@cacheable/node-cache": "^1.5.0",
     "@ffmpeg-installer/ffmpeg": "^1.1.0",
-    "@whiskeysockets/baileys": "^6.7.9",
+    "@hapi/boom": "^10.0.1",
+    "@whiskeysockets/baileys": "^7.0.0-rc13",
     "fluent-ffmpeg": "^2.1.3",
+    "follow-redirects": "^1.16.0",
+    "mime-types": "^3.0.2",
+    "pino": "^10.3.1",
     "qr-image": "^3.2.0",
-    "qrcode-terminal": "^0.12.0"
+    "qrcode-terminal": "^0.12.0",
+    "sharp": "^0.35.3"
   },
   "author": "Andres Aya",
   "license": "MIT",
@@ -38,10 +51,15 @@
   },
   "homepage": "https://github.com/andresayac/bot-wa-baileys#readme",
   "devDependencies": {
-    "@types/fluent-ffmpeg": "^2.1.26",
-    "@types/mime-types": "^2.1.4",
-    "@types/node": "^22.7.8",
+    "@types/fluent-ffmpeg": "^2.1.28",
+    "@types/mime-types": "^3.0.1",
+    "@types/node": "^26.1.1",
+    "@types/qrcode-terminal": "^0.12.2",
     "ts-node": "^10.9.2",
-    "typescript": "^5.6.3"
+    "typedoc": "^0.28.20",
+    "typedoc-plugin-missing-exports": "^4.1.4",
+    "typescript": "^7.0.2",
+    "typescript-5": "npm:typescript@5.9.3",
+    "vitepress": "^1.6.4"
   }
 }

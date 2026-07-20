@@ -5,6 +5,7 @@
         "experimentalDecorators": true,
         "allowJs": false,
         "checkJs": false,
+        "rootDir": "src",
         "outDir": "lib",
         "strict": false,
         "strictNullChecks": true,
@@ -16,5 +17,5 @@
         "declaration": true
     },
     "include": ["src/**/*.ts"],
-    "exclude": ["node_modules"]
+    "exclude": ["node_modules", "venom", "examples", "old_project", "bot_sessions"]
 }

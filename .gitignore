@@ -5,3 +5,19 @@ core.class.log
 db.json
 lib/
 *.qr.png
+venom/
+old_project/
+sessions/
+
+# Docs build output (generated, not committed)
+docs/dist/
+docs/api/
+docs/.vitepress/cache/
+
+# Store serializado (contiene conversaciones) — nunca commitear
+baileys_store.json
+
+# Build output del ejemplo (tsc -p examples)
+examples/*.js
+examples/examples/
+examples/src/

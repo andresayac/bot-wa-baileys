@@ -1,0 +1,30 @@
+{
+  "$schema": "https://typedoc.org/schema.json",
+  "entryPoints": ["src/index.ts"],
+  "tsconfig": "tsconfig.json",
+  "out": "docs/api",
+  "name": "@bot-wa/bot-wa-baileys",
+  "includeVersion": true,
+  "readme": "README.md",
+  "theme": "default",
+  "excludePrivate": true,
+  "excludeProtected": true,
+  "excludeExternals": true,
+  "disableSources": false,
+  "categorizeByGroup": true,
+  "categoryOrder": ["Core", "Flows", "Hooks", "Plugins", "Media", "Provider", "Store", "Scheduler", "Sub-APIs", "Utils", "*"],
+  "groupOrder": ["Constructors", "Properties", "Methods", "Functions", "Type Aliases", "Interfaces", "Classes", "Enumerations", "*"],
+  "sort": ["source-order"],
+  "visibilityFilters": {
+    "protected": false,
+    "private": false,
+    "inherited": true,
+    "external": false
+  },
+  "navigation": {
+    "includeCategories": true,
+    "includeGroups": true
+  },
+  "githubPages": true,
+  "cleanOutputDir": true
+}

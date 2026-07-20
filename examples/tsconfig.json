@@ -1,0 +1,16 @@
+{
+    "compilerOptions": {
+        "target": "es2018",
+        "module": "commonjs",
+        "outDir": ".",
+        "strict": false,
+        "strictNullChecks": true,
+        "skipLibCheck": true,
+        "esModuleInterop": true,
+        "resolveJsonModule": true,
+        "declaration": false,
+        "types": ["node"]
+    },
+    "include": ["bot.ts"],
+    "exclude": ["../node_modules"]
+}

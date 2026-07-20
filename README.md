@@ -1,5 +1,7 @@
 # Bot Baileys
 
+[![Docs](https://img.shields.io/badge/docs-TypeDoc-blue?logo=typescript&logoColor=white)](https://andresayac.github.io/bot-wa-baileys/)
+
 This repository contains a WhatsApp bot implemented in JavaScript using the [@whiskeysockets/baileys](https://github.com/WhiskeySockets/Baileys) library.
 
 ## baileys.js
