@@ -18,7 +18,7 @@ import {
   definePlugin,
   slashCommandsPlugin,
   type MessageContext,
-} from '../lib/index'
+} from '../lib/index.js'
 
 // =============================================================================
 // 1. CREATE THE BOT
