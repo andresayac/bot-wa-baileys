@@ -8,7 +8,7 @@
 import type { proto, WAMessage, WAMessageKey, Chat, Contact } from '@whiskeysockets/baileys'
 import { existsSync } from 'fs'
 import { readFile, writeFile } from 'fs/promises'
-import type { IStore } from './IStore'
+import type { IStore } from './IStore.js'
 
 export interface MemoryStoreOptions {
   /** Max messages retained per chat. Default 1000. */

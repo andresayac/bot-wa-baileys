@@ -21,13 +21,13 @@ import type {
   MessageContext,
   MessageType,
   SentMessage,
-} from './types'
-import type { HookSystem } from '../hooks/HookSystem'
-import type { FlowEngine } from '../flows/FlowEngine'
-import type { IStore } from '../store/IStore'
-import type { BaileysProvider } from '../provider/BaileysProvider'
-import { buildMessageContext } from './context'
-import { toMediaUpload, makeSticker, transcodeToOpus } from '../media/MediaProcessor'
+} from './types.js'
+import type { HookSystem } from '../hooks/HookSystem.js'
+import type { FlowEngine } from '../flows/FlowEngine.js'
+import type { IStore } from '../store/IStore.js'
+import type { BaileysProvider } from '../provider/BaileysProvider.js'
+import { buildMessageContext } from './context.js'
+import { toMediaUpload, makeSticker, transcodeToOpus } from '../media/MediaProcessor.js'
 
 type AnyHandler = (ctx: MessageContext) => void | Promise<void>
 

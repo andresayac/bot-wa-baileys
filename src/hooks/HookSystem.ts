@@ -10,8 +10,8 @@
  * Plugins register handlers with `bot.before('message', ...)` etc.
  */
 
-import type { HookEvent, HookHandler, HookPhase } from '../core/types'
-import { randomId } from '../utils/timers'
+import type { HookEvent, HookHandler, HookPhase } from '../core/types.js'
+import { randomId } from '../utils/timers.js'
 
 export interface RegisteredHook {
   id: string

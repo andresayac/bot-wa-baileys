@@ -14,8 +14,8 @@
  * Designed to be intentionally tiny — users can disable + roll their own.
  */
 
-import { definePlugin } from './definePlugin'
-import type { Bot } from '../core/Bot'
+import { definePlugin } from './definePlugin.js'
+import type { Bot } from '../core/Bot.js'
 
 export interface SlashCommandsConfig {
   /** Prefix for commands. Default '/'. */

@@ -80,22 +80,22 @@ import type {
   PrivacyAPI,
   ChatsAPI,
   PresenceAPI,
-} from './types'
+} from './types.js'
 
-import { HookSystem } from '../hooks/HookSystem'
-import { BaileysProvider } from '../provider/BaileysProvider'
-import { MemoryStore } from '../store/MemoryStore'
-import type { IStore } from '../store/IStore'
-import { MessageRouter } from './MessageRouter'
-import { FlowEngine } from '../flows/FlowEngine'
-import { randomId } from '../utils/timers'
-import { GroupsAPIImpl } from '../api/GroupsAPI'
-import { ProfileAPIImpl } from '../api/ProfileAPI'
-import { PrivacyAPIImpl } from '../api/PrivacyAPI'
-import { ChatsAPIImpl } from '../api/ChatsAPI'
-import { PresenceAPIImpl } from '../api/PresenceAPI'
-import { Scheduler } from '../scheduler/Scheduler'
-import { toMediaUpload, makeSticker, transcodeToOpus } from '../media/MediaProcessor'
+import { HookSystem } from '../hooks/HookSystem.js'
+import { BaileysProvider } from '../provider/BaileysProvider.js'
+import { MemoryStore } from '../store/MemoryStore.js'
+import type { IStore } from '../store/IStore.js'
+import { MessageRouter } from './MessageRouter.js'
+import { FlowEngine } from '../flows/FlowEngine.js'
+import { randomId } from '../utils/timers.js'
+import { GroupsAPIImpl } from '../api/GroupsAPI.js'
+import { ProfileAPIImpl } from '../api/ProfileAPI.js'
+import { PrivacyAPIImpl } from '../api/PrivacyAPI.js'
+import { ChatsAPIImpl } from '../api/ChatsAPI.js'
+import { PresenceAPIImpl } from '../api/PresenceAPI.js'
+import { Scheduler } from '../scheduler/Scheduler.js'
+import { toMediaUpload, makeSticker, transcodeToOpus } from '../media/MediaProcessor.js'
 
 type AnyHandler = (ctx: MessageContext) => void | Promise<void>
 

@@ -40,10 +40,10 @@
  */
 
 // Core
-export { Bot } from './core/Bot'
-export { MessageRouter } from './core/MessageRouter'
-export { buildMessageContext, loadMediaOf } from './core/context'
-export type { MediaProcessorAPI, BuildContextDeps } from './core/context'
+export { Bot } from './core/Bot.js'
+export { MessageRouter } from './core/MessageRouter.js'
+export { buildMessageContext, loadMediaOf } from './core/context.js'
+export type { MediaProcessorAPI, BuildContextDeps } from './core/context.js'
 export type {
   BotConfig,
   BotConfig as Config,
@@ -76,11 +76,11 @@ export type {
   SentMessage,
   StoreKind,
   UserId,
-} from './core/types'
+} from './core/types.js'
 
 // Flows DSL
-export { flow, addKeyword, FlowBuilder, matchKeyword } from './flows/FlowBuilder'
-export { FlowEngine } from './flows/FlowEngine'
+export { flow, addKeyword, FlowBuilder, matchKeyword } from './flows/FlowBuilder.js'
+export { FlowEngine } from './flows/FlowEngine.js'
 export type {
   Flow,
   FlowAction,
@@ -92,21 +92,21 @@ export type {
   FlowStepOptions,
   FlowTools,
   KeywordMatcher,
-} from './core/types'
+} from './core/types.js'
 
 // Hooks & plugins
-export { HookSystem } from './hooks/HookSystem'
-export { definePlugin, isPlugin } from './plugins/definePlugin'
-export { slashCommandsPlugin } from './plugins/slashCommands'
+export { HookSystem } from './hooks/HookSystem.js'
+export { definePlugin, isPlugin } from './plugins/definePlugin.js'
+export { slashCommandsPlugin } from './plugins/slashCommands.js'
 
 // Provider (advanced users)
-export { BaileysProvider, TypedEmitter } from './provider/BaileysProvider'
+export { BaileysProvider, TypedEmitter } from './provider/BaileysProvider.js'
 
 // Store
-export { MemoryStore } from './store/MemoryStore'
-export type { IStore } from './store/IStore'
-export type { MemoryStoreOptions } from './store/MemoryStore'
-export { messageKey } from './store/IStore'
+export { MemoryStore } from './store/MemoryStore.js'
+export type { IStore } from './store/IStore.js'
+export type { MemoryStoreOptions } from './store/MemoryStore.js'
+export { messageKey } from './store/IStore.js'
 
 // Media
 export {
@@ -114,8 +114,8 @@ export {
   toBuffer as mediaToBuffer,
   makeSticker,
   transcodeToOpus,
-} from './media/MediaProcessor'
-export type { StickerOptions } from './media/MediaProcessor'
+} from './media/MediaProcessor.js'
+export type { StickerOptions } from './media/MediaProcessor.js'
 
 // Utils (advanced)
 export {
@@ -123,17 +123,17 @@ export {
   parseJid, buildJid, shortJid,
   isGroup, isBroadcast, isStatus, isNewsletter, isPn, isLid, sameUser,
   isSelfChat, toUserId, toChatId, isValidJid,
-} from './utils/jid'
-export { sleep, parseDuration, humanTypingDelay, withTimeout, TimeoutError, randomId } from './utils/timers'
+} from './utils/jid.js'
+export { sleep, parseDuration, humanTypingDelay, withTimeout, TimeoutError, randomId } from './utils/timers.js'
 
 // Scheduler
-export { Scheduler } from './scheduler/Scheduler'
+export { Scheduler } from './scheduler/Scheduler.js'
 
 // Sub-APIs (advanced — used through bot.groups, bot.profile, etc.)
-export { GroupsAPIImpl } from './api/GroupsAPI'
-export { ProfileAPIImpl } from './api/ProfileAPI'
-export { PrivacyAPIImpl } from './api/PrivacyAPI'
-export { ChatsAPIImpl } from './api/ChatsAPI'
-export { PresenceAPIImpl } from './api/PresenceAPI'
+export { GroupsAPIImpl } from './api/GroupsAPI.js'
+export { ProfileAPIImpl } from './api/ProfileAPI.js'
+export { PrivacyAPIImpl } from './api/PrivacyAPI.js'
+export { ChatsAPIImpl } from './api/ChatsAPI.js'
+export { PresenceAPIImpl } from './api/PresenceAPI.js'
 
 // v1 LEGACY — preserved on disk under src/legacy/ but not part of the build.

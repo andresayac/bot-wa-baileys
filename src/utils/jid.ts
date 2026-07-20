@@ -26,7 +26,7 @@ import {
   isLidUser,
   areJidsSameUser,
 } from '@whiskeysockets/baileys'
-import type { JID, UserId, ChatId, JidInput } from '../core/types'
+import type { JID, UserId, ChatId, JidInput } from '../core/types.js'
 
 export {
   isJidGroup as isGroup,

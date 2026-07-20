@@ -48,10 +48,10 @@ import type {
   ChatInfo,
   SentMessage,
   UserId,
-} from './types'
+} from './types.js'
 
-import { normalize } from '../utils/jid'
-import { humanTypingDelay, sleep } from '../utils/timers'
+import { normalize } from '../utils/jid.js'
+import { humanTypingDelay, sleep } from '../utils/timers.js'
 
 export interface MediaProcessorAPI {
   toMediaUpload: (source: MediaSource) => any

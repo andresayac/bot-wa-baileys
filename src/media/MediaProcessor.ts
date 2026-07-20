@@ -14,7 +14,7 @@ import { readFile } from 'fs/promises'
 
 ffmpeg.setFfmpegPath(ffmpegInstaller.path)
 
-import type { MediaSource } from '../core/types'
+import type { MediaSource } from '../core/types.js'
 
 export type WAMediaUpload =
   | Buffer

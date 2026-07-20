@@ -5,8 +5,8 @@
  */
 
 import type { EventEmitter } from 'events'
-import type { Flow, FlowState, FlowStep, MessageContext } from '../core/types'
-import { matchKeyword } from './FlowBuilder'
+import type { Flow, FlowState, FlowStep, MessageContext } from '../core/types.js'
+import { matchKeyword } from './FlowBuilder.js'
 
 export interface FlowExecutionState {
   flow: Flow

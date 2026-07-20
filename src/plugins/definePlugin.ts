@@ -39,7 +39,7 @@
  * ```
  */
 
-import type { Plugin, PluginSpec } from '../core/types'
+import type { Plugin, PluginSpec } from '../core/types.js'
 
 export function definePlugin<TConfig = Record<string, unknown>>(
   spec: PluginSpec<TConfig>

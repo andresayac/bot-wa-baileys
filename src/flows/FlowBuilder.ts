@@ -61,7 +61,7 @@ import type {
   KeywordMatcher,
   MediaSource,
   MessageContext,
-} from '../core/types'
+} from '../core/types.js'
 
 let _flowCounter = 0
 

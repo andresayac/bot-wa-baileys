@@ -30,7 +30,7 @@ import { existsSync, rmSync } from 'fs'
 import { join } from 'path'
 import type { Logger } from 'pino'
 
-import type { BotConfig, ConnectionUpdate, ConnectionState } from '../core/types'
+import type { BotConfig, ConnectionUpdate, ConnectionState } from '../core/types.js'
 
 export interface ProviderEvents {
   connection: ConnectionUpdate
