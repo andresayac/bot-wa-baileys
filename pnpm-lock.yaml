@@ -26,7 +26,7 @@ importers:
       '@bot-wa/bot-wa-baileys':
         specifier: workspace:*
         version: link:../core
-    optionalDependencies:
+    devDependencies:
       '@anthropic-ai/sdk':
         specifier: ^0.68.0
         version: 0.68.0
@@ -2219,7 +2219,6 @@ snapshots:
   '@anthropic-ai/sdk@0.68.0':
     dependencies:
       json-schema-to-ts: 3.1.1
-    optional: true
 
   '@babel/helper-string-parser@7.29.7': {}
 
@@ -2229,8 +2228,7 @@ snapshots:
     dependencies:
       '@babel/types': 7.29.7
 
-  '@babel/runtime@7.29.7':
-    optional: true
+  '@babel/runtime@7.29.7': {}
 
   '@babel/types@7.29.7':
     dependencies:
@@ -3297,7 +3295,6 @@ snapshots:
     dependencies:
       '@babel/runtime': 7.29.7
       ts-algebra: 2.0.0
-    optional: true
 
   keyv@5.5.4:
     dependencies:
@@ -3414,7 +3411,6 @@ snapshots:
   openai@6.48.0(ws@8.18.3):
     optionalDependencies:
       ws: 8.18.3
-    optional: true
 
   p-queue@9.3.1:
     dependencies:
@@ -3664,8 +3660,7 @@ snapshots:
 
   trim-lines@3.0.1: {}
 
-  ts-algebra@2.0.0:
-    optional: true
+  ts-algebra@2.0.0: {}
 
   ts-node@10.9.2(@types/node@26.1.1)(typescript@7.0.2):
     dependencies:
