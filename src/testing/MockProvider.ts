@@ -1,0 +1,41 @@
+import { TypedEmitter, type ProviderEvents } from '../provider/BaileysProvider.js'
+import type { IProvider, OutgoingMessage } from '../core/types.js'
+
+let counter = 0
+
+export class MockProvider extends TypedEmitter<ProviderEvents> implements IProvider {
+  outbox: OutgoingMessage[] = []
+  readonly socket: unknown | null = null
+
+  async start(): Promise<void> {
+    this.emitTyped('connection', { state: 'open' } as ProviderEvents['connection'])
+  }
+  async stop(): Promise<void> {}
+
+  async send(jid: string, content: Record<string, unknown>, options?: Record<string, unknown>) {
+    const out: OutgoingMessage = { jid, content, options }
+    this.outbox.push(out)
+    this.emit('sent', out)
+    return { key: { id: `mock-${++counter}`, remoteJid: jid, fromMe: true } }
+  }
+
+  async readMessages(): Promise<void> {}
+  async downloadMedia(): Promise<Buffer> { return Buffer.alloc(0) }
+
+  /** Simula un mensaje entrante de WhatsApp. */
+  incoming(text: string, opts: { from?: string; participant?: string; type?: string; id?: string } = {}): void {
+    const from = opts.from ?? 'user@s.whatsapp.net'
+    const message: Record<string, unknown> = {}
+    if ((opts.type ?? 'text') === 'text') message.conversation = text
+    else message[`${opts.type}Message`] = { caption: text }
+    this.emitTyped('rawMessage', {
+      message: {
+        key: { remoteJid: from, fromMe: false, id: opts.id ?? `in-${++counter}`, participant: opts.participant },
+        message,
+        messageTimestamp: Math.floor(Date.now() / 1000),
+        pushName: 'Test User',
+      },
+      type: 'notify',
+    } as ProviderEvents['rawMessage'])
+  }
+}

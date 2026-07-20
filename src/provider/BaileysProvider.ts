@@ -30,7 +30,7 @@ import { existsSync, rmSync } from 'fs'
 import { join } from 'path'
 import type { Logger } from 'pino'
 
-import type { BotConfig, ConnectionUpdate, ConnectionState } from '../core/types.js'
+import type { BotConfig, ConnectionUpdate, ConnectionState, IProvider } from '../core/types.js'
 
 export interface ProviderEvents {
   connection: ConnectionUpdate
@@ -67,7 +67,7 @@ export class TypedEmitter<TEvents extends Record<string, any>> extends EventEmit
   }
 }
 
-export class BaileysProvider extends TypedEmitter<ProviderEvents> {
+export class BaileysProvider extends TypedEmitter<ProviderEvents> implements IProvider {
   private sock: ReturnType<typeof makeWASocket> | null = null
   private msgRetryCounterCache = new NodeCache({ stdTTL: 0, useClones: false })
   private authState: Awaited<ReturnType<typeof useMultiFileAuthState>> | null = null

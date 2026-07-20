@@ -15,6 +15,29 @@ import type { RuntimeMessage } from '../conversations/ConversationRuntime.js'
 export type { WAMessageKey, WAMessage }
 
 /* ============================================================================
+ * PROVIDER CONTRACT (IProvider)
+ * ========================================================================== */
+
+/** Outgoing message payload sent via provider. */
+export interface OutgoingMessage {
+  jid: string
+  content: Record<string, unknown>
+  options?: Record<string, unknown>
+}
+
+/** Provider interface — unified contract for Baileys, Mock, or custom providers. */
+export interface IProvider {
+  start(): Promise<void>
+  stop(): Promise<void>
+  send(jid: string, content: Record<string, unknown>, options?: Record<string, unknown>): Promise<{ key: { id?: string | null; remoteJid?: string | null; fromMe?: boolean | null } }>
+  onTyped(event: string, listener: (payload: any) => void): unknown
+  offTyped(event: string, listener: (payload: any) => void): unknown
+  downloadMedia?(message: unknown): Promise<Buffer | NodeJS.ReadableStream>
+  readMessages?(keys: unknown[]): Promise<void>
+  readonly socket: unknown | null
+}
+
+/* ============================================================================
  * PRIMITIVES & JIDS
  * ========================================================================== */
 
