@@ -1,7 +1,7 @@
 {
   "type": "module",
   "name": "@bot-wa/bot-wa-baileys",
-  "version": "2.0.0-alpha.0",
+  "version": "2.0.0-alpha.1",
   "description": "A modern WhatsApp bot framework built on Baileys 7 — flows, hooks, plugins, sub-APIs.",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
