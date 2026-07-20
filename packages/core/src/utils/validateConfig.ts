@@ -1,8 +1,8 @@
 /**
- * Config validation — runtime checks for BotConfig with clear error messages.
+ * Config validation — runtime checks for the transport-agnostic BotConfig.
  *
- * No external dependencies: a lightweight validator that catches typos and
- * type mismatches at construction time instead of failing silently later.
+ * WhatsApp/session fields (qr, pairingCode, sessionsDir, browser, …) moved to
+ * @bot-wa/baileys' BaileysProviderConfig and are validated there, not here.
  */
 
 import type { BotConfig } from '../core/types.js'
@@ -33,21 +33,13 @@ function assertStringOrNumber(field: string, value: unknown): void {
 }
 
 /**
- * Validate a BotConfig object at construction time.
- * Throws {@link ConfigValidationError} with a clear message on invalid input.
- * Returns the config unchanged if valid.
+ * Validate a BotConfig object at construction time. Throws
+ * {@link ConfigValidationError} with a clear message on invalid input.
  */
 export function validateConfig(config: BotConfig): BotConfig {
   assertType('session', config.session, 'string')
-  assertType('sessionsDir', config.sessionsDir, 'string')
-  assertType('pairingCode', config.pairingCode, 'string')
-  assertType('reconnect', config.reconnect, 'boolean')
-  assertType('markOnlineOnConnect', config.markOnlineOnConnect, 'boolean')
-  assertType('debug', config.debug, 'boolean')
-  assertType('ignoreNewsletters', config.ignoreNewsletters, 'boolean')
-  assertType('ignoreBroadcasts', config.ignoreBroadcasts, 'boolean')
-  assertType('syncFullHistory', config.syncFullHistory, 'boolean')
   assertType('commandPrefix', config.commandPrefix, 'string')
+  assertType('debug', config.debug, 'boolean')
 
   if (config.commandPrefix === '') {
     throw new ConfigValidationError('commandPrefix', 'a non-empty string', '')
@@ -69,35 +61,12 @@ export function validateConfig(config: BotConfig): BotConfig {
     throw new ConfigValidationError('rateLimit', 'object', config.rateLimit)
   }
 
-  if (config.qr !== undefined && typeof config.qr !== 'object') {
-    throw new ConfigValidationError('qr', 'object', config.qr)
-  }
-
-  if (config.qr) {
-    assertType('qr.terminal', config.qr.terminal, 'boolean')
-    assertType('qr.file', config.qr.file, 'boolean')
-    assertType('qr.small', config.qr.small, 'boolean')
-    if (config.qr.handler !== undefined && typeof config.qr.handler !== 'function') {
-      throw new ConfigValidationError('qr.handler', 'function', config.qr.handler)
-    }
-  }
-
   if (config.conversation) {
     assertStringOrNumber('conversation.timeout', config.conversation.timeout)
     assertType('conversation.timeoutMessage', config.conversation.timeoutMessage, 'string')
     assertType('conversation.retriesMessage', config.conversation.retriesMessage, 'string')
     assertType('conversation.errorMessage', config.conversation.errorMessage, 'string')
     assertType('conversation.cancelledMessage', config.conversation.cancelledMessage, 'string')
-  }
-
-  if (config.browser !== undefined) {
-    const valid = ['macOS', 'ubuntu', 'windows', 'appropriate']
-    if (typeof config.browser === 'string' && !valid.includes(config.browser)) {
-      throw new ConfigValidationError('browser', `'macOS' | 'ubuntu' | 'windows' | 'appropriate' | [string, string, string]`, config.browser)
-    }
-    if (Array.isArray(config.browser) && config.browser.length !== 3) {
-      throw new ConfigValidationError('browser', 'a tuple of exactly 3 strings', config.browser)
-    }
   }
 
   return config

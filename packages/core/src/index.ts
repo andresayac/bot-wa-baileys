@@ -1,92 +1,87 @@
 /**
- * @bot-wa/bot-wa-baileys — main entry point.
+ * @bot-wa/core — transport-agnostic bot engine.
  *
- * A modern WhatsApp bot framework built on Baileys 7 — flows, hooks, plugins,
- * sub-APIs, scheduler and dependency injection.
+ * Flows, hooks, plugins, conversations, scheduler and DI. Pair it with a
+ * transport provider (`@bot-wa/baileys` for WhatsApp) and, optionally, a store
+ * (`@bot-wa/sqlite-store`, `@bot-wa/redis-store`) and the `@bot-wa/ai` plugin.
  *
- * @example Create and start a bot
+ * @example
  * ```ts
- * import { Bot, flow, definePlugin, slashCommandsPlugin } from '@bot-wa/bot-wa-baileys'
+ * import { Bot, flow } from '@bot-wa/core'
+ * import { BaileysProvider } from '@bot-wa/baileys'
  *
- * const bot = new Bot({ session: 'demo-bot', qr: { terminal: true, small: true } })
- * bot.on('ready', () => bot.logger.info('ready'))
- * await bot.start()
- * ```
- *
- * @example Declarative handlers
- * ```ts
+ * const bot = new Bot({ provider: new BaileysProvider({ session: 'demo' }) })
  * bot.when('hola', async (ctx) => await ctx.reply('¡Hola! 👋'))
- * bot.when(['adios', 'chao'], async (ctx) => await ctx.reply('bye'))
- * bot.when(/\d{4,}/, async (ctx) => await ctx.reply('long number'))
- * ```
- *
- * @example Flows (DSL)
- * ```ts
- * const registerFlow = flow('registrar')
- *   .say('¿Nombre?', { capture: true })
- *   .do(async (ctx, { state }) => state.set('name', ctx.body))
- *   .say('¿Email?', { capture: true })
- *   .validate((b) => /@/.test(b) ? true : '❌ invalid')
- *   .end()
- * bot.use(registerFlow)
- * ```
- *
- * @example Plugins & DI
- * ```ts
- * bot.plug(slashCommandsPlugin, { greeting: 'Hi!' })
- * bot.plug(definePlugin({ name: 'log', version: '1.0.0', install(c) { c.bot.before('message', async (x, n) => n()) } }))
- * bot.provide('db', myDatabase)
+ * await bot.start()
  * ```
  */
 
 // Core
 export { Bot } from './core/Bot.js'
 export type { BotEvents, MessageHandler, CommandHandler } from './core/Bot.js'
-export { buildMessageContext, loadMediaOf } from './core/context.js'
-export type { MediaProcessorAPI, BuildContextDeps } from './core/context.js'
+export { buildMessageContext } from './core/context.js'
 export { Dispatcher } from './core/Dispatcher.js'
 export type { DispatchContext } from './core/Dispatcher.js'
+
+// Transport-agnostic contract + core vocabulary
 export type {
   BotConfig,
   BotConfig as Config,
+  IProvider,
+  ProviderCapabilities,
   ConnectionState,
   ConnectionUpdate,
+  DisconnectReason,
   ChatId,
+  UserId,
+  MessageId,
+  MessageRef,
+  ChatKind,
   ChatInfo,
+  SenderInfo,
   DefaultTools,
-  IProvider,
-  OutgoingMessage,
-  GroupsAPI,
-  ProfileAPI,
-  PrivacyAPI,
-  ChatsAPI,
-  PresenceAPI,
+  InboundEvent,
+  InboundMessage,
+  InboundInteraction,
+  DeliveryStatus,
+  InboundReaction,
+  PollVote,
+  Button,
+  ListSection,
+  SendOptions,
+  OutboundContent,
+  SendResult,
+  MediaSource,
+  MediaRef,
+  MediaPayload,
+  MessageContext,
+  MessageType,
+  SentMessage,
+  BuildContextDeps,
+  StoreKind,
+  LoggerLike,
+  // Hooks / plugins / triggers / scheduler / conversations
   HookEvent,
   HookHandler,
   HookPhase,
-  JID,
-  JidInput,
-  MediaOptions,
-  MediaPayload,
-  MediaSource,
-  MessageContext,
-  MessageType,
   Plugin,
   PluginContext,
   PluginSpec,
-  QrConfig,
   ScheduledTask,
-  SenderInfo,
-  SentMessage,
-  StoreKind,
-  UserId,
-  // Trigger matching
+  BroadcastResult,
   Trigger,
   TriggerObject,
   TriggerScope,
   MatchStrategy,
-  // Conversations
   WaitOptions,
+} from './core/types.js'
+export {
+  ProviderError,
+  UnsupportedContentError,
+  RateLimitedError,
+  RecipientUnreachableError,
+  PayloadTooLargeError,
+  OutsideSessionWindowError,
 } from './core/types.js'
 
 // Flows DSL
@@ -112,51 +107,20 @@ export { HookSystem } from './hooks/HookSystem.js'
 export { definePlugin, isPlugin } from './plugins/definePlugin.js'
 export { slashCommandsPlugin } from './plugins/slashCommands.js'
 
-// Provider (advanced users)
-export { BaileysProvider, TypedEmitter } from './provider/BaileysProvider.js'
-
 // Store
 export { MemoryStore } from './store/MemoryStore.js'
-export { SQLiteStore } from './store/SQLiteStore.js'
-export type { IStore, AIMessage } from './store/IStore.js'
+export type { IStore, AIMessage, StoredMessage, StoredChat, StoredContact, FlowCheckpoint } from './store/IStore.js'
 export type { MemoryStoreOptions } from './store/MemoryStore.js'
-export type { SQLiteStoreOptions } from './store/SQLiteStore.js'
 export { messageKey } from './store/IStore.js'
-
-// Rate limiting
-export { RateLimiter } from './ratelimit/RateLimiter.js'
-export type { RateLimitConfig, RateLimitBucketConfig, RateLimitJitterConfig } from './ratelimit/RateLimiter.js'
 
 // Config validation
 export { validateConfig, ConfigValidationError } from './utils/validateConfig.js'
 
-// Media
-export {
-  toMediaUpload,
-  toBuffer as mediaToBuffer,
-  makeSticker,
-  transcodeToOpus,
-} from './media/MediaProcessor.js'
-export type { StickerOptions } from './media/MediaProcessor.js'
-
 // Utils (advanced)
-export {
-  toJid, sanitizeNumber, normalize as normalizeJid,
-  parseJid, buildJid, shortJid,
-  isGroup, isBroadcast, isStatus, isNewsletter, isPn, isLid, sameUser,
-  isSelfChat, toUserId, toChatId, isValidJid,
-} from './utils/jid.js'
 export { sleep, parseDuration, humanTypingDelay, withTimeout, TimeoutError, randomId } from './utils/timers.js'
 
 // Scheduler
 export { Scheduler } from './scheduler/Scheduler.js'
 
-// Sub-APIs (advanced — used through bot.groups, bot.profile, etc.)
-export { GroupsAPIImpl } from './api/GroupsAPI.js'
-export { ProfileAPIImpl } from './api/ProfileAPI.js'
-export { PrivacyAPIImpl } from './api/PrivacyAPI.js'
-export { ChatsAPIImpl } from './api/ChatsAPI.js'
-export { PresenceAPIImpl } from './api/PresenceAPI.js'
-
-// Testing helpers live under the "./testing" subpath export (import from
-// '@bot-wa/bot-wa-baileys/testing') — not re-exported here to keep the runtime entry lean.
+// Testing helpers live under the "./testing" subpath export
+// (import from '@bot-wa/core/testing') — not re-exported here to keep the entry lean.
