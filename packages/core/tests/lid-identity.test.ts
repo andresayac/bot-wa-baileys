@@ -42,6 +42,32 @@ describe('LID/PN identity', () => {
     expect(out.some((r) => r.includes('No reconocí'))).toBe(false)                // never fell through
   })
 
+  it('stabilizes via the provider mapping even when the twin never rides inline', async () => {
+    const { bot, provider } = await createTestBot()
+    const LID = '333333333333333@lid'
+    const PN = '573001112222@s.whatsapp.net'
+    // Provider knows the authoritative pairing (Baileys signal repository) — the
+    // messages themselves NEVER carry remoteJidAlt, so co-occurrence learning can't fire.
+    ;(provider as unknown as { getPNForLID: (l: string) => Promise<string | undefined> })
+      .getPNForLID = async (lid) => (lid === LID ? PN : undefined)
+    bot.use(registerFlow())
+    bot.onMessage(async (ctx) => { await ctx.reply('🤔 No reconocí eso.') })
+
+    const replies = () => provider.outbox.map((m) => String((m.content as { text?: string }).text ?? ''))
+
+    provider.incoming('registrar', { from: LID })      // bare LID, no twin
+    await new Promise((r) => setTimeout(r, 10))
+    provider.incoming('Bruno', { from: LID })           // bare LID, no twin
+    await new Promise((r) => setTimeout(r, 10))
+    provider.incoming('bruno@x.io', { from: LID })
+    await new Promise((r) => setTimeout(r, 10))
+
+    const out = replies()
+    expect(out.filter((r) => r.includes('¿Cuál es tu nombre?'))).toHaveLength(1)
+    expect(out.some((r) => r.includes('✅ Bruno <bruno@x.io>'))).toBe(true)
+    expect(out.some((r) => r.includes('No reconocí'))).toBe(false)
+  })
+
   it('also works when the first message is PN-twinned and later ones are bare LID', async () => {
     const { bot, provider } = await createTestBot()
     const LID = '222222222222222@lid'

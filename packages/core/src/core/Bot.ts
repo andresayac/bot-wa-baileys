@@ -845,6 +845,12 @@ export class Bot extends EventEmitter {
   }
 
   private async processMessage(message: WAMessage): Promise<void> {
+    // Seed the identity store from the provider's authoritative, persisted LID↔PN
+    // mapping BEFORE building the context. This stabilises the conversation key even
+    // when a message never carries the PN twin inline (and after a restart, where the
+    // in-memory store is empty but the signal repository is rehydrated from auth state).
+    await this.seedIdentity(message)
+
     const ctx = buildMessageContext({
       rawMessage: message,
       tools: this.tools,
@@ -869,6 +875,23 @@ export class Bot extends EventEmitter {
 
     this.logger.debug({ from: ctx.from, type: ctx.type }, 'dispatching message')
     await this.dispatcher.dispatch(ctx as unknown as DispatchContext)
+  }
+
+  /**
+   * Resolve any LID identities on an inbound key to their PN twin via the provider's
+   * authoritative mapping and record them in the IdentityStore. A no-op when the
+   * provider can't resolve LIDs (e.g. MockProvider) or the pair is already known.
+   */
+  private async seedIdentity(message: WAMessage): Promise<void> {
+    const resolve = this.provider.getPNForLID?.bind(this.provider)
+    if (!resolve) return
+    const key = message.key ?? {}
+    const candidates = [key.remoteJid, message.participant, key.participant]
+    for (const jid of candidates) {
+      if (!jid || !jid.endsWith('@lid') || this.identity.knowsPnFor(jid)) continue
+      const pn = await resolve(jid).catch(() => undefined)
+      if (pn) this.identity.observe(jid, pn)
+    }
   }
 
   private async dispatchHookEvent(event: HookEvent, payload: unknown): Promise<void> {

@@ -35,6 +35,13 @@ export interface IProvider {
   offTyped(event: string, listener: (payload: unknown) => void): unknown
   downloadMedia?(message: unknown): Promise<Buffer | NodeJS.ReadableStream>
   readMessages?(keys: unknown[]): Promise<void>
+  /**
+   * Resolve a LID (`…@lid`) to its phone-number twin using the provider's
+   * authoritative, persisted mapping (Baileys' signal repository). Lets the
+   * runtime stabilise conversation identity even when a message never carries
+   * the PN twin inline. Optional — providers without LID/PN duality omit it.
+   */
+  getPNForLID?(lid: string): Promise<string | undefined>
   readonly socket: unknown | null
 }
 

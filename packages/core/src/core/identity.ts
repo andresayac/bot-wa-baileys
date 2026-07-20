@@ -47,4 +47,11 @@ export class IdentityStore {
     const pn = this.map.get(normalize(jid))
     return pn && isPnUser(pn) ? pn : jid
   }
+
+  /** True if a PN twin is already known for this LID (skips redundant async lookups). */
+  knowsPnFor(lid: string): boolean {
+    if (!lid || !isLidUser(lid)) return false
+    const pn = this.map.get(normalize(lid))
+    return !!pn && isPnUser(pn)
+  }
 }
