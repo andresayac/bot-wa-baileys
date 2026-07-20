@@ -1,7 +1,7 @@
 # @bot-wa/ai
 
 Plugin de IA multi-proveedor (Anthropic / OpenAI / Ollama) para
-[`@bot-wa/bot-wa-baileys`](https://github.com/andresayac/bot-wa-baileys). Un
+[`@bot-wa/core`](https://github.com/andresayac/bot-wa-baileys). Un
 `bot.plug(aiPlugin(...))` te da un autoresponder catch-all con memoria de
 conversación por chat; `ctx.tools.ai` te da el cliente completo para usarlo
 donde quieras (flows, conversaciones, comandos).
@@ -21,12 +21,12 @@ corresponda:
 | `openai` | `openai` |
 | `ollama` | ninguno (habla HTTP directo con `fetch` contra un servidor Ollama) |
 
-Requiere **Node >= 20** y `@bot-wa/bot-wa-baileys` ya instalado en tu proyecto.
+Requiere **Node >= 20** y `@bot-wa/core` ya instalado en tu proyecto.
 
 ## Quickstart (modo principiante)
 
 ```ts
-import { Bot } from '@bot-wa/bot-wa-baileys'
+import { Bot } from '@bot-wa/core'
 import { aiPlugin } from '@bot-wa/ai'
 
 const bot = new Bot({ session: 'mi-bot' })
@@ -194,5 +194,5 @@ No-objetivos de esta primera versión, ya contemplados en el diseño de
 
 - [Guía en el sitio (EN)](https://andresayac.github.io/bot-wa-baileys/guide/ai) ·
   [Guía en el sitio (ES)](https://andresayac.github.io/bot-wa-baileys/es/guide/ai)
-- [`@bot-wa/bot-wa-baileys`](../../README.md) — el framework base (plugins,
+- [`@bot-wa/core`](../../README.md) — el framework base (plugins,
   DI, conversaciones)

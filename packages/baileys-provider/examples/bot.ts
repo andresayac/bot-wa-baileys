@@ -23,21 +23,26 @@ import {
   flow,
   slashCommandsPlugin,
   type MessageContext,
-} from '../lib/index.js'
+} from '@bot-wa/core'
+import { BaileysProvider } from '../lib/index.js'
 
 // =============================================================================
-// 1. CREAR EL BOT
+// 1. CREAR EL BOT — inyectas el transporte (WhatsApp vía Baileys)
 // =============================================================================
+
+const SESSION = 'demo-bot'
 
 const bot = new Bot({
-  session: 'demo-bot',
-  sessionsDir: './sessions',
   debug: false,
-  qr: { terminal: true, small: true },
-  // pairingCode: '+57300XXXXXXX',   // alternativa al QR
-  markOnlineOnConnect: false,        // no le "robes" las notificaciones push al teléfono
-  ignoreNewsletters: true,
-  ignoreBroadcasts: true,
+  provider: new BaileysProvider({
+    session: SESSION,
+    sessionsDir: './sessions',
+    qr: { terminal: true, small: true },
+    // pairingCode: '+57300XXXXXXX',   // alternativa al QR
+    markOnlineOnConnect: false,        // no le "robes" las notificaciones push al teléfono
+    ignoreNewsletters: true,
+    ignoreBroadcasts: true,
+  }),
 })
 
 // =============================================================================
@@ -48,18 +53,13 @@ bot.on('qr', () => {
   console.log('\n📱 Escanea este QR con tu WhatsApp:\n')
 })
 
-// Si configuras `pairingCode`, el código de emparejamiento llega aquí (igual que en v1):
-bot.on('pairing_code', (code) => {
-  console.log('🔑 Código de emparejamiento:', code)
-})
-
 bot.on('ready', () => {
   console.log('\n✅ Bot conectado y listo!\n')
 })
 
 bot.on('connection', (update) => {
-  if (update.state === 'close') {
-    console.log('⚠️ Conexión cerrada. Motivo:', update.lastDisconnect?.reason ?? 'desconocido')
+  if (update.state === 'closed') {
+    console.log('⚠️ Conexión cerrada. Motivo:', update.reason ?? update.detail?.message ?? 'desconocido')
   }
 })
 
@@ -214,7 +214,7 @@ bot.onMessage(async (ctx: MessageContext) => {
 // =============================================================================
 
 console.log('🚀 Iniciando bot-wa-baileys v2 demo...')
-console.log('   Sesión:', bot.getSessionName())
+console.log('   Sesión:', SESSION)
 console.log('   Esperando QR...\n')
 
 bot.start().catch((err) => {

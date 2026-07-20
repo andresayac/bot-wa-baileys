@@ -39,6 +39,8 @@
   "scripts": {
     "build": "tsc",
     "test": "vitest run",
+    "start": "pnpm run build && tsc -p examples/tsconfig.json && node examples/bot.js",
+    "example": "pnpm run start",
     "prepublishOnly": "pnpm build"
   },
   "dependencies": {
