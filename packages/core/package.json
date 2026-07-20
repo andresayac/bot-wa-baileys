@@ -25,11 +25,7 @@
     "test:watch": "vitest",
     "start": "pnpm run build && tsc -p examples/tsconfig.json && node examples/bot.js",
     "example": "pnpm run start",
-    "docs:api": "echo 'docs:api now runs from the repo root (pnpm run docs:api at monorepo root) — the typedoc/vitepress pipeline is root-relative'",
-    "docs:build": "echo 'docs:build now runs from the repo root (pnpm run docs at monorepo root) — the typedoc/vitepress pipeline is root-relative'",
-    "docs:dev": "echo 'docs:dev now runs from the repo root (pnpm --dir ../.. run docs:dev not yet wired) — vitepress site lives at repo root docs/'",
-    "docs:serve": "echo 'docs:serve now runs from the repo root — vitepress site lives at repo root docs/'",
-    "docs": "echo 'Run docs from repo root: pnpm docs'"
+    "prepublishOnly": "pnpm run build"
   },
   "repository": {
     "type": "git",
@@ -71,13 +67,8 @@
     "@types/mime-types": "^3.0.1",
     "@types/node": "^26.1.1",
     "@types/qrcode-terminal": "^0.12.2",
-    "ts-node": "^10.9.2",
-    "typedoc": "^0.28.20",
-    "typedoc-plugin-missing-exports": "^4.1.4",
     "typescript": "^7.0.2",
-    "typescript-5": "npm:typescript@5.9.3",
     "vite": "^7.3.6",
-    "vitepress": "^1.6.4",
     "vitest": "^4.1.10"
   }
 }

@@ -5,7 +5,7 @@
   "out": "../../docs/api",
   "name": "@bot-wa/bot-wa-baileys",
   "includeVersion": true,
-  "readme": "../../README.md",
+  "readme": "README.md",
   "theme": "default",
   "excludePrivate": true,
   "excludeProtected": true,

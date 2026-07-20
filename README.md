@@ -1,79 +1,48 @@
-# @bot-wa/bot-wa-baileys
+# bot-wa-baileys — monorepo
 
-[![Docs](https://img.shields.io/badge/docs-TypeDoc-blue?logo=typescript&logoColor=white)](https://andresayac.github.io/bot-wa-baileys/)
-[![npm](https://img.shields.io/npm/v/@bot-wa/bot-wa-baileys)](https://www.npmjs.com/package/@bot-wa/bot-wa-baileys)
-[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE.md)
 
-Framework moderno para bots de WhatsApp sobre [Baileys 7](https://github.com/WhiskeySockets/Baileys). Un solo import, flows declarativos para empezar en 30 segundos y un runtime de conversaciones async para cuando necesites control total.
+Framework moderno para bots de WhatsApp sobre [Baileys 7](https://github.com/WhiskeySockets/Baileys): flows declarativos para empezar en 30 segundos, un runtime de conversaciones async para control total, y un plugin de IA multi-proveedor. Este repositorio es un **monorepo pnpm** con dos paquetes publicables.
 
-> **v2 es un rewrite del core.** Si vienes de la v1 (`BaileysClass`), lee la [guía de migración](docs/MIGRATION-v1-to-v2.md) antes de actualizar — hay cambios de comportamiento, no solo de nombres.
+## Paquetes
 
-## Instalación
+| Paquete | Ruta | Descripción |
+| --- | --- | --- |
+| [`@bot-wa/bot-wa-baileys`](packages/core) | `packages/core` | El core: `Bot`, dispatcher, flows/conversaciones, hooks, plugins, sub-APIs, store, testing kit. |
+| [`@bot-wa/ai`](packages/ai) | `packages/ai` | Plugin de IA oficial: proveedores Anthropic/OpenAI/Ollama, context manager por chat, autorespuesta. |
 
-```
-npm i @bot-wa/bot-wa-baileys
-```
+Empieza por el [README del core](packages/core/README.md) para el quickstart.
 
-Requiere **Node >= 20** (el paquete es ESM-only — ver la nota sobre ESM en la [guía de migración](docs/MIGRATION-v1-to-v2.md#cambios-de-comportamiento-en-v2)).
+## Instalación (como usuario)
 
-## Quickstart (30 segundos)
-
-```ts
-import { Bot, flow } from '@bot-wa/bot-wa-baileys'
-
-const bot = new Bot({ session: 'mi-bot' })
-
-bot.when('hola', (ctx) => ctx.reply('👋 ¡Hola!'))
-
-bot.use(
-  flow('registrar')
-    .say('📝 Vamos a registrarte')
-    .ask('¿Tu nombre?', 'name')
-    .say((_ctx, c) => `✅ Hola ${c.state.name}`)
-)
-
-// Avanzado: conversación async con control total
-bot.conversation('soporte', async (c, ctx) => {
-  await ctx.reply('Describe tu problema')
-  const problema = await c.waitText({ timeout: '2m' })
-  await ctx.reply(`🎫 Registrado: ${problema}`)
-})
-
-await bot.start()   // escanea el QR
+```bash
+pnpm add @bot-wa/bot-wa-baileys              # el bot
+pnpm add @bot-wa/ai @anthropic-ai/sdk        # + IA (opcional; instala el SDK del proveedor que uses)
 ```
 
-Un ejemplo más completo (comandos, media, hooks, DI, scheduler) vive en [`packages/core/examples/bot.ts`](packages/core/examples/bot.ts).
+Requiere **Node >= 20**. Ambos paquetes son **ESM-only**.
 
-¿Sin cámara para escanear el QR? Configura `new Bot({ session: 'mi-bot', pairingCode: '+57300XXXXXXX' })` (número en formato internacional completo) y escucha `bot.on('pairing_code', (code) => console.log(code))` — igual que en v1.
+## Desarrollo (en este repo)
 
-> **Flujos persistentes:** `flow(...).persistent()` solo sobrevive a un reinicio del proceso si el store está respaldado por un archivo. El `MemoryStore` por defecto vive en memoria; para conservar los checkpoints entre reinicios crea el bot con `new Bot({ storeConfig: { file: './store.json' } })`. Ver la [guía de migración](docs/MIGRATION-v1-to-v2.md#flujos-persistentes-persistent).
+```bash
+pnpm install            # instala todo el workspace
+pnpm build              # pnpm -r build  → compila core y ai
+pnpm test               # pnpm -r test   → suite completa (core + ai)
+pnpm docs               # vitepress build docs → sitio de documentación
+```
 
-## Características (v2)
-
-- **Flows declarativos que compilan a runtime async** — `flow().say().ask().choose()` se compila a un `bot.conversation` real; ya no hay motor de "arrays de pasos" por separado.
-- **Dispatcher por especificidad** — comandos (`/reset`) > conversación activa > matchers (`equals` normalizado por defecto, o `contains`/`startsWith`/`endsWith`) > catch-all; el primer handler que "consume" el mensaje gana.
-- **Runtime de conversaciones async** — `c.ask`, `c.waitText`, `c.waitMedia`, `c.choose`, con validación, reintentos y timeouts configurables por espera.
-- **Testing kit sin WhatsApp real** — `createTestBot()` desde `@bot-wa/bot-wa-baileys/testing`, con un `MockProvider` y aserciones sobre el outbox.
-- **100% ESM + TypeScript estricto** — cero `any` en la API pública, Baileys 7 como motor de transporte.
-- **Sin botones nativos** — están muertos en el protocolo actual de WhatsApp Web; usa menús numerados (`c.choose()` / `.choose()`) o `ctx.poll()`.
-- **Hooks y plugins con DI** — `before`/`after`/`onError` como middleware, `bot.plug()` con `unplug()` automático, `bot.provide()` para inyectar dependencias.
-- **Scheduler integrado** — `bot.schedule()` (cron), `bot.every()`, `bot.delay()`.
-- **Sub-APIs tipadas** — `bot.groups`, `bot.profile`, `bot.privacy`, `bot.chats`, `bot.presence`.
+Por paquete: `pnpm --filter @bot-wa/ai test`, `pnpm --filter @bot-wa/bot-wa-baileys build`, etc.
 
 ## Documentación
 
-- [Guía de migración v1 → v2](docs/MIGRATION-v1-to-v2.md)
-- [API (TypeDoc)](https://andresayac.github.io/bot-wa-baileys/)
-- [`docs/public/llms.txt`](docs/public/llms.txt) — resumen de la API pensado para pegar en el contexto de un LLM
+- Sitio: [andresayac.github.io/bot-wa-baileys](https://andresayac.github.io/bot-wa-baileys/) (fuente en [`docs/`](docs)).
+- Guía de migración v1 → v2: [`docs/MIGRATION-v1-to-v2.md`](docs/MIGRATION-v1-to-v2.md).
+- Diseño y decisiones: [`docs/superpowers/specs/`](docs/superpowers/specs) y [`docs/superpowers/plans/`](docs/superpowers/plans).
 
-## Acknowledgements
+## Contribuir
 
-Este proyecto se inspiró en ideas y código del repositorio [bot-whatsapp](https://github.com/codigoencasa/bot-whatsapp) de codigoencasa. Su trabajo creando flujos de conversación automatizados y respuestas a preguntas frecuentes fue particularmente influyente. Agradecemos sus contribuciones a la comunidad open-source.
-
-## Contribución
-
-Si quieres contribuir a este proyecto, eres bienvenido. Cualquier mejora, corrección de bugs o nueva funcionalidad es bien recibida.
+Ver [`CONTRIBUTING.md`](CONTRIBUTING.md). Cambios relevantes en [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Licencia
 
-Este proyecto está licenciado bajo [MIT](LICENSE).
+MIT © Andres Aya
