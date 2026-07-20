@@ -883,7 +883,13 @@ export class Bot extends EventEmitter {
     const cfg = this.config.qr ?? {}
     if (cfg.terminal) {
       import('qrcode-terminal').then((mod) => {
-        mod.generate(qr, { small: cfg.small ?? true }, (output: string) =>
+        // qrcode-terminal is CommonJS: under NodeNext ESM its exports land on
+        // `.default`, so `mod.generate` is undefined even though @types says
+        // otherwise. Call it as a method on the resolved module — `generate`
+        // reads `this.error` for the correction level, so it must stay bound.
+        const cjs = mod as unknown as { default?: typeof mod }
+        const qrmod = cjs.default ?? mod
+        qrmod.generate(qr, { small: cfg.small ?? true }, (output: string) =>
           process.stdout.write(`${output}\n`)
         )
       }).catch((err) => this.logger.warn({ err }, 'failed to render QR in terminal'))
