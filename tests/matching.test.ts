@@ -28,6 +28,39 @@ describe('matchTrigger', () => {
   it('function trigger', () => {
     expect(matchTrigger((c) => c.body.length > 3, dm('abcd'))).toBe(true)
   })
+  it('startsWith strategy', () => {
+    expect(matchTrigger({ pattern: 'hola', match: 'startsWith' }, dm('Hóla amigo'))).toBe(true)
+    expect(matchTrigger({ pattern: 'hola', match: 'startsWith' }, dm('digo hola'))).toBe(false)
+  })
+  it('endsWith strategy', () => {
+    expect(matchTrigger({ pattern: 'amigo', match: 'endsWith' }, dm('hola AMIGO '))).toBe(true)
+    expect(matchTrigger({ pattern: 'amigo', match: 'endsWith' }, dm('amigo hola'))).toBe(false)
+  })
+  it('TriggerObject with a RegExp pattern', () => {
+    expect(matchTrigger({ pattern: /\d{4,}/ }, dm('code 12345'))).toBe(true)
+    expect(matchTrigger({ pattern: /\d{4,}/ }, dm('code 123'))).toBe(false)
+  })
+  it('mixed array in TriggerObject with equals', () => {
+    const trigger = { pattern: ['hola', /chao/], match: 'equals' as const }
+    expect(matchTrigger(trigger, dm('Hola'))).toBe(true)
+    expect(triggerSpecificity(trigger)).toBe(40)
+  })
+  it('scope dm rejects groups', () => {
+    expect(matchTrigger({ pattern: 'x', scope: 'dm' }, { body: 'x', isGroup: true })).toBe(false)
+  })
+  it('scope group accepts groups', () => {
+    expect(matchTrigger({ pattern: 'x', scope: 'group' }, { body: 'x', isGroup: true })).toBe(true)
+  })
+  it('default scope all accepts both dm and group', () => {
+    expect(matchTrigger({ pattern: 'x' }, { body: 'x', isGroup: true })).toBe(true)
+    expect(matchTrigger({ pattern: 'x' }, { body: 'x', isGroup: false })).toBe(true)
+  })
+  it('empty array never matches and has specificity 0', () => {
+    expect(matchTrigger([], dm('anything'))).toBe(false)
+    expect(triggerSpecificity([])).toBe(0)
+    expect(matchTrigger({ pattern: [] }, dm('anything'))).toBe(false)
+    expect(triggerSpecificity({ pattern: [] })).toBe(0)
+  })
 })
 
 describe('triggerSpecificity', () => {

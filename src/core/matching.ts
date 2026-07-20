@@ -28,6 +28,8 @@ export function matchTrigger(trigger: Trigger, ctx: MatchInput): boolean {
   const body = normalizeText(ctx.body ?? '')
 
   return patterns.some((p) => {
+    // Intentional: RegExp patterns run against the RAW body (no normalization) —
+    // regex authors control their own flags and diacritics handling.
     if (p instanceof RegExp) return p.test(ctx.body ?? '')
     const text = normalizeText(String(p))
     switch (strategy) {
@@ -40,19 +42,27 @@ export function matchTrigger(trigger: Trigger, ctx: MatchInput): boolean {
   })
 }
 
+const STRATEGY_SPECIFICITY: Record<MatchStrategy, number> = {
+  equals: 40,
+  startsWith: 30,
+  endsWith: 25,
+  contains: 10,
+}
+
 export function triggerSpecificity(trigger: Trigger): number {
   if (typeof trigger === 'function') return 5
   if (trigger instanceof RegExp) return 20
-  if (Array.isArray(trigger)) return Math.max(...trigger.map((p) => triggerSpecificity(p)))
+  if (Array.isArray(trigger)) {
+    if (trigger.length === 0) return 0 // never matches → lowest priority
+    return Math.max(...trigger.map((p) => triggerSpecificity(p)))
+  }
   if (isTriggerObject(trigger)) {
-    const hasRegex = (Array.isArray(trigger.pattern) ? trigger.pattern : [trigger.pattern]).some((p) => p instanceof RegExp)
-    if (hasRegex) return 20
-    switch (trigger.match ?? 'equals') {
-      case 'equals': return 40
-      case 'startsWith': return 30
-      case 'endsWith': return 25
-      case 'contains': return 10
-    }
+    const patterns = Array.isArray(trigger.pattern) ? trigger.pattern : [trigger.pattern]
+    if (patterns.length === 0) return 0 // never matches → lowest priority
+    const tier = STRATEGY_SPECIFICITY[trigger.match ?? 'equals']
+    // Per-element, combined with max — same rule as top-level arrays:
+    // RegExp element → 20; string element → tier of the match strategy.
+    return Math.max(...patterns.map((p) => (p instanceof RegExp ? 20 : tier)))
   }
   return 40 // string plano = equals
 }
