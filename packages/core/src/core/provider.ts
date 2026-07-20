@@ -563,6 +563,8 @@ export interface BuildContextDeps<TRaw = unknown> {
   deleteMessage?(ref: MessageRef): Promise<void>
   acknowledgeInteraction?(id: string, text?: string): Promise<void>
   downloadMedia?(ref: MediaRef): Promise<Buffer | NodeJS.ReadableStream>
+  /** Set when this context projects an interaction (button/slash/callback). */
+  interaction?: { id: string; data: string; respondBy?: number }
 }
 
 /* ============================================================================

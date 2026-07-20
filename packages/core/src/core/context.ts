@@ -1,297 +1,106 @@
 /**
- * MessageContext — built for every inbound message.
+ * MessageContext — the ergonomic object handed to every handler.
  *
- * Provides ergonomic reply helpers wrapping Baileys' low-level `sendMessage`,
- * plus hooks for abort/next used by the {@link HookSystem}. An instance is
- * passed to every `when()` handler, `onMessage()` handler, typed-media handler
- * and flow action.
+ * Transport-agnostic: it wraps an already-normalized {@link InboundMessage} and
+ * a `send(OutboundContent)` provided by the transport. All proto parsing, JID /
+ * LID-PN handling and media transcoding live in the provider (e.g. @bot-wa/baileys),
+ * NOT here. Reply helpers keep their familiar signatures; internally each builds
+ * an {@link OutboundContent} descriptor and calls the provider.
  *
- * @example Reply with text
+ * @example
  * ```ts
  * bot.when('hola', async (ctx) => await ctx.reply('👋 ¡Hola!'))
- * ```
- *
- * @example Send media
- * ```ts
  * bot.when('foto', async (ctx) => await ctx.photo('https://picsum.photos/400/300', '📸'))
- * bot.when('sticker', async (ctx) => await ctx.sticker('https://picsum.photos/512/512', { pack: 'Demo' }))
- * bot.when('audio', async (ctx) => await ctx.voice('https://example.com/beep.mp3'))
- * ```
- *
- * @example Location, contact, poll
- * ```ts
- * await ctx.location(4.7110, -74.0721, 'Bogotá 🇨🇴')
- * await ctx.contact('573001234567', 'Soporte')
- * await ctx.poll('¿Qué te parece?', ['👍', '👌', '👎'], false)
- * ```
- *
- * @example React, quote, typing
- * ```ts
- * await ctx.react('👍')
- * await ctx.quote('respondiendo a tu mensaje')
- * await ctx.replyWithTyping('escribiendo...')
  * ```
  */
 
-import type { proto, WAMessage, WAMessageKey } from '@whiskeysockets/baileys'
-import { getContentType } from '@whiskeysockets/baileys'
-
+import { humanTypingDelay, sleep } from '../utils/timers.js'
 import type {
-  ChatId,
+  BuildContextDeps,
+  Button,
   DefaultTools,
-  MediaOptions,
   MediaPayload,
+  MediaRef,
   MediaSource,
   MessageContext as IMessageContext,
-  MessageType,
-  ChatInfo,
-  SenderInfo,
+  SendOptions,
   SentMessage,
-  UserId,
-} from './types.js'
+} from './provider.js'
 
-import { normalize, normalizeInboundKey, isPnUser, isLidUser } from '../utils/jid.js'
-import { humanTypingDelay, sleep } from '../utils/timers.js'
-import type { IdentityStore } from './identity.js'
-
-export interface MediaProcessorAPI {
-  toMediaUpload: (source: MediaSource) => any
-  makeSticker: (source: MediaSource, opts?: { pack?: string; author?: string }) => Promise<Buffer>
-  transcodeToOpus: (source: MediaSource) => Promise<Buffer>
-}
-
-export interface BuildContextDeps {
-  rawMessage: proto.IWebMessageInfo
-  tools: any
-  /** Send a content payload via the provider (already-jid-resolved). */
-  send: (jid: ChatId, content: any, options?: any) => Promise<WAMessage>
-  /** Read receipts */
-  markRead?: (key: WAMessageKey) => Promise<void>
-  /** Presence update — used by typing()/recording() */
-  presence?: (state: 'composing' | 'recording' | 'paused', jid?: ChatId) => Promise<void>
-  /** Delete a message */
-  deleteMessage?: (key: WAMessageKey) => Promise<void>
-  /** Media processor functions (injected, no dynamic imports) */
-  media: MediaProcessorAPI
-  /**
-   * Cross-message LID↔PN identity store. When provided, inbound identities are
-   * canonicalised to a stable PN so a conversation key never flips mid-flow
-   * (Baileys 7 drops the PN twin on some messages). Optional: tests/embedders
-   * that don't care about identity stability can omit it.
-   */
-  identity?: IdentityStore
-}
-
-/** Build the canonical MessageContext from a raw Baileys message. */
+/** Build the canonical MessageContext from a normalized inbound message. */
 export function buildMessageContext(deps: BuildContextDeps): IMessageContext {
-  const { rawMessage, send, tools, media: mediaApi } = deps
-  const msg = rawMessage
-  const key = (msg.key ?? { remoteJid: '', fromMe: false }) as WAMessageKey
-  // Baileys 7 delivers private-chat & group-sender identities as LID (`@lid`); the
-  // PN twin (`@s.whatsapp.net`) rides along in remoteJidAlt/participantAlt. Group
-  // JIDs themselves are always @g.us (never LID), so it's safe to classify
-  // group-ness off the raw remoteJid before resolving the PN-preferred pair.
-  const isGroupRaw = (key.remoteJid ?? '').endsWith('@g.us')
-  const rawParticipant = msg.participant ?? key.participant ?? null
-  // Learn any LID↔PN pairing this key exposes BEFORE resolving, so a bare-LID
-  // twin on a later message can still be canonicalised back to this PN.
-  deps.identity?.observe(key.remoteJid, key.remoteJidAlt)
-  deps.identity?.observe(rawParticipant, key.participantAlt)
-  const { chat: rawChat, sender: rawSender } = normalizeInboundKey(
-    {
-      remoteJid: key.remoteJid,
-      remoteJidAlt: key.remoteJidAlt,
-      participant: rawParticipant,
-      participantAlt: key.participantAlt,
-      fromMe: key.fromMe,
-    },
-    isGroupRaw,
-  )
-  // Canonicalise to the stable PN identity (when learned). This is what keeps the
-  // conversation key from flipping PN<->LID across messages — the live "flujos
-  // tienen líos" bug. Groups keep their @g.us chat; only the sender is remapped.
-  const from = normalize(deps.identity?.canonical(rawChat) ?? rawChat) as ChatId
-  // `sender` identifies WHO spoke — string form, aligned with RuntimeMessage.sender so
-  // this same object flows straight into the Dispatcher/ConversationRuntime keying.
-  const sender: UserId = normalize(deps.identity?.canonical(rawSender) ?? rawSender) as UserId
+  const { inbound, tools, send } = deps
+  const from = inbound.from
+  const isGroup = inbound.isGroup
+  const isPrivate = inbound.chat.kind === 'dm'
 
-  const isGroup = from.endsWith('@g.us')
-  const isPrivate = !isGroup && from.endsWith('@s.whatsapp.net')
-
-  // Rich LID/PN identity — no async lookups here, just what the inbound key told us.
-  const rawIdentity = (isGroupRaw ? rawParticipant : key.remoteJid) ?? ''
-  const senderInfo: SenderInfo = {
-    id: sender,
-    phoneNumber: isPnUser(sender) ? sender : undefined,
-    lid: isLidUser(rawIdentity) ? rawIdentity : undefined,
-  }
-  const pushName = msg.pushName ?? undefined
-
-  const chat: ChatInfo = {
-    id: from,
-    name: undefined,
-    isGroup,
-    isBroadcast: from === 'status@broadcast' || from.endsWith('@broadcast'),
+  const sendOut = async (content: Parameters<typeof send>[1], opts?: SendOptions): Promise<SentMessage> => {
+    const r = await send(from, content, opts)
+    return { ref: r.ref, id: r.ref.id, chatId: r.ref.chatId, raw: r.raw, skipped: r.skipped }
   }
 
-  // Body & type — extracted from the rich Baileys message object
-  let body = ''
-  let type: MessageType = 'unknown'
-  let media: MediaPayload | undefined
-
-  const contentType = getContentType(msg.message ?? undefined) ?? ''
-  const m = msg.message ?? {}
-
-  if (m.conversation || m.extendedTextMessage?.text) {
-    body = (m.conversation ?? m.extendedTextMessage?.text ?? '').toString()
-    type = 'text'
-  } else if (m.imageMessage) {
-    type = 'image'
-    body = m.imageMessage.caption ?? ''
-  } else if (m.videoMessage) {
-    type = 'video'
-    body = m.videoMessage.caption ?? ''
-  } else if (m.audioMessage) {
-    type = (m.audioMessage as any).ptt ? 'voice' : 'audio'
-  } else if (m.stickerMessage) {
-    type = 'sticker'
-  } else if (m.documentMessage) {
-    type = 'document'
-    body = m.documentMessage.caption ?? ''
-  } else if (m.locationMessage) {
-    type = 'location'
-  } else if (m.contactMessage) {
-    type = 'contact'
-  } else if (m.pollCreationMessage || m.pollUpdateMessage) {
-    type = 'poll'
-  } else if (m.buttonsResponseMessage) {
-    type = 'buttons'
-    body = m.buttonsResponseMessage.selectedDisplayText ?? ''
-  } else if (m.listResponseMessage) {
-    type = 'list'
-    body = m.listResponseMessage.title ?? ''
-  }
-
-  // Quoted message body if present
-  const quotedContext = m.extendedTextMessage?.contextInfo
-  const quoted = quotedContext?.quotedMessage
-    ? {
-        body:
-          ((quotedContext.quotedMessage as any).conversation as string | undefined) ??
-          ((quotedContext.quotedMessage as any).extendedTextMessage?.text as string | undefined) ??
-          '',
-        from: (quotedContext.participant as string | undefined) ?? from,
-        sender: (quotedContext.participant as string | undefined) ?? undefined,
-      }
-    : undefined
-
-  const mentions: UserId[] = (quotedContext?.mentionedJid ?? []) as UserId[]
-
-  // Reply helpers — each maps toBaileys sendMessage content ---------------
-
-  const sendOut = async (content: any, opts?: any): Promise<SentMessage> => {
-    const sent = await send(from, content, opts)
-    return {
-      jid: from,
-      messageId: sent.key.id!,
-      key: sent.key,
-      raw: sent,
-    }
-  }
-
-  // Lazily-loaded media buffer accessor
   const ctx: IMessageContext = {
-    body,
+    body: inbound.body,
     from,
-    sender,
-    senderInfo,
-    pushName,
-    chat,
-    type,
+    sender: inbound.sender,
+    senderInfo: inbound.senderInfo,
+    pushName: inbound.senderInfo.displayName,
+    chat: inbound.chat,
+    type: inbound.type,
     isGroup,
     isPrivate,
-    isFromMe: !!key.fromMe,
-    mentions,
-    quoted,
-    media,
-    rawMessage: msg,
-    key,
-    timestamp: (msg.messageTimestamp as number) ?? Date.now(),
+    isFromMe: inbound.fromMe,
+    mentions: inbound.mentions,
+    quoted: inbound.quoted,
+    media: undefined,
+    ref: inbound.ref,
+    raw: inbound.raw,
+    timestamp: inbound.timestamp,
 
-    /* Send helpers ------------------------------------------------------ */
-    async say(t: string) {
-      return sendOut({ text: t })
-    },
-    async reply(t: string) {
-      return sendOut({ text: t })
-    },
-    async answer(t: string) {
-      return sendOut({ text: t })
-    },
-    async text(t: string) {
-      return sendOut({ text: t })
-    },
-    async photo(source: MediaSource, caption?: string) {
-      const media = mediaApi.toMediaUpload(source)
-      return sendOut({ image: media, caption })
-    },
-    async video(source: MediaSource, caption?: string, opts: MediaOptions = {}) {
-      return sendOut({
-        video: mediaApi.toMediaUpload(source),
-        caption,
-        ptv: opts.ptv,
-        gifPlayback: opts.gifPlayback,
-      })
-    },
-    async audio(source: MediaSource) {
-      const uploaded = mediaApi.toMediaUpload(source)
-      if ('url' in uploaded || typeof uploaded === 'string') {
-        return sendOut({ audio: uploaded, mimetype: 'audio/ogg; codecs=opus', ptt: false })
+    // Interaction projection (Telegram/Discord). acknowledge() no-ops without one.
+    interaction: deps.interaction,
+    async acknowledge(text?: string) {
+      if (deps.interaction && deps.acknowledgeInteraction) {
+        await deps.acknowledgeInteraction(deps.interaction.id, text)
       }
-      const opus = await mediaApi.transcodeToOpus(source)
-      return sendOut({ audio: opus, mimetype: 'audio/ogg; codecs=opus', ptt: false })
     },
-    async voice(source: MediaSource) {
-      const opus = await mediaApi.transcodeToOpus(source)
-      return sendOut({ audio: opus, mimetype: 'audio/ogg; codecs=opus', ptt: true })
+
+    /* Send helpers — build OutboundContent descriptors ------------------- */
+    async say(t: string) { return sendOut({ kind: 'text', text: t }) },
+    async reply(t: string) { return sendOut({ kind: 'text', text: t }) },
+    async answer(t: string) { return sendOut({ kind: 'text', text: t }) },
+    async text(t: string) { return sendOut({ kind: 'text', text: t }) },
+    async photo(source: MediaSource, caption?: string) {
+      return sendOut({ kind: 'image', media: source, caption })
     },
+    async video(source: MediaSource, caption?: string, opts?: { gifPlayback?: boolean; ptv?: boolean }) {
+      return sendOut({ kind: 'video', media: source, caption, gifPlayback: opts?.gifPlayback, ptv: opts?.ptv })
+    },
+    async audio(source: MediaSource) { return sendOut({ kind: 'audio', media: source }) },
+    async voice(source: MediaSource) { return sendOut({ kind: 'voice', media: source }) },
     async file(source: MediaSource, filename?: string, caption?: string) {
-      return sendOut({
-        document: mediaApi.toMediaUpload(source),
-        fileName: filename,
-        caption,
-      })
+      return sendOut({ kind: 'document', media: source, filename, caption })
     },
-    async sticker(source: MediaSource, opts: Pick<MediaOptions, 'pack' | 'author'> = {}) {
-      const sticker = await mediaApi.makeSticker(source, opts)
-      return sendOut({ sticker })
+    async sticker(source: MediaSource, opts?: { pack?: string; author?: string }) {
+      return sendOut({ kind: 'sticker', media: source, pack: opts?.pack, author: opts?.author })
     },
     async location(lat: number, lng: number, name?: string) {
-      return sendOut({
-        location: { degreesLatitude: lat, degreesLongitude: lng, name },
-      })
+      return sendOut({ kind: 'location', lat, lng, name })
     },
     async contact(phone: string, displayName?: string) {
-      const vcard =
-        'BEGIN:VCARD\n' +
-        'VERSION:3.0\n' +
-        `FN:${displayName ?? phone}\n` +
-        `TEL;type=CELL;type=VOICE;waid=${phone.replace(/[^\d]/g, '')}:${phone}\n` +
-        'END:VCARD'
-      return sendOut({
-        contacts: { displayName: displayName ?? phone, contacts: [{ vcard }] },
-      })
+      return sendOut({ kind: 'contact', phone, displayName })
     },
     async poll(question: string, options: string[], multiSelect = false) {
-      return sendOut({
-        poll: { name: question, values: options, selectableCount: multiSelect ? options.length : 1 },
-      })
+      return sendOut({ kind: 'poll', question, options, multiSelect })
+    },
+    async buttons(text: string, buttons: Button[]) {
+      return sendOut({ kind: 'buttons', text, buttons })
     },
     async react(emoji: string) {
-      return sendOut({ react: { text: emoji, key } })
+      return sendOut({ kind: 'reaction', emoji, target: inbound.ref })
     },
     async quote(t: string) {
-      return sendOut({ text: t }, { quoted: msg })
+      return sendOut({ kind: 'text', text: t }, { quoted: inbound.ref })
     },
     async replyWithTyping(t: string, msPerChar = 40) {
       const ms = humanTypingDelay(t, msPerChar)
@@ -299,63 +108,58 @@ export function buildMessageContext(deps: BuildContextDeps): IMessageContext {
       await sleep(ms)
       return ctx.text(t)
     },
-
-    /* Actions ----------------------------------------------------------- */
-    async markRead() {
-      await deps.markRead?.(key)
-    },
-    async typing() {
-      await deps.presence?.('composing', from)
-    },
-    async recording() {
-      await deps.presence?.('recording', from)
-    },
-    async delete() {
-      await deps.deleteMessage?.(key)
+    async sendNative(provider: string, payload: unknown) {
+      return sendOut({ kind: 'native', provider, payload })
     },
 
-    /* Dispatch control -------------------------------------------------- */
-    // `_passed` / `_aborted` are the Dispatcher's per-message bookkeeping flags.
-    pass() {
-      ;(ctx as unknown as { _passed?: boolean })._passed = true
-    },
-    abort() {
-      ;(ctx as unknown as { _aborted?: boolean })._aborted = true
-    },
+    /* Actions — degrade to no-op when the provider lacks the capability -- */
+    async markRead() { await deps.markRead?.(inbound.ref) },
+    async typing() { await deps.typing?.(from, 'typing') },
+    async recording() { await deps.typing?.(from, 'recording') },
+    async delete() { await deps.deleteMessage?.(inbound.ref) },
+
+    /* Dispatch control — `_passed`/`_aborted` are the Dispatcher's flags -- */
+    pass() { (ctx as unknown as { _passed?: boolean })._passed = true },
+    abort() { (ctx as unknown as { _aborted?: boolean })._aborted = true },
+
     tools: tools as DefaultTools,
   }
+
+  // Stash the lazy-media handle for loadMediaOf().
+  ;(ctx as unknown as { __mediaRef?: MediaRef; __downloadMedia?: BuildContextDeps['downloadMedia'] }).__mediaRef = inbound.media
+  ;(ctx as unknown as { __downloadMedia?: BuildContextDeps['downloadMedia'] }).__downloadMedia = deps.downloadMedia
 
   return ctx
 }
 
 async function streamToBuffer(stream: NodeJS.ReadableStream): Promise<Buffer> {
   const chunks: Buffer[] = []
-  for await (const chunk of stream as any) {
+  for await (const chunk of stream as AsyncIterable<Buffer | string>) {
     chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
   }
   return Buffer.concat(chunks)
 }
 
-/** Public accessor — `ctx.media` is populated on first call. */
+/** Public accessor — `ctx.media` is populated on first call via the provider's downloader. */
 export async function loadMediaOf(ctx: IMessageContext): Promise<MediaPayload | undefined> {
   if (ctx.media) return ctx.media
-  const downloader = (ctx as any).__mediaDownloader as
-    | ((m: proto.IWebMessageInfo) => Promise<Buffer | NodeJS.ReadableStream>)
-    | undefined
-  if (!downloader) return undefined
-  if (ctx.type === 'unknown' || ctx.type === 'text' || ctx.type === 'poll') return undefined
+  const holder = ctx as unknown as {
+    __mediaRef?: MediaRef
+    __downloadMedia?: (ref: MediaRef) => Promise<Buffer | NodeJS.ReadableStream>
+  }
+  const ref = holder.__mediaRef
+  const downloader = holder.__downloadMedia
+  if (!ref || !downloader) return undefined
   try {
-    const bufferOrStream = await downloader(ctx.rawMessage)
+    const bufferOrStream = await downloader(ref)
     const buffer = Buffer.isBuffer(bufferOrStream)
       ? bufferOrStream
       : await streamToBuffer(bufferOrStream as NodeJS.ReadableStream)
-    const messagePayload = ctx.rawMessage.message ?? undefined
-    const contentType = getContentType(messagePayload) ?? ''
-    const part = (messagePayload as any)?.[contentType]
     ctx.media = {
       buffer,
-      mimetype: part?.mimetype ?? 'application/octet-stream',
-      filename: part?.fileName,
+      mimetype: ref.mimetype ?? 'application/octet-stream',
+      filename: ref.filename,
+      size: ref.size,
     }
     return ctx.media
   } catch {
