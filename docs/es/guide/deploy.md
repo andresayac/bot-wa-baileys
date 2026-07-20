@@ -1,53 +1,52 @@
 # Despliegue
 
-Cómo poner tu bot en producción para que esté siempre conectado.
+Cómo ejecutar tu bot en producción, siempre conectado.
+
+::: tip Solo ESM, Node >= 20
+`@bot-wa/bot-wa-baileys` es ESM puro — no hay build de CommonJS. Asegúrate
+de que el `package.json` de producción tenga `"type": "module"` (o que tu
+entrypoint use `.mjs`), y que el runtime sea **Node >= 20**.
+:::
 
 ## Opción 1: VPS (recomendado)
-
-La forma más simple: un servidor Linux con Node.js.
 
 ### 1. Preparar el servidor
 
 ```bash
-# Instalar Node.js 18+
-curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
 sudo apt install -y nodejs
 npm install -g pnpm
 
-# Clonar tu bot
-git clone https://github.com/tu-usuario/mi-bot.git
-cd mi-bot
+git clone https://github.com/your-user/my-bot.git
+cd my-bot
 pnpm install
 ```
 
-### 2. Primera conexión (escanear QR)
+### 2. Primera conexión (escanear el QR)
 
 ```bash
 node bot.js
-# Escanea el QR con tu teléfono
-# Verás "✅ ¡Bot conectado!"
-# Ctrl+C para detener
+# Escanea el QR, luego Ctrl+C
 ```
 
-La sesión se guarda en `./sessions/`. No necesitas escanear el QR de nuevo.
+La sesión se guarda en `./sessions/`. No necesitas escanear de nuevo.
 
 ### 3. Ejecutar con PM2 (siempre activo)
 
 ```bash
 npm install -g pm2
-pm2 start bot.js --name mi-bot
+pm2 start bot.js --name my-bot
 pm2 save
-pm2 startup  # sigue las instrucciones para auto-iniciar en boot
+pm2 startup  # sigue las instrucciones para auto-iniciar en el arranque
 ```
 
-### Comandos útiles de PM2
+### Comandos de PM2
 
 ```bash
-pm2 status          # ver estado
-pm2 logs mi-bot     # ver logs
-pm2 restart mi-bot  # reiniciar
-pm2 stop mi-bot     # detener
-pm2 delete mi-bot   # eliminar
+pm2 status          # estado
+pm2 logs my-bot     # logs
+pm2 restart my-bot  # reiniciar
+pm2 stop my-bot     # detener
 ```
 
 ## Opción 2: Docker
@@ -55,18 +54,12 @@ pm2 delete mi-bot   # eliminar
 ### Dockerfile
 
 ```dockerfile
-FROM node:18-slim
-
+FROM node:20-slim
 WORKDIR /app
-
 COPY package.json pnpm-lock.yaml ./
 RUN npm install -g pnpm && pnpm install --frozen-lockfile
-
 COPY . .
-
-# Crear carpeta de sesiones
 RUN mkdir -p /app/sessions
-
 CMD ["node", "bot.js"]
 ```
 
@@ -79,92 +72,83 @@ services:
     build: .
     restart: unless-stopped
     volumes:
-      - ./sessions:/app/sessions  # persistir sesión
+      - ./sessions:/app/sessions
+      - ./store.json:/app/store.json
     environment:
       - NODE_ENV=production
 ```
 
-### Ejecutar
-
 ```bash
 docker compose up -d
-docker compose logs -f  # ver logs (escanea el QR la primera vez)
+docker compose logs -f  # escanea el QR la primera vez
 ```
 
-## Opción 3: Screen / Tmux (simple, sin PM2)
+## Opción 3: Screen / Tmux
 
 ```bash
-# Crear sesión screen
-screen -S mi-bot
-
-# Ejecutar el bot
+screen -S my-bot
 node bot.js
-
 # Salir sin detener: Ctrl+A, luego D
-# Volver a entrar:
-screen -r mi-bot
+# Volver a entrar: screen -r my-bot
 ```
 
 ## Consideraciones
 
-### Persistencia de sesión
+### Persistencia de sesión (auth)
 
-La sesión de WhatsApp se guarda en `./sessions/`. **No la borres** o tendrás
-que escanear el QR de nuevo.
+Las credenciales de inicio de sesión de WhatsApp se guardan bajo
+`sessionsDir/session` (por defecto `./sessions/<session>`). **No la
+borres** o tendrás que escanear el QR de nuevo:
 
-```js
+```ts
+const bot = new Bot({ session: 'my-bot', sessionsDir: './sessions' })
+```
+
+### Persistencia del store (conversaciones e historial)
+
+El `MemoryStore` por defecto vive solo en memoria. Si usas
+`flow(...).persistent()` en algún lugar, sus checkpoints no sobrevivirán a
+un reinicio del proceso a menos que respaldes el store con un archivo:
+
+```ts
 const bot = new Bot({
-  session: 'mi-bot',
-  sessionsDir: './sessions',  // ← esta carpeta
+  storeConfig: { file: './store.json' },
 })
 ```
 
-### Backup de sesión
+Respalda la carpeta y el archivo juntos — son lo que le permite a un bot
+redesplegado continuar sin volver a escanear el QR ni perder conversaciones
+en curso:
 
 ```bash
-# Respaldar
-tar -czf session-backup.tar.gz sessions/
-
-# Restaurar
-tar -xzf session-backup.tar.gz
+tar -czf backup.tar.gz sessions/ store.json
+tar -xzf backup.tar.gz
 ```
 
-### Variables de entorno
+### Apagado ordenado
 
-```bash
-# .env
-NODE_ENV=production
-BOT_SESSION=mi-bot
-```
+`bot.stop()` desmonta el provider y aborta las conversaciones activas (los
+checkpoints persistentes se conservan si el store tiene un archivo
+detrás):
 
-```js
-const bot = new Bot({
-  session: process.env.BOT_SESSION || 'mi-bot',
+```ts
+process.on('SIGINT', async () => {
+  await bot.stop()
+  process.exit(0)
+})
+
+process.on('SIGTERM', async () => {
+  await bot.stop()
+  process.exit(0)
 })
 ```
 
 ### Logging
 
-```js
+```ts
 const bot = new Bot({
   debug: false,  // true para logs detallados
 })
-```
-
-En producción, usa `debug: false` y un logger como pino con transporte a archivo.
-
-### Reinicio automático
-
-PM2 y Docker reinician automáticamente si el bot crashea. Si usas screen/tmux,
-necesitas un script:
-
-```bash
-#!/bin/bash
-while true; do
-  node bot.js
-  echo "Bot crasheó, reiniciando en 5s..."
-  sleep 5
-done
 ```
 
 ## Siguientes pasos

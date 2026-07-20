@@ -2,121 +2,131 @@
 
 Recetas prácticas para responder a mensajes de texto.
 
+## Configuración
+
+```ts
+import { Bot } from '@bot-wa/bot-wa-baileys'
+
+const bot = new Bot({ session: 'demo-bot', qr: { terminal: true, small: true } })
+```
+
 ## Responder a un texto
 
-```js
-bot.when('hola', async (ctx) => {
-  await ctx.reply('👋 ¡Hola!')
+```ts
+bot.when('hi', async (ctx) => {
+  await ctx.reply('👋 Hello!')
 })
 ```
 
-## Responder a varios textos
+## Varias palabras clave
 
-```js
-bot.when(['adios', 'chao', 'bye', 'hasta luego'], async (ctx) => {
-  await ctx.reply('👋 ¡Hasta luego! Vuelve pronto.')
+```ts
+bot.when(['bye', 'goodbye', 'see you'], async (ctx) => {
+  await ctx.reply('👋 See you later!')
 })
 ```
 
-## Responder con regex
+## Coincidencia con regex
 
-```js
-// Detectar números largos
+```ts
 bot.when(/\d{4,}/, async (ctx) => {
-  await ctx.reply(`🔢 Detecté un número: "${ctx.body}"`)
+  await ctx.reply(`🔢 Detected a long number: "${ctx.body}"`)
 })
 
-// Detectar email
 bot.when(/[\w.]+@[\w.]+\.\w+/, async (ctx) => {
-  await ctx.reply(`📧 Detecté un email: "${ctx.body}"`)
-})
-
-// Detectar URL
-bot.when(/https?:\/\/.+/, async (ctx) => {
-  await ctx.reply('🔗 Detecté un enlace')
+  await ctx.reply('📧 Detected an email')
 })
 ```
 
-## Responder citando el mensaje
+## Coincidir "contiene" en vez de exacto
 
-```js
-bot.when('cita', async (ctx) => {
-  await ctx.quote('Respondiendo a tu mensaje específicamente')
+Por defecto, un trigger de tipo string solo coincide cuando el mensaje
+(normalizado) **es igual** a él — `bot.when('invoice', ...)` NO coincide con
+"check my invoice please". Usa un `TriggerObject` con `match: 'contains'`
+para recuperar el comportamiento clásico de "contiene":
+
+```ts
+bot.when({ pattern: 'invoice', match: 'contains' }, async (ctx) => {
+  await ctx.reply('🧾 I see you mentioned an invoice')
 })
 ```
 
-## Responder con typing simulado
+`match` también admite `'startsWith'` y `'endsWith'`.
 
-```js
-bot.when('lento', async (ctx) => {
-  await ctx.replyWithTyping('Escribiendo lentamente...')
+## Citar el mensaje
+
+```ts
+bot.when('quote', async (ctx) => {
+  await ctx.quote('Replying to your specific message')
 })
 ```
 
 ## Reaccionar con emoji
 
-```js
-bot.when('bien', async (ctx) => {
-  await ctx.react('👍')
-})
-
-bot.when('amor', async (ctx) => {
-  await ctx.react('❤️')
-})
+```ts
+bot.when('good', async (ctx) => { await ctx.react('👍') })
+bot.when('love', async (ctx) => { await ctx.react('❤️') })
 ```
 
-## Responder solo en privado
+## Solo en privado
 
-```js
-bot.when('privado', async (ctx) => {
+```ts
+bot.when('private', async (ctx) => {
   if (ctx.isGroup) return
-  await ctx.reply('Esto solo funciona en chat privado')
-})
-```
-
-## Responder solo en grupos
-
-```js
-bot.when('grupo', async (ctx) => {
-  if (!ctx.isGroup) return
-  await ctx.reply('Esto solo funciona en grupos')
+  await ctx.reply('This only works in private chat')
 })
 ```
 
 ## Mensaje multi-línea
 
-```js
+```ts
 bot.when('info', async (ctx) => {
   await ctx.reply([
-    'ℹ️ *Información del bot*',
+    'ℹ️ *Bot info*',
     '',
-    '• Versión: 2.0.0',
-    '• Motor: Baileys 7',
-    '',
-    'Envía /help para ver comandos.',
+    '• Version: 2.0.0',
+    '• Engine: Baileys 7',
   ].join('\n'))
 })
 ```
 
-## Usar el nombre del remitente
+## Usar los datos del remitente
 
-```js
-bot.when('quien', async (ctx) => {
-  const nombre = ctx.sender.pushName ?? 'desconocido'
-  await ctx.reply(`👋 Hola ${nombre}!`)
+```ts
+bot.when('who', async (ctx) => {
+  const name = ctx.senderInfo?.pushName ?? ctx.pushName ?? 'friend'
+  await ctx.reply(`👋 Hi ${name}!`)
 })
 ```
 
-## Catch-all (cuando no reconoce nada)
+## Sin botones nativos — usa una encuesta
 
-```js
+WhatsApp Web eliminó los botones nativos, así que un sí/no rápido se resuelve
+mejor con una encuesta real (ver [Enviar media](./media) para más opciones de
+encuestas):
+
+```ts
+bot.when('confirm', async (ctx) => {
+  await ctx.poll('Do you confirm your order?', ['Yes', 'No'])
+})
+```
+
+Para un menú que se ramifica en lógica distinta según la opción, usa
+`flow().choose()` o `c.choose()` — ver la receta de
+[Flujo de compra](./flujo-compra).
+
+## Catch-all
+
+```ts
 bot.onMessage(async (ctx) => {
-  await ctx.reply([
-    '🤔 No reconocí ese comando.',
-    '',
-    'Envía /help para ver lo que puedo hacer.',
-  ].join('\n'))
+  await ctx.reply('🤔 I did not recognize that. Send /help.')
 })
+```
+
+## Iniciar el bot
+
+```ts
+await bot.start()
 ```
 
 ## Siguientes pasos

@@ -8,7 +8,12 @@
 import type { proto, WAMessage, WAMessageKey, Chat, Contact } from '@whiskeysockets/baileys'
 import { existsSync } from 'fs'
 import { readFile, writeFile } from 'fs/promises'
-import type { IStore } from './IStore'
+import type { FlowCheckpoint, IStore } from './IStore.js'
+
+/** Minimal logger surface — satisfied by pino and by a bare `console`. */
+export interface MemoryStoreLogger {
+  error?: (...args: unknown[]) => void
+}
 
 export interface MemoryStoreOptions {
   /** Max messages retained per chat. Default 1000. */
@@ -17,6 +22,8 @@ export interface MemoryStoreOptions {
   file?: string
   /** Auto-save interval in ms. Set 0 to disable. Default 60_000. */
   autoSaveInterval?: number
+  /** Optional logger for load/persist failures. Falls back to silence when omitted. */
+  logger?: MemoryStoreLogger
 }
 
 export class MemoryStore implements IStore {
@@ -24,6 +31,7 @@ export class MemoryStore implements IStore {
   private chats = new Map<string, Chat>()
   private contacts = new Map<string, Contact>()
   private flowStates = new Map<string, Record<string, unknown>>()
+  private checkpoints = new Map<string, FlowCheckpoint>()
   private autoSaveTimer: NodeJS.Timeout | null = null
 
   constructor(private opts: MemoryStoreOptions = {}) {}
@@ -36,9 +44,10 @@ export class MemoryStore implements IStore {
         if (data.chats) for (const c of data.chats) this.chats.set(c.id, c)
         if (data.contacts) for (const c of data.contacts) this.contacts.set(c.id, c)
         if (data.flowStates) for (const [k, v] of Object.entries(data.flowStates)) this.flowStates.set(k, v as Record<string, unknown>)
+        if (data.checkpoints) for (const [k, v] of Object.entries(data.checkpoints)) this.checkpoints.set(k, v as FlowCheckpoint)
         // Messages are intentionally NOT restored (privacy + size).
       } catch (err) {
-        console.error('[MemoryStore] failed to load file:', err)
+        this.opts.logger?.error?.({ err, file: this.opts.file }, 'MemoryStore failed to load file')
       }
     }
     const interval = this.opts.autoSaveInterval ?? 60_000
@@ -61,11 +70,12 @@ export class MemoryStore implements IStore {
       chats: [...this.chats.values()],
       contacts: [...this.contacts.values()],
       flowStates: Object.fromEntries(this.flowStates),
+      checkpoints: Object.fromEntries(this.checkpoints),
     }
     try {
       await writeFile(this.opts.file, JSON.stringify(payload), 'utf8')
     } catch (err) {
-      console.error('[MemoryStore] failed to persist:', err)
+      this.opts.logger?.error?.({ err, file: this.opts.file }, 'MemoryStore failed to persist')
     }
   }
 
@@ -163,5 +173,21 @@ export class MemoryStore implements IStore {
 
   async clearFlowState(userId: string): Promise<void> {
     this.flowStates.delete(userId)
+  }
+
+  async getCheckpoint(key: string): Promise<FlowCheckpoint | undefined> {
+    return this.checkpoints.get(key)
+  }
+
+  async setCheckpoint(key: string, cp: FlowCheckpoint): Promise<void> {
+    this.checkpoints.set(key, cp)
+  }
+
+  async clearCheckpoint(key: string): Promise<void> {
+    this.checkpoints.delete(key)
+  }
+
+  async listCheckpoints(): Promise<Array<[string, FlowCheckpoint]>> {
+    return [...this.checkpoints.entries()]
   }
 }

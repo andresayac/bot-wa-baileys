@@ -13,8 +13,8 @@
  */
 
 import type { makeWASocket, AuthenticationCreds } from '@whiskeysockets/baileys'
-import type { ProfileAPI, MediaSource, UserId } from '../core/types'
-import { toMediaUpload } from '../media/MediaProcessor'
+import type { ProfileAPI, MediaSource, UserId } from '../core/types.js'
+import { toMediaUpload } from '../media/MediaProcessor.js'
 
 type Socket = ReturnType<typeof makeWASocket>
 

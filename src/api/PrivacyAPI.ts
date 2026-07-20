@@ -3,7 +3,7 @@
  */
 
 import type { makeWASocket } from '@whiskeysockets/baileys'
-import type { PrivacyAPI, UserId } from '../core/types'
+import type { PrivacyAPI, UserId } from '../core/types.js'
 
 type Socket = ReturnType<typeof makeWASocket>
 

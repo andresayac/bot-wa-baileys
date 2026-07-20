@@ -30,10 +30,11 @@ import { existsSync, rmSync } from 'fs'
 import { join } from 'path'
 import type { Logger } from 'pino'
 
-import type { BotConfig, ConnectionUpdate, ConnectionState } from '../core/types'
+import type { BotConfig, ConnectionUpdate, ConnectionState, IProvider } from '../core/types.js'
 
 export interface ProviderEvents {
   connection: ConnectionUpdate
+  pairingCode: string
   rawMessage: { message: WAMessage; type: 'notify' | 'append' }
   messageUpdate: { key: WAMessageKey; update: any }
   reaction: { key: WAMessageKey; reaction: number | string; from: string }
@@ -67,13 +68,17 @@ export class TypedEmitter<TEvents extends Record<string, any>> extends EventEmit
   }
 }
 
-export class BaileysProvider extends TypedEmitter<ProviderEvents> {
+export class BaileysProvider extends TypedEmitter<ProviderEvents> implements IProvider {
   private sock: ReturnType<typeof makeWASocket> | null = null
   private msgRetryCounterCache = new NodeCache({ stdTTL: 0, useClones: false })
   private authState: Awaited<ReturnType<typeof useMultiFileAuthState>> | null = null
   private version: [number, number, number] = [0, 0, 0]
   private reconnectPending: boolean = false
   private isShuttingDown: boolean = false
+  /** True once a pairing code was requested for the current socket — QR refreshes every ~20s and must not re-request. */
+  private pairingCodeRequested: boolean = false
+  /** LID <-> PN cache — every resolved pair is stored under both keys. */
+  private lidCache = new Map<string, string>()
 
   constructor(
     private config: BotConfig,
@@ -98,6 +103,8 @@ export class BaileysProvider extends TypedEmitter<ProviderEvents> {
 
   /** Start — open the socket and wait for `open` or first QR. */
   async start(): Promise<void> {
+    // A fresh socket invalidates any previously issued pairing code, so allow one new request.
+    this.pairingCodeRequested = false
     this.authState = await useMultiFileAuthState(this.sessionDir)
     const versionInfo = await fetchLatestBaileysVersion()
     this.version = versionInfo.version
@@ -146,14 +153,59 @@ export class BaileysProvider extends TypedEmitter<ProviderEvents> {
   /** Resolve a LID JID to a PN JID if needed for sending. */
   private async resolveJid(jid: string): Promise<string> {
     if (!jid.endsWith('@lid')) return jid
-    try {
-      // Try to get the PN mapping from the signal repository
-      const pn = await (this.sock as any).signalRepository?.lidMapping?.getPNForLID?.(jid)
-      if (pn) return pn
-    } catch {}
-    // Fallback: try the store / contacts for a PN matching this LID
     // If we can't resolve, send to the LID anyway (Baileys may handle it)
-    return jid
+    return (await this.getPNForLID(jid)) ?? jid
+  }
+
+  /** PN for a LID — checks the local cache first, then the signal repository. */
+  async getPNForLID(lid: string): Promise<string | undefined> {
+    const cached = this.lidCache.get(lid)
+    if (cached) return cached
+    const pn = await this.sock?.signalRepository.lidMapping.getPNForLID(lid).catch(() => null)
+    if (pn) {
+      this.lidCache.set(lid, pn)
+      this.lidCache.set(pn, lid)
+    }
+    return pn ?? undefined
+  }
+
+  /** LID for a PN — checks the local cache first, then the signal repository. */
+  async getLIDForPN(pn: string): Promise<string | undefined> {
+    const cached = this.lidCache.get(pn)
+    if (cached) return cached
+    const lid = await this.sock?.signalRepository.lidMapping.getLIDForPN(pn).catch(() => null)
+    if (lid) {
+      this.lidCache.set(pn, lid)
+      this.lidCache.set(lid, pn)
+    }
+    return lid ?? undefined
+  }
+
+  /**
+   * Cache a `lid-mapping.update` payload. The observed shape (Baileys 7.0.0-rc13)
+   * is a single `{ lid, pn }` pair, but this is coded defensively in case a build
+   * emits an array of pairs or a plain `{ [a]: b }` record instead.
+   */
+  private cacheLidMapping(update: unknown): void {
+    if (!update || typeof update !== 'object') return
+    const pairs = Array.isArray(update) ? update : [update]
+    let sawPairShape = false
+    for (const entry of pairs) {
+      if (entry && typeof entry === 'object' && 'lid' in entry && 'pn' in entry) {
+        sawPairShape = true
+        const { lid, pn } = entry as { lid?: string; pn?: string }
+        if (lid && pn) {
+          this.lidCache.set(lid, pn)
+          this.lidCache.set(pn, lid)
+        }
+      }
+    }
+    if (!sawPairShape && !Array.isArray(update)) {
+      for (const [a, b] of Object.entries(update as Record<string, string>)) {
+        this.lidCache.set(a, b)
+        this.lidCache.set(b, a)
+      }
+    }
   }
 
   /** Read receipts — mark messages read. */
@@ -298,6 +350,11 @@ export class BaileysProvider extends TypedEmitter<ProviderEvents> {
       if (events['presence.update']) {
         this.emitTyped('presenceUpdate', events['presence.update'])
       }
+
+      /* LID/PN identity ----------------------------------------------------- */
+      if (events['lid-mapping.update']) {
+        this.cacheLidMapping(events['lid-mapping.update'])
+      }
     })
   }
 
@@ -311,6 +368,25 @@ export class BaileysProvider extends TypedEmitter<ProviderEvents> {
         isNewLogin,
         isOnline,
       })
+
+      // Pairing-code login (v1 parity): once a QR is available the socket is ready to
+      // issue a pairing code. Requires `config.pairingCode` to be the phone number in
+      // full international format (e.g. '+573001234567'); Baileys wants digits only.
+      if (
+        this.config.pairingCode &&
+        !this.authState?.state?.creds?.registered &&
+        !this.pairingCodeRequested &&
+        this.sock
+      ) {
+        this.pairingCodeRequested = true
+        try {
+          const phone = this.config.pairingCode.replace(/\D/g, '')
+          const code = await this.sock.requestPairingCode(phone)
+          this.emitTyped('pairingCode', code)
+        } catch (error) {
+          this.logger.warn({ error }, 'pairing code request failed — falling back to QR')
+        }
+      }
     }
 
     if (connection === 'open') {

@@ -1,77 +1,68 @@
 # Registration Flow
 
-A complete registration flow with capture, validation and confirmation.
+A complete registration flow with `.ask()`, validation and a dynamic summary.
 
 ## The flow
 
-```js
-const { Bot, flow } = require('@bot-wa/bot-wa-baileys')
+```ts
+import { Bot, flow } from '@bot-wa/bot-wa-baileys'
 
 const bot = new Bot({ session: 'demo-bot', qr: { terminal: true, small: true } })
 
 const register = flow('register')
   .say('📝 *Let us register you*')
-  .say('What is your name?', { capture: true })
-  .do(async (ctx, { state }) => {
-    state.set('name', ctx.body)
+  .ask('What is your name?', 'name')
+  .ask('What is your email?', 'email', {
+    validate: (body) =>
+      /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(body) ? true : '❌ Invalid email. Try again.',
   })
-  .say('What is your email?', { capture: true })
-  .validate((body) => {
-    const ok = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(body)
-    return ok ? true : '❌ Invalid email. Try again.'
-  })
-  .do(async (ctx, { state }) => {
-    state.set('email', ctx.body)
-  })
-  .say(async (ctx, { state }) => {
-    return [
-      '✅ *Registration complete!*',
-      '',
-      `👤 Name: ${state.get('name')}`,
-      `📧 Email: ${state.get('email')}`,
-    ].join('\n')
-  })
-  .end()
+  .say((_ctx, c) => [
+    '✅ *Registration complete!*',
+    '',
+    `👤 Name: ${c.state.name}`,
+    `📧 Email: ${c.state.email}`,
+  ].join('\n'))
 
 bot.use(register)
-bot.start()
+
+await bot.start()
 ```
 
 ## How it works
 
-1. User sends "register"
-2. Bot says "📝 Let us register you"
-3. Bot asks "What is your name?" and **waits**
-4. `do` saves the name in `state`
-5. Bot asks "What is your email?" and **waits**
-6. `validate` checks if it's a valid email
-   - Valid → continues
-   - Invalid → sends "❌ Invalid email" and **repeats the step**
-7. `do` saves the email
-8. Bot shows the summary
+1. User sends "register" and the flow starts
+2. `.say('📝 *Let us register you*')` sends a fixed intro message
+3. `.ask('What is your name?', 'name')` sends the question, waits for the reply, and stores it in `c.state.name`
+4. `.ask('What is your email?', 'email', { validate })` repeats until the reply passes validation — `validate` returns `true` to accept, or an error string to reject and re-ask the same question
+5. The final `.say((_ctx, c) => ...)` reads `c.state.name` and `c.state.email` to build the summary dynamically
 
-## Save to database
+## Save to a database
 
-```js
+Combine `.do()` (run an action without sending a message) with `bot.provide()`
+to persist the captured data:
+
+```ts
 bot.provide('db', {
-  users: new Map(),
-  async save(jid, data) { this.users.set(jid, data) },
+  users: new Map<string, { name: string; email: string }>(),
+  async save(jid: string, data: { name: string; email: string }) {
+    this.users.set(jid, data)
+  },
 })
 
 const register = flow('register')
-  .say('Name?', { capture: true })
-  .do(async (ctx, { state }) => state.set('name', ctx.body))
-  .say('Email?', { capture: true })
-  .validate((body) => body.includes('@') ? true : '❌ Invalid email')
-  .do(async (ctx, { state }) => {
-    state.set('email', ctx.body)
-    await ctx.tools.db.save(ctx.from, {
-      name: state.get('name'),
-      email: state.get('email'),
-    })
+  .ask('Name?', 'name')
+  .ask('Email?', 'email', {
+    validate: (body) => (body.includes('@') ? true : '❌ Invalid email'),
+  })
+  .do(async (ctx, c) => {
+    const { db } = ctx.tools as {
+      db: { save(jid: string, data: { name: string; email: string }): Promise<void> }
+    }
+    await db.save(ctx.from, { name: c.state.name, email: c.state.email })
   })
   .say('✅ Registered!')
-  .end()
+
+bot.use(register)
 ```
 
 ## Next steps

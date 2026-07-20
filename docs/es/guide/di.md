@@ -1,13 +1,10 @@
 # Inyección de dependencias
 
-La inyección de dependencias (DI) te permite compartir herramientas entre
-handlers, hooks y plugins sin usar variables globales.
+Comparte herramientas entre handlers, hooks y plugins sin usar globales.
 
 ## El problema que resuelve
 
-Sin DI, tendrías que usar globales o pasar todo manualmente:
-
-```js
+```ts
 // ❌ Mal: variable global
 const db = new Database()
 
@@ -16,14 +13,12 @@ bot.when('visitas', async (ctx) => {
 })
 ```
 
-Con DI, la herramienta vive en `ctx.tools`:
-
-```js
+```ts
 // ✅ Bien: inyectada
 bot.provide('db', new Database())
 
 bot.when('visitas', async (ctx) => {
-  const user = await ctx.tools.db.touch(ctx.from)  // db está en ctx
+  const user = await ctx.tools.db.touch(ctx.from)  // db está en ctx.tools
 })
 ```
 
@@ -31,10 +26,10 @@ bot.when('visitas', async (ctx) => {
 
 ### 1. Registrar una herramienta
 
-```js
+```ts
 bot.provide('db', {
   users: new Map(),
-  async touch(jid) {
+  async touch(jid: string) {
     const u = this.users.get(jid) ?? { visits: 0 }
     u.visits++
     this.users.set(jid, u)
@@ -43,69 +38,54 @@ bot.provide('db', {
 })
 ```
 
+`bot.provide(name, value)` devuelve `this`, así que las llamadas se pueden
+encadenar:
+
+```ts
+bot
+  .provide('db', myDatabase)
+  .provide('cache', myCache)
+```
+
 ### 2. Usarla en cualquier handler
 
-```js
+```ts
 bot.when('visitas', async (ctx) => {
   const db = ctx.tools.db
   const user = await db.touch(ctx.from)
-  await ctx.reply(`📊 Has visitado este bot ${user.visits} veces.`)
+  await ctx.reply(`📊 You have visited ${user.visits} times.`)
 })
 ```
 
-### 3. Disponible en hooks y plugins también
+### 3. También disponible en hooks y plugins
 
-```js
+```ts
 bot.before('message', async (ctx, next) => {
   const db = ctx.tools.db
-  await db.touch(ctx.from)  // contar visita en cada mensaje
+  await db.touch(ctx.from)
   await next()
 })
 ```
 
-## Ejemplo: base de datos real
-
-```js
-const { Database } = require('quickmongo')
-const db = new Database('mongodb://localhost/bot')
-
-bot.provide('db', {
-  async getUser(jid) {
-    return await db.get(`user.${jid}`)
-  },
-  async setUser(jid, data) {
-    await db.set(`user.${jid}`, data)
-  },
-  async addPoints(jid, points) {
-    const user = await this.getUser(jid) ?? { points: 0 }
-    user.points += points
-    await this.setUser(jid, user)
-    return user
-  },
-})
-
-bot.when('puntos', async (ctx) => {
-  const db = ctx.tools.db
-  const user = await db.addPoints(ctx.from, 1)
-  await ctx.reply(`🏆 Tienes ${user.points} puntos`)
-})
-```
+El `install(ctx)` de un plugin también recibe `ctx.tools`, así que los
+plugins pueden consumir herramientas registradas en otro lugar (o
+registrar las suyas con `bot.provide`).
 
 ## Múltiples herramientas
 
-```js
+```ts
 bot.provide('db', myDatabase)
 bot.provide('cache', myCache)
 bot.provide('api', myApiClient)
 
 bot.when('test', async (ctx) => {
-  await ctx.tools.db.query(...)
-  await ctx.tools.cache.get(...)
-  await ctx.tools.api.fetch(...)
+  await ctx.tools.db.query(/* ... */)
+  await ctx.tools.cache.get(/* ... */)
+  await ctx.tools.api.fetch(/* ... */)
 })
 ```
 
 ## Siguientes pasos
 
-- [Plugins](./plugins) — cómo acceder a tools desde un plugin
+- [Plugins](./plugins) — accede a herramientas desde un plugin
 - [Scheduler](./scheduler) — tareas programadas

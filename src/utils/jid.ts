@@ -22,19 +22,19 @@ import {
   isJidBroadcast,
   isJidStatusBroadcast,
   isJidNewsletter,
-  isPnUser,
-  isLidUser,
+  isPnUser as baileysIsPnUser,
+  isLidUser as baileysIsLidUser,
   areJidsSameUser,
 } from '@whiskeysockets/baileys'
-import type { JID, UserId, ChatId, JidInput } from '../core/types'
+import type { JID, UserId, ChatId, JidInput } from '../core/types.js'
 
 export {
   isJidGroup as isGroup,
   isJidBroadcast as isBroadcast,
   isJidStatusBroadcast as isStatus,
   isJidNewsletter as isNewsletter,
-  isPnUser as isPn,
-  isLidUser as isLid,
+  baileysIsPnUser as isPn,
+  baileysIsLidUser as isLid,
   areJidsSameUser as sameUser,
 }
 
@@ -125,4 +125,51 @@ export function isValidJid(value: string): boolean {
   } catch {
     return false
   }
+}
+
+/* ============================================================================
+ * LID/PN IDENTITY (Baileys 7)
+ * ============================================================================
+ *
+ * Baileys 7 migrated WhatsApp's user identity to LIDs (`@lid`) — an opaque,
+ * per-account identifier that replaces the phone-number JID (`@s.whatsapp.net`,
+ * "PN") as the primary identity. Inbound events still carry the PN twin
+ * alongside the LID (`remoteJidAlt`/`participantAlt`), and the wrapper always
+ * prefers the PN form for anything user-facing (`ctx.from`, `ctx.sender`).
+ * ========================================================================== */
+
+/** True if `jid` is a phone-number-form user JID (`…@s.whatsapp.net`). */
+export function isPnUser(jid: string): boolean {
+  return jid.endsWith('@s.whatsapp.net')
+}
+
+/** True if `jid` is a LID-form user JID (`…@lid`) — Baileys 7's opaque identity. */
+export function isLidUser(jid: string): boolean {
+  return jid.endsWith('@lid')
+}
+
+/**
+ * Normalize an inbound message key to PN-preferred `chat`/`sender` identifiers.
+ *
+ * - DM: `chat` prefers `remoteJidAlt` (PN) when `remoteJid` arrived as a LID.
+ * - Group: `chat` is always the group JID (`remoteJid`, never a LID); `sender`
+ *   prefers `participantAlt` (PN) over the raw `participant` (possibly a LID).
+ */
+export function normalizeInboundKey(
+  key: {
+    remoteJid?: string | null
+    remoteJidAlt?: string | null
+    participant?: string | null
+    participantAlt?: string | null
+    fromMe?: boolean | null
+  },
+  isGroup: boolean,
+): { chat: string; sender: string } {
+  const remote = key.remoteJid ?? ''
+  if (isGroup) {
+    const sender = (key.participantAlt && isPnUser(key.participantAlt) ? key.participantAlt : key.participant) ?? ''
+    return { chat: remote, sender }
+  }
+  const chat = key.remoteJidAlt && isPnUser(key.remoteJidAlt) && isLidUser(remote) ? key.remoteJidAlt : remote
+  return { chat, sender: chat }
 }

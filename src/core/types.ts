@@ -3,15 +3,40 @@
  * =====================================
  *
  * Naming philosophy:
- *  - `when()` is universal (tod88 understands "when X happens, do Y").
+ *  - `when()` is universal (everyone understands "when X happens, do Y").
  *  - Short names, fluent API, progressive disclosure.
  *  - No external framework copied verbatim — own identity.
  */
 
 import type { Logger } from 'pino'
 import type { proto, WAMessageKey, WAMessage } from '@whiskeysockets/baileys'
+import type { RuntimeMessage } from '../conversations/ConversationRuntime.js'
+import type { Bot } from './Bot.js'
 
 export type { WAMessageKey, WAMessage }
+
+/* ============================================================================
+ * PROVIDER CONTRACT (IProvider)
+ * ========================================================================== */
+
+/** Outgoing message payload sent via provider. */
+export interface OutgoingMessage {
+  jid: string
+  content: Record<string, unknown>
+  options?: Record<string, unknown>
+}
+
+/** Provider interface — unified contract for Baileys, Mock, or custom providers. */
+export interface IProvider {
+  start(): Promise<void>
+  stop(): Promise<void>
+  send(jid: string, content: Record<string, unknown>, options?: Record<string, unknown>): Promise<{ key: { id?: string | null; remoteJid?: string | null; fromMe?: boolean | null } }>
+  onTyped(event: string, listener: (payload: unknown) => void): unknown
+  offTyped(event: string, listener: (payload: unknown) => void): unknown
+  downloadMedia?(message: unknown): Promise<Buffer | NodeJS.ReadableStream>
+  readMessages?(keys: unknown[]): Promise<void>
+  readonly socket: unknown | null
+}
 
 /* ============================================================================
  * PRIMITIVES & JIDS
@@ -70,7 +95,12 @@ export type MessageType =
 
 /** Sender information extracted from an inbound message. */
 export interface SenderInfo {
+  /** PN-preferred sender id — same value as {@link MessageContext.sender}. */
   id: UserId
+  /** Phone-number-form JID (`@s.whatsapp.net`), when the sender resolved to one. */
+  phoneNumber?: string
+  /** LID-form JID (`@lid`), when the raw inbound identity was a LID (Baileys 7). */
+  lid?: string
   name?: string
   pushName?: string
   isBusiness?: boolean
@@ -101,8 +131,8 @@ export interface MediaPayload {
  * @example
  * ```ts
  * bot.when('hola', async (ctx) => {
- *   await ctx.reply(`👋 hi ${ctx.sender.pushName ?? ctx.from}`)
- *   console.log(ctx.type, ctx.isGroup, ctx.mentions)
+ *   await ctx.reply(`👋 hi ${ctx.pushName ?? ctx.from}`)
+ *   ctx.logger?.debug({ type: ctx.type, isGroup: ctx.isGroup, mentions: ctx.mentions })
  * })
  * ```
  */
@@ -110,7 +140,12 @@ export interface MessageContext<TTools extends object = DefaultTools> {
   /* Raw data ------------------------------------------------------------- */
   body: string
   from: ChatId
-  sender: SenderInfo
+  /** Who sent it — string JID. In DMs equals `from`; in groups the participant. */
+  sender: UserId
+  /** LID/PN-aware sender identity — see {@link SenderInfo}. */
+  senderInfo: SenderInfo
+  /** Sender's WhatsApp display name, when present on the inbound message. */
+  pushName?: string
   chat: ChatInfo
   type: MessageType
   isGroup: boolean
@@ -145,8 +180,10 @@ export interface MessageContext<TTools extends object = DefaultTools> {
   recording(): Promise<void>
   delete(): Promise<void>
 
-  /* Hooks/flow control -------------------------------------------------- */
-  /** Abort the event pipeline (skip subsequent handlers, skip flow matching). */
+  /* Dispatch control ---------------------------------------------------- */
+  /** Yield to the next matching handler instead of stopping after this one. */
+  pass(): void
+  /** Abort the event pipeline (skip subsequent handlers and catch-all). */
   abort(): void
   /** In `before` hooks: pass control to the next middleware. */
   next?(): Promise<void>
@@ -164,6 +201,11 @@ export interface SentMessage {
   messageId: string
   key: WAMessageKey
   raw: WAMessage
+  /**
+   * `true` when a `before('send')` hook aborted the send — nothing was actually
+   * transmitted. `messageId` is `'skipped'` and `raw` is `undefined` in that case.
+   */
+  skipped?: boolean
 }
 
 /* ============================================================================
@@ -207,10 +249,17 @@ export interface HookRegistration {
  * ========================================================================== */
 
 export interface PluginContext<TTools extends object = DefaultTools> {
-  bot: any                // forward ref to Bot — typed at use site
+  /**
+   * Scoped facade of the Bot: `command`/`when`/`onMessage`/`onType`/`before`/`after`/`onError`
+   * called through here auto-register their unsubscribers so `bot.plug()`'s returned `unplug()`
+   * reverts everything the plugin registered.
+   */
+  bot: Bot
   logger: Logger
   tools: TTools
   config: Record<string, unknown>
+  /** Register extra cleanup (e.g. `bot.off(...)`) to run when the plugin is unplugged. */
+  onDispose(fn: () => void): void
 }
 /**
  * Plugin spec — the shape returned by {@link definePlugin}.
@@ -242,99 +291,6 @@ export interface PluginContext<TTools extends object = DefaultTools> {
 export type Plugin<TConfig = Record<string, unknown>> =
   | PluginSpec<TConfig>
   | ((config?: TConfig) => PluginSpec<TConfig>)
-
-/* ============================================================================
- * FLOWS (DSL v2)
- * ========================================================================== */
-
-/** Anything that matches message text: string, regex, array of either. */
-export type KeywordMatcher = string | RegExp | (string | RegExp)[]
-
-export type FlowMatcher = 'contains' | 'equals' | 'startsWith' | 'endsWith' | 'regex'
-
-export interface FlowMatchOptions {
-  /** Matching strategy. Default 'contains' for strings, 'regex' for RegExp. */
-  matcher?: FlowMatcher
-  /** Case-sensitive match. Default false. */
-  caseSensitive?: boolean
-  /** Only match in groups / only in private chats. Default: both. */
-  scope?: 'group' | 'private' | 'both'
-  /** Only respond to specific senders. */
-  from?: UserId[]
-}
-
-export interface FlowStepOptions {
-  /** Capture next user message and feed it to action state. */
-  capture?: boolean
-  /** Validate captured body. Return string error or throw. */
-  validate?: (body: string) => true | string | Promise<true | string>
-  /** Delay (ms) before sending this answer for human-like pacing. */
-  delay?: number
-  /** Show typing indicator before sending. Default true when delay > 0. */
-  typing?: boolean
-  /** Sub-flow to redirect to. */
-  goto?: Flow
-}
-
-export interface FlowTools {
-  /** Per-user state. Auto-cleaned when flow ends (unless persistent). */
-  state: FlowState
-  /** Send arbitrary text/media to current user. */
-  say(message: string | MediaSource): Promise<void>
-  /** Jump to another flow. */
-  goto(flow: Flow): void
-  /** End flow explicitly. */
-  end(): void
-  /** Reset current flow from start. */
-  reset(): void
-}
-
-export interface FlowState {
-  get<T = unknown>(key: string): T | undefined
-  set<T = unknown>(key: string, value: T): void
-  has(key: string): boolean
-  delete(key: string): void
-  clear(): void
-  all(): Record<string, unknown>
-}
-
-export type FlowAction = (
-  ctx: MessageContext,
-  tools: FlowTools
-) => void | Promise<void> | string | Promise<string>
-
-export interface FlowStep {
-  kind: 'answer' | 'action' | 'choose' | 'branch'
-  answers?: (string | { media: MediaSource; caption?: string } | ((ctx: any, tools: any) => Promise<string> | string))[]
-  options?: FlowStepOptions
-  action?: FlowAction
-  /** For choose/branch steps. */
-  branches?: Array<{ when: KeywordMatcher; then: Flow | FlowAction; opts?: FlowMatchOptions }>
-  defaultBranch?: FlowAction
-}
-
-export interface FlowOptions {
-  /** Timeout (ms) for user response; auto-exits with message when hit. */
-  timeoutMs?: number
-  /** Message sent when timeout fires. */
-  timeoutMessage?: string
-  /** Fallback action for off-topic responses during the flow. */
-  fallback?: FlowAction
-  /** Survive process restart (requires persistent store). */
-  persistent?: boolean
-  /** Max retries when validate fails. */
-  maxRetries?: number
-}
-
-/** A flow built via the DSL. */
-export interface Flow {
-  readonly id: string
-  readonly keyword: KeywordMatcher
-  readonly steps: readonly FlowStep[]
-  readonly options: Required<Pick<FlowOptions, 'timeoutMs' | 'maxRetries'>> & FlowOptions
-  /** Test whether a message text triggers this flow. */
-  test(body: string, ctx?: Pick<MessageContext, 'from' | 'isGroup'>): boolean
-}
 
 /* ============================================================================
  * BOT CONFIGURATION
@@ -397,6 +353,25 @@ export interface BotConfig {
   /** Filter out newsletters / broadcasts automatically. Default both true. */
   ignoreNewsletters?: boolean
   ignoreBroadcasts?: boolean
+  /** Inject a provider (e.g. MockProvider for tests). Skips BaileysProvider + session dirs. */
+  provider?: IProvider
+  /** Prefix that marks a message as a command routed to `bot.command()`. Default '/'. */
+  commandPrefix?: string
+  /** How conversations are keyed in groups: per-participant (default) or per-chat. */
+  conversationScope?: 'participant' | 'chat'
+  /** Conversation runtime defaults (timeout + canned messages). */
+  conversation?: {
+    /** Default wait timeout: ms number or duration string ('30s', '2m', '1h'). */
+    timeout?: string | number
+    /** Sent when a conversation expires by inactivity. */
+    timeoutMessage?: string
+    /** Sent when a wait exceeds its retry budget. */
+    retriesMessage?: string
+    /** Sent when a conversation crashes with an unexpected error. */
+    errorMessage?: string
+    /** Sent when a conversation is cancelled (only if set). */
+    cancelledMessage?: string
+  }
 }
 
 /* ============================================================================
@@ -508,4 +483,45 @@ export interface ScheduledTask {
 export interface BroadcastResult {
   sent: SentMessage[]
   failed: Array<{ jid: ChatId; error: Error }>
+}
+
+/* ============================================================================
+ * TRIGGER MATCHING (v2)
+ * ========================================================================== */
+
+export type MatchStrategy = 'equals' | 'contains' | 'startsWith' | 'endsWith'
+export type TriggerScope = 'dm' | 'group' | 'all'
+
+export interface TriggerObject {
+  pattern: string | RegExp | Array<string | RegExp>
+  match?: MatchStrategy
+  scope?: TriggerScope
+}
+
+export type Trigger =
+  | string
+  | RegExp
+  | Array<string | RegExp>
+  | TriggerObject
+  | ((ctx: { body: string; isGroup: boolean }) => boolean)
+
+/* ============================================================================
+ * CONVERSATIONS — CONTROLS (Task 3)
+ * ========================================================================== */
+
+/** Options shared by the conversation controls that wait for an inbound message. */
+export interface WaitOptions {
+  /** Timeout for this wait: ms number or duration string ('30s', '2m', '1h'). */
+  timeout?: number | string
+  /** Validate the captured body. Return `true` to accept, or an error string to reject and retry. */
+  validate?: (body: string, ctx: RuntimeMessage) => true | string | Promise<true | string>
+  /** Max invalid attempts before throwing `RetriesExceeded`. Default 3. */
+  retries?: number
+  /**
+   * Message sent on an invalid attempt: overrides `waitMedia`'s wrong-type message,
+   * `choose`'s invalid-option re-prompt, and `waitText`/`ask`'s non-text-message reply.
+   */
+  otherwise?: string
+  /** Only resolve the wait for messages matching this predicate. */
+  filter?: (ctx: RuntimeMessage) => boolean
 }

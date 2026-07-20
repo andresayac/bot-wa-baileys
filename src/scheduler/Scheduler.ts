@@ -5,8 +5,8 @@
  */
 
 import type { Logger } from 'pino'
-import type { ScheduledTask } from '../core/types'
-import { parseDuration, randomId } from '../utils/timers'
+import type { ScheduledTask } from '../core/types.js'
+import { parseDuration, randomId } from '../utils/timers.js'
 
 interface InternalTask extends ScheduledTask {
   handler: () => void | Promise<void>

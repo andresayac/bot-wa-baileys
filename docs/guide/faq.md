@@ -10,29 +10,68 @@ unlinked the device), you'll need to scan again.
 
 Yes, with **pairing code**:
 
-```js
+```ts
 const bot = new Bot({
   session: 'my-bot',
-  pairingCode: '+57300XXXXXXX',
+  pairingCode: '+57300XXXXXXX', // full international format
 })
+
+bot.on('pairing_code', (code) => console.log('Pairing code:', code))
 ```
 
 ## Does the bot work in groups?
 
 Yes. `when()` handlers work in groups by default. To respond only in private:
 
-```js
-bot.when('hi', async (ctx) => {
+```ts
+bot.when('hola', async (ctx) => {
   if (ctx.isGroup) return
   await ctx.reply('👋')
 })
+```
+
+In a group, each participant gets an **independent conversation** by
+default when they trigger a flow — two people talking to the bot in the
+same group don't share state. Set `conversationScope: 'chat'` if you want
+one shared conversation per group instead.
+
+## Why doesn't `bot.when('hi')` match "hi there"?
+
+The default match strategy is **normalized equals**, not "contains" — the
+message must equal the trigger exactly after lowercasing, stripping accents
+and collapsing spaces. For substring matching, use a `TriggerObject`:
+
+```ts
+bot.when({ pattern: 'hi', match: 'contains' }, handler)
+```
+
+`match` also accepts `'startsWith'` and `'endsWith'`.
+
+## Can I send buttons?
+
+No — native interactive buttons/lists are dead in the current WhatsApp Web
+protocol. Use a numbered menu (`.choose()` in a flow, `c.choose()` in a
+conversation) or a real poll:
+
+```ts
+await ctx.poll('Confirm your order?', ['Yes', 'No'])
+```
+
+## Do flows/conversations survive a restart?
+
+Only if you opt in. `flow(...).persistent()` checkpoints the conversation
+after each step, but the default `MemoryStore` lives in memory — a restart
+loses those checkpoints unless the store is file-backed:
+
+```ts
+const bot = new Bot({ storeConfig: { file: './store.json' } })
 ```
 
 ## Can I send messages without someone writing first?
 
 Yes, with `bot.sendText`:
 
-```js
+```ts
 bot.schedule('0 9 * * *', async () => {
   await bot.sendText('57300XXXXXXX@s.whatsapp.net', '🌅 Good morning!')
 })
@@ -40,7 +79,7 @@ bot.schedule('0 9 * * *', async () => {
 
 ## How do I stop the bot properly?
 
-```js
+```ts
 process.on('SIGINT', async () => {
   console.log('🛑 Shutting down...')
   await bot.stop()
@@ -52,7 +91,7 @@ process.on('SIGINT', async () => {
 
 Yes, with different sessions:
 
-```js
+```ts
 const bot1 = new Bot({ session: 'bot-1' })
 const bot2 = new Bot({ session: 'bot-2' })
 await bot1.start()
@@ -74,8 +113,17 @@ WhatsApp can detect excessive automation. To minimize risk:
 
 ## Do I need TypeScript?
 
-**No.** All examples work in plain JavaScript. TypeScript gives you
-autocomplete and type-checking, but it's optional.
+**No.** All examples work in plain JavaScript — just note the package is
+**ESM-only**, so your project needs `"type": "module"` in `package.json`
+(or a `.mjs` file) regardless of whether you use TypeScript. TypeScript
+gives you autocomplete and type-checking, but it's optional.
+
+## Why do I get `ERR_REQUIRE_ESM` or "require is not defined"?
+
+You're trying to `require('@bot-wa/bot-wa-baileys')` from a CommonJS file.
+There is no CJS build — switch to `import` (add `"type": "module"` to your
+`package.json`, or use a `.mjs` extension). Node >= 22.12 can also
+`require()` an ESM package via its experimental `require(esm)` support.
 
 ## Where is the full API reference?
 

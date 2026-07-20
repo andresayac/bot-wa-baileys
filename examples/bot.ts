@@ -1,27 +1,32 @@
 /**
- * 🚀 bot-wa-baileys v2 — Example bot
- * =================================
+ * bot-wa-baileys v2 — ejemplo de referencia
+ * ==========================================
  *
- * Run with:
+ * Cubre la API pública real de @bot-wa/bot-wa-baileys@2:
+ *   - new Bot(config) + eventos de conexión (qr/ready/connection/error)
+ *   - bot.plug(slashCommandsPlugin)
+ *   - bot.when(trigger, handler) — texto / lista / regex
+ *   - bot.use(flow(...)) — DSL declarativo (say/ask/choose)
+ *   - bot.conversation(name, async (c, ctx) => {...}) — runtime async con control total
+ *   - handlers de media tipada (onImage)
+ *   - hooks (before/after), inyección de dependencias (provide) y scheduler
+ *
+ * Ejecutar:
  *   pnpm run build
- *   node examples/bot.ts
+ *   pnpm run example   # compila examples/ y corre node examples/bot.js
  *
- * Or via ts-node:
- *   pnpm run example
- *
- * Then scan the QR code that appears in your terminal with your phone.
+ * Luego escanea el QR que aparece en la terminal con tu WhatsApp.
  */
 
 import {
   Bot,
   flow,
-  definePlugin,
   slashCommandsPlugin,
   type MessageContext,
-} from '../lib/index'
+} from '../lib/index.js'
 
 // =============================================================================
-// 1. CREATE THE BOT
+// 1. CREAR EL BOT
 // =============================================================================
 
 const bot = new Bot({
@@ -29,361 +34,196 @@ const bot = new Bot({
   sessionsDir: './sessions',
   debug: false,
   qr: { terminal: true, small: true },
-  // pairingCode: '+57300XXXXXXX',  // alternative to QR
-  markOnlineOnConnect: false,        // don't steal phone push notifications
+  // pairingCode: '+57300XXXXXXX',   // alternativa al QR
+  markOnlineOnConnect: false,        // no le "robes" las notificaciones push al teléfono
   ignoreNewsletters: true,
   ignoreBroadcasts: true,
 })
 
 // =============================================================================
-// 2. CONNECTION EVENTS
+// 2. EVENTOS DE CONEXIÓN
 // =============================================================================
 
-bot.on('qr', (qr: string) => {
-  console.log('\n📱 Scan this QR with your WhatsApp:\n')
+bot.on('qr', () => {
+  console.log('\n📱 Escanea este QR con tu WhatsApp:\n')
+})
+
+// Si configuras `pairingCode`, el código de emparejamiento llega aquí (igual que en v1):
+bot.on('pairing_code', (code) => {
+  console.log('🔑 Código de emparejamiento:', code)
 })
 
 bot.on('ready', () => {
-  console.log('\n✅ Bot is ready and connected!\n')
+  console.log('\n✅ Bot conectado y listo!\n')
 })
 
 bot.on('connection', (update) => {
   if (update.state === 'close') {
-    console.log('⚠️ Connection closed. Reason:', update.lastDisconnect?.reason ?? 'unknown')
+    console.log('⚠️ Conexión cerrada. Motivo:', update.lastDisconnect?.reason ?? 'desconocido')
   }
 })
 
 bot.on('error', ({ error, ctx }) => {
-  console.error('❌ Bot error:', error)
-  if (ctx) console.error('   in context from:', ctx.from)
+  console.error('❌ Error del bot:', error)
+  if (ctx) console.error('   en el contexto de:', ctx.from)
 })
 
 // =============================================================================
-// 3. BUILT-IN SLASH COMMANDS (/start, /help, /reset, /id, /ping)
+// 3. COMANDOS SLASH INCLUIDOS (/start, /help, /reset, /id, /ping)
 // =============================================================================
 
 bot.plug(slashCommandsPlugin, {
   greeting: [
-    '🤖 *Demo Bot* — built with @bot-wa/bot-wa-baileys v2',
+    '🤖 *Demo Bot* — hecho con @bot-wa/bot-wa-baileys v2',
     '',
-    'Commands:',
-    '  /start  — show this message',
-    '  /reset  — cancel any active flow',
-    '  /id     — show this chat ID',
-    '  /ping   — health check',
+    'Comandos:',
+    '  /help  — este mensaje',
+    '  /reset — cancelar la conversación activa',
+    '  /id    — ID de este chat',
+    '  /ping  — comprobar que el bot vive',
     '',
-    'Try sending:',
-    '  • hola      → welcome flow',
-    '  • registrar → registration flow with capture',
-    '  • comprar   → shopping flow with branch',
-    '  • soporte   → support flow with timeout',
-    '  • info      → simple info reply',
-    '  • foto      → send an image',
-    '  • sticker   → send a sticker',
-    '  • audio     → send a voice note',
-    '  • ubicacion → send a location',
-    '  • contacto → send a contact',
-    '  • encuesta → send a poll',
-    '  • visitas  → check your visit count (DI demo)',
+    'Prueba enviando:',
+    '  • hola      → saludo simple',
+    '  • registrar → flujo de registro (ask + validate + choose)',
+    '  • soporte   → conversación async con espera y timeout',
+    '  • visitas   → demo de inyección de dependencias',
   ].join('\n'),
 })
 
 // =============================================================================
-// 4. SIMPLE DECLARATIVE HANDLERS (when)
+// 4. HANDLERS DECLARATIVOS (when) — texto / lista / regex
 // =============================================================================
 
-// Text match
 bot.when('hola', async (ctx: MessageContext) => {
-  await ctx.reply('👋 ¡Hola! ¿Cómo te llamas?')
+  await ctx.reply('👋 ¡Hola! Envía "registrar" o "soporte" para ver los flujos, o /help.')
 })
 
 bot.when(['adios', 'chao', 'bye'], async (ctx: MessageContext) => {
   await ctx.reply('👋 ¡Hasta luego! Vuelve pronto.')
 })
 
-bot.when('info', async (ctx: MessageContext) => {
-  await ctx.reply([
-    'ℹ️ *Información del bot*',
-    '',
-    '• Versión: 2.0.0-alpha',
-    '• Motor: Baileys 7.x',
-    '• Sesión: ' + bot.getSessionName(),
-    '',
-    'Envía /help para ver todos los comandos.',
-  ].join('\n'))
-})
-
-bot.when('ping', async (ctx: MessageContext) => {
-  const start = Date.now()
-  await ctx.reply('🏓 pong!')
-  console.log(`Ping reply sent in ${Date.now() - start}ms`)
-})
-
-// Regex match — detect long numbers
+// Regex — detecta números largos (por ejemplo, un número de pedido)
 bot.when(/\d{4,}/, async (ctx: MessageContext) => {
   await ctx.reply(`🔢 Detecté un número largo en tu mensaje: "${ctx.body}"`)
 })
 
 // =============================================================================
-// 5. MEDIA HANDLERS
-// =============================================================================
-
-bot.when('foto', async (ctx: MessageContext) => {
-  await ctx.photo(
-    'https://picsum.photos/400/300',
-    '📸 Aquí tienes una foto aleatoria'
-  )
-})
-
-bot.when('sticker', async (ctx: MessageContext) => {
-  await ctx.reply('🎨 Generando sticker...')
-  try {
-    await ctx.sticker('https://picsum.photos/512/512', {
-      pack: 'Demo Bot',
-      author: 'v2',
-    })
-  } catch (err) {
-    await ctx.reply('❌ No pude generar el sticker: ' + (err as Error).message)
-  }
-})
-
-bot.when('audio', async (ctx: MessageContext) => {
-  await ctx.reply('🎵 Enviando audio...')
-  await ctx.voice('https://www.soundjay.com/buttons/sounds/beep-01a.mp3')
-})
-
-bot.when('ubicacion', async (ctx: MessageContext) => {
-  await ctx.location(4.7110, -74.0721, 'Bogotá, Colombia 🇨🇴')
-})
-
-bot.when('contacto', async (ctx: MessageContext) => {
-  await ctx.contact('573001234567', 'Soporte Bot')
-})
-
-bot.when('encuesta', async (ctx: MessageContext) => {
-  await ctx.poll('¿Qué te parece el bot?', ['👍 Excelente', '👌 Bueno', '👎 Regular'], false)
-})
-
-// =============================================================================
-// 6. TYPED MEDIA HANDLERS (onImage, onAudio, etc.)
+// 5. HANDLER DE MEDIA TIPADA (onImage)
 // =============================================================================
 
 bot.onImage(async (ctx: MessageContext) => {
-  await ctx.reply('📸 ¡Recibí tu imagen! Si quieres que la devuelva como sticker, envía "sticker".')
-})
-
-bot.onAudio(async (ctx: MessageContext) => {
-  await ctx.reply('🎵 Recibí tu audio. No puedo transcribirlo todavía, ¡pero lo escuché! 👂')
-})
-
-bot.onSticker(async (ctx: MessageContext) => {
-  await ctx.reply('🎨 ¡Sticker recibido!')
+  await ctx.reply('📸 ¡Buena foto! Aún no la proceso, pero la recibí perfectamente.')
 })
 
 // =============================================================================
-// 7. FLOWS (DSL v2)
+// 6. FLOW DECLARATIVO — say / ask / validate / choose
 // =============================================================================
 
-// --- Flow: Registration with capture & validation ---
 const registerFlow = flow('registrar')
   .say('📝 *Vamos a registrarte*')
-  .say('¿Cuál es tu nombre?', { capture: true })
-  .do(async (ctx, { state }) => {
-    state.set('name', ctx.body)
+  .ask('¿Cuál es tu nombre?', 'name')
+  .ask('¿Cuál es tu email?', 'email', {
+    validate: (body) =>
+      /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(body) ? true : '❌ Ese email no parece válido. Intenta de nuevo.',
   })
-  .say('¿Cuál es tu email?', { capture: true })
-  .validate((body) => {
-    const ok = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(body)
-    return ok ? true : '❌ Email inválido. Intenta de nuevo.'
+  .choose('¿Qué te interesa recibir?', {
+    ofertas: { label: 'Ofertas y promociones 🏷️', then: (_ctx, c) => { c.state.interest = 'ofertas' } },
+    soporte: { label: 'Novedades de soporte 🛠️', then: (_ctx, c) => { c.state.interest = 'soporte' } },
+    nada: { label: 'Nada por ahora 🙅', then: (_ctx, c) => { c.state.interest = 'nada' } },
   })
-  .do(async (ctx, { state }) => {
-    state.set('email', ctx.body)
-  })
-  .say(async (ctx, { state }) => {
-    const name = state.get('name') as string
-    const email = state.get('email') as string
-    return [
-      '✅ *Registro completado!*',
-      '',
-      `👤 Nombre: ${name}`,
-      `📧 Email: ${email}`,
-    ].join('\n')
-  })
-  .end()
-
-// --- Flow: Shopping with branch (choose) ---
-const buyFlow = flow('comprar')
-  .say([
-    '🛒 *¿Qué quieres comprar?*',
+  .say((_ctx, c) => [
+    '✅ *Registro completo*',
     '',
-    '1️⃣ Electrónica',
-    '2️⃣ Ropa',
-    '3️⃣ Hogar',
+    `👤 Nombre: ${c.state.name}`,
+    `📧 Email: ${c.state.email}`,
+    `🎯 Interés: ${c.state.interest}`,
   ].join('\n'))
-  .say('Escribe el número de opción', { capture: true })
-  .choose({
-    '1': flow()
-      .say('📱 *Electrónica* — Tenemos:')
-      .say(['• iPhone 15 — $999', '• Samsung S24 — $899', '• Xiaomi 14 — $599'].join('\n'))
-      .end(),
-    '2': flow()
-      .say('👕 *Ropa* — Tenemos:')
-      .say(['• Camiseta — $25', '• Jeans — $45', '• Chaqueta — $80'].join('\n'))
-      .end(),
-    '3': flow()
-      .say('🏠 *Hogar* — Tenemos:')
-      .say(['• Lámpara — $35', '• Alfombra — $60', '• Vaso — $12'].join('\n'))
-      .end(),
-  })
-  .say('✅ ¡Gracias por tu interés! ¿Algo más en lo que pueda ayudarte?')
-  .end()
 
-// --- Flow: Support with timeout & fallback ---
-const supportFlow = flow('soporte')
-  .say('🛠️ *Soporte técnico*')
-  .say('Describe tu problema en una frase', { capture: true })
-  .do(async (ctx, { state }) => {
-    state.set('problem', ctx.body)
-  })
-  .say(async (ctx, { state }) => {
-    return `✅ Tu problema "${state.get('problem')}" fue registrado. Te contactaremos pronto.`
-  })
-  .timeout(60_000, '⏰ Tu sesión de soporte caducó por inactividad.')
-  .fallback(async (ctx) => {
-    await ctx.reply('🤔 No entendí eso. Por favor describe tu problema o envía "cancelar".')
-  })
-  .end()
-
-// Register all flows
-bot.use([registerFlow, buyFlow, supportFlow])
+bot.use(registerFlow)
 
 // =============================================================================
-// 8. HOOKS (before / after / error)
+// 7. CONVERSACIÓN ASYNC — control total con las controls (c.ask/waitText/choose)
 // =============================================================================
 
-// Logging middleware — runs before every message
-bot.before('message', async (ctx: MessageContext, next: () => Promise<void>) => {
+bot.conversation('soporte', async (c, ctx) => {
+  await ctx.reply('🛠️ Describe tu problema en una frase (tienes 2 minutos):')
+  const problema = await c.waitText({ timeout: '2m', retries: 2 })
+
+  const prioridad = await c.choose('¿Qué tan urgente es?', {
+    alta: 'Urgente 🔴',
+    media: 'Puede esperar unas horas 🟡',
+    baja: 'No corre prisa 🟢',
+  })
+
+  await ctx.reply(`🎫 Ticket registrado ("${problema}", prioridad ${prioridad}). Te contactaremos pronto.`)
+})
+
+// =============================================================================
+// 8. HOOKS (middleware antes/después de cada mensaje)
+// =============================================================================
+
+bot.before('message', async (ctx, next) => {
   console.log(`📥 [${new Date().toISOString()}] ${ctx.from}: ${ctx.body}`)
   await next()
 })
 
-// Metrics — runs after every message
 bot.after('message', async (ctx) => {
-  // In a real bot you'd send this to Datadog, Prometheus, etc.
-  console.log(`📤 Processed message from ${ctx.from} (type: ${ctx.type})`)
-})
-
-// Error handler
-bot.onError('message', async (ctx, error) => {
-  console.error('💥 Handler error:', error)
-  if (ctx) await ctx.reply('😅 Ocurrió un error procesando tu mensaje. Intenta de nuevo.')
+  console.log(`📤 Procesado: ${ctx.from} (tipo: ${ctx.type})`)
 })
 
 // =============================================================================
-// 9. CUSTOM PLUGIN (example: rate limiter)
+// 9. INYECCIÓN DE DEPENDENCIAS (provide)
 // =============================================================================
 
-const rateLimitPlugin = definePlugin({
-  name: 'rate-limit',
-  version: '1.0.0',
-  description: 'Simple rate limiter — max N messages per user per window',
-  install(pluginCtx, config = {}) {
-    const max = (config as any).max ?? 10
-    const windowMs = (config as any).windowMs ?? 60_000
-    const counts = new Map<string, { count: number; resetAt: number }>()
-
-    pluginCtx.bot.before('message', async (ctx: MessageContext, next: () => Promise<void>) => {
-      const now = Date.now()
-      let entry = counts.get(ctx.from)
-      if (!entry || entry.resetAt < now) {
-        entry = { count: 0, resetAt: now + windowMs }
-        counts.set(ctx.from, entry)
-      }
-      entry.count++
-      if (entry.count > max) {
-        await ctx.reply(`⏳ Estás enviando muchos mensajes. Espera ${Math.ceil((entry.resetAt - now) / 1000)}s.`)
-        ctx.abort()
-        return
-      }
-      await next()
-    })
-
-    pluginCtx.logger.info(`Rate limit plugin active: ${max} msg / ${windowMs / 1000}s`)
-  },
-})
-
-bot.plug(rateLimitPlugin, { max: 20, windowMs: 60_000 })
-
-// =============================================================================
-// 10. DEPENDENCY INJECTION (provide)
-// =============================================================================
-
-// Inject a simple in-memory "database" available as ctx.tools.db
 bot.provide('db', {
-  users: new Map<string, { name: string; visits: number }>(),
-
-  async touch(jid: string): Promise<{ name?: string; visits: number }> {
-    const u = this.users.get(jid) ?? { name: undefined, visits: 0 }
-    u.visits++
-    this.users.set(jid, u)
-    return u
+  visits: new Map<string, number>(),
+  touch(jid: string): number {
+    const n = (this.visits.get(jid) ?? 0) + 1
+    this.visits.set(jid, n)
+    return n
   },
 })
 
-// Use the injected tool in a handler
 bot.when('visitas', async (ctx: MessageContext) => {
-  const db = (ctx.tools as any).db
-  const user = await db.touch(ctx.from)
-  await ctx.reply(`📊 Has visitado este bot ${user.visits} veces.`)
+  const db = ctx.tools as { db: { touch(jid: string): number } }
+  await ctx.reply(`📊 Has visitado este bot ${db.db.touch(ctx.from)} veces.`)
 })
 
 // =============================================================================
-// 11. SCHEDULER (cron / every / delay)
+// 10. SCHEDULER (cron / every / delay)
 // =============================================================================
 
-// Every 30 seconds, log a heartbeat
-bot.every('30 seconds', () => {
+bot.every('5 minutes', () => {
   console.log(`💓 Heartbeat — ${new Date().toISOString()}`)
 })
 
-// Cron: every weekday at 9:00 AM (uncomment to use)
 // bot.schedule('0 9 * * 1-5', async () => {
 //   await bot.sendText('57300XXXXXXX@s.whatsapp.net', '🌅 ¡Buenos días! El bot está activo.')
 // })
 
-// One-shot delay: 10 seconds after start
-bot.delay('10 seconds', async () => {
-  console.log('⏰ 10 seconds have passed since the bot started.')
-})
-
 // =============================================================================
-// 12. CATCH-ALL (messages that don't match any handler)
+// 11. CATCH-ALL — mensajes que no matchearon ningún handler
 // =============================================================================
 
 bot.onMessage(async (ctx: MessageContext) => {
-  await ctx.reply([
-    '🤔 No reconocí ese comando.',
-    '',
-    'Envía /help para ver lo que puedo hacer.',
-  ].join('\n'))
+  await ctx.reply('🤔 No reconocí ese mensaje. Envía /help para ver las opciones.')
 })
 
 // =============================================================================
-// 13. START
+// 12. ARRANCAR EL BOT
 // =============================================================================
 
-console.log('🚀 Starting bot-wa-baileys v2 demo...')
-console.log('   Session:', bot.getSessionName())
-console.log('   Waiting for QR...\n')
+console.log('🚀 Iniciando bot-wa-baileys v2 demo...')
+console.log('   Sesión:', bot.getSessionName())
+console.log('   Esperando QR...\n')
 
 bot.start().catch((err) => {
-  console.error('Failed to start:', err)
+  console.error('No se pudo iniciar el bot:', err)
   process.exit(1)
 })
 
-// Graceful shutdown
 process.on('SIGINT', async () => {
-  console.log('\n🛑 Shutting down...')
+  console.log('\n🛑 Deteniendo bot...')
   await bot.stop()
   process.exit(0)
 })
@@ -392,6 +232,3 @@ process.on('SIGTERM', async () => {
   await bot.stop()
   process.exit(0)
 })
-
-
-

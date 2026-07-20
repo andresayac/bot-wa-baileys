@@ -1,67 +1,106 @@
 # Core Concepts
 
-Understand the 5 pieces that make up bot-wa-baileys.
+Understand how the **Dispatcher** decides what happens to each incoming
+message, and the pieces you compose a bot from.
 
-## The 5 pieces
+## The Dispatcher pipeline
+
+Every incoming message goes through the same pipeline, in this order. The
+first thing that **consumes** the message wins and stops the pipeline:
 
 ```mermaid
-flowchart LR
-    A[Message in] --> B[before hooks]
-    B --> C{when match?}
-    C -->|Yes| D[when handler]
-    C -->|No| E{Active flow?}
-    E -->|Yes| F[Flow continues]
-    E -->|No| G[onMessage catch-all]
-    D --> H[after hooks]
-    F --> H
-    G --> H
+flowchart TD
+    A[Message in] --> B["before('message') hooks"]
+    B --> C{"Command? e.g. /reset"}
+    C -->|Yes| D[Command handler]
+    C -->|No| E{Active conversation<br/>for this participant?}
+    E -->|Yes| F[Conversation / flow step continues]
+    E -->|No| G{Matches when/onType,<br/>by specificity?}
+    G -->|Yes| H[Handler runs]
+    G -->|"No match / ctx.pass()"| I[onMessage catch-all]
+    D --> J["after('message') hooks"]
+    F --> J
+    H --> J
+    I --> J
+    J --> K["'message' event emitted"]
+```
+
+1. **Commands** (`/reset`, `/help`, ...) always win — even over an active
+   conversation. That's what lets `/reset` escape a stuck flow.
+2. **Active conversation** — if this participant already started a `flow`
+   or `bot.conversation` that's waiting for a reply, the message goes there.
+3. **Matchers** registered with `bot.when(...)`, tried by specificity
+   (an exact string/`equals` match beats a broad regex or a media-type
+   handler like `onImage`).
+4. **`bot.onMessage()`** — the catch-all, runs **only** if nothing above
+   consumed the message.
+
+Handlers **consume by default**: once one runs, the pipeline stops there.
+Call `ctx.pass()` inside a handler to yield to the next matching handler
+instead of stopping — this is how low-specificity handlers like `onImage`/
+`onType` cooperate with a broader `when`:
+
+```ts
+bot.when(/.+/, async (ctx) => {
+  if (ctx.type === 'image') { ctx.pass(); return } // yield to the next handler
+  await ctx.reply('text received')
+})
+
+bot.onImage(async (ctx) => {
+  await ctx.reply('image received') // now reached, because the handler above passed
+})
 ```
 
 ### 1. Bot — the center
 
-```js
+```ts
 const bot = new Bot({ session: 'my-bot' })
 await bot.start()
 ```
 
-The `Bot` is the main instance. It connects to WhatsApp, routes messages,
-runs hooks and manages flows.
+The `Bot` is the main instance. It connects to WhatsApp, runs the
+Dispatcher, hooks, flows and the scheduler.
 
 ### 2. when — simple responses
 
-```js
-bot.when('hi', async (ctx) => {
+```ts
+bot.when('hola', async (ctx) => {
   await ctx.reply('👋 Hello!')
 })
 ```
 
-**When** someone sends a message containing "hi", run this function.
-Accepts text, regex or lists:
+**When** the message matches the trigger, run this function. The default
+match strategy is **normalized equals**: lowercased, accents stripped,
+spaces collapsed — `'hola'` matches "hola"/"Hóla ", but NOT "/hola" or
+"hola amigo". Triggers accept text, a list, a regex, a predicate, or an
+explicit `{ pattern, match, scope }` object:
 
-```js
-bot.when('hi', handler)
+```ts
+bot.when('hola', handler)
 bot.when(['bye', 'goodbye'], handler)
 bot.when(/\d{4,}/, handler)
+bot.when({ pattern: 'factura', match: 'contains' }, handler) // v1-style "contains"
 ```
 
-### 3. flow — multi-step conversations
+### 3. flow / conversation — multi-step conversations
 
-```js
-const register = flow('register')
-  .say('Name?', { capture: true })
-  .do(async (ctx, { state }) => state.set('name', ctx.body))
-  .say(async (ctx, { state }) => `Hi ${state.get('name')}`)
-  .end()
+```ts
+const register = flow('registrar')
+  .ask('Name?', 'name')
+  .say((_ctx, c) => `Hi ${c.state.name}`)
 
 bot.use(register)
 ```
 
-A **flow** is a conversation with steps. The bot asks, the user answers,
-the bot stores and continues. Has capture, validation, branching, timeout, fallback.
+A **flow** compiles to a real async conversation: the bot asks, the user
+answers, `c.state` stores it and the flow continues — with validation,
+retries, branching (`choose`) and timeouts. For full manual control you can
+skip the DSL and write `bot.conversation(name, async (c, ctx) => {...})`
+directly.
 
 ### 4. Hooks — middleware (before / after / onError)
 
-```js
+```ts
 bot.before('message', async (ctx, next) => {
   console.log('📥', ctx.from, ctx.body)
   await next()
@@ -76,33 +115,53 @@ bot.onError('message', async (ctx, error) => {
 })
 ```
 
-Hooks run **before** or **after** each message. Like Express middleware.
+Hooks run **before** or **after** each message, like Express middleware.
+`'message'` is the main hook event; `'send'` fires on every outbound send.
 
 ### 5. Plugins — packaged functionality
 
-```js
+```ts
 bot.plug(slashCommandsPlugin, { greeting: 'Hi!' })
 ```
 
-A plugin is a reusable package that can register hooks, handlers, tools, etc.
+A plugin is a reusable package that can register hooks, handlers and tools.
+`bot.plug()` returns an `unplug()` function that reverts everything it
+registered.
+
+## `'message'` event vs `onMessage()`
+
+These look similar but are not the same:
+
+- `bot.on('message', ctx => ...)` fires for **every** message the
+  Dispatcher finished processing — including ones a command, an active
+  conversation, or a `when` handler already consumed.
+- `bot.onMessage(ctx => ...)` is the **catch-all** — it only runs when
+  nothing else consumed the message.
+
+## Group conversations are per-participant by default
+
+In a group, two different participants talking to the bot in the same chat
+get **independent conversations** by default (keyed internally by
+`${from}:${sender}`). Use `conversationScope: 'chat'` if you want a single
+shared conversation per group chat instead:
+
+```ts
+const bot = new Bot({ conversationScope: 'chat' })
+```
 
 ## The ctx object — your best friend
 
-```js
-bot.when('hi', async (ctx) => {
+```ts
+bot.when('hola', async (ctx) => {
   console.log(ctx.body)        // message text
-  console.log(ctx.from)        // sender JID
+  console.log(ctx.from)        // chat JID
+  console.log(ctx.sender)      // sender JID (= from in DMs, participant in groups)
   console.log(ctx.type)        // 'text', 'image', 'audio', ...
   console.log(ctx.isGroup)     // is it a group?
-  console.log(ctx.sender)      // { id, pushName }
 
   await ctx.reply('text')
   await ctx.photo(url, 'caption')
-  await ctx.voice(url)
-  await ctx.sticker(url, { pack, author })
-  await ctx.location(lat, lng, name)
-  await ctx.contact(phone, name)
-  await ctx.poll(question, options)
+  await ctx.poll('Question?', ['A', 'B'])
   await ctx.react('👍')
 
   const db = ctx.tools.db  // injected tool

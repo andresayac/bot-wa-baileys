@@ -1,20 +1,18 @@
 # Conversation Flows
 
-Flows are multi-step conversations. The bot asks, the user answers, the bot
-stores and continues.
+Flows are multi-step conversations. `flow(trigger)` gives you a chainable
+DSL that compiles to a real async conversation under the hood: the bot
+asks, the user answers, the bot stores the answer in `c.state` and
+continues.
 
 ## Basic flow
 
-```js
-const { flow } = require('@bot-wa/bot-wa-baileys')
+```ts
+import { flow } from '@bot-wa/bot-wa-baileys'
 
-const greet = flow('hi')
-  .say('👋 Hello! What is your name?', { capture: true })
-  .do(async (ctx, { state }) => {
-    state.set('name', ctx.body)
-  })
-  .say(async (ctx, { state }) => `Nice to meet you, ${state.get('name')}!`)
-  .end()
+const greet = flow('hola')
+  .ask('👋 Hello! What is your name?', 'name')
+  .say((_ctx, c) => `Nice to meet you, ${c.state.name}!`)
 
 bot.use(greet)
 ```
@@ -23,97 +21,146 @@ bot.use(greet)
 
 ### say — send a message
 
-```js
-flow.say('text')                              // fixed text
-flow.say('text', { capture: true })           // wait for answer
-flow.say(async (ctx, { state }) => `Hi`)      // dynamic text
-flow.say([{ media: url, caption: 'photo' }])   // media
+```ts
+flow('x').say('text')                                // fixed text
+flow('x').say((_ctx, c) => `Hi ${c.state.name}`)      // dynamic, reads c.state
 ```
 
-### do — run an action
+### ask — send a message and wait for the reply
 
-```js
-flow.do(async (ctx, { state }) => {
-  state.set('key', ctx.body)
+```ts
+flow('x').ask('What is your name?', 'name')  // stores the reply in c.state.name
+
+flow('x').ask('Email?', 'email', {
+  validate: (body) =>
+    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(body) ? true : '❌ Invalid email, try again',
+  retries: 2,
+  timeout: '2m',
 })
 ```
 
-### validate — validate input
+If `validate` returns an error string, the bot sends it back and re-asks
+(up to `retries`, default 3, before throwing `RetriesExceeded`).
 
-```js
-flow
-  .say('Email?', { capture: true })
-  .validate((body) => {
-    if (body.includes('@')) return true
-    return '❌ Invalid email, try again'
-  })
+### do — run an action, no message
+
+```ts
+flow('x').do((ctx, c) => {
+  c.state.registeredAt = Date.now()
+})
 ```
 
-If validation fails, the bot sends the error and **repeats the step**.
+### media — send media
 
-### choose — branching (menu)
+```ts
+flow('x').media('https://picsum.photos/400/300', 'caption')
+```
 
-```js
-flow
-  .say('1️⃣ Electronics\n2️⃣ Clothing', { capture: true })
-  .choose({
-    '1': flow().say('📱 iPhone — $999').end(),
-    '2': flow().say('👕 Shirt — $25').end(),
+### choose — branching (numbered menu)
+
+```ts
+flow('confirmar')
+  .choose('Confirm your order?', { si: 'Yes', no: 'No' })
+  .say((_ctx, c) => c.state.choice === 'si' ? '✅ Confirmed' : '❌ Cancelled')
+```
+
+`choose` sends a numbered menu built from `options` (`Record<string,
+string>`, key → label) and stores the chosen **key** in `c.state.choice` —
+or in whatever key you pass as the 3rd argument:
+`.choose(prompt, options, 'answer')`.
+
+Each option can instead carry a `then` sub-flow that runs right after it's
+picked; control returns to the parent flow afterwards:
+
+```ts
+flow('menu')
+  .choose('What are you interested in?', {
+    ofertas: { label: 'Offers 🏷️', then: (_ctx, c) => { c.state.interest = 'ofertas' } },
+    soporte: { label: 'Support 🛠️', then: (_ctx, c) => { c.state.interest = 'soporte' } },
   })
+  .say((_ctx, c) => `Got it: ${c.state.interest}`)
 ```
 
 ### timeout — inactivity expiration
 
-```js
-flow
-  .say('Describe your issue', { capture: true })
-  .timeout(60000, '⏰ Session expired due to inactivity')
+```ts
+flow('soporte')
+  .timeout('60s')
+  .ask('Describe your issue', 'issue')
 ```
 
-### fallback — when it doesn't understand
+`.timeout()` only sets the wait duration — it takes no message argument.
+The text sent when it expires is configured once, globally, on the bot:
 
-```js
-flow
-  .say('Describe your issue', { capture: true })
-  .fallback(async (ctx) => {
-    await ctx.reply('🤔 I did not understand. Please describe your issue.')
-  })
+```ts
+const bot = new Bot({
+  conversation: { timeoutMessage: '⏰ Session expired due to inactivity.' },
+})
+```
+
+### goto — jump to another flow
+
+```ts
+flow('a').say('Redirecting you...').goto('b')
 ```
 
 ### persistent — survive restarts
 
-```js
-flow.persistent()
+```ts
+flow('registrar').persistent().ask('Name?', 'name').say('Done')
 ```
 
-## State — memory between steps
+`.persistent()` checkpoints after every step, but that only survives a
+**process restart** if the store is backed by a file:
 
-```js
-state.set('key', value)   // save
-state.get('key')           // read
-state.has('key')           // exists?
-state.delete('key')        // delete
-state.clear()              // clear all
-state.all()                // everything as object
+```ts
+const bot = new Bot({ storeConfig: { file: './store.json' } })
+```
+
+A flow needs a stable id to be checkpointed. A string trigger already
+provides one; if you built the flow with a regex/predicate trigger, give it
+an explicit id with `.id('registrar')`.
+
+### scope — restrict to dm / group / all
+
+```ts
+flow('soporte').scope('dm').ask('Describe your issue', 'issue')
+```
+
+## `c.state` — memory between steps
+
+`c.state` is a plain, mutable object scoped to the running flow. `.ask` and
+`.choose` write to it automatically; `.do` and the function form of `.say`
+read and write it directly:
+
+```ts
+flow('x')
+  .ask('Name?', 'name')
+  .do((_ctx, c) => { c.state.name = c.state.name.trim() })
+  .say((_ctx, c) => `Hi ${c.state.name}`)
 ```
 
 ## Complete example: registration
 
-```js
-const register = flow('register')
+```ts
+const register = flow('registrar')
   .say('📝 *Let us register you*')
-  .say('Name?', { capture: true })
-  .do(async (ctx, { state }) => state.set('name', ctx.body))
-  .say('Email?', { capture: true })
-  .validate((body) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(body) ? true : '❌ Invalid email')
-  .do(async (ctx, { state }) => state.set('email', ctx.body))
-  .say(async (ctx, { state }) => {
-    return `✅ ${state.get('name')} <${state.get('email')}>`
+  .ask('Name?', 'name')
+  .ask('Email?', 'email', {
+    validate: (body) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(body) ? true : '❌ Invalid email',
   })
-  .end()
+  .say((_ctx, c) => `✅ ${c.state.name} <${c.state.email}>`)
 
 bot.use(register)
 ```
+
+## Beyond the DSL
+
+For arbitrary control flow — loops, custom branching, calling an external
+API mid-conversation — skip the DSL and write the conversation directly
+with `bot.conversation(name, async (c, ctx) => {...})`, using
+`c.ask`/`c.waitText`/`c.waitMedia`/`c.choose`/`c.goto`/`c.end`. Flows built
+with `flow()` compile down to exactly this runtime.
 
 ## Next steps
 

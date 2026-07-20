@@ -14,8 +14,8 @@
  */
 
 import type { makeWASocket, WAMessageKey } from '@whiskeysockets/baileys'
-import type { ChatsAPI, ChatId } from '../core/types'
-import type { IStore } from '../store/IStore'
+import type { ChatsAPI, ChatId } from '../core/types.js'
+import type { IStore } from '../store/IStore.js'
 
 type Socket = ReturnType<typeof makeWASocket>
 
