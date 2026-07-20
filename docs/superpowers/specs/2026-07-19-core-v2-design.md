@@ -32,7 +32,9 @@ Causa raíz: el motor de "steps array + flags" es frágil y el router no define 
 - Pipeline de dispatch determinista: primer consumidor gana, nunca dos respuestas.
 - Testeable sin WhatsApp: MockProvider + test kit + suite vitest.
 
-**No-objetivos (este ciclo):** dashboard web, plugin AI, i18n, NLU, stores SQL/Redis, editor visual, dual ESM/CJS (queda CJS; ESM en ciclo posterior).
+**No-objetivos (este ciclo):** dashboard web, plugin AI, i18n, NLU, stores SQL/Redis, editor visual, multi-sesión first-class, servidor HTTP integrado (estilo BuilderBot `httpServer`) — roadmap v2.1+.
+
+**Empaquetado (decisión tras investigación):** v2 es **ESM-only, Node ≥ 20** — Baileys 7 es ESM-only y exige Node ≥ 20; publicar CJS significaría pelear contra el sustrato. Usuarios CJS en Node ≥ 22.12 pueden hacer `require()` de ESM nativamente. `exports` map + `./testing` subpath.
 
 ## 3. Arquitectura
 
@@ -42,7 +44,7 @@ Bot (facade: config, lifecycle, registro, eventos públicos)
  ├─ ConversationRuntime   ← NUEVO (reemplaza FlowEngine)
  │    └─ FlowBuilder DSL  ← REESCRITO: compila a conversación
  ├─ HookSystem            ← conservar (ajustes menores)
- ├─ BaileysProvider       ← conservar (LID/PN, reconexión)
+ ├─ BaileysProvider       ← conservar (reconexión) + capa de identidad LID/PN (ver 3.1)
  ├─ MockProvider          ← NUEVO (misma interfaz de eventos)
  ├─ IStore / MemoryStore  ← conservar (+ métodos de checkpoint)
  ├─ Scheduler / MediaProcessor / sub-APIs (groups, profile, privacy, chats, presence) ← conservar
@@ -62,6 +64,19 @@ Matriz conservar/reescribir:
 | `store/*` | Conservar | + `getCheckpoint/setCheckpoint/clearCheckpoint` |
 | `api/*`, `scheduler/*`, `media/*`, `utils/*` | Conservar | context.ts recibe media inyectado |
 | `plugins/slashCommands.ts` | **Reescribir** | Sobre la nueva ruta de comandos; sin responder a mensajes no-slash |
+
+### 3.1 Capa de identidad LID/PN (obligatoria con Baileys 7)
+
+WhatsApp completó la migración a LIDs; sesiones nuevas usan LID por defecto y "PNs are WAY LESS RELIABLE" (guía oficial de migración v7). Reglas:
+
+- La API pública **nunca** expone la dualidad cruda: `ctx.from`/`ctx.sender` son IDs normalizados (PN-preferido vía `remoteJidAlt`/`participantAlt`, fallback LID) — la lógica actual del router se formaliza en `utils/jid.ts`.
+- El provider envuelve `sock.signalRepository.lidMapping` (`getLIDForPN/getPNForLID`) y escucha `lid-mapping.update` para mantener cache.
+- `ctx.sender` incluye `{ id, phoneNumber?, lid? }` para quien necesite detalle.
+- Auth-store custom (futuro) debe soportar claves v7: `lid-mapping`, `device-list`, `tctoken` (`useMultiFileAuthState` ya lo hace).
+
+### 3.2 Sin botones ni listas nativas (principio)
+
+Meta deprecó botones/listas interactivas en el protocolo Web MD (Baileys issue #2465: se envían sin error, no se muestran). v2 **no promete botones**: `c.choose()`/`flow().choose()` generan menús numerados de texto con re-pregunta automática, y polls quedan como alternativa nativa. Forks que "reviven" botones = riesgo de ban; fuera.
 
 ## 4. Dispatcher
 
@@ -218,6 +233,7 @@ await chat.expectReply(/tu email/i)
 | `addKeyword().addAnswer(txt, {capture})` | `flow().say()` / `.ask()` |
 | `sendText/sendImage/...` | `bot.send*` conservados + `ctx.reply/photo/...` |
 | Eventos `qr/ready/pairing_code` | Iguales |
+| `sendButtons` (deprecated en v1) | Eliminado — usar `choose()` (menú numerado) o `sendPoll` |
 
 ## 11. Riesgos
 
@@ -228,9 +244,30 @@ await chat.expectReply(/tu email/i)
 | Grupos: chat-key por participante cambia semántica v1 | Documentar; config `conversationScope: 'chat'` para volver al modo v1 |
 | Doble público (DSL + async) = doble docs | Docs por nivel: "Empieza" (DSL) / "Avanzado" (async); misma terminología |
 
-## 12. Análisis competitivo
+## 12. Análisis competitivo (investigación 2026-07-19)
 
-> PENDIENTE: informe del agente de investigación (grammY conversations, BuilderBot, Telegraf scenes, Baileys v7, ecosistema WhiskeySockets). Se integrará aquí con las decisiones que afecte.
+Datos npm del 2026-07-19 (descargas/semana): Baileys ~696k · whatsapp-web.js ~94k · grammY ~3.3M · Telegraf ~293k (sin release desde 2024-02) · @builderbot/bot ~1.7k · venom-bot ~945 (moribunda) · wppconnect ~5.8k.
+
+### Hallazgos que sustentan el diseño
+
+| Hallazgo | Fuente | Efecto en este spec |
+|---|---|---|
+| Async/await ganó a step-arrays: grammY diseñó conversations contra scenes/wizards ("equivale a GOTO") | github.com/grammyjs/grammY/issues/136 · grammy.dev/plugins/conversations | Valida ConversationRuntime como motor único (§5) |
+| Los bugs top de BuilderBot son de `gotoFlow` (no respeta delay #877, anidados rompen #910, exige `return` o falla silencioso) — fallo estructural del modelo de saltos | github.com/codigoencasa/builderbot/issues/877 | Valida DSL-compila-a-runtime; `goto` explícito sin retorno (§6) |
+| Telegraf estancada 2.5 años; wizard-por-array parte conversaciones en N callbacks + `selectStep` mágicos | grammy.dev/resources/comparison | Anti-patrón confirmado |
+| El piso de entrada de BuilderBot (bot útil en 10 líneas, `capture`/`fallBack` nombrados como piensa el dev de negocio) es su mayor virtud | builderbot.app/en/methods | El DSL conserva ese piso; alias `addKeyword` documentado |
+| whatsapp-web.js se percibe "fácil" por objetos ricos (`msg.reply()`, `chat.send()`), no por su runtime (Puppeteer come 8-20 GB, issue #3459) | wwebjs.dev · github issue #3459 | Valida `MessageContext` con helpers colgados |
+| grammY: `otherwise:` en waits, filtros string tipados (`"message:text"`), context flavors | grammy.dev | `validate` que retorna string ≈ `otherwise`; filtros tipados → backlog DX |
+| Replay engine de grammY = fuente nº1 de bugs de usuarios (`external()`, serialización) | github.com/grammyjs/conversations/issues | Valida promesa suspendida + checkpoint DSL en vez de replay (§5-6) |
+| Hono/Fastify: middleware tipado que acumula tipos por la cadena; plugins encapsulados con hooks nombrados | hono.dev · fastify.dev | Patrón para `provide()` tipado y plugin disposables (§7) |
+| Sapphire: guards declarativos nombrados (preconditions) | sapphirejs.dev | `scope`/`filter` hoy; guards nombrados → roadmap |
+| llms.txt: grammy.dev/hono.dev/fastify.dev responden 200; builderbot/baileys.wiki/wwebjs → 404 | verificación HTTP 2026-07-19 | Diferenciador confirmado: llms.txt día uno (§9) |
+| Baileys 7: ESM-only, Node ≥20, LID default, auth keys nuevas (`lid-mapping`, `device-list`, `tctoken`), sin ACKs de entrega (anti-ban), botones/listas muertos en Web MD | baileys.wiki/docs/migration/to-v7.0.0 · issue #2465 | §2 (ESM), §3.1 (identidad), §3.2 (sin botones), pin rc13 |
+| Hueco de mercado: no existe "grammY de WhatsApp" mantenido; BuilderBot es lo más cercano (DSL rígido, provider desfasado de v7); baileys-bottle muerto; wa-multi-session cubre solo multi-sesión | npm registry | Posicionamiento de v2; multi-sesión y httpServer → roadmap v2.1 |
+
+### Síntesis
+
+La combinación que ningún competidor tiene: runtime async/await sin replay + DSL azucarado encima + objetos ricos estilo wwebjs + identidad LID/PN resuelta + test kit + llms.txt. Cada pieza tiene evidencia de demanda y ningún paquete WhatsApp mantenido las junta.
 
 ## 13. Criterios de éxito
 
