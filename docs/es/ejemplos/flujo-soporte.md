@@ -1,118 +1,84 @@
 # Soporte con timeout
 
-Un flujo de soporte técnico con timeout por inactividad y fallback para
-cuando el usuario envía algo inesperado.
+Una conversación de soporte con timeout por inactividad, construida con
+`bot.conversation()` para tener control total sobre el intercambio.
 
-## El flujo
+## La conversación
 
-```js
-const { Bot, flow } = require('@bot-wa/bot-wa-baileys')
+```ts
+import { Bot } from '@bot-wa/bot-wa-baileys'
 
-const bot = new Bot({ session: 'demo-bot', qr: { terminal: true, small: true } })
+const bot = new Bot({
+  session: 'demo-bot',
+  qr: { terminal: true, small: true },
+  conversation: { timeoutMessage: '⏰ Your support session expired due to inactivity.' },
+})
 
-const soporte = flow('soporte')
-  // 1. Bienvenida
-  .say('🛠️ *Soporte técnico*')
+bot.conversation('support', async (c, ctx) => {
+  await ctx.reply('🛠️ *Technical support*\nDescribe your issue in one sentence (you have 2 minutes):')
+  const issue = await c.waitText({ timeout: '2m', retries: 2 })
 
-  // 2. Pedir descripción del problema
-  .say('Describe tu problema en una frase', { capture: true })
-
-  // 3. Guardar el problema
-  .do(async (ctx, { state }) => {
-    state.set('problema', ctx.body)
+  const priority = await c.choose('How urgent is it?', {
+    high: 'Urgent 🔴',
+    medium: 'Can wait a few hours 🟡',
+    low: 'No rush 🟢',
   })
 
-  // 4. Confirmar
-  .say(async (ctx, { state }) => {
-    return `✅ Tu problema "${state.get('problema')}" fue registrado. Te contactaremos pronto.`
-  })
+  await ctx.reply(`🎫 Ticket registered ("${issue}", priority: ${priority}). We will contact you soon.`)
+})
 
-  // 5. Timeout: si el usuario no responde en 60s
-  .timeout(60000, '⏰ Tu sesión de soporte caducó por inactividad.')
-
-  // 6. Fallback: si el usuario envía algo inesperado
-  .fallback(async (ctx) => {
-    await ctx.reply('🤔 No entendí eso. Por favor describe tu problema o envía "cancelar".')
-  })
-  .end()
-
-bot.use(soporte)
-
-bot.start()
+await bot.start()
 ```
 
 ## Cómo funciona
 
-1. El usuario envía "soporte"
-2. El bot dice "🛠️ Soporte técnico"
-3. El bot pide que describa el problema y **espera**
-4. El `do` guarda el problema en `state`
-5. El bot confirma el registro
-6. **Si el usuario tarda más de 60s** → el bot envía "⏰ Tu sesión caducó" y termina
-7. **Si el usuario envía algo inesperado** → el bot envía "🤔 No entendí" y repite
+1. El usuario envía "support" y la conversación arranca — `ctx` es el
+   mensaje que la disparó, `c` es el `ConversationControls` de esta
+   conversación
+2. `ctx.reply(...)` anuncia el flujo, y luego
+   `c.waitText({ timeout: '2m', retries: 2 })` espera hasta 2 minutos por
+   una respuesta de texto
+3. Si el usuario no responde en 2 minutos, se lanza un `ConversationTimeout`,
+   la conversación termina, y el bot envía el `conversation.timeoutMessage`
+   configurado en el `Bot`
+4. `c.choose(...)` envía un menú numerado construido a partir de sus
+   `options` y devuelve la CLAVE elegida (`high`, `medium` o `low`)
+5. El bot confirma el ticket con el problema y la prioridad recolectados
 
-## Añadir opción de cancelar
+## Manejar el timeout y la cancelación explícitamente
 
-```js
-const soporte = flow('soporte')
-  .say('🛠️ *Soporte técnico*')
-  .say('Describe tu problema o envía "cancelar"', { capture: true })
-  .validate((body) => {
-    if (body.toLowerCase() === 'cancelar') {
-      return '🛑 Sesión cancelada.'
+`c.waitText` / `c.choose` lanzan errores dedicados cuando una conversación
+termina antes de tiempo — captúralos para personalizar la respuesta en vez
+de depender del `conversation.timeoutMessage` global:
+
+```ts
+import { Bot, ConversationTimeout, ConversationCancelled } from '@bot-wa/bot-wa-baileys'
+
+const bot = new Bot({ session: 'demo-bot', qr: { terminal: true, small: true } })
+
+bot.conversation('support', async (c, ctx) => {
+  try {
+    await ctx.reply('🛠️ Describe your issue (or send "cancel"):')
+    const issue = await c.waitText({ timeout: '2m' })
+    await ctx.reply(`✅ Registered: "${issue}". We will contact you.`)
+  } catch (err) {
+    if (err instanceof ConversationTimeout) {
+      await ctx.reply('⏰ Session expired due to inactivity.')
+    } else if (err instanceof ConversationCancelled) {
+      await ctx.reply('🛑 Session cancelled.')
+    } else {
+      throw err
     }
-    return true
-  })
-  .do(async (ctx, { state }) => {
-    if (ctx.body.toLowerCase() !== 'cancelar') {
-      state.set('problema', ctx.body)
-    }
-  })
-  .say(async (ctx, { state }) => {
-    const problema = state.get('problema')
-    return problema
-      ? `✅ Registrado: "${problema}". Te contactaremos.`
-      : '👋 Sesión terminada.'
-  })
-  .timeout(60000, '⏰ Sesión caducada por inactividad.')
-  .fallback(async (ctx) => {
-    await ctx.reply('🤔 No entendí. Describe tu problema o "cancelar".')
-  })
-  .end()
-```
-
-## Escalar a un agente
-
-```js
-bot.provide('tickets', {
-  counter: 0,
-  async create(problema, jid) {
-    this.counter++
-    return { id: this.counter, problema, jid, estado: 'abierto' }
-  },
+  }
 })
 
-const soporte = flow('soporte')
-  .say('🛠️ *Soporte técnico*')
-  .say('Describe tu problema', { capture: true })
-  .do(async (ctx, { state }) => {
-    state.set('problema', ctx.body)
-    const ticket = await ctx.tools.tickets.create(ctx.body, ctx.from)
-    state.set('ticketId', ticket.id)
-  })
-  .say(async (ctx, { state }) => {
-    return [
-      `✅ Ticket #${state.get('ticketId')} creado.`,
-      `📝 Problema: "${state.get('problema')}"`,
-      '📞 Te contactaremos pronto.',
-    ].join('\n')
-  })
-  .timeout(60000, '⏰ Sesión caducada.')
-  .fallback(async (ctx) => {
-    await ctx.reply('🤔 No entendí. Describe tu problema.')
-  })
-  .end()
+await bot.start()
 ```
+
+::: tip Los comandos siempre escapan
+Un comando slash como `/reset` (ver `slashCommandsPlugin`) siempre gana sobre
+una conversación activa — los usuarios nunca quedan atrapados en un flujo.
+:::
 
 ## Siguientes pasos
 

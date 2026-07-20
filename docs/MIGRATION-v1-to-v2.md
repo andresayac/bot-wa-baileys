@@ -192,5 +192,5 @@ Sin `storeConfig.file`, `.persistent()` sigue funcionando dentro de la misma eje
 
 ## Ver también
 
-- [README — Quickstart](../README.md#quickstart-30-segundos)
+- [README — Quickstart](https://github.com/andresayac/bot-wa-baileys#quickstart-30-segundos)
 - [`docs/public/llms.txt`](public/llms.txt) — resumen de la API completa en un solo archivo

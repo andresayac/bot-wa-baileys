@@ -2,61 +2,87 @@
 
 ## ¿Necesito escanear el QR cada vez que inicio el bot?
 
-**No.** La sesión se guarda en `./sessions/`. Solo necesitas escanear el QR
-la primera vez. Si la sesión se invalida (ej. borraste la carpeta o WhatsApp
+**No.** La sesión se guarda en `./sessions/`. Solo escaneas el QR la
+primera vez. Si la sesión se invalida (borraste la carpeta o WhatsApp
 desvinculó el dispositivo), necesitarás escanear de nuevo.
 
-## ¿Puedo usar el bot sin escanear QR?
+## ¿Puedo usar el bot sin escanear el QR?
 
 Sí, con **pairing code**:
 
-```js
+```ts
 const bot = new Bot({
-  session: 'mi-bot',
-  pairingCode: '+57300XXXXXXX',  // tu número
+  session: 'my-bot',
+  pairingCode: '+57300XXXXXXX', // formato internacional completo
 })
-```
 
-Recibirás un código de 8 dígitos en tu teléfono. Ingrésalo en WhatsApp
-(Configuración → Dispositivos vinculados → Vincular con número de teléfono).
+bot.on('pairing_code', (code) => console.log('Pairing code:', code))
+```
 
 ## ¿El bot funciona en grupos?
 
 Sí. Los handlers `when()` funcionan en grupos por defecto. Para responder
-solo en mensajes privados:
+solo en privado:
 
-```js
+```ts
 bot.when('hola', async (ctx) => {
-  if (ctx.isGroup) return  // ignorar grupos
+  if (ctx.isGroup) return
   await ctx.reply('👋')
 })
 ```
 
-## ¿Cómo menciono a alguien en un grupo?
+En un grupo, cada participante obtiene una **conversación independiente**
+por defecto cuando dispara un flow — dos personas hablándole al bot en el
+mismo grupo no comparten estado. Configura `conversationScope: 'chat'` si
+en cambio quieres una única conversación compartida por grupo.
 
-```js
-bot.when('mencionar', async (ctx) => {
-  await ctx.reply('Hola @573001234567', {
-    mentions: ['573001234567@s.whatsapp.net'],
-  })
-})
+## ¿Por qué `bot.when('hi')` no coincide con "hi there"?
+
+La estrategia de coincidencia por defecto es **igualdad normalizada**, no
+"contains" — el mensaje debe ser igual al trigger exactamente, después de
+convertir a minúsculas, quitar acentos y colapsar espacios. Para
+coincidencia por subcadena, usa un `TriggerObject`:
+
+```ts
+bot.when({ pattern: 'hi', match: 'contains' }, handler)
+```
+
+`match` también acepta `'startsWith'` y `'endsWith'`.
+
+## ¿Puedo enviar botones?
+
+No — los botones/listas interactivos nativos están muertos en el protocolo
+actual de WhatsApp Web. Usa un menú numerado (`.choose()` en un flow,
+`c.choose()` en una conversación) o una encuesta real:
+
+```ts
+await ctx.poll('Confirm your order?', ['Yes', 'No'])
+```
+
+## ¿Los flows/conversaciones sobreviven a un reinicio?
+
+Solo si lo activas explícitamente. `flow(...).persistent()` hace
+checkpoint de la conversación después de cada paso, pero el `MemoryStore`
+por defecto vive en memoria — un reinicio pierde esos checkpoints a menos
+que el store tenga un archivo detrás:
+
+```ts
+const bot = new Bot({ storeConfig: { file: './store.json' } })
 ```
 
 ## ¿Puedo enviar mensajes sin que alguien me escriba primero?
 
 Sí, con `bot.sendText`:
 
-```js
+```ts
 bot.schedule('0 9 * * *', async () => {
-  await bot.sendText('57300XXXXXXX@s.whatsapp.net', '🌅 ¡Buenos días!')
+  await bot.sendText('57300XXXXXXX@s.whatsapp.net', '🌅 Good morning!')
 })
 ```
 
-Necesitas el JID del destinatario (`numero@s.whatsapp.net`).
-
 ## ¿Cómo detengo el bot correctamente?
 
-```js
+```ts
 process.on('SIGINT', async () => {
   console.log('🛑 Shutting down...')
   await bot.stop()
@@ -64,69 +90,48 @@ process.on('SIGINT', async () => {
 })
 ```
 
-`bot.stop()` cierra la conexión limpiamente y guarda la sesión.
-
 ## ¿Puedo tener varios bots en el mismo proceso?
 
 Sí, con sesiones diferentes:
 
-```js
+```ts
 const bot1 = new Bot({ session: 'bot-1' })
 const bot2 = new Bot({ session: 'bot-2' })
-
 await bot1.start()
 await bot2.start()
 ```
 
-Cada uno tiene su propia sesión y su QR.
-
-## ¿El bot consume muchos recursos?
-
-No. En reposo consume ~50-100MB de RAM. El uso sube si procesas mucho media
-(stickers, transcodificación de audio).
-
 ## ¿Funciona con WhatsApp Business?
 
-Sí. El bot funciona con cuentas personales y de WhatsApp Business.
+Sí. El bot funciona tanto con cuentas personales como con cuentas de
+WhatsApp Business.
 
-## ¿Pueden banear mi cuenta por usar un bot?
+## ¿Pueden banear mi cuenta?
 
 WhatsApp puede detectar automatización excesiva. Para minimizar el riesgo:
 
 - No envíes spam ni mensajes masivos
-- Usa `markOnlineOnConnect: false` para no parecer siempre en línea
+- Usa `markOnlineOnConnect: false`
 - Respeta los límites de rate
 - No respondas instantáneamente a todo (usa delays humanos)
 
-```js
-const bot = new Bot({
-  markOnlineOnConnect: false,  // no parecer siempre en línea
-})
-```
-
-## ¿Cómo hago debug?
-
-```js
-const bot = new Bot({
-  debug: true,  // logs detallados
-})
-```
-
-O usa el logger:
-
-```js
-bot.before('message', async (ctx, next) => {
-  console.log(ctx.type, ctx.from, ctx.body)
-  await next()
-})
-```
-
 ## ¿Necesito TypeScript?
 
-**No.** Todos los ejemplos funcionan en JavaScript plano. TypeScript te da
-autocompletado y type-checking, pero es opcional.
+**No.** Todos los ejemplos funcionan en JavaScript plano — solo ten en
+cuenta que el paquete es **solo ESM**, así que tu proyecto necesita
+`"type": "module"` en el `package.json` (o un archivo `.mjs`)
+independientemente de si usas TypeScript. TypeScript te da autocompletado y
+type-checking, pero es opcional.
 
-## ¿Dónde encuentro la API reference completa?
+## ¿Por qué me sale `ERR_REQUIRE_ESM` o "require is not defined"?
+
+Estás intentando hacer `require('@bot-wa/bot-wa-baileys')` desde un archivo
+CommonJS. No hay build de CJS — cambia a `import` (agrega `"type":
+"module"` a tu `package.json`, o usa la extensión `.mjs`). Node >= 22.12
+también puede hacer `require()` de un paquete ESM gracias a su soporte
+experimental `require(esm)`.
+
+## ¿Dónde está la API reference completa?
 
 En la [API Reference](/api/) — generada con TypeDoc desde el código fuente.
 

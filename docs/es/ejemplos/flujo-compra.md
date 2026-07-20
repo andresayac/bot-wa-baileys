@@ -1,120 +1,104 @@
 # Flujo de compra
 
-Un flujo con menú de opciones y branching usando `choose`.
+Un flujo con un menú numerado y branching usando `.choose()`.
 
 ## El flujo
 
-```js
-const { Bot, flow } = require('@bot-wa/bot-wa-baileys')
+```ts
+import { Bot, flow } from '@bot-wa/bot-wa-baileys'
 
 const bot = new Bot({ session: 'demo-bot', qr: { terminal: true, small: true } })
 
-const comprar = flow('comprar')
-  // 1. Mostrar menú
-  .say([
-    '🛒 *¿Qué quieres comprar?*',
-    '',
-    '1️⃣ Electrónica',
-    '2️⃣ Ropa',
-    '3️⃣ Hogar',
-  ].join('\n'))
+const catalog: Record<string, string> = {
+  electronics: '📱 *Electronics* — iPhone 15 ($999), Samsung S24 ($899), Xiaomi 14 ($599)',
+  clothing: '👕 *Clothing* — Shirt ($25), Jeans ($45), Jacket ($80)',
+  home: '🏠 *Home* — Lamp ($35), Rug ($60), Glass ($12)',
+}
 
-  // 2. Pedir opción (capturar)
-  .say('Escribe el número de opción', { capture: true })
+const buy = flow('buy')
+  .say('🛒 *What do you want to buy?*')
+  .choose('Write the option number', {
+    electronics: 'Electronics 📱',
+    clothing: 'Clothing 👕',
+    home: 'Home 🏠',
+  }, 'category')
+  .say((_ctx, c) => catalog[c.state.category])
+  .say('✅ Thanks for your interest! Anything else?')
 
-  // 3. Branching según la opción
-  .choose({
-    '1': flow()
-      .say('📱 *Electrónica* — Tenemos:')
-      .say([
-        '• iPhone 15 — $999',
-        '• Samsung S24 — $899',
-        '• Xiaomi 14 — $599',
-      ].join('\n'))
-      .end(),
+bot.use(buy)
 
-    '2': flow()
-      .say('👕 *Ropa* — Tenemos:')
-      .say([
-        '• Camiseta — $25',
-        '• Jeans — $45',
-        '• Chaqueta — $80',
-      ].join('\n'))
-      .end(),
-
-    '3': flow()
-      .say('🏠 *Hogar* — Tenemos:')
-      .say([
-        '• Lámpara — $35',
-        '• Alfombra — $60',
-        '• Vaso — $12',
-      ].join('\n'))
-      .end(),
-  })
-
-  // 4. Cierre
-  .say('✅ ¡Gracias por tu interés! ¿Algo más?')
-  .end()
-
-bot.use(comprar)
-
-bot.start()
+await bot.start()
 ```
 
 ## Cómo funciona
 
-1. El usuario envía "comprar"
-2. El bot muestra el menú con 3 categorías
-3. El usuario escribe "1", "2" o "3"
-4. `choose` toma el camino correspondiente
-5. El bot muestra los productos de esa categoría
-6. El bot cierra con "¡Gracias!"
+1. El usuario envía "buy"
+2. `.say(...)` envía la introducción, y luego `.choose()` construye un menú
+   numerado a partir de las claves de `options` (`1) Electronics 📱`,
+   `2) Clothing 👕`, `3) Home 🏠`) y espera un número válido
+3. La CLAVE elegida (`electronics`, `clothing` o `home` — no el número que
+   escribió el usuario) se guarda en `c.state.category`, ya que `'category'`
+   es el tercer argumento de `.choose()`
+4. El siguiente `.say()` lee `c.state.category` para mostrar el texto del
+   catálogo correspondiente
+5. El flujo cierra con un mensaje de agradecimiento
 
-## Añadir opción inválida
+## Ramificar con sub-pasos `then`
 
-```js
-const comprar = flow('comprar')
-  .say('1️⃣ Electrónica\n2️⃣ Ropa\n3️⃣ Hogar')
-  .say('Escribe el número', { capture: true })
-  .validate((body) => {
-    if (!['1', '2', '3'].includes(body.trim())) {
-      return '❌ Opción inválida. Escribe 1, 2 o 3.'
-    }
-    return true
+En lugar de leer `c.state` después, cada opción puede ejecutar su propio
+paso `then` justo en el momento en que se elige. El control vuelve al flujo
+padre en cuanto termina el sub-paso — no hay que construir un flujo anidado
+aparte:
+
+```ts
+const buy = flow('buy')
+  .say('🛒 *What do you want to buy?*')
+  .choose('Write the option number', {
+    electronics: {
+      label: 'Electronics 📱',
+      then: (_ctx, c) => { c.state.summary = '📱 iPhone 15 — $999' },
+    },
+    clothing: {
+      label: 'Clothing 👕',
+      then: (_ctx, c) => { c.state.summary = '👕 Shirt — $25' },
+    },
+    home: {
+      label: 'Home 🏠',
+      then: (_ctx, c) => { c.state.summary = '🏠 Lamp — $35' },
+    },
   })
-  .choose({
-    '1': flow().say('📱 iPhone 15 — $999').end(),
-    '2': flow().say('👕 Camiseta — $25').end(),
-    '3': flow().say('🏠 Lámpara — $35').end(),
-  })
-  .end()
+  .say((_ctx, c) => `${c.state.summary}\n\n✅ Thanks for your interest!`)
+
+bot.use(buy)
 ```
 
-## Sub-flujos más complejos
+La clave elegida sigue estando disponible después como `c.state.choice` (el
+`stateKey` por defecto cuando no pasas uno) si la necesitas más adelante en
+la cadena.
 
-```js
-const comprar = flow('comprar')
-  .say('1️⃣ Electrónica\n2️⃣ Ropa')
-  .say('Elige categoría', { capture: true })
-  .choose({
-    '1': flow()
-      .say('📱 ¿Qué quieres ver?\n1️⃣ iPhone\n2️⃣ Samsung')
-      .say('Elige', { capture: true })
-      .choose({
-        '1': flow().say('iPhone 15 — $999').end(),
-        '2': flow().say('Samsung S24 — $899').end(),
-      })
-      .end(),
-    '2': flow()
-      .say('👕 ¿Qué quieres ver?\n1️⃣ Camiseta\n2️⃣ Jeans')
-      .say('Elige', { capture: true })
-      .choose({
-        '1': flow().say('Camiseta — $25').end(),
-        '2': flow().say('Jeans — $45').end(),
-      })
-      .end(),
-  })
-  .end()
+## Ponerle un timeout a todo el flujo
+
+`.timeout()` define cuánto tiempo espera cada `wait` del flujo (incluido el
+menú de `.choose()`) por una respuesta. El mensaje que se envía al expirar
+NO es un argumento de `.timeout()` — se configura una sola vez en el bot:
+
+```ts
+const bot = new Bot({
+  session: 'demo-bot',
+  conversation: { timeoutMessage: '⏰ Session expired due to inactivity.' },
+})
+
+const buy = flow('buy')
+  .timeout('2m')
+  .say('🛒 *What do you want to buy?*')
+  .choose('Write the option number', {
+    electronics: 'Electronics 📱',
+    clothing: 'Clothing 👕',
+    home: 'Home 🏠',
+  }, 'category')
+  .say((_ctx, c) => catalog[c.state.category])
+
+bot.use(buy)
 ```
 
 ## Siguientes pasos

@@ -1,10 +1,11 @@
 # Scheduler
 
-Run tasks on a schedule: every interval, with cron, or after a delay.
+Run tasks on a schedule: every interval, with cron, or after a delay. Each
+method returns a `ScheduledTask` you can cancel.
 
 ## every — repeat at interval
 
-```js
+```ts
 bot.every('30 seconds', () => console.log('💓 heartbeat'))
 bot.every('5 minutes', async () => {
   await bot.sendText('57300XXXXXXX@s.whatsapp.net', '⏰ reminder')
@@ -24,7 +25,7 @@ bot.every(60000, () => console.log('1 minute'))  // ms
 
 ## schedule — cron expression
 
-```js
+```ts
 // Every day at 9:00 AM
 bot.schedule('0 9 * * *', async () => {
   await bot.sendText('57300XXXXXXX@s.whatsapp.net', '🌅 Good morning!')
@@ -53,11 +54,23 @@ bot.schedule('*/15 * * * *', async () => { /* ... */ })
 
 ## delay — once after X time
 
-```js
+```ts
 bot.delay('10 seconds', () => console.log('⏰ 10s elapsed'))
 bot.delay('5 minutes', async () => {
   await bot.sendText('57300XXXXXXX@s.whatsapp.net', 'All good?')
 })
+```
+
+## Cancelling a task
+
+`bot.schedule`, `bot.every` and `bot.delay` all return a `ScheduledTask`
+with a `.cancel()` method:
+
+```ts
+const heartbeat = bot.every('30 seconds', () => console.log('💓'))
+
+// later
+heartbeat.cancel()
 ```
 
 ## Next steps

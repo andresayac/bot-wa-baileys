@@ -2,9 +2,17 @@
 
 Practical recipes for responding to text messages.
 
+## Setup
+
+```ts
+import { Bot } from '@bot-wa/bot-wa-baileys'
+
+const bot = new Bot({ session: 'demo-bot', qr: { terminal: true, small: true } })
+```
+
 ## Respond to text
 
-```js
+```ts
 bot.when('hi', async (ctx) => {
   await ctx.reply('👋 Hello!')
 })
@@ -12,7 +20,7 @@ bot.when('hi', async (ctx) => {
 
 ## Multiple keywords
 
-```js
+```ts
 bot.when(['bye', 'goodbye', 'see you'], async (ctx) => {
   await ctx.reply('👋 See you later!')
 })
@@ -20,19 +28,34 @@ bot.when(['bye', 'goodbye', 'see you'], async (ctx) => {
 
 ## Regex match
 
-```js
+```ts
 bot.when(/\d{4,}/, async (ctx) => {
   await ctx.reply(`🔢 Detected a long number: "${ctx.body}"`)
 })
 
 bot.when(/[\w.]+@[\w.]+\.\w+/, async (ctx) => {
-  await ctx.reply(`📧 Detected an email`)
+  await ctx.reply('📧 Detected an email')
 })
 ```
 
+## Match "contains" instead of exact
+
+By default a string trigger only matches when the (normalized) message
+**equals** it — `bot.when('invoice', ...)` does NOT match "check my invoice
+please". Use a `TriggerObject` with `match: 'contains'` for the old
+"contains" behavior:
+
+```ts
+bot.when({ pattern: 'invoice', match: 'contains' }, async (ctx) => {
+  await ctx.reply('🧾 I see you mentioned an invoice')
+})
+```
+
+`match` also supports `'startsWith'` and `'endsWith'`.
+
 ## Quote the message
 
-```js
+```ts
 bot.when('quote', async (ctx) => {
   await ctx.quote('Replying to your specific message')
 })
@@ -40,14 +63,14 @@ bot.when('quote', async (ctx) => {
 
 ## React with emoji
 
-```js
+```ts
 bot.when('good', async (ctx) => { await ctx.react('👍') })
 bot.when('love', async (ctx) => { await ctx.react('❤️') })
 ```
 
 ## Private only
 
-```js
+```ts
 bot.when('private', async (ctx) => {
   if (ctx.isGroup) return
   await ctx.reply('This only works in private chat')
@@ -56,7 +79,7 @@ bot.when('private', async (ctx) => {
 
 ## Multi-line message
 
-```js
+```ts
 bot.when('info', async (ctx) => {
   await ctx.reply([
     'ℹ️ *Bot info*',
@@ -67,21 +90,42 @@ bot.when('info', async (ctx) => {
 })
 ```
 
-## Use sender name
+## Use sender info
 
-```js
+```ts
 bot.when('who', async (ctx) => {
-  const name = ctx.sender.pushName ?? 'unknown'
+  const name = ctx.senderInfo?.pushName ?? ctx.pushName ?? 'friend'
   await ctx.reply(`👋 Hi ${name}!`)
 })
 ```
 
+## No native buttons — use a poll
+
+WhatsApp Web killed native buttons, so a quick yes/no is best done with a
+real poll (see [Send media](./media) for more poll options):
+
+```ts
+bot.when('confirm', async (ctx) => {
+  await ctx.poll('Do you confirm your order?', ['Yes', 'No'])
+})
+```
+
+For a menu that branches into different logic per option, use
+`flow().choose()` or `c.choose()` instead — see the
+[Shopping flow](./shopping-flow) recipe.
+
 ## Catch-all
 
-```js
+```ts
 bot.onMessage(async (ctx) => {
   await ctx.reply('🤔 I did not recognize that. Send /help.')
 })
+```
+
+## Start the bot
+
+```ts
+await bot.start()
 ```
 
 ## Next steps

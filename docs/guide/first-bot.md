@@ -4,8 +4,8 @@ Let's build a complete bot with commands, media and a conversation flow.
 
 ## The complete bot
 
-```js
-const { Bot, flow, slashCommandsPlugin } = require('@bot-wa/bot-wa-baileys')
+```ts
+import { Bot, flow, slashCommandsPlugin } from '@bot-wa/bot-wa-baileys'
 
 // 1. Create the bot
 const bot = new Bot({
@@ -21,14 +21,14 @@ const bot = new Bot({
 bot.on('ready', () => console.log('✅ Bot ready!'))
 bot.on('qr', () => console.log('📱 Scan the QR with your WhatsApp'))
 
-// 3. Built-in slash commands (/start, /help, /reset, /id, /ping)
+// 3. Built-in slash commands (/start, /help, /reset, /cancel, /id, /ping)
 bot.plug(slashCommandsPlugin, {
   greeting: '🤖 Hi! I am a bot. Send /help to see my commands.',
 })
 
 // 4. Simple responses
-bot.when('hi', async (ctx) => {
-  await ctx.reply('👋 Hello! What is your name?')
+bot.when('hola', async (ctx) => {
+  await ctx.reply('👋 Hello! Send "registrar" to try the registration flow.')
 })
 
 bot.when('info', async (ctx) => {
@@ -48,20 +48,14 @@ bot.when('sticker', async (ctx) => {
 })
 
 // 6. Registration flow
-const register = flow('register')
+const register = flow('registrar')
   .say('📝 *Let us register you*')
-  .say('What is your name?', { capture: true })
-  .do(async (ctx, { state }) => {
-    state.set('name', ctx.body)
+  .ask('What is your name?', 'name')
+  .ask('What is your email?', 'email', {
+    validate: (body) =>
+      /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(body) ? true : '❌ Invalid email, try again',
   })
-  .say('What is your email?', { capture: true })
-  .validate((body) => {
-    return body.includes('@') ? true : '❌ Invalid email, try again'
-  })
-  .say(async (ctx, { state }) => {
-    return `✅ Registration complete!\n👤 ${state.get('name')}`
-  })
-  .end()
+  .say((_ctx, c) => `✅ Registration complete!\n👤 ${c.state.name}\n📧 ${c.state.email}`)
 
 bot.use(register)
 
@@ -71,7 +65,7 @@ bot.onMessage(async (ctx) => {
 })
 
 // 8. Start
-bot.start()
+await bot.start()
 ```
 
 ## What each part does
@@ -87,16 +81,20 @@ Events that fire when the bot connects or shows the QR.
 
 ### 3. Slash commands
 
-Installs `/start`, `/help`, `/reset`, `/id`, `/ping` — 5 commands for free.
+Installs `/start`, `/help`, `/reset`, `/cancel`, `/id`, `/ping` — 6 commands
+for free. Commands always win over an active conversation, so `/reset` (or
+`/cancel`) can always escape a stuck flow.
 
 ### 4. Simple responses
 
-When someone sends a message containing "hi", the bot responds.
-Matching is **case-insensitive** and by **substring**.
+`bot.when(trigger, handler)` matches by **normalized equals by default**
+(lowercased, accents stripped, spaces collapsed) — `'hola'` matches only an
+exact "hola"/"Hóla ", not "hola amigo". Use
+`{ pattern: 'hola', match: 'contains' }` if you want substring matching.
 
 ### 5. Media
 
-```js
+```ts
 await ctx.photo(url, 'caption')
 await ctx.sticker(url, { pack, author })
 await ctx.voice(url)
@@ -107,12 +105,15 @@ await ctx.poll(question, options)
 
 ### 6. Flows
 
-Multi-step conversations. The user answers step by step and the bot
-stores information between steps.
+Multi-step conversations. `flow('registrar')` compiles to a real conversation:
+`.ask(text, key)` sends `text`, waits for the reply, and stores it in
+`c.state[key]`. The function form of `.say((ctx, c) => ...)` can read
+whatever was captured so far via `c.state`.
 
 ### 7. Catch-all
 
-Runs when no `when()` or flow matches. It's the fallback.
+`bot.onMessage()` runs only when nothing else (a command, an active
+conversation, or a `when`/flow matcher) already consumed the message.
 
 ## Run
 
@@ -120,7 +121,7 @@ Runs when no `when()` or flow matches. It's the fallback.
 node bot.js
 ```
 
-Scan the QR and try sending: `hi`, `photo`, `sticker`, `register`.
+Scan the QR and try sending: `hola`, `photo`, `sticker`, `registrar`.
 
 ## Next steps
 

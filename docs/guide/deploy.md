@@ -2,12 +2,18 @@
 
 How to run your bot in production, always connected.
 
+::: tip ESM-only, Node >= 20
+`@bot-wa/bot-wa-baileys` is pure ESM — no CommonJS build. Make sure your
+production `package.json` has `"type": "module"` (or your entrypoint uses
+`.mjs`), and that the runtime is **Node >= 20**.
+:::
+
 ## Option 1: VPS (recommended)
 
 ### 1. Prepare the server
 
 ```bash
-curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
 sudo apt install -y nodejs
 npm install -g pnpm
 
@@ -48,7 +54,7 @@ pm2 stop my-bot     # stop
 ### Dockerfile
 
 ```dockerfile
-FROM node:18-slim
+FROM node:20-slim
 WORKDIR /app
 COPY package.json pnpm-lock.yaml ./
 RUN npm install -g pnpm && pnpm install --frozen-lockfile
@@ -67,6 +73,7 @@ services:
     restart: unless-stopped
     volumes:
       - ./sessions:/app/sessions
+      - ./store.json:/app/store.json
     environment:
       - NODE_ENV=production
 ```
@@ -87,21 +94,56 @@ node bot.js
 
 ## Considerations
 
-### Session persistence
+### Session persistence (auth)
 
-The WhatsApp session is saved in `./sessions/`. **Don't delete it** or you'll
-need to scan the QR again.
+The WhatsApp login credentials are saved under
+`sessionsDir/session` (defaults to `./sessions/<session>`). **Don't delete
+it** or you'll need to scan the QR again:
 
-### Backup
+```ts
+const bot = new Bot({ session: 'my-bot', sessionsDir: './sessions' })
+```
+
+### Store persistence (conversations & history)
+
+The default `MemoryStore` lives in memory only. If you use
+`flow(...).persistent()` anywhere, its checkpoints won't survive a process
+restart unless you back the store with a file:
+
+```ts
+const bot = new Bot({
+  storeConfig: { file: './store.json' },
+})
+```
+
+Back up both directories/files together — they're what let a redeployed
+bot resume without re-scanning the QR or losing in-flight conversations:
 
 ```bash
-tar -czf session-backup.tar.gz sessions/
-tar -xzf session-backup.tar.gz
+tar -czf backup.tar.gz sessions/ store.json
+tar -xzf backup.tar.gz
+```
+
+### Graceful shutdown
+
+`bot.stop()` tears down the provider and aborts active conversations
+(persistent checkpoints are preserved if the store is file-backed):
+
+```ts
+process.on('SIGINT', async () => {
+  await bot.stop()
+  process.exit(0)
+})
+
+process.on('SIGTERM', async () => {
+  await bot.stop()
+  process.exit(0)
+})
 ```
 
 ### Logging
 
-```js
+```ts
 const bot = new Bot({
   debug: false,  // true for verbose logs
 })

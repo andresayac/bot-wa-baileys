@@ -4,21 +4,21 @@ Share tools between handlers, hooks and plugins without globals.
 
 ## The problem it solves
 
-```js
+```ts
 // ❌ Bad: global variable
 const db = new Database()
 
-bot.when('visits', async (ctx) => {
+bot.when('visitas', async (ctx) => {
   const user = await db.touch(ctx.from)  // db is global
 })
 ```
 
-```js
+```ts
 // ✅ Good: injected
 bot.provide('db', new Database())
 
-bot.when('visits', async (ctx) => {
-  const user = await ctx.tools.db.touch(ctx.from)  // db is in ctx
+bot.when('visitas', async (ctx) => {
+  const user = await ctx.tools.db.touch(ctx.from)  // db is in ctx.tools
 })
 ```
 
@@ -26,10 +26,10 @@ bot.when('visits', async (ctx) => {
 
 ### 1. Register a tool
 
-```js
+```ts
 bot.provide('db', {
   users: new Map(),
-  async touch(jid) {
+  async touch(jid: string) {
     const u = this.users.get(jid) ?? { visits: 0 }
     u.visits++
     this.users.set(jid, u)
@@ -38,10 +38,18 @@ bot.provide('db', {
 })
 ```
 
+`bot.provide(name, value)` returns `this`, so calls can be chained:
+
+```ts
+bot
+  .provide('db', myDatabase)
+  .provide('cache', myCache)
+```
+
 ### 2. Use it in any handler
 
-```js
-bot.when('visits', async (ctx) => {
+```ts
+bot.when('visitas', async (ctx) => {
   const db = ctx.tools.db
   const user = await db.touch(ctx.from)
   await ctx.reply(`📊 You have visited ${user.visits} times.`)
@@ -50,7 +58,7 @@ bot.when('visits', async (ctx) => {
 
 ### 3. Available in hooks and plugins too
 
-```js
+```ts
 bot.before('message', async (ctx, next) => {
   const db = ctx.tools.db
   await db.touch(ctx.from)
@@ -58,17 +66,20 @@ bot.before('message', async (ctx, next) => {
 })
 ```
 
+A plugin's `install(ctx)` also receives `ctx.tools`, so plugins can consume
+tools registered elsewhere (or register their own with `bot.provide`).
+
 ## Multiple tools
 
-```js
+```ts
 bot.provide('db', myDatabase)
 bot.provide('cache', myCache)
 bot.provide('api', myApiClient)
 
 bot.when('test', async (ctx) => {
-  await ctx.tools.db.query(...)
-  await ctx.tools.cache.get(...)
-  await ctx.tools.api.fetch(...)
+  await ctx.tools.db.query(/* ... */)
+  await ctx.tools.cache.get(/* ... */)
+  await ctx.tools.api.fetch(/* ... */)
 })
 ```
 

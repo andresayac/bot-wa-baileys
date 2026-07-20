@@ -24,8 +24,9 @@ features:
     icon: 💬
   - title: Flujos conversacionales
     details: |
-      Crea conversaciones multi-paso con captura, validación, branching,
-      timeout y fallback usando un DSL encadenable.
+      flow().say().ask().choose() compila a una conversación async real —
+      validación, reintentos, branching y timeouts, sin un motor de pasos
+      aparte.
     icon: 🔀
   - title: Hooks (middleware)
     details: |
@@ -35,7 +36,7 @@ features:
   - title: Plugins
     details: |
       Empaqueta y reutiliza funcionalidad. Incluye slashCommandsPlugin
-      listo para usar (/start, /help, /reset, /id, /ping).
+      listo para usar (/start, /help, /reset, /cancel, /id, /ping).
     icon: 🧩
   - title: Inyección de dependencias
     details: |

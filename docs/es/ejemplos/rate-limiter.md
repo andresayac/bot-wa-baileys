@@ -1,118 +1,160 @@
 # Plugin: rate limiter
 
-Un plugin completo que limita cuántos mensajes puede enviar un usuario
-por ventana de tiempo.
+Un plugin completo que limita cuántos mensajes puede enviar un usuario por
+ventana de tiempo.
 
 ## El plugin
 
-```js
-const { definePlugin } = require('@bot-wa/bot-wa-baileys')
+```ts
+import { Bot, definePlugin } from '@bot-wa/bot-wa-baileys'
 
-const rateLimitPlugin = definePlugin({
+interface RateLimitConfig {
+  max?: number
+  windowMs?: number
+}
+
+const rateLimitPlugin = definePlugin<RateLimitConfig>({
   name: 'rate-limit',
   version: '1.0.0',
-  description: 'Limita mensajes por usuario — máx N mensajes por ventana',
+  description: 'Limit messages per user — max N messages per window',
   install(ctx, config = {}) {
-    const max = config.max ?? 10              // default: 10 mensajes
-    const windowMs = config.windowMs ?? 60000 // default: 60 segundos
-    const counts = new Map()
+    const max = config.max ?? 10
+    const windowMs = config.windowMs ?? 60000
+    const counts = new Map<string, { count: number; resetAt: number }>()
 
-    ctx.bot.before('message', async (c, next) => {
+    ctx.bot.before('message', async (msgCtx, next) => {
       const now = Date.now()
-      let entry = counts.get(c.from)
+      let entry = counts.get(msgCtx.from)
 
-      // Crear o resetear ventana
       if (!entry || entry.resetAt < now) {
         entry = { count: 0, resetAt: now + windowMs }
-        counts.set(c.from, entry)
+        counts.set(msgCtx.from, entry)
       }
 
       entry.count++
 
-      // Superó el límite
       if (entry.count > max) {
-        const espera = Math.ceil((entry.resetAt - now) / 1000)
-        await c.reply(`⏳ Estás enviando muchos mensajes. Espera ${espera}s.`)
-        c.abort()  // detiene el pipeline
+        const wait = Math.ceil((entry.resetAt - now) / 1000)
+        await msgCtx.reply(`⏳ Too many messages. Wait ${wait}s.`)
+        msgCtx.abort()
         return
       }
 
       await next()
     })
 
-    ctx.logger.info(`Rate limit activo: ${max} msg / ${windowMs / 1000}s`)
+    // El hook before('message') de arriba se desregistra automáticamente
+    // cuando se desconecta el plugin. Usa onDispose() para cualquier otra
+    // limpieza — aquí, un barrido periódico de contadores expirados.
+    const gc = setInterval(() => {
+      const now = Date.now()
+      for (const [jid, entry] of counts) {
+        if (entry.resetAt < now) counts.delete(jid)
+      }
+    }, windowMs)
+    ctx.onDispose(() => clearInterval(gc))
+
+    ctx.logger.info(`Rate limit active: ${max} msg / ${windowMs / 1000}s`)
   },
 })
 
-// Usar con configuración por defecto (10 msg / 60s)
-bot.plug(rateLimitPlugin)
+const bot = new Bot({ session: 'demo-bot', qr: { terminal: true, small: true } })
 
-// O con configuración personalizada
-bot.plug(rateLimitPlugin, { max: 20, windowMs: 60000 })
+// Configuración por defecto (10 msg / 60s)
+const unplug = bot.plug(rateLimitPlugin)
+
+// Configuración personalizada:
+// bot.plug(rateLimitPlugin, { max: 20, windowMs: 60000 })
+
+// Más adelante, para quitarlo por completo (desregistra el hook y limpia el interval):
+// unplug()
+
+await bot.start()
 ```
 
 ## Cómo funciona
 
-1. Cada usuario tiene un contador con una ventana de tiempo
-2. Cada mensaje incrementa el contador
-3. Si supera `max` mensajes en `windowMs`:
-   - El bot responde "⏳ Espera Xs"
-   - `c.abort()` detiene el pipeline (no se procesa el mensaje)
-4. Cuando pasa la ventana, el contador se reinicia
+1. Cada remitente tiene un contador con una hora de reinicio (`resetAt`)
+2. Cada mensaje entrante incrementa el contador de `msgCtx.from`
+3. Si el contador supera `max` dentro de `windowMs`:
+   - el bot responde `⏳ Too many messages. Wait Xs.`
+   - `msgCtx.abort()` detiene el pipeline — no corre ningún otro handler
+     para este mensaje
+4. Cuando pasa `resetAt`, el siguiente mensaje arranca una ventana nueva
+5. `bot.plug()` devuelve una función `unplug()` que revierte todo lo que el
+   plugin registró a través de `ctx.bot` (el hook), más todo lo encolado con
+   `ctx.onDispose()` (el interval de limpieza)
 
 ## Variantes
 
-### Rate limit solo en grupos
+### Solo en grupos
 
-```js
-ctx.bot.before('message', async (c, next) => {
-  if (!c.isGroup) {
-    await next()
-    return
-  }
+```ts
+ctx.bot.before('message', async (msgCtx, next) => {
+  if (!msgCtx.isGroup) { await next(); return }
   // ... lógica de rate limit ...
 })
 ```
 
-### Rate limit con ban temporal
+### Con un ban temporal
 
-```js
-const bans = new Map()
+```ts
+const bans = new Map<string, { until: number }>()
 
-ctx.bot.before('message', async (c, next) => {
-  // Verificar si está baneado
-  const ban = bans.get(c.from)
+ctx.bot.before('message', async (msgCtx, next) => {
+  const now = Date.now()
+  const ban = bans.get(msgCtx.from)
   if (ban && ban.until > now) {
-    await c.reply(`🚫 Estás bloqueado por ${Math.ceil((ban.until - now) / 1000)}s.`)
-    c.abort()
+    await msgCtx.reply(`🚫 Blocked for ${Math.ceil((ban.until - now) / 1000)}s.`)
+    msgCtx.abort()
     return
   }
 
-  // ... rate limit normal ...
-
+  // ... incrementar el contador por remitente como en "El plugin" arriba ...
+  const entry = counts.get(msgCtx.from)!
   if (entry.count > max) {
-    // Banear por 5 minutos
-    bans.set(c.from, { until: now + 5 * 60 * 1000 })
-    await c.reply('🚫 Demasiados mensajes. Bloqueado por 5 minutos.')
-    c.abort()
+    bans.set(msgCtx.from, { until: now + 5 * 60 * 1000 })
+    await msgCtx.reply('🚫 Too many messages. Blocked for 5 minutes.')
+    msgCtx.abort()
     return
   }
-
   await next()
 })
 ```
 
-### Rate limit con whitelist
+### Con whitelist
 
-```js
-const whitelist = new Set(['57300XXXXXXX@s.whatsapp.net'])
+```ts
+const whitelist = new Set(['573001112233@s.whatsapp.net'])
 
-ctx.bot.before('message', async (c, next) => {
-  if (whitelist.has(c.from)) {
-    await next()
+ctx.bot.before('message', async (msgCtx, next) => {
+  if (whitelist.has(msgCtx.from)) { await next(); return }
+  // ... lógica de rate limit ...
+})
+```
+
+### Limitar los envíos salientes del propio bot
+
+`before('send')` se dispara en cada mensaje saliente (`bot.send`,
+`ctx.reply`, `ctx.photo`, ...). Su payload es `{ jid, content, options }` y
+se puede abortar de la misma forma, saltándose el envío por completo:
+
+```ts
+ctx.bot.before('send', async (payload, next) => {
+  const now = Date.now()
+  let entry = counts.get(payload.jid)
+
+  if (!entry || entry.resetAt < now) {
+    entry = { count: 0, resetAt: now + windowMs }
+    counts.set(payload.jid, entry)
+  }
+
+  entry.count++
+  if (entry.count > max) {
+    payload.abort() // no se transmite nada para este envío
     return
   }
-  // ... rate limit normal ...
+  await next()
 })
 ```
 

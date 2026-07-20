@@ -4,44 +4,56 @@ Plugins are reusable packages of functionality.
 
 ## Use a plugin
 
-```js
-const { Bot, slashCommandsPlugin } = require('@bot-wa/bot-wa-baileys')
+```ts
+import { Bot, slashCommandsPlugin } from '@bot-wa/bot-wa-baileys'
 
 const bot = new Bot({ session: 'my-bot' })
 
-bot.plug(slashCommandsPlugin, {
+const unplug = bot.plug(slashCommandsPlugin, {
   greeting: '🤖 Hi! Send /help to see my commands.',
 })
 
-bot.start()
+await bot.start()
+
+// later, if you need to revert everything the plugin registered:
+// unplug()
 ```
 
+`bot.plug(plugin, config?)` returns an **unplug** function that reverts
+every handler/hook the plugin registered.
+
 ### Built-in: slashCommands
+
+Config: `{ greeting?: string; prefix?: string }`.
 
 | Command | What it does |
 |---|---|
 | `/start` | Shows the greeting |
 | `/help` | Shows the greeting (alias) |
-| `/reset` | Cancels any active flow |
+| `/reset` | Cancels the active conversation |
+| `/cancel` | Cancels the active conversation (alias of `/reset`) |
 | `/id` | Shows the chat ID |
 | `/ping` | Health check (responds "pong") |
+
+Unknown `/commands` get an automatic "unknown command" reply.
 
 ## Create a plugin
 
 ### Simple plugin
 
-```js
-const { definePlugin } = require('@bot-wa/bot-wa-baileys')
+```ts
+import { definePlugin } from '@bot-wa/bot-wa-baileys'
 
 const loggingPlugin = definePlugin({
   name: 'logging',
   version: '1.0.0',
   description: 'Log every message',
   install(ctx) {
-    // ctx.bot    → Bot instance
-    // ctx.logger → pino logger
-    // ctx.tools  → tools registry
-    // ctx.config → config passed to plug()
+    // ctx.bot        → Bot instance
+    // ctx.logger     → pino logger
+    // ctx.tools      → tools registry
+    // ctx.config     → config passed to plug()
+    // ctx.onDispose  → register teardown logic
 
     ctx.bot.before('message', async (c, next) => {
       ctx.logger.info(`📥 ${c.from}: ${c.body}`)
@@ -53,13 +65,13 @@ const loggingPlugin = definePlugin({
 bot.plug(loggingPlugin)
 ```
 
-### Configurable plugin
+### Configurable plugin with cleanup
 
-```js
+```ts
 const rateLimitPlugin = definePlugin({
   name: 'rate-limit',
   version: '1.0.0',
-  install(ctx, config = {}) {
+  install(ctx, config: { max?: number; windowMs?: number } = {}) {
     const max = config.max ?? 10
     const windowMs = config.windowMs ?? 60000
     const counts = new Map()
@@ -82,6 +94,9 @@ const rateLimitPlugin = definePlugin({
 
       await next()
     })
+
+    // runs when this plugin is unplugged (bot.plug() returned unplug())
+    ctx.onDispose(() => counts.clear())
   },
 })
 
@@ -90,18 +105,17 @@ bot.plug(rateLimitPlugin, { max: 20, windowMs: 60000 })
 
 ## Plugin structure
 
-```js
-{
-  name: string,           // unique name (required)
-  version: string,        // semver (required)
-  description?: string,   // human description
-  requires?: string[],    // other plugin dependencies
-  install(ctx, config) {  // runs on install (required)
-    // ctx.bot, ctx.logger, ctx.tools, ctx.config
+```ts
+definePlugin({
+  name: string,             // unique name (required)
+  version: string,          // semver (required)
+  description?: string,     // human description
+  install(ctx, config) {    // runs on install (required)
+    // ctx: { bot, logger, tools, config, onDispose(fn) }
+    // register via ctx.bot.when/command/before/... and use
+    // ctx.onDispose(fn) for any custom teardown
   },
-  uninstall?(ctx) {       // optional cleanup
-  },
-}
+})
 ```
 
 ## Next steps

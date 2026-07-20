@@ -1,118 +1,72 @@
 # Flujo de registro
 
-Un flujo completo de registro con captura, validación y confirmación.
+Un flujo completo de registro con `.ask()`, validación y un resumen dinámico.
 
 ## El flujo
 
-```js
-const { Bot, flow } = require('@bot-wa/bot-wa-baileys')
+```ts
+import { Bot, flow } from '@bot-wa/bot-wa-baileys'
 
 const bot = new Bot({ session: 'demo-bot', qr: { terminal: true, small: true } })
 
-const registro = flow('registrar')
-  // 1. Saludo
-  .say('📝 *Vamos a registrarte*')
-
-  // 2. Pedir nombre (capturar respuesta)
-  .say('¿Cuál es tu nombre?', { capture: true })
-  .do(async (ctx, { state }) => {
-    state.set('nombre', ctx.body)
+const register = flow('register')
+  .say('📝 *Let us register you*')
+  .ask('What is your name?', 'name')
+  .ask('What is your email?', 'email', {
+    validate: (body) =>
+      /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(body) ? true : '❌ Invalid email. Try again.',
   })
+  .say((_ctx, c) => [
+    '✅ *Registration complete!*',
+    '',
+    `👤 Name: ${c.state.name}`,
+    `📧 Email: ${c.state.email}`,
+  ].join('\n'))
 
-  // 3. Pedir email (con validación)
-  .say('¿Cuál es tu email?', { capture: true })
-  .validate((body) => {
-    const ok = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(body)
-    return ok ? true : '❌ Email inválido. Intenta de nuevo.'
-  })
-  .do(async (ctx, { state }) => {
-    state.set('email', ctx.body)
-  })
+bot.use(register)
 
-  // 4. Confirmar
-  .say(async (ctx, { state }) => {
-    return [
-      '✅ *Registro completado!*',
-      '',
-      `👤 Nombre: ${state.get('nombre')}`,
-      `📧 Email: ${state.get('email')}`,
-    ].join('\n')
-  })
-  .end()
-
-bot.use(registro)
-
-bot.start()
+await bot.start()
 ```
 
 ## Cómo funciona
 
-1. El usuario envía "registrar"
-2. El bot dice "📝 Vamos a registrarte"
-3. El bot pregunta "¿Cuál es tu nombre?" y **espera** la respuesta
-4. El `do` guarda el nombre en `state`
-5. El bot pregunta "¿Cuál es tu email?" y **espera**
-6. El `validate` revisa si es un email válido
-   - Si es válido → continúa
-   - Si no → envía "❌ Email inválido" y **repite el paso**
-7. El `do` guarda el email
-8. El bot muestra el resumen con nombre y email
+1. El usuario envía "register" y el flujo arranca
+2. `.say('📝 *Let us register you*')` envía un mensaje fijo de introducción
+3. `.ask('What is your name?', 'name')` envía la pregunta, espera la
+   respuesta y la guarda en `c.state.name`
+4. `.ask('What is your email?', 'email', { validate })` repite hasta que la
+   respuesta pase la validación — `validate` devuelve `true` para aceptar, o
+   un string de error para rechazar y volver a preguntar lo mismo
+5. El `.say((_ctx, c) => ...)` final lee `c.state.name` y `c.state.email`
+   para construir el resumen de forma dinámica
 
-## Añadir más campos
+## Guardar en una base de datos
 
-```js
-const registro = flow('registrar')
-  .say('📝 *Registro*')
-  .say('¿Nombre?', { capture: true })
-  .do(async (ctx, { state }) => state.set('nombre', ctx.body))
-  .say('¿Edad?', { capture: true })
-  .validate((body) => {
-    const edad = parseInt(body)
-    if (isNaN(edad) || edad < 1 || edad > 120) {
-      return '❌ Edad inválida. Debe ser un número entre 1 y 120.'
-    }
-    return true
-  })
-  .do(async (ctx, { state }) => state.set('edad', parseInt(ctx.body)))
-  .say('¿Ciudad?', { capture: true })
-  .do(async (ctx, { state }) => state.set('ciudad', ctx.body))
-  .say(async (ctx, { state }) => {
-    return [
-      '✅ *Registro completado!*',
-      '',
-      `👤 ${state.get('nombre')}, ${state.get('edad')} años`,
-      `📍 ${state.get('ciudad')}`,
-    ].join('\n')
-  })
-  .end()
-```
+Combina `.do()` (ejecuta una acción sin enviar mensaje) con `bot.provide()`
+para persistir los datos capturados:
 
-## Guardar en base de datos
-
-```js
+```ts
 bot.provide('db', {
-  users: new Map(),
-  async save(jid, data) {
+  users: new Map<string, { name: string; email: string }>(),
+  async save(jid: string, data: { name: string; email: string }) {
     this.users.set(jid, data)
   },
 })
 
-const registro = flow('registrar')
-  .say('¿Nombre?', { capture: true })
-  .do(async (ctx, { state }) => state.set('nombre', ctx.body))
-  .say('¿Email?', { capture: true })
-  .validate((body) => body.includes('@') ? true : '❌ Email inválido')
-  .do(async (ctx, { state }) => {
-    state.set('email', ctx.body)
-    // Guardar en DB
-    const db = ctx.tools.db
-    await db.save(ctx.from, {
-      nombre: state.get('nombre'),
-      email: state.get('email'),
-    })
+const register = flow('register')
+  .ask('Name?', 'name')
+  .ask('Email?', 'email', {
+    validate: (body) => (body.includes('@') ? true : '❌ Invalid email'),
   })
-  .say('✅ ¡Registrado!')
-  .end()
+  .do(async (ctx, c) => {
+    const { db } = ctx.tools as {
+      db: { save(jid: string, data: { name: string; email: string }): Promise<void> }
+    }
+    await db.save(ctx.from, { name: c.state.name, email: c.state.email })
+  })
+  .say('✅ Registered!')
+
+bot.use(register)
 ```
 
 ## Siguientes pasos

@@ -1,21 +1,21 @@
 # Hooks (Middleware)
 
-Hooks are functions that run **before** or **after** each message. Like
-Express middleware: intercept, modify, decide whether to continue.
+Hooks are functions that run **before** or **after** an event. Like Express
+middleware: intercept, modify, decide whether to continue.
 
 ## The 3 types
 
 ```mermaid
 flowchart LR
-    A[Message in] --> B[before hooks]
-    B --> C[Handler / Flow]
+    A[Event] --> B[before hooks]
+    B --> C[Handler / Flow / Send]
     C --> D[after hooks]
     C -.->|error| E[onError hooks]
 ```
 
 ### before — before processing
 
-```js
+```ts
 bot.before('message', async (ctx, next) => {
   console.log('📥', ctx.from, ':', ctx.body)
   await next()  // ← important: call next() to continue
@@ -23,13 +23,13 @@ bot.before('message', async (ctx, next) => {
 ```
 
 ::: warning Don't forget next()
-If you don't call `next()`, the message **is not processed**. Useful for
-blocking messages (rate limiting, filters, etc.).
+If you don't call `next()` (or call `ctx.abort()`), the message **is not
+processed further**. Useful for blocking messages (rate limiting, filters).
 :::
 
 ### after — after processing
 
-```js
+```ts
 bot.after('message', async (ctx) => {
   console.log('📤 processed:', ctx.type)
 })
@@ -37,18 +37,22 @@ bot.after('message', async (ctx) => {
 
 ### onError — when something fails
 
-```js
+```ts
 bot.onError('message', async (ctx, error) => {
   console.error('💥 error:', error)
   if (ctx) await ctx.reply('😅 An error occurred. Try again.')
 })
 ```
 
+There's also a generic `bot.hook(event, phase, handler, priority?)` if you
+need to register a phase dynamically instead of calling `before`/`after`/
+`onError` directly.
+
 ## Use cases
 
 ### Logging
 
-```js
+```ts
 bot.before('message', async (ctx, next) => {
   console.log(`📥 [${new Date().toISOString()}] ${ctx.from}: ${ctx.body}`)
   await next()
@@ -57,7 +61,7 @@ bot.before('message', async (ctx, next) => {
 
 ### Rate limiting
 
-```js
+```ts
 const counts = new Map()
 
 bot.before('message', async (ctx, next) => {
@@ -82,7 +86,7 @@ bot.before('message', async (ctx, next) => {
 
 ### Filter groups
 
-```js
+```ts
 bot.before('message', async (ctx, next) => {
   if (ctx.isGroup) return
   await next()
@@ -91,7 +95,7 @@ bot.before('message', async (ctx, next) => {
 
 ### Block users
 
-```js
+```ts
 const blocked = new Set(['57300XXXXXXX@s.whatsapp.net'])
 
 bot.before('message', async (ctx, next) => {
@@ -103,9 +107,23 @@ bot.before('message', async (ctx, next) => {
 })
 ```
 
+## Transform or block outgoing messages
+
+`'send'` fires on **every** outbound send, whether it comes from
+`ctx.reply`/`ctx.photo`/... or from `bot.send`/`bot.sendText`. The payload
+is `{ jid, content, options }` — mutate `payload.content` to transform a
+message, or abort to skip the send entirely:
+
+```ts
+bot.before('send', async (payload, next) => {
+  console.log('📤 sending to', payload.jid, payload.content)
+  await next()
+})
+```
+
 ## abort() — stop the pipeline
 
-```js
+```ts
 bot.before('message', async (ctx, next) => {
   if (someCondition) {
     ctx.abort()
@@ -117,7 +135,7 @@ bot.before('message', async (ctx, next) => {
 
 ## Priority
 
-```js
+```ts
 bot.before('message', handler, 10)  // higher = runs first
 bot.before('message', handler, 0)   // default
 ```
@@ -126,14 +144,11 @@ bot.before('message', handler, 0)   // default
 
 | Event | When |
 |---|---|
-| `message` | Incoming message |
-| `send` | Outgoing message |
-| `connection` | Connection change |
-| `group` | Group event (join, leave, promote) |
-| `call` | Incoming call |
-| `presence` | Presence change |
-| `reaction` | Message reaction |
-| `poll` | Poll vote |
+| `message` | The main pipeline — an incoming message being processed |
+| `send` | Any outbound message, from a `ctx` reply helper or `bot.send*` |
+
+Provider-level connection events (`qr`, `ready`, `connection`, ...) are
+plain `bot.on(...)` listeners, not hook phases — see [Core concepts](./concepts).
 
 ## Next steps
 

@@ -1,18 +1,36 @@
 # Send Media
 
-Recipes for sending photos, videos, audio, stickers and more.
+Recipes for sending photos, videos, audio, stickers and more. Everywhere you
+see a `source` argument (`MediaSource`), it can be a URL string, a local file
+path string, or a `Buffer`.
+
+## Setup
+
+```ts
+import { Bot } from '@bot-wa/bot-wa-baileys'
+
+const bot = new Bot({ session: 'demo-bot', qr: { terminal: true, small: true } })
+```
 
 ## Photo
 
-```js
+```ts
 bot.when('photo', async (ctx) => {
   await ctx.photo('https://picsum.photos/400/300', '📸 Random photo')
 })
 ```
 
+## Photo from a local file
+
+```ts
+bot.when('logo', async (ctx) => {
+  await ctx.photo('./assets/logo.png', '🖼️ Our logo')
+})
+```
+
 ## Sticker
 
-```js
+```ts
 bot.when('sticker', async (ctx) => {
   await ctx.reply('🎨 Generating sticker...')
   try {
@@ -21,14 +39,14 @@ bot.when('sticker', async (ctx) => {
       author: 'me',
     })
   } catch (err) {
-    await ctx.reply('❌ Failed: ' + err.message)
+    await ctx.reply('❌ Failed: ' + (err as Error).message)
   }
 })
 ```
 
 ## Voice note
 
-```js
+```ts
 bot.when('audio', async (ctx) => {
   await ctx.reply('🎵 Sending audio...')
   await ctx.voice('https://example.com/audio.mp3')
@@ -37,7 +55,7 @@ bot.when('audio', async (ctx) => {
 
 ## Video
 
-```js
+```ts
 bot.when('video', async (ctx) => {
   await ctx.video('https://example.com/video.mp4', '🎬 My video')
 })
@@ -45,7 +63,7 @@ bot.when('video', async (ctx) => {
 
 ## File
 
-```js
+```ts
 bot.when('file', async (ctx) => {
   await ctx.file('https://example.com/doc.pdf', 'document.pdf', '📄 Here')
 })
@@ -53,7 +71,7 @@ bot.when('file', async (ctx) => {
 
 ## Location
 
-```js
+```ts
 bot.when('location', async (ctx) => {
   await ctx.location(4.7110, -74.0721, 'Bogotá, Colombia 🇨🇴')
 })
@@ -61,7 +79,7 @@ bot.when('location', async (ctx) => {
 
 ## Contact
 
-```js
+```ts
 bot.when('contact', async (ctx) => {
   await ctx.contact('573001234567', 'Support Bot')
 })
@@ -69,7 +87,7 @@ bot.when('contact', async (ctx) => {
 
 ## Poll
 
-```js
+```ts
 bot.when('poll', async (ctx) => {
   await ctx.poll('How is the bot?', ['👍 Great', '👌 Good', '👎 Bad'])
 })
@@ -80,16 +98,37 @@ bot.when('poll-multi', async (ctx) => {
 })
 ```
 
-## Receive image, return as sticker
+## Receive an image, reply with a sticker
 
-```js
+`ctx.media` is already the loaded payload (not a promise) — no need to `await` it:
+
+```ts
 bot.onImage(async (ctx) => {
   await ctx.reply('📸 Got your image. Converting to sticker...')
-  const media = await ctx.media
-  if (media?.buffer) {
-    await ctx.sticker(media.buffer, { pack: 'My Bot', author: 'me' })
+  if (ctx.media?.buffer) {
+    await ctx.sticker(ctx.media.buffer, { pack: 'My Bot', author: 'me' })
   }
 })
+```
+
+## Send media outside a handler — bot.send
+
+`bot.send` takes a raw Baileys-style content object and a JID
+(`'573001112233@s.whatsapp.net'` for a user, `'...@g.us'` for a group):
+
+```ts
+bot.every('30 minutes', async () => {
+  await bot.send('573001112233@s.whatsapp.net', {
+    image: { url: 'https://picsum.photos/400/300' },
+    caption: '📸 Scheduled photo',
+  })
+})
+```
+
+## Start the bot
+
+```ts
+await bot.start()
 ```
 
 ## Next steps

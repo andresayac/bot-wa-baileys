@@ -1,147 +1,120 @@
 # Tu primer bot
 
 Vamos a crear un bot completo con comandos, media y un flujo conversacional.
-Al final tendrás un bot que responde a texto, envía imágenes, genera stickers
-y tiene una conversación de registro.
 
 ## El bot completo
 
-```js
-const { Bot, flow, slashCommandsPlugin } = require('@bot-wa/bot-wa-baileys')
+```ts
+import { Bot, flow, slashCommandsPlugin } from '@bot-wa/bot-wa-baileys'
 
 // 1. Crear el bot
 const bot = new Bot({
   session: 'demo-bot',
   sessionsDir: './sessions',
   qr: { terminal: true, small: true },
-  markOnlineOnConnect: false,    // no robar notificaciones del teléfono
+  markOnlineOnConnect: false,
   ignoreNewsletters: true,
   ignoreBroadcasts: true,
 })
 
 // 2. Eventos de conexión
-bot.on('ready', () => console.log('✅ ¡Bot listo!'))
-bot.on('qr', () => console.log('📱 Escanea el QR con tu WhatsApp'))
+bot.on('ready', () => console.log('✅ Bot ready!'))
+bot.on('qr', () => console.log('📱 Scan the QR with your WhatsApp'))
 
-// 3. Comandos slash integrados (/start, /help, /reset, /id, /ping)
+// 3. Comandos slash integrados (/start, /help, /reset, /cancel, /id, /ping)
 bot.plug(slashCommandsPlugin, {
-  greeting: '🤖 ¡Hola! Soy un bot. Envía /help para ver mis comandos.',
+  greeting: '🤖 Hi! I am a bot. Send /help to see my commands.',
 })
 
 // 4. Respuestas simples
 bot.when('hola', async (ctx) => {
-  await ctx.reply('👋 ¡Hola! ¿Cómo te llamas?')
+  await ctx.reply('👋 Hello! Send "registrar" to try the registration flow.')
 })
 
 bot.when('info', async (ctx) => {
-  await ctx.reply('ℹ️ Soy un bot hecho con bot-wa-baileys v2')
+  await ctx.reply('ℹ️ I am a bot built with bot-wa-baileys v2')
 })
 
 // 5. Media
-bot.when('foto', async (ctx) => {
-  await ctx.photo('https://picsum.photos/400/300', '📸 Aquí tienes una foto')
+bot.when('photo', async (ctx) => {
+  await ctx.photo('https://picsum.photos/400/300', '📸 Here is a photo')
 })
 
 bot.when('sticker', async (ctx) => {
   await ctx.sticker('https://picsum.photos/512/512', {
-    pack: 'Mi Bot',
-    author: 'yo',
+    pack: 'My Bot',
+    author: 'me',
   })
 })
 
 // 6. Flujo de registro
-const registro = flow('registrar')
-  .say('📝 *Vamos a registrarte*')
-  .say('¿Cuál es tu nombre?', { capture: true })
-  .do(async (ctx, { state }) => {
-    state.set('nombre', ctx.body)
+const register = flow('registrar')
+  .say('📝 *Let us register you*')
+  .ask('What is your name?', 'name')
+  .ask('What is your email?', 'email', {
+    validate: (body) =>
+      /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(body) ? true : '❌ Invalid email, try again',
   })
-  .say('¿Cuál es tu email?', { capture: true })
-  .validate((body) => {
-    return body.includes('@') ? true : '❌ Email inválido, intenta de nuevo'
-  })
-  .say(async (ctx, { state }) => {
-    return `✅ ¡Registro completo!\n👤 ${state.get('nombre')}`
-  })
-  .end()
+  .say((_ctx, c) => `✅ Registration complete!\n👤 ${c.state.name}\n📧 ${c.state.email}`)
 
-bot.use(registro)
+bot.use(register)
 
-// 7. Mensaje por defecto (cuando no reconoce nada)
+// 7. Catch-all
 bot.onMessage(async (ctx) => {
-  await ctx.reply('🤔 No reconocí eso. Envía /help para ver mis comandos.')
+  await ctx.reply('🤔 I did not recognize that. Send /help for commands.')
 })
 
 // 8. Iniciar
-bot.start()
+await bot.start()
 ```
 
 ## Qué hace cada parte
 
 ### 1. Crear el bot
 
-```js
-const bot = new Bot({ session: 'demo-bot', ... })
-```
-
 `session` es el nombre de tu sesión. Se guarda en `./sessions/demo-bot/`.
 Si cierras y vuelves a abrir, **no necesitas escanear el QR de nuevo**.
 
 ### 2. Eventos de conexión
 
-```js
-bot.on('ready', () => console.log('✅'))
-bot.on('qr', () => console.log('📱'))
-```
-
-Eventos que se disparan cuando el bot se conecta o cuando muestra el QR.
+Eventos que se disparan cuando el bot se conecta o muestra el QR.
 
 ### 3. Comandos slash
 
-```js
-bot.plug(slashCommandsPlugin, { greeting: '...' })
-```
-
-Instala el plugin de comandos `/start`, `/help`, `/reset`, `/id`, `/ping`.
-Tu bot ya tiene 5 comandos sin escribir nada.
+Instala `/start`, `/help`, `/reset`, `/cancel`, `/id`, `/ping` — 6 comandos
+gratis. Los comandos siempre ganan sobre una conversación activa, así que
+`/reset` (o `/cancel`) siempre puede escapar de un flujo atascado.
 
 ### 4. Respuestas simples
 
-```js
-bot.when('hola', async (ctx) => {
-  await ctx.reply('👋 ¡Hola!')
-})
-```
-
-Cuando alguien envía un mensaje que contiene "hola", el bot responde.
-El matching es **case-insensitive** y por **subcadena** ("hola" coincide con
-"holaa", "holaaa", "¡hola!").
+`bot.when(trigger, handler)` compara por **igualdad normalizada por
+defecto** (minúsculas, sin acentos, espacios colapsados) — `'hola'`
+coincide solo con un "hola"/"Hóla " exacto, no con "hola amigo". Usa
+`{ pattern: 'hola', match: 'contains' }` si quieres coincidencia por
+subcadena.
 
 ### 5. Media
 
-```js
-await ctx.photo(url, 'caption')     // enviar foto
-await ctx.sticker(url, { pack, author })  // generar sticker
-await ctx.voice(url)                 // enviar nota de voz
-await ctx.location(lat, lng, name)   // enviar ubicación
-await ctx.contact(phone, name)       // enviar contacto
-await ctx.poll(question, options)    // enviar encuesta
+```ts
+await ctx.photo(url, 'caption')
+await ctx.sticker(url, { pack, author })
+await ctx.voice(url)
+await ctx.location(lat, lng, name)
+await ctx.contact(phone, name)
+await ctx.poll(question, options)
 ```
 
 ### 6. Flujos
 
-Los flujos son conversaciones multi-paso. El usuario responde paso a paso
-y el bot guarda información entre pasos.
+Conversaciones multi-paso. `flow('registrar')` compila a una conversación
+real: `.ask(text, key)` envía `text`, espera la respuesta, y la guarda en
+`c.state[key]`. La forma función de `.say((ctx, c) => ...)` puede leer todo
+lo capturado hasta ahora vía `c.state`.
 
-### 7. Mensaje por defecto
+### 7. Catch-all
 
-```js
-bot.onMessage(async (ctx) => {
-  await ctx.reply('🤔 no reconocí eso')
-})
-```
-
-Se ejecuta cuando ningún `when()` ni flujo coincide. Es el "catch-all".
+`bot.onMessage()` se ejecuta solo cuando nada más (un comando, una
+conversación activa, o un matcher `when`/flow) ya consumió el mensaje.
 
 ## Ejecutar
 
@@ -149,10 +122,10 @@ Se ejecuta cuando ningún `when()` ni flujo coincide. Es el "catch-all".
 node bot.js
 ```
 
-Escanea el QR y prueba enviando: `hola`, `foto`, `sticker`, `registrar`.
+Escanea el QR y prueba enviando: `hola`, `photo`, `sticker`, `registrar`.
 
 ## Siguientes pasos
 
 - [Conceptos básicos](./conceptos) — entiende cómo funciona internamente
-- [Flujos conversacionales](./flujos) — crea conversaciones complejas
+- [Flujos conversacionales](./flujos) — conversaciones complejas
 - [Ejemplos](/es/ejemplos/mensajes) — más recetas

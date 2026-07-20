@@ -1,115 +1,105 @@
 # Sub-APIs
 
-El bot expone 5 sub-APIs tipadas para acceder a funcionalidad avanzada de
-WhatsApp: grupos, perfil, privacidad, chats y presencia.
+El bot expone 5 sub-APIs tipadas para funcionalidad avanzada de WhatsApp:
+`bot.groups`, `bot.profile`, `bot.privacy`, `bot.chats`, `bot.presence`.
+
+::: tip Solo con socket real
+Estas llaman directamente al socket subyacente de Baileys, así que solo
+funcionan contra una conexión real de WhatsApp — no contra el
+`MockProvider` que usa `createTestBot()`.
+:::
 
 ## groups — gestión de grupos
 
-```js
-// Crear grupo
-const { id } = await bot.groups.create('Mi grupo', [
-  '573001234567@s.whatsapp.net',
-  '573009876543@s.whatsapp.net',
-])
-
-// Obtener metadata
+```ts
+const { id } = await bot.groups.create('My group', ['573001234567@s.whatsapp.net'])
 const meta = await bot.groups.metadata(id)
-console.log(meta.subject, meta.participants.length)
-
-// Listar miembros
 const members = await bot.groups.members(id)
-
-// Listar admins
 const admins = await bot.groups.admins(id)
 
-// Añadir miembros
 await bot.groups.addMember(id, '573001112233@s.whatsapp.net')
-await bot.groups.addMember(id, ['573001112233@s.whatsapp.net', '573004445566@s.whatsapp.net'])
-
-// Eliminar miembros
 await bot.groups.removeMember(id, '573001112233@s.whatsapp.net')
-
-// Promover a admin
 await bot.groups.promote(id, '573001112233@s.whatsapp.net')
-
-// Degradar admin
 await bot.groups.demote(id, '573001112233@s.whatsapp.net')
 
-// Salir del grupo
+await bot.groups.setName(id, 'New name')
+await bot.groups.setDescription(id, 'New description')
+await bot.groups.setSetting(id, 'locked')          // 'announcement' | 'not_announcement' | 'locked' | 'unlocked'
+await bot.groups.setEphemeral(id, 604800)           // 0 | 86400 | 604800 | 7776000 (seconds)
+await bot.groups.setMemberAddMode(id, 'admin_add')  // 'all_member_add' | 'admin_add'
+
+const link = await bot.groups.inviteLink(id)
+await bot.groups.revokeInviteLink(id)
+const info = await bot.groups.infoFromInvite('invite-code')
+await bot.groups.join('invite-code')
+
+const all = await bot.groups.listAll()
+const pending = await bot.groups.listJoinRequests(id)
+await bot.groups.resolveJoinRequests(id, ['573001112233@s.whatsapp.net'], 'approve') // or 'reject'
+
 await bot.groups.leave(id)
 ```
 
-## profile — perfil
+## profile — el perfil de tu bot
 
-```js
-// Tu perfil
-await bot.profile.setName('Mi Bot')
-await bot.profile.setStatus('En línea')
+```ts
+await bot.profile.setName('My Bot')
+await bot.profile.setStatus('Online')
 await bot.profile.setPhoto('https://example.com/avatar.png')
 await bot.profile.removePhoto()
 
-// Foto de perfil de otro usuario
-const url = await bot.profile.getPhoto('573001234567@s.whatsapp.net')
-// url = 'https://...' o null si no tiene
+const photoUrl = await bot.profile.getPhoto('573001234567@s.whatsapp.net')
+const status = await bot.profile.getStatus('573001234567@s.whatsapp.net')
+const business = await bot.profile.getBusiness('573001234567@s.whatsapp.net')
+const me = bot.profile.getMe() // { id, name?, pushName? } — not async
 ```
 
-## privacy — privacidad
+## privacy — configuración de privacidad
 
-```js
-// Configurar quién puede ver tu:
-await bot.privacy.setLastSeen('all')        // 'all' | 'contacts' | 'none'
-await bot.privacy.setOnline('all')           // 'all' | 'match_last_seen'
-await bot.privacy.setProfilePhoto('contacts')
-await bot.privacy.setStatus('contacts')
-await bot.privacy.setReadReceipts('all')
-await bot.privacy.setGroups('contacts')     // quién puede añadirte a grupos
+```ts
+await bot.privacy.setLastSeen('all')          // 'all' | 'contacts' | 'contact_blacklist' | 'none'
+await bot.privacy.setOnline('all')            // 'all' | 'match_last_seen'
+await bot.privacy.setProfilePicture('contacts')  // 'all' | 'contacts' | 'contact_blacklist' | 'none'
+await bot.privacy.setStatus('contacts')       // 'all' | 'contacts' | 'contact_blacklist' | 'none'
+await bot.privacy.setReadReceipts('all')      // 'all' | 'none'
+await bot.privacy.setGroupsAdd('contacts')    // 'all' | 'contacts' | 'contact_blacklist'
+await bot.privacy.setDefaultDisappearing(604800) // 0 | 86400 | 604800 | 7776000 (seconds)
+
+await bot.privacy.block('573001234567@s.whatsapp.net')
+await bot.privacy.unblock('573001234567@s.whatsapp.net')
+const blocked = await bot.privacy.listBlocked()
 ```
 
 ## chats — gestión de chats
 
-```js
-// Archivar chat
-await bot.chats.archive('573001234567@s.whatsapp.net')
+```ts
+const chatId = '573001234567@s.whatsapp.net'
 
-// Silenciar 24 horas
-await bot.chats.mute('573001234567@s.whatsapp.net', 24 * 60 * 60 * 1000)
+await bot.chats.archive(chatId)                 // archive(chatId, archive? = true)
+await bot.chats.mute(chatId, 24 * 60 * 60 * 1000) // ms, or null to unmute
+await bot.chats.pin(chatId)                      // pin(chatId, pin? = true)
+await bot.chats.unpin(chatId)
+await bot.chats.star([messageKey], true)         // star(messageKeys, star?)
+await bot.chats.markRead(chatId, [messageKey])   // markRead(chatId, messageKeys)
+await bot.chats.clear(chatId, [messageKey])      // clear(chatId, messageKeys)
+await bot.chats.delete(chatId)
 
-// Desilenciar
-await bot.chats.mute('573001234567@s.whatsapp.net', null)
-
-// Fijar chat
-await bot.chats.pin('573001234567@s.whatsapp.net')
-
-// Desfijar
-await bot.chats.unpin('573001234567@s.whatsapp.net')
-
-// Marcar como leído
-await bot.chats.markRead('573001234567@s.whatsapp.net')
-
-// Eliminar chat
-await bot.chats.delete('573001234567@s.whatsapp.net')
+const chats = await bot.chats.list()
 ```
 
 ## presence — presencia y typing
 
-```js
-// Mostrar "escribiendo..." en un chat
-await bot.presence.typing('573001234567@s.whatsapp.net')
+```ts
+const chatId = '573001234567@s.whatsapp.net'
 
-// Mostrar "grabando audio..."
-await bot.presence.recording('573001234567@s.whatsapp.net')
+await bot.presence.update('composing', chatId)  // 'available' | 'unavailable' | 'composing' | 'recording' | 'paused'
+await bot.presence.update('recording', chatId)
+await bot.presence.update('available')          // presencia global, no necesita chatId
 
-// Pausar indicador
-await bot.presence.paused('573001234567@s.whatsapp.net')
-
-// Marcar como disponible
-await bot.presence.available()
-
-// Marcar como no disponible
-await bot.presence.unavailable()
+await bot.presence.subscribe(chatId)            // suscribirse a las actualizaciones de presencia de este contacto
 ```
 
 ## Siguientes pasos
 
-- [Despliegue](./deploy) — cómo poner el bot en producción
+- [Despliegue](./deploy) — configuración de producción
 - [API Reference](/api/) — documentación técnica completa

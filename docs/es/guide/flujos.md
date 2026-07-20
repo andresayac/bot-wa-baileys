@@ -1,169 +1,168 @@
 # Flujos conversacionales
 
-Los flujos son conversaciones multi-paso. El bot pregunta, el usuario
-responde, el bot guarda la respuesta y continúa. Son la forma más poderosa
-de crear conversaciones estructuradas.
+Los flujos son conversaciones multi-paso. `flow(trigger)` te da un DSL
+encadenable que compila a una conversación async real por debajo: el bot
+pregunta, el usuario responde, el bot guarda la respuesta en `c.state` y
+continúa.
 
 ## Flujo básico
 
-```js
-const { flow } = require('@bot-wa/bot-wa-baileys')
+```ts
+import { flow } from '@bot-wa/bot-wa-baileys'
 
-const saludo = flow('hola')
-  .say('👋 ¡Hola! ¿Cómo te llamas?', { capture: true })
-  .say(async (ctx, { state }) => {
-    return `¡Mucho gusto, ${state.get('name')}!`
-  })
-  .do(async (ctx, { state }) => {
-    state.set('name', ctx.body)
-  })
-  .end()
+const greet = flow('hola')
+  .ask('👋 Hello! What is your name?', 'name')
+  .say((_ctx, c) => `Nice to meet you, ${c.state.name}!`)
 
-bot.use(saludo)
+bot.use(greet)
 ```
 
-Cuando alguien envía "hola", el flujo se activa:
-1. El bot dice "👋 ¡Hola! ¿Cómo te llamas?"
-2. `capture: true` espera la respuesta del usuario
-3. El `do` guarda el nombre en `state`
-4. El bot responde con el nombre
-
-## Los métodos del DSL
+## Métodos del DSL
 
 ### say — enviar un mensaje
 
-```js
-flow.say('texto')                              // texto fijo
-flow.say('texto', { capture: true })           // esperar respuesta
-flow.say(async (ctx, { state }) => `Hola`)    // texto dinámico
-flow.say([{ media: url, caption: 'foto' }])    // media
+```ts
+flow('x').say('text')                                // texto fijo
+flow('x').say((_ctx, c) => `Hi ${c.state.name}`)      // dinámico, lee c.state
 ```
 
-### do — ejecutar una acción
+### ask — enviar un mensaje y esperar la respuesta
 
-```js
-flow.do(async (ctx, { state }) => {
-  state.set('clave', ctx.body)    // guardar en state
-  // cualquier lógica: llamar API, validar, etc.
+```ts
+flow('x').ask('What is your name?', 'name')  // guarda la respuesta en c.state.name
+
+flow('x').ask('Email?', 'email', {
+  validate: (body) =>
+    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(body) ? true : '❌ Invalid email, try again',
+  retries: 2,
+  timeout: '2m',
 })
 ```
 
-### validate — validar la entrada
+Si `validate` devuelve un string de error, el bot lo envía de vuelta y
+vuelve a preguntar (hasta `retries`, por defecto 3, antes de lanzar
+`RetriesExceeded`).
 
-```js
-flow
-  .say('¿Email?', { capture: true })
-  .validate((body) => {
-    if (body.includes('@')) return true
-    return '❌ Email inválido, intenta de nuevo'
-  })
+### do — ejecutar una acción, sin mensaje
+
+```ts
+flow('x').do((ctx, c) => {
+  c.state.registeredAt = Date.now()
+})
 ```
 
-Si la validación falla, el bot envía el mensaje de error y **repite el paso**.
+### media — enviar media
 
-### choose — branching (menú)
-
-```js
-flow
-  .say('¿Qué quieres comprar?\n1️⃣ Electrónica\n2️⃣ Ropa', { capture: true })
-  .choose({
-    '1': flow().say('📱 iPhone 15 — $999').end(),
-    '2': flow().say('👕 Camiseta — $25').end(),
-  })
+```ts
+flow('x').media('https://picsum.photos/400/300', 'caption')
 ```
 
-El usuario escribe "1" o "2" y el flujo toma ese camino.
+### choose — branching (menú numerado)
+
+```ts
+flow('confirmar')
+  .choose('Confirm your order?', { si: 'Yes', no: 'No' })
+  .say((_ctx, c) => c.state.choice === 'si' ? '✅ Confirmed' : '❌ Cancelled')
+```
+
+`choose` envía un menú numerado construido a partir de `options`
+(`Record<string, string>`, key → label) y guarda la **key** elegida en
+`c.state.choice` — o en la key que le pases como tercer argumento:
+`.choose(prompt, options, 'answer')`.
+
+Cada opción puede en cambio llevar un sub-flow `then` que se ejecuta justo
+después de elegirla; el control vuelve al flow padre después:
+
+```ts
+flow('menu')
+  .choose('What are you interested in?', {
+    ofertas: { label: 'Offers 🏷️', then: (_ctx, c) => { c.state.interest = 'ofertas' } },
+    soporte: { label: 'Support 🛠️', then: (_ctx, c) => { c.state.interest = 'soporte' } },
+  })
+  .say((_ctx, c) => `Got it: ${c.state.interest}`)
+```
 
 ### timeout — expiración por inactividad
 
-```js
-flow
-  .say('Describe tu problema', { capture: true })
-  .timeout(60000, '⏰ Tu sesión caducó por inactividad')
+```ts
+flow('soporte')
+  .timeout('60s')
+  .ask('Describe your issue', 'issue')
 ```
 
-Si el usuario no responde en 60 segundos, el flujo termina con ese mensaje.
+`.timeout()` solo define la duración de espera — no recibe un argumento de
+mensaje. El texto que se envía cuando expira se configura una sola vez, de
+forma global, en el bot:
 
-### fallback — cuando no entiende
-
-```js
-flow
-  .say('Describe tu problema', { capture: true })
-  .fallback(async (ctx) => {
-    await ctx.reply('🤔 No entendí eso. Por favor describe tu problema.')
-  })
+```ts
+const bot = new Bot({
+  conversation: { timeoutMessage: '⏰ Session expired due to inactivity.' },
+})
 ```
 
-Si el usuario envía algo que no coincide con lo esperado, se ejecuta el fallback.
+### goto — saltar a otro flow
+
+```ts
+flow('a').say('Redirecting you...').goto('b')
+```
 
 ### persistent — sobrevive reinicios
 
-```js
-flow.persistent()
+```ts
+flow('registrar').persistent().ask('Name?', 'name').say('Done')
 ```
 
-El estado del flujo se guarda en el store. Si el bot se reinicia, el flujo
-continúa donde quedó (requiere un store persistente).
+`.persistent()` hace un checkpoint después de cada paso, pero eso solo
+sobrevive a un **reinicio del proceso** si el store tiene un archivo detrás:
 
-## State — memoria entre pasos
-
-Cada flujo tiene un `state` (estado) por usuario. Puedes guardar y leer datos:
-
-```js
-flow
-  .say('¿Nombre?', { capture: true })
-  .do(async (ctx, { state }) => {
-    state.set('nombre', ctx.body)
-  })
-  .say('¿Email?', { capture: true })
-  .do(async (ctx, { state }) => {
-    state.set('email', ctx.body)
-  })
-  .say(async (ctx, { state }) => {
-    return `✅ ${state.get('nombre')} <${state.get('email')}>`
-  })
+```ts
+const bot = new Bot({ storeConfig: { file: './store.json' } })
 ```
 
-### Métodos de state
+Un flow necesita un id estable para poder hacer checkpoint. Un trigger de
+tipo string ya provee uno; si construiste el flow con un trigger de
+regex/predicado, dale un id explícito con `.id('registrar')`.
 
-```js
-state.set('clave', valor)      // guardar
-state.get('clave')              // leer
-state.has('clave')             // ¿existe?
-state.delete('clave')          // borrar
-state.clear()                  // limpiar todo
-state.all()                    // todo como objeto
+### scope — restringir a dm / group / all
+
+```ts
+flow('soporte').scope('dm').ask('Describe your issue', 'issue')
+```
+
+## `c.state` — memoria entre pasos
+
+`c.state` es un objeto plano y mutable, con alcance al flow en ejecución.
+`.ask` y `.choose` escriben en él automáticamente; `.do` y la forma función
+de `.say` lo leen y escriben directamente:
+
+```ts
+flow('x')
+  .ask('Name?', 'name')
+  .do((_ctx, c) => { c.state.name = c.state.name.trim() })
+  .say((_ctx, c) => `Hi ${c.state.name}`)
 ```
 
 ## Ejemplo completo: registro
 
-```js
-const registro = flow('registrar')
-  .say('📝 *Vamos a registrarte*')
-  .say('¿Cuál es tu nombre?', { capture: true })
-  .do(async (ctx, { state }) => {
-    state.set('nombre', ctx.body)
+```ts
+const register = flow('registrar')
+  .say('📝 *Let us register you*')
+  .ask('Name?', 'name')
+  .ask('Email?', 'email', {
+    validate: (body) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(body) ? true : '❌ Invalid email',
   })
-  .say('¿Cuál es tu email?', { capture: true })
-  .validate((body) => {
-    const ok = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(body)
-    return ok ? true : '❌ Email inválido. Intenta de nuevo.'
-  })
-  .do(async (ctx, { state }) => {
-    state.set('email', ctx.body)
-  })
-  .say(async (ctx, { state }) => {
-    return [
-      '✅ *Registro completado!*',
-      '',
-      `👤 Nombre: ${state.get('nombre')}`,
-      `📧 Email: ${state.get('email')}`,
-    ].join('\n')
-  })
-  .end()
+  .say((_ctx, c) => `✅ ${c.state.name} <${c.state.email}>`)
 
-bot.use(registro)
+bot.use(register)
 ```
+
+## Más allá del DSL
+
+Para control de flujo arbitrario — loops, branching personalizado, llamar a
+una API externa a mitad de la conversación — sáltate el DSL y escribe la
+conversación directamente con `bot.conversation(name, async (c, ctx) =>
+{...})`, usando `c.ask`/`c.waitText`/`c.waitMedia`/`c.choose`/`c.goto`/`c.end`.
+Los flows construidos con `flow()` compilan exactamente a este runtime.
 
 ## Siguientes pasos
 

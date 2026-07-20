@@ -24,8 +24,8 @@ features:
     icon: 💬
   - title: Conversation flows
     details: |
-      Multi-step conversations with capture, validation, branching,
-      timeout and fallback using a chainable DSL.
+      flow().say().ask().choose() compiles to a real async conversation —
+      validation, retries, branching and timeouts, no separate step engine.
     icon: 🔀
   - title: Hooks (middleware)
     details: |
@@ -35,7 +35,7 @@ features:
   - title: Plugins
     details: |
       Package and reuse functionality. Includes slashCommandsPlugin
-      (/start, /help, /reset, /id, /ping) out of the box.
+      (/start, /help, /reset, /cancel, /id, /ping) out of the box.
     icon: 🧩
   - title: Dependency injection
     details: |
