@@ -195,7 +195,9 @@ export class MemoryStore implements IStore {
   }
 
   async getConversation(key: string): Promise<import('./IStore.js').AIMessage[] | undefined> {
-    return this.conversations.get(key)
+    // Return a shallow copy so callers can't mutate the internal array in place.
+    const c = this.conversations.get(key)
+    return c ? [...c] : undefined
   }
 
   async setConversation(key: string, messages: import('./IStore.js').AIMessage[]): Promise<void> {
