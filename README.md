@@ -42,7 +42,7 @@ bot.conversation('soporte', async (c, ctx) => {
 await bot.start()   // escanea el QR
 ```
 
-Un ejemplo más completo (comandos, media, hooks, DI, scheduler) vive en [`examples/bot.ts`](examples/bot.ts).
+Un ejemplo más completo (comandos, media, hooks, DI, scheduler) vive en [`packages/core/examples/bot.ts`](packages/core/examples/bot.ts).
 
 ¿Sin cámara para escanear el QR? Configura `new Bot({ session: 'mi-bot', pairingCode: '+57300XXXXXXX' })` (número en formato internacional completo) y escucha `bot.on('pairing_code', (code) => console.log(code))` — igual que en v1.
 

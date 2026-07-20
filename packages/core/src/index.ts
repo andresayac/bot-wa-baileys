@@ -117,7 +117,7 @@ export { BaileysProvider, TypedEmitter } from './provider/BaileysProvider.js'
 
 // Store
 export { MemoryStore } from './store/MemoryStore.js'
-export type { IStore } from './store/IStore.js'
+export type { IStore, AIMessage } from './store/IStore.js'
 export type { MemoryStoreOptions } from './store/MemoryStore.js'
 export { messageKey } from './store/IStore.js'
 

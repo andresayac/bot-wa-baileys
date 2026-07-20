@@ -6,6 +6,11 @@
 
 import type { proto, WAMessage, WAMessageKey, Chat, Contact } from '@whiskeysockets/baileys'
 
+export interface AIMessage {
+  role: 'user' | 'assistant'
+  content: string
+}
+
 export interface IStore {
   /* Messages -------------------------------------------------------------- */
   saveMessage(msg: WAMessage): Promise<void>
@@ -37,6 +42,11 @@ export interface IStore {
   setCheckpoint(key: string, cp: FlowCheckpoint): Promise<void>
   clearCheckpoint(key: string): Promise<void>
   listCheckpoints(): Promise<Array<[string, FlowCheckpoint]>>
+
+  /* AI conversation history (@bot-wa/ai) --------------------------------- */
+  getConversation(key: string): Promise<AIMessage[] | undefined>
+  setConversation(key: string, messages: AIMessage[]): Promise<void>
+  clearConversation(key: string): Promise<void>
 
   /* Lifecycle ------------------------------------------------------------- */
   start(): Promise<void>
