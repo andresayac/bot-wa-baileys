@@ -432,10 +432,12 @@ export interface IProvider<TRaw = unknown> {
   /**
    * Push ingress for webhook transports (Cloud API POST, Telegram/Discord
    * webhook, Discord interaction endpoint). The host HTTP server calls this with
-   * the raw verified body; the provider normalizes and emits via onEvent.
-   * Socket-first providers (Baileys, Discord gateway) omit it.
+   * the raw body (and, optionally, the request headers for signature checks); the
+   * provider normalizes and emits via onEvent. May return a value the host can
+   * use as the HTTP status (e.g. 200 accepted / 403 bad signature). Socket-first
+   * providers (Baileys, Discord gateway) omit it.
    */
-  ingest?(rawEvent: unknown): void | Promise<void>
+  ingest?(rawEvent: unknown, headers?: Record<string, string | string[] | undefined>): unknown
 
   /** Lazy media retrieval behind one signature for every download model. */
   downloadMedia?(ref: MediaRef): Promise<Buffer | NodeJS.ReadableStream>
