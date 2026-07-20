@@ -66,6 +66,9 @@ importers:
       mime-types:
         specifier: ^3.0.2
         version: 3.0.2
+      pino:
+        specifier: ^10.3.1
+        version: 10.3.1
       qr-image:
         specifier: ^3.2.0
         version: 3.2.0

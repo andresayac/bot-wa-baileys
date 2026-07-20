@@ -26,7 +26,14 @@ import {
   isLidUser as baileysIsLidUser,
   areJidsSameUser,
 } from '@whiskeysockets/baileys'
-import type { JID, UserId, ChatId, JidInput } from '../core/types.js'
+/** WhatsApp JID — `number@s.whatsapp.net`, `id@g.us`, `status@broadcast`, `…@lid`. */
+export type JID = string
+/** A chat identifier (opaque to core; a JID here). */
+export type ChatId = string
+/** A user identifier (LID or PN form). */
+export type UserId = string
+/** Anything that can be turned into a JID: full JID, plain number, or `{ groupId, userId }`. */
+export type JidInput = string | number | { groupId: string; userId?: string }
 
 export {
   isJidGroup as isGroup,

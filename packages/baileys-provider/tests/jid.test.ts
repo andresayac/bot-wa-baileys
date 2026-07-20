@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { isPnUser, isLidUser, normalizeInboundKey } from '../src/utils/jid.js'
-import { createTestBot } from '../src/testing/createTestBot.js'
-import type { MessageContext } from '../src/core/types.js'
+import { isPnUser, isLidUser, normalizeInboundKey } from '../src/jid.js'
+import { toInbound } from '../src/toInbound.js'
+import { IdentityStore } from '../src/identity.js'
+import type { WAMessage } from '@whiskeysockets/baileys'
 
 describe('jid identity', () => {
   it('classifies pn and lid jids', () => {
@@ -29,22 +30,21 @@ describe('jid identity', () => {
   })
 })
 
-describe('senderInfo derivation (context.ts wiring)', () => {
-  it('group message with LID participant: senderInfo carries PN id + raw lid', async () => {
-    const { bot, provider } = await createTestBot()
-    let captured: MessageContext | undefined
-    bot.onMessage(async (ctx) => { captured = ctx })
-    provider.incoming('hola grupo', {
-      from: 'g@g.us',
-      participant: '99@lid',
-      participantAlt: '573002@s.whatsapp.net',
-    })
-    await new Promise((r) => setTimeout(r, 0))
+describe('toInbound — senderInfo derivation', () => {
+  it('group message with LID participant: sender is PN, platformData carries raw lid', () => {
+    const msg = {
+      key: { remoteJid: 'g@g.us', participant: '99@lid', participantAlt: '573002@s.whatsapp.net', fromMe: false, id: 'm1' },
+      message: { conversation: 'hola grupo' },
+      pushName: 'Ada',
+      messageTimestamp: 1,
+    } as unknown as WAMessage
 
-    expect(captured).toBeDefined()
-    expect(captured!.sender).toBe('573002@s.whatsapp.net')
-    expect(captured!.senderInfo.id).toBe(captured!.sender)
-    expect(captured!.senderInfo.phoneNumber).toBe('573002@s.whatsapp.net')
-    expect(captured!.senderInfo.lid).toBe('99@lid')
+    const ctx = toInbound(msg, new IdentityStore())
+    expect(ctx.isGroup).toBe(true)
+    expect(ctx.chatId).toBe('g@g.us')
+    expect(ctx.sender).toBe('573002@s.whatsapp.net')
+    expect(ctx.senderInfo.id).toBe(ctx.sender)
+    expect(ctx.senderInfo.platformData?.phoneNumber).toBe('573002@s.whatsapp.net')
+    expect(ctx.senderInfo.platformData?.lid).toBe('99@lid')
   })
 })

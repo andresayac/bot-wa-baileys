@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { DisconnectReason } from '@whiskeysockets/baileys'
-import { classifyDisconnect, backoffDelay, MAX_RECONNECT_ATTEMPTS } from '../src/provider/reconnect.js'
+import { classifyDisconnect, backoffDelay, MAX_RECONNECT_ATTEMPTS } from '../src/reconnect.js'
 
 describe('classifyDisconnect', () => {
   it('wipes on invalid-session codes', () => {

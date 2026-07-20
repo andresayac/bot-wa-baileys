@@ -1,116 +1,47 @@
 import { describe, it, expect } from 'vitest'
-import { createTestBot } from '../src/testing/createTestBot.js'
-import { flow } from '../src/flows/FlowBuilder.js'
-import { IdentityStore } from '../src/core/identity.js'
+import { IdentityStore } from '../src/identity.js'
+import { toInbound } from '../src/toInbound.js'
+import type { WAMessage } from '@whiskeysockets/baileys'
 
-/**
- * Baileys 7 DM identity flip. The same partner arrives as a LID with the PN twin
- * in remoteJidAlt on one message, then as a bare LID (twin missing) on the next.
- * Before the IdentityStore fix, keyFor() flipped PN<->LID mid-conversation, the
- * active `ask` never got the answer, and the flow re-prompted / mis-captured.
- */
-describe('LID/PN identity', () => {
-  const registerFlow = () =>
-    flow('registrar')
-      .say('📝 Vamos a registrarte')
-      .ask('¿Cuál es tu nombre?', 'name')
-      .ask('¿Cuál es tu email?', 'email', {
-        validate: (b) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(b) || '❌ email inválido',
-      })
-      .say((_c, c) => `✅ ${c.state.name} <${c.state.email}>`)
-
-  it('advances the flow when remoteJidAlt drops between messages', async () => {
-    const { bot, provider } = await createTestBot()
-    const LID = '111111111111111@lid'
-    const PN = '573002782284@s.whatsapp.net'
-    bot.use(registerFlow())
-    bot.onMessage(async (ctx) => { await ctx.reply('🤔 No reconocí eso.') })
-
-    const replies = () => provider.outbox.map((m) => String((m.content as { text?: string }).text ?? ''))
-
-    provider.incoming('registrar', { from: LID, remoteJidAlt: PN }) // LID + twin -> PN
-    await new Promise((r) => setTimeout(r, 10))
-    provider.incoming('Andres', { from: LID })                      // bare LID -> canonicalised to PN
-    await new Promise((r) => setTimeout(r, 10))
-    provider.incoming('andres@test.com', { from: LID, remoteJidAlt: PN })
-    await new Promise((r) => setTimeout(r, 10))
-
-    const out = replies()
-    expect(out.filter((r) => r.includes('¿Cuál es tu nombre?'))).toHaveLength(1) // no loop
-    expect(out.some((r) => r.includes('¿Cuál es tu email?'))).toBe(true)          // advanced
-    expect(out.some((r) => r.includes('✅ Andres <andres@test.com>'))).toBe(true) // completed correctly
-    expect(out.some((r) => r.includes('No reconocí'))).toBe(false)                // never fell through
-  })
-
-  it('stabilizes via the provider mapping even when the twin never rides inline', async () => {
-    const { bot, provider } = await createTestBot()
-    const LID = '333333333333333@lid'
-    const PN = '573001112222@s.whatsapp.net'
-    // Provider knows the authoritative pairing (Baileys signal repository) — the
-    // messages themselves NEVER carry remoteJidAlt, so co-occurrence learning can't fire.
-    ;(provider as unknown as { getPNForLID: (l: string) => Promise<string | undefined> })
-      .getPNForLID = async (lid) => (lid === LID ? PN : undefined)
-    bot.use(registerFlow())
-    bot.onMessage(async (ctx) => { await ctx.reply('🤔 No reconocí eso.') })
-
-    const replies = () => provider.outbox.map((m) => String((m.content as { text?: string }).text ?? ''))
-
-    provider.incoming('registrar', { from: LID })      // bare LID, no twin
-    await new Promise((r) => setTimeout(r, 10))
-    provider.incoming('Bruno', { from: LID })           // bare LID, no twin
-    await new Promise((r) => setTimeout(r, 10))
-    provider.incoming('bruno@x.io', { from: LID })
-    await new Promise((r) => setTimeout(r, 10))
-
-    const out = replies()
-    expect(out.filter((r) => r.includes('¿Cuál es tu nombre?'))).toHaveLength(1)
-    expect(out.some((r) => r.includes('✅ Bruno <bruno@x.io>'))).toBe(true)
-    expect(out.some((r) => r.includes('No reconocí'))).toBe(false)
-  })
-
-  it('also works when the first message is PN-twinned and later ones are bare LID', async () => {
-    const { bot, provider } = await createTestBot()
-    const LID = '222222222222222@lid'
-    const PN = '573009999999@s.whatsapp.net'
-    bot.use(registerFlow())
-
-    const replies = () => provider.outbox.map((m) => String((m.content as { text?: string }).text ?? ''))
-
-    // First message carries both -> store learns the pair immediately.
-    provider.incoming('registrar', { from: PN, remoteJidAlt: LID })
-    await new Promise((r) => setTimeout(r, 10))
-    provider.incoming('Ada', { from: LID })
-    await new Promise((r) => setTimeout(r, 10))
-    provider.incoming('ada@x.io', { from: LID })
-    await new Promise((r) => setTimeout(r, 10))
-
-    const out = replies()
-    expect(out.filter((r) => r.includes('¿Cuál es tu nombre?'))).toHaveLength(1)
-    expect(out.some((r) => r.includes('✅ Ada <ada@x.io>'))).toBe(true)
-  })
-})
+const dm = (opts: { remoteJid: string; remoteJidAlt?: string; id: string; body: string }): WAMessage =>
+  ({
+    key: { remoteJid: opts.remoteJid, remoteJidAlt: opts.remoteJidAlt, fromMe: false, id: opts.id },
+    message: { conversation: opts.body },
+    messageTimestamp: 1,
+  } as unknown as WAMessage)
 
 describe('IdentityStore (unit)', () => {
-  it('canonicalises a learned LID to its PN, both argument orders of observe()', () => {
+  it('canonicalises a learned LID to its PN, both argument orders', () => {
     const s = new IdentityStore()
     s.observe('999@lid', '573001@s.whatsapp.net')
     expect(s.canonical('999@lid')).toBe('573001@s.whatsapp.net')
-
     const s2 = new IdentityStore()
-    s2.observe('573002@s.whatsapp.net', '888@lid') // reversed arg order
+    s2.observe('573002@s.whatsapp.net', '888@lid')
     expect(s2.canonical('888@lid')).toBe('573002@s.whatsapp.net')
   })
 
-  it('leaves unknown LIDs and plain PNs untouched', () => {
+  it('leaves unknown LIDs and plain PNs untouched; ignores incomplete pairs', () => {
     const s = new IdentityStore()
     expect(s.canonical('unknown@lid')).toBe('unknown@lid')
     expect(s.canonical('573003@s.whatsapp.net')).toBe('573003@s.whatsapp.net')
-  })
-
-  it('ignores incomplete pairs', () => {
-    const s = new IdentityStore()
     s.observe('123@lid', null)
-    s.observe(null, '573004@s.whatsapp.net')
     expect(s.canonical('123@lid')).toBe('123@lid')
+  })
+})
+
+describe('toInbound — LID/PN flip stability (the "flujos tienen líos" bug)', () => {
+  it('keeps a stable PN chatId when the PN twin drops between messages', () => {
+    const identity = new IdentityStore()
+    const LID = '111111111111111@lid'
+    const PN = '573002782284@s.whatsapp.net'
+
+    const a = toInbound(dm({ remoteJid: LID, remoteJidAlt: PN, id: 'm1', body: 'registrar' }), identity)
+    const b = toInbound(dm({ remoteJid: LID, id: 'm2', body: 'Andres' }), identity)
+    const c = toInbound(dm({ remoteJid: PN, id: 'm3', body: 'andres@x.io' }), identity)
+
+    expect(a.chatId).toBe(PN)
+    expect(b.chatId).toBe(PN) // was the bug: bare LID keyed differently -> flow broke
+    expect(c.chatId).toBe(PN)
+    expect(new Set([a.chatId, b.chatId, c.chatId]).size).toBe(1)
   })
 })

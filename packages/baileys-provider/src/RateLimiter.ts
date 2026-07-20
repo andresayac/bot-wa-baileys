@@ -25,7 +25,7 @@
  * ```
  */
 
-import { parseDuration } from '../utils/duration.js'
+import { parseDuration } from '@bot-wa/bot-wa-baileys'
 
 export interface RateLimitBucketConfig {
   /** Maximum tokens (messages) allowed in the window. */

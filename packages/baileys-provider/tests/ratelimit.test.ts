@@ -2,7 +2,7 @@
  * RateLimiter — unit tests for the token bucket rate limiter.
  */
 import { describe, it, expect, beforeEach } from 'vitest'
-import { RateLimiter, RateLimiterTimeout } from '../src/ratelimit/RateLimiter.js'
+import { RateLimiter, RateLimiterTimeout } from '../src/RateLimiter.js'
 
 describe('RateLimiter', () => {
   let limiter: RateLimiter

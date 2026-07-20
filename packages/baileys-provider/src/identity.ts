@@ -15,8 +15,8 @@
  * representations (PN-only, LID+twin, bare-LID-once-learned) collapse to a single
  * stable PN identity, so `keyFor()` never flips mid-conversation.
  */
-import { normalize, isLidUser, isPnUser } from '../utils/jid.js'
-import { putBounded } from '../utils/boundedMap.js'
+import { normalize, isLidUser, isPnUser } from './jid.js'
+import { putBounded } from './boundedMap.js'
 
 /** Cap on stored pairs — one bot rarely talks to more than a few thousand LIDs. */
 const IDENTITY_MAX = 4000

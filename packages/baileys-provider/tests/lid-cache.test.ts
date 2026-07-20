@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { putBounded } from '../src/utils/boundedMap.js'
+import { putBounded } from '../src/boundedMap.js'
 
 // BaileysProvider's `lidCache` grows unbounded — every resolved LID<->PN pair is stored under
 // BOTH keys, forever. `putBounded` is the pure cap logic extracted out of the provider (which

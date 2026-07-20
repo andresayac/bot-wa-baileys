@@ -1,12 +1,10 @@
 /**
- * BaileysProvider — thin wrapper around makeWASocket.
+ * BaileysProvider — WhatsApp transport implementing {@link IProvider} v2.
  *
- * Responsibilities:
- *   - Manage the WhatsApp socket lifecycle (connect, display QR, reconnect).
- *   - Emit normalized events via the HookSystem.
- *   - Expose primitive senders (text, media, etc) used by MessageContext / Bot.
- *
- * It knows about flows, plugins, scheduler — nothing. Pure plumbing.
+ * Owns the Baileys socket lifecycle (connect, QR/pairing, reconnect), translates
+ * every Baileys event into a normalized {@link InboundEvent}, maps outbound
+ * {@link OutboundContent} to Baileys content, and resolves LID/PN identity
+ * internally so core never sees a WhatsApp concept.
  */
 
 import { EventEmitter } from 'events'
@@ -14,103 +12,133 @@ import { Boom } from '@hapi/boom'
 import NodeCache from '@cacheable/node-cache'
 import makeWASocket, {
   Browsers,
-  type BaileysEventMap,
   type proto,
   type WAMessage,
   type WAMessageKey,
   fetchLatestBaileysVersion,
   getAggregateVotesInPollMessage,
-  getContentType,
   makeCacheableSignalKeyStore,
   useMultiFileAuthState,
   downloadMediaMessage,
 } from '@whiskeysockets/baileys'
 import { existsSync, rmSync } from 'fs'
 import { join } from 'path'
-import type { Logger } from 'pino'
+import pino, { type Logger } from 'pino'
 
-import type { BotConfig, ConnectionUpdate, ConnectionState, IProvider } from '../core/types.js'
+import type {
+  ChatId,
+  ConnectionState,
+  DisconnectReason,
+  IProvider,
+  InboundEvent,
+  MediaRef,
+  MessageRef,
+  OutboundContent,
+  ProviderCapabilities,
+  SendOptions,
+  SendResult,
+  UserId,
+} from '@bot-wa/bot-wa-baileys'
 import { classifyDisconnect, backoffDelay, MAX_RECONNECT_ATTEMPTS } from './reconnect.js'
-import { putBounded } from '../utils/boundedMap.js'
+import { putBounded } from './boundedMap.js'
+import { IdentityStore } from './identity.js'
+import { toInbound } from './toInbound.js'
+import { toOutbound } from './toOutbound.js'
+import { RateLimiter, type RateLimitConfig } from './RateLimiter.js'
 
-/** Max entries kept in `lidCache` — every resolved LID<->PN pair costs 2 (one per direction). */
 const LID_CACHE_MAX = 2000
+const MSG_CACHE_MAX = 2000
 
-export interface ProviderEvents {
-  connection: ConnectionUpdate
-  pairingCode: string
-  rawMessage: { message: WAMessage; type: 'notify' | 'append' }
-  messageUpdate: { key: WAMessageKey; update: any }
-  reaction: { key: WAMessageKey; reaction: number | string; from: string }
-  pollVote: { key: WAMessageKey; votes: any[]; from: string }
-  call: { id: string; from: string; status: string }
-  groupParticipants: { id: string; action: 'add' | 'remove' | 'promote' | 'demote'; participants: string[]; author?: string }
-  groupsUpsert: any[]
-  groupsUpdate: any[]
-  contactsUpsert: any[]
-  contactsUpdate: any[]
-  chatsUpsert: any[]
-  chatsUpdate: any[]
-  chatsDelete: string[]
-  historySet: BaileysEventMap['messaging-history.set']
-  credentialsUpdated: void
-  presenceUpdate: { id: string; presences: Record<string, any> }
+/** Terminal/file QR rendering options. */
+export interface QrConfig {
+  terminal?: boolean
+  file?: boolean
+  small?: boolean
+  handler?: (qr: string) => void | Promise<void>
 }
 
-/**
- * Strongly-typed emitter — listeners get the right payload shape for free.
- */
-export class TypedEmitter<TEvents extends Record<string, any>> extends EventEmitter {
-  emitTyped<K extends keyof TEvents>(event: K, payload: TEvents[K]): boolean {
-    return this.emit(String(event), payload)
-  }
-  onTyped<K extends keyof TEvents>(event: K, listener: (payload: TEvents[K]) => void | Promise<void>): this {
-    return this.on(String(event), listener as (...args: any[]) => void)
-  }
-  offTyped<K extends keyof TEvents>(event: K, listener: (payload: TEvents[K]) => void | Promise<void>): this {
-    return this.off(String(event), listener as (...args: any[]) => void)
-  }
+/** Configuration for the WhatsApp (Baileys) transport. */
+export interface BaileysProviderConfig {
+  session?: string
+  sessionsDir?: string
+  browser?: 'macOS' | 'ubuntu' | 'windows' | 'appropriate' | [string, string, string]
+  markOnlineOnConnect?: boolean
+  syncFullHistory?: boolean
+  ignoreNewsletters?: boolean
+  ignoreBroadcasts?: boolean
+  reconnect?: boolean
+  qr?: QrConfig
+  /** Phone number (international format) for pairing-code login instead of QR. */
+  pairingCode?: string
+  /** Anti-ban outbound pacing. */
+  rateLimit?: RateLimitConfig
+  debug?: boolean
+  logger?: Logger
 }
 
-export class BaileysProvider extends TypedEmitter<ProviderEvents> implements IProvider {
+const cacheKey = (k: WAMessageKey) => `${k.remoteJid}:${k.id}`
+
+export class BaileysProvider implements IProvider<WAMessage> {
+  readonly id = 'baileys'
+  readonly capabilities: ProviderCapabilities = {
+    contentKinds: ['text', 'image', 'video', 'audio', 'voice', 'document', 'sticker', 'location', 'contact', 'poll', 'reaction', 'buttons', 'list', 'card'],
+    maxTextLength: 65536,
+    buttons: false, lists: false, polls: true, reactions: true, edit: false,
+    typing: true, presence: true, readReceipts: true, groups: true, templates: false,
+    interactionsRequireAck: false, pushIngress: false,
+  }
+
+  private readonly config: BaileysProviderConfig
+  private readonly logger: Logger
   private sock: ReturnType<typeof makeWASocket> | null = null
   private msgRetryCounterCache = new NodeCache({ stdTTL: 0, useClones: false })
   private authState: Awaited<ReturnType<typeof useMultiFileAuthState>> | null = null
   private version: [number, number, number] = [0, 0, 0]
-  private reconnectPending: boolean = false
-  /** Consecutive backoff-reconnect attempts; reset to 0 on a successful 'open'. */
-  private reconnectAttempts: number = 0
-  private isShuttingDown: boolean = false
-  /** True once a pairing code was requested for the current socket — QR refreshes every ~20s and must not re-request. */
-  private pairingCodeRequested: boolean = false
-  /** LID <-> PN cache — every resolved pair is stored under both keys. */
+  private reconnectPending = false
+  private reconnectAttempts = 0
+  private isShuttingDown = false
+  private pairingCodeRequested = false
   private lidCache = new Map<string, string>()
+  private msgCache = new Map<string, WAMessage>()
+  private identity = new IdentityStore()
+  private rateLimiter: RateLimiter
+  private listeners = new Set<(e: InboundEvent<WAMessage>) => void | Promise<void>>()
 
-  constructor(
-    private config: BotConfig,
-    private logger: Logger,
-    /** Returns the original message for retries & poll decryption. */
-    private getMessage: (key: WAMessageKey) => Promise<proto.IMessage | undefined>
-  ) {
-    super()
+  constructor(config: BaileysProviderConfig = {}) {
+    this.config = config
+    this.logger = config.logger ?? pino({
+      level: config.debug ? 'debug' : 'error',
+      transport: config.debug ? { target: 'pino-pretty', options: { colorize: true } } : undefined,
+    })
+    this.rateLimiter = new RateLimiter(config.rateLimit)
   }
 
-  /** The current raw Baileys socket — undefined until connected. */
-  get socket(): ReturnType<typeof makeWASocket> | null {
-    return this.sock
+  get connection(): unknown | null { return this.sock }
+  get selfId(): UserId | null {
+    return (this.authState?.state?.creds?.me?.id as string | undefined) ?? null
+  }
+  get socket(): ReturnType<typeof makeWASocket> | null { return this.sock }
+  get auth() {
+    if (!this.authState) throw new Error('Provider not started')
+    return this.authState
   }
 
   get sessionDir(): string {
-    return join(
-      this.config.sessionsDir ?? './sessions',
-      this.config.session ?? 'default'
-    )
+    return join(this.config.sessionsDir ?? './sessions', this.config.session ?? 'default')
   }
 
-  /** Start — open the socket and wait for `open` or first QR. */
+  onEvent(listener: (e: InboundEvent<WAMessage>) => void | Promise<void>): () => void {
+    this.listeners.add(listener)
+    return () => this.listeners.delete(listener)
+  }
+
+  private fan(e: InboundEvent<WAMessage>): void {
+    for (const l of this.listeners) void l(e)
+  }
+
   async start(): Promise<void> {
-    // A fresh socket invalidates any previously issued pairing code, so allow one new request.
     this.pairingCodeRequested = false
+    this.isShuttingDown = false
     this.authState = await useMultiFileAuthState(this.sessionDir)
     const versionInfo = await fetchLatestBaileysVersion()
     this.version = versionInfo.version
@@ -118,181 +146,146 @@ export class BaileysProvider extends TypedEmitter<ProviderEvents> implements IPr
     await this.buildSocket()
   }
 
-  /** Stop — close the socket cleanly. */
   async stop(): Promise<void> {
     this.reconnectPending = false
     this.isShuttingDown = true
+    this.rateLimiter.reset()
     if (this.sock) {
-      try {
-        // Use logout for clean disconnect — avoids the "connection errored" log
-        await this.sock.logout()
-      } catch {
-        try { this.sock.end(new Error('shutdown')) } catch { /* ignore */ }
-      }
+      try { await this.sock.logout() }
+      catch { try { this.sock.end(new Error('shutdown')) } catch { /* ignore */ } }
       this.sock = null
     }
   }
 
-  /** Authenticate state for downstream consumers (cached key store). */
-  get auth() {
-    if (!this.authState) throw new Error('Provider not started')
-    return this.authState
+  async send(chatId: ChatId, content: OutboundContent, options?: SendOptions): Promise<SendResult<WAMessage>> {
+    if (!this.sock) throw new Error('Provider not connected')
+    const waContent = await toOutbound(content)
+    const waOptions: Record<string, unknown> = {}
+    if (options?.quoted?.native) waOptions.quoted = options.quoted.native
+    const resolvedJid = await this.resolveJid(chatId)
+    await this.rateLimiter.acquire(chatId)
+    const sent = (await this.sock.sendMessage(resolvedJid, waContent, waOptions)) as WAMessage
+    return { ref: { id: sent.key.id ?? '', chatId, native: sent }, raw: sent }
   }
 
-  /** Send ephemeral media download — reupload expired media automatically. */
-  async downloadMedia(message: WAMessage, format: 'buffer' | 'stream' = 'buffer') {
-    if (!this.sock) throw new Error('Provider not connected')
-    return downloadMediaMessage(message, format, {}, {
+  async downloadMedia(ref: MediaRef): Promise<Buffer | NodeJS.ReadableStream> {
+    const message = ref.token as WAMessage
+    return downloadMediaMessage(message, 'buffer', {}, {
       logger: this.logger,
-      reuploadRequest: this.sock.updateMediaMessage,
+      reuploadRequest: this.sock!.updateMediaMessage,
     })
   }
 
-  /** Generic send — exposed to higher layers. Resolves LID → PN automatically. */
-  async send(jid: string, content: any, options?: any): Promise<WAMessage> {
-    if (!this.sock) throw new Error('Provider not connected')
-    // Baileys 7: private chats arrive as @lid but sendMessage needs @s.whatsapp.net
-    const resolvedJid = await this.resolveJid(jid)
-    return (await this.sock.sendMessage(resolvedJid, content, options)) as WAMessage
+  async markRead(refs: MessageRef[]): Promise<void> {
+    const keys = refs.map((r) => (r.native as WAMessage).key)
+    await this.sock?.readMessages(keys)
   }
 
-  /** Resolve a LID JID to a PN JID if needed for sending. */
+  async typing(chatId: ChatId, state: 'typing' | 'recording' | 'paused' = 'typing'): Promise<void> {
+    const presence = state === 'typing' ? 'composing' : state
+    await this.sock?.sendPresenceUpdate(presence, chatId)
+  }
+
+  async deleteMessage(ref: MessageRef): Promise<void> {
+    const key = (ref.native as WAMessage).key
+    await this.sock?.sendMessage(ref.chatId, { delete: key })
+  }
+
+  /* Identity resolution (internal) --------------------------------------- */
+
   private async resolveJid(jid: string): Promise<string> {
     if (!jid.endsWith('@lid')) return jid
-    // If we can't resolve, send to the LID anyway (Baileys may handle it)
     return (await this.getPNForLID(jid)) ?? jid
   }
 
-  /** PN for a LID — checks the local cache first, then the signal repository. */
   async getPNForLID(lid: string): Promise<string | undefined> {
     const cached = this.lidCache.get(lid)
     if (cached) return cached
     const pn = await this.sock?.signalRepository.lidMapping.getPNForLID(lid).catch(() => null)
-    if (pn) this.cacheLid(lid, pn)
+    if (pn) { this.cacheLid(lid, pn); this.identity.observe(lid, pn) }
     return pn ?? undefined
   }
 
-  /** LID for a PN — checks the local cache first, then the signal repository. */
-  async getLIDForPN(pn: string): Promise<string | undefined> {
-    const cached = this.lidCache.get(pn)
-    if (cached) return cached
-    const lid = await this.sock?.signalRepository.lidMapping.getLIDForPN(pn).catch(() => null)
-    if (lid) this.cacheLid(pn, lid)
-    return lid ?? undefined
-  }
+  private cacheLid(a: string, b: string): void { putBounded(this.lidCache, a, b, LID_CACHE_MAX) }
 
-  /** Stores a LID<->PN pair under both keys, bounded to `LID_CACHE_MAX` entries (oldest evicted first). */
-  private cacheLid(a: string, b: string): void {
-    putBounded(this.lidCache, a, b, LID_CACHE_MAX)
-  }
-
-  /**
-   * Cache a `lid-mapping.update` payload. The observed shape (Baileys 7.0.0-rc13)
-   * is a single `{ lid, pn }` pair, but this is coded defensively in case a build
-   * emits an array of pairs or a plain `{ [a]: b }` record instead.
-   */
   private cacheLidMapping(update: unknown): void {
     if (!update || typeof update !== 'object') return
     const pairs = Array.isArray(update) ? update : [update]
-    let sawPairShape = false
     for (const entry of pairs) {
       if (entry && typeof entry === 'object' && 'lid' in entry && 'pn' in entry) {
-        sawPairShape = true
         const { lid, pn } = entry as { lid?: string; pn?: string }
-        if (lid && pn) this.cacheLid(lid, pn)
-      }
-    }
-    if (!sawPairShape && !Array.isArray(update)) {
-      for (const [a, b] of Object.entries(update as Record<string, string>)) {
-        this.cacheLid(a, b)
+        if (lid && pn) { this.cacheLid(lid, pn); this.identity.observe(lid, pn) }
       }
     }
   }
 
-  /** Read receipts — mark messages read. */
-  async readMessages(keys: WAMessageKey[]): Promise<void> {
-    await this.sock?.readMessages(keys)
-  }
-
-  /** Reject incoming call. */
-  async rejectCall(id: string, from: string): Promise<void> {
-    await this.sock?.rejectCall(id, from)
-  }
-
-  /** Group management passthrough. */
-  groupMetadata(jid: string): Promise<any> {
-    return this.sock!.groupMetadata(jid)
+  private rememberMessage(m: WAMessage): void {
+    if (!m.key?.id) return
+    this.msgCache.set(cacheKey(m.key), m)
+    if (this.msgCache.size > MSG_CACHE_MAX) {
+      const oldest = this.msgCache.keys().next()
+      if (!oldest.done) this.msgCache.delete(oldest.value)
+    }
   }
 
   // ---------------------------------------------------------------------------
 
   private async buildSocket(): Promise<void> {
     if (!this.authState) throw new Error('auth state missing — call start() first')
-
     const browser: [string, string, string] =
-      this.config.browser === undefined || this.config.browser === 'macOS'
-        ? Browsers.macOS('Desktop')
-        : this.config.browser === 'ubuntu'
-          ? Browsers.ubuntu('Bot')
-          : this.config.browser === 'windows'
-            ? Browsers.windows('Bot')
-            : this.config.browser === 'appropriate'
-              ? Browsers.appropriate('Bot')
+      this.config.browser === undefined || this.config.browser === 'macOS' ? Browsers.macOS('Desktop')
+        : this.config.browser === 'ubuntu' ? Browsers.ubuntu('Bot')
+          : this.config.browser === 'windows' ? Browsers.windows('Bot')
+            : this.config.browser === 'appropriate' ? Browsers.appropriate('Bot')
               : (this.config.browser as [string, string, string])
 
-    const make = (makeWASocket as any).default ?? makeWASocket
+    const make = (makeWASocket as unknown as { default?: typeof makeWASocket }).default ?? makeWASocket
     this.sock = make({
       version: this.version,
       logger: this.logger,
-      auth: {
-        creds: this.authState.state.creds,
-        keys: makeCacheableSignalKeyStore(this.authState.state.keys, this.logger),
-      },
+      auth: { creds: this.authState.state.creds, keys: makeCacheableSignalKeyStore(this.authState.state.keys, this.logger) },
       browser,
-      msgRetryCounterCache: this.msgRetryCounterCache,
+      msgRetryCounterCache: this.msgRetryCounterCache as unknown as undefined,
       generateHighQualityLinkPreview: true,
       markOnlineOnConnect: this.config.markOnlineOnConnect ?? false,
       syncFullHistory: this.config.syncFullHistory ?? false,
-      getMessage: this.getMessage,
+      getMessage: async (key: WAMessageKey) => this.msgCache.get(cacheKey(key))?.message ?? undefined,
     }) as ReturnType<typeof makeWASocket>
 
     this.sock.ev.process(async (events) => {
-      /* Connection -------------------------------------------------------- */
-      if (events['connection.update']) {
-        const u = events['connection.update']
-        await this.onConnectionUpdate(u)
-      }
+      if (events['connection.update']) await this.onConnectionUpdate(events['connection.update'])
+      if (events['creds.update']) await this.authState!.saveCreds()
 
-      /* Credentials ------------------------------------------------------- */
-      if (events['creds.update']) {
-        await this.authState!.saveCreds()
-        this.emitTyped('credentialsUpdated', undefined as unknown as void)
-      }
-
-      /* Messages ---------------------------------------------------------- */
       if (events['messages.upsert']) {
         const { messages, type } = events['messages.upsert']
-        for (const message of messages) {
-          this.emitTyped('rawMessage', { message, type })
+        if (type === 'notify') {
+          for (const message of messages) {
+            this.rememberMessage(message)
+            if (message.key?.fromMe) continue
+            const jid = (message.key as { remoteJidAlt?: string })?.remoteJidAlt ?? message.key?.remoteJid ?? ''
+            if (jid === 'status@broadcast') continue
+            if ((this.config.ignoreBroadcasts ?? true) && jid.endsWith('@broadcast')) continue
+            if ((this.config.ignoreNewsletters ?? true) && jid.endsWith('@newsletter')) continue
+            // Seed identity from the authoritative mapping for bare-LID keys.
+            await this.seedIdentity(message.key as WAMessageKey)
+            this.fan({ kind: 'message', message: toInbound(message, this.identity) })
+          }
         }
       }
 
       if (events['messages.update']) {
         for (const update of events['messages.update']) {
-          this.emitTyped('messageUpdate', { key: update.key, update: update.update })
-
-          // Poll vote aggregation
           if (update.update.pollUpdates) {
-            const creation = await this.getMessage(update.key)
+            const creation = this.msgCache.get(cacheKey(update.key))
             if (creation) {
-              const votes = getAggregateVotesInPollMessage({
-                message: creation,
-                pollUpdates: update.update.pollUpdates,
-              })
-              this.emitTyped('pollVote', {
-                key: update.key,
-                votes,
-                from: update.key.remoteJid ?? '',
+              const votes = getAggregateVotesInPollMessage({ message: creation.message ?? undefined as unknown as proto.IMessage, pollUpdates: update.update.pollUpdates })
+              this.fan({
+                kind: 'poll-vote',
+                vote: {
+                  ref: { id: update.key.id ?? '', chatId: update.key.remoteJid ?? '', native: creation },
+                  senderId: update.key.participant ?? update.key.remoteJid ?? '',
+                  options: votes.map((v) => ({ name: v.name, votes: v.voters.length, voters: v.voters })),
+                },
               })
             }
           }
@@ -300,184 +293,145 @@ export class BaileysProvider extends TypedEmitter<ProviderEvents> implements IPr
       }
 
       if (events['messages.reaction']) {
-        for (const { key, reaction } of events['messages.reaction'] as any) {
-          this.emitTyped('reaction', {
-            key,
-            reaction: reaction as any,
-            from: key.remoteJid ?? '',
+        for (const { key, reaction } of events['messages.reaction'] as Array<{ key: WAMessageKey; reaction: { text?: string; senderTimestampMs?: number } }>) {
+          this.fan({
+            kind: 'reaction',
+            reaction: {
+              ref: { id: key.id ?? '', chatId: key.remoteJid ?? '', native: key },
+              emoji: reaction.text ?? '',
+              senderId: key.participant ?? key.remoteJid ?? '',
+              removed: !reaction.text,
+            },
           })
         }
       }
 
-      /* Calls ------------------------------------------------------------- */
       if (events['call']) {
         for (const call of events['call']) {
-          this.emitTyped('call', { id: call.id, from: call.from, status: call.status })
+          this.fan({ kind: 'call', event: { id: call.id, from: call.from, status: String(call.status) } })
         }
       }
 
-      /* Groups ------------------------------------------------------------ */
-      if (events['groups.upsert']) {
-        this.emitTyped('groupsUpsert', events['groups.upsert'])
-      }
-      if (events['groups.update']) {
-        this.emitTyped('groupsUpdate', events['groups.update'])
-      }
       if (events['group-participants.update']) {
-        const e = events['group-participants.update'] as any
-        this.emitTyped('groupParticipants', {
-          id: e.id,
-          action: e.action as 'add' | 'remove' | 'promote' | 'demote',
-          participants: (e.participants ?? []) as string[],
-          author: e.author,
+        const e = events['group-participants.update']
+        this.fan({
+          kind: 'group',
+          event: { chatId: e.id, action: e.action as 'add' | 'remove' | 'promote' | 'demote', participants: (e.participants ?? []) as unknown as string[], actor: (e as { author?: string }).author },
         })
       }
 
-      /* Chats ------------------------------------------------------------- */
-      if (events['chats.upsert']) this.emitTyped('chatsUpsert', events['chats.upsert'])
-      if (events['chats.update']) this.emitTyped('chatsUpdate', events['chats.update'])
-      if (events['chats.delete']) this.emitTyped('chatsDelete', events['chats.delete'])
-
-      /* Contacts ---------------------------------------------------------- */
-      if (events['contacts.upsert']) this.emitTyped('contactsUpsert', events['contacts.upsert'])
-      if (events['contacts.update']) this.emitTyped('contactsUpdate', events['contacts.update'])
-
-      /* History ----------------------------------------------------------- */
-      if (events['messaging-history.set']) {
-        this.emitTyped('historySet', events['messaging-history.set'])
-      }
-
-      /* Presence ---------------------------------------------------------- */
       if (events['presence.update']) {
-        this.emitTyped('presenceUpdate', events['presence.update'])
+        const p = events['presence.update']
+        this.fan({ kind: 'presence', event: { chatId: p.id, presences: p.presences as Record<string, { lastKnownPresence?: string; lastSeen?: number }> } })
       }
 
-      /* LID/PN identity ----------------------------------------------------- */
-      if (events['lid-mapping.update']) {
-        this.cacheLidMapping(events['lid-mapping.update'])
-      }
+      if (events['lid-mapping.update']) this.cacheLidMapping(events['lid-mapping.update'])
     })
   }
 
-  private async onConnectionUpdate(u: any): Promise<void> {
-    const { connection, lastDisconnect, qr, isNewLogin, isOnline, receivedPendingNotifications } = u
+  private async seedIdentity(key: WAMessageKey): Promise<void> {
+    const candidates = [key.remoteJid, key.participant]
+    for (const jid of candidates) {
+      if (!jid || !jid.endsWith('@lid') || this.identity.knowsPnFor(jid)) continue
+      await this.getPNForLID(jid).catch(() => undefined)
+    }
+  }
+
+  private mapReason(statusCode?: number): DisconnectReason {
+    const action = classifyDisconnect(statusCode)
+    return action === 'wipe' ? 'sessionInvalid'
+      : action === 'stop' ? 'sessionTakenOver'
+        : 'transient'
+  }
+
+  private async onConnectionUpdate(u: {
+    connection?: string
+    lastDisconnect?: { error?: unknown }
+    qr?: string
+    isNewLogin?: boolean
+    isOnline?: boolean
+  }): Promise<void> {
+    const { connection, lastDisconnect, qr } = u
 
     if (qr) {
-      this.emitTyped('connection', {
-        state: 'qr',
-        qr,
-        isNewLogin,
-        isOnline,
-      })
-
-      // Pairing-code login (v1 parity): once a QR is available the socket is ready to
-      // issue a pairing code. Requires `config.pairingCode` to be the phone number in
-      // full international format (e.g. '+573001234567'); Baileys wants digits only.
-      if (
-        this.config.pairingCode &&
-        !this.authState?.state?.creds?.registered &&
-        !this.pairingCodeRequested &&
-        this.sock
-      ) {
+      this.fan({ kind: 'connection', update: { state: 'authenticating', authPayload: qr } })
+      this.renderQr(qr)
+      if (this.config.pairingCode && !this.authState?.state?.creds?.registered && !this.pairingCodeRequested && this.sock) {
         this.pairingCodeRequested = true
         try {
-          const phone = this.config.pairingCode.replace(/\D/g, '')
-          const code = await this.sock.requestPairingCode(phone)
-          this.emitTyped('pairingCode', code)
-        } catch (error) {
-          this.logger.warn({ error }, 'pairing code request failed — falling back to QR')
-        }
+          const code = await this.sock.requestPairingCode(this.config.pairingCode.replace(/\D/g, ''))
+          this.fan({ kind: 'connection', update: { state: 'authenticating', authPayload: code } })
+        } catch (error) { this.logger.warn({ error }, 'pairing code request failed — falling back to QR') }
       }
     }
 
+    if (connection === 'connecting') this.fan({ kind: 'connection', update: { state: 'connecting' } })
+
     if (connection === 'open') {
-      this.reconnectAttempts = 0 // successful connection resets the backoff
-      this.emitTyped('connection', {
-        state: 'open',
-        isNewLogin,
-        isOnline: isOnline ?? true,
-      })
+      this.reconnectAttempts = 0
+      this.fan({ kind: 'connection', update: { state: 'ready' } })
     }
 
     if (connection === 'close') {
       const statusCode = (lastDisconnect?.error as Boom)?.output?.statusCode
-      const reason = (lastDisconnect?.error as Boom)?.message
+      const message = (lastDisconnect?.error as Boom)?.message
+      const reason = this.mapReason(statusCode)
+      this.fan({ kind: 'connection', update: { state: 'closed', reason, detail: { code: statusCode, message } } })
 
-      this.emitTyped('connection', {
-        state: 'close',
-        lastDisconnect: { statusCode, reason },
-      })
-
-      if (this.config.reconnect === false || this.isShuttingDown || this.reconnectPending) {
-        return
-      }
-
+      if (this.config.reconnect === false || this.isShuttingDown || this.reconnectPending) return
       const action = classifyDisconnect(statusCode)
 
       if (action === 'wipe') {
-        // Session is invalid — wipe auth state and start fresh.
         this.logger.warn({ statusCode }, 'session invalid — wiping')
-        try {
-          rmSync(this.sessionDir, { recursive: true, force: true })
-        } catch {
-          /* ignore */
-        }
+        try { if (existsSync(this.sessionDir)) rmSync(this.sessionDir, { recursive: true, force: true }) } catch { /* ignore */ }
         this.reconnectAttempts = 0
         this.scheduleReconnect(0)
         return
       }
-
       if (action === 'stop') {
-        // conflict/replaced (another device or instance owns this session) or
-        // forbidden — reconnecting just fights the other client forever and
-        // risks a ban. Stop and let the operator resolve it.
-        this.logger.warn(
-          { statusCode },
-          'not reconnecting: session taken over by another client (conflict) or forbidden. ' +
-            'Close the other WhatsApp Web/linked-device session or use a different `session` name.'
-        )
+        this.logger.warn({ statusCode }, 'not reconnecting: session taken over (conflict) or forbidden.')
         return
       }
-
-      if (action === 'reconnect-now') {
-        // restartRequired (515) — expected during pairing; reconnect promptly.
-        this.scheduleReconnect(0)
-        return
-      }
-
-      // reconnect-backoff — transient failure. Exponential backoff with a cap,
-      // and give up after MAX_RECONNECT_ATTEMPTS consecutive failures.
+      if (action === 'reconnect-now') { this.scheduleReconnect(0); return }
       if (this.reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
-        this.logger.error(
-          { statusCode, attempts: this.reconnectAttempts },
-          `giving up after ${MAX_RECONNECT_ATTEMPTS} consecutive reconnect attempts`
-        )
+        this.logger.error({ statusCode, attempts: this.reconnectAttempts }, `giving up after ${MAX_RECONNECT_ATTEMPTS} reconnect attempts`)
         return
       }
       const delay = backoffDelay(this.reconnectAttempts)
       this.reconnectAttempts++
-      this.logger.warn(
-        { statusCode, attempt: this.reconnectAttempts, delayMs: delay },
-        'connection closed — reconnecting with backoff'
-      )
+      this.logger.warn({ statusCode, attempt: this.reconnectAttempts, delayMs: delay }, 'connection closed — reconnecting with backoff')
       this.scheduleReconnect(delay)
-    }
-
-    if (connection === 'connecting') {
-      this.emitTyped('connection', { state: 'connecting' })
     }
   }
 
-  /** Schedule a single reconnect after `delayMs`, guarded against overlap and shutdown. */
   private scheduleReconnect(delayMs: number): void {
     if (this.reconnectPending || this.isShuttingDown) return
     this.reconnectPending = true
     setTimeout(() => {
       this.reconnectPending = false
       if (this.isShuttingDown) return
-      void this.start().catch((error) =>
-        this.logger.error({ error }, 'reconnect attempt failed')
-      )
+      void this.start().catch((error) => this.logger.error({ error }, 'reconnect attempt failed'))
     }, delayMs)
+  }
+
+  private renderQr(qr: string): void {
+    const cfg = this.config.qr ?? { terminal: true, small: true }
+    if (cfg.terminal) {
+      import('qrcode-terminal').then((mod) => {
+        const cjs = mod as unknown as { default?: typeof mod }
+        const qrmod = cjs.default ?? mod
+        qrmod.generate(qr, { small: cfg.small ?? true }, (output: string) => process.stdout.write(`${output}\n`))
+      }).catch((err) => this.logger.warn({ err }, 'failed to render QR in terminal'))
+    }
+    if (cfg.file) {
+      const file = `${this.config.session ?? 'default'}.qr.png`
+      void (async () => {
+        try {
+          const [{ image }, { createWriteStream }] = await Promise.all([import('qr-image'), import('fs')])
+          image(qr, { type: 'png' }).pipe(createWriteStream(file))
+        } catch (err) { this.logger.warn({ err }, `failed to write QR image to ${file}`) }
+      })()
+    }
+    if (cfg.handler) void cfg.handler(qr)
   }
 }
