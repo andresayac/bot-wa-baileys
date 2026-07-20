@@ -14,7 +14,6 @@ import { Boom } from '@hapi/boom'
 import NodeCache from '@cacheable/node-cache'
 import makeWASocket, {
   Browsers,
-  DisconnectReason,
   type BaileysEventMap,
   type proto,
   type WAMessage,
@@ -31,6 +30,7 @@ import { join } from 'path'
 import type { Logger } from 'pino'
 
 import type { BotConfig, ConnectionUpdate, ConnectionState, IProvider } from '../core/types.js'
+import { classifyDisconnect, backoffDelay, MAX_RECONNECT_ATTEMPTS } from './reconnect.js'
 
 export interface ProviderEvents {
   connection: ConnectionUpdate
@@ -74,6 +74,8 @@ export class BaileysProvider extends TypedEmitter<ProviderEvents> implements IPr
   private authState: Awaited<ReturnType<typeof useMultiFileAuthState>> | null = null
   private version: [number, number, number] = [0, 0, 0]
   private reconnectPending: boolean = false
+  /** Consecutive backoff-reconnect attempts; reset to 0 on a successful 'open'. */
+  private reconnectAttempts: number = 0
   private isShuttingDown: boolean = false
   /** True once a pairing code was requested for the current socket — QR refreshes every ~20s and must not re-request. */
   private pairingCodeRequested: boolean = false
@@ -390,6 +392,7 @@ export class BaileysProvider extends TypedEmitter<ProviderEvents> implements IPr
     }
 
     if (connection === 'open') {
+      this.reconnectAttempts = 0 // successful connection resets the backoff
       this.emitTyped('connection', {
         state: 'open',
         isNewLogin,
@@ -406,36 +409,76 @@ export class BaileysProvider extends TypedEmitter<ProviderEvents> implements IPr
         lastDisconnect: { statusCode, reason },
       })
 
-      const isLoggedOut = statusCode === DisconnectReason.loggedOut
-      const isForbiddenPermanent = [
-        DisconnectReason.badSession,
-        DisconnectReason.multideviceMismatch,
-      ].includes(statusCode)
+      if (this.config.reconnect === false || this.isShuttingDown || this.reconnectPending) {
+        return
+      }
 
-      if (isLoggedOut || isForbiddenPermanent) {
-        // Wipe & restart from scratch
+      const action = classifyDisconnect(statusCode)
+
+      if (action === 'wipe') {
+        // Session is invalid — wipe auth state and start fresh.
         this.logger.warn({ statusCode }, 'session invalid — wiping')
         try {
           rmSync(this.sessionDir, { recursive: true, force: true })
         } catch {
           /* ignore */
         }
-        await this.start()
+        this.reconnectAttempts = 0
+        this.scheduleReconnect(0)
         return
       }
 
-      // Transient — reconnect (unless we're shutting down)
-      if (this.config.reconnect !== false && !this.reconnectPending && !this.isShuttingDown) {
-        this.reconnectPending = true
-        setImmediate(async () => {
-          this.reconnectPending = false
-          await this.start()
-        })
+      if (action === 'stop') {
+        // conflict/replaced (another device or instance owns this session) or
+        // forbidden — reconnecting just fights the other client forever and
+        // risks a ban. Stop and let the operator resolve it.
+        this.logger.warn(
+          { statusCode },
+          'not reconnecting: session taken over by another client (conflict) or forbidden. ' +
+            'Close the other WhatsApp Web/linked-device session or use a different `session` name.'
+        )
+        return
       }
+
+      if (action === 'reconnect-now') {
+        // restartRequired (515) — expected during pairing; reconnect promptly.
+        this.scheduleReconnect(0)
+        return
+      }
+
+      // reconnect-backoff — transient failure. Exponential backoff with a cap,
+      // and give up after MAX_RECONNECT_ATTEMPTS consecutive failures.
+      if (this.reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+        this.logger.error(
+          { statusCode, attempts: this.reconnectAttempts },
+          `giving up after ${MAX_RECONNECT_ATTEMPTS} consecutive reconnect attempts`
+        )
+        return
+      }
+      const delay = backoffDelay(this.reconnectAttempts)
+      this.reconnectAttempts++
+      this.logger.warn(
+        { statusCode, attempt: this.reconnectAttempts, delayMs: delay },
+        'connection closed — reconnecting with backoff'
+      )
+      this.scheduleReconnect(delay)
     }
 
     if (connection === 'connecting') {
       this.emitTyped('connection', { state: 'connecting' })
     }
+  }
+
+  /** Schedule a single reconnect after `delayMs`, guarded against overlap and shutdown. */
+  private scheduleReconnect(delayMs: number): void {
+    if (this.reconnectPending || this.isShuttingDown) return
+    this.reconnectPending = true
+    setTimeout(() => {
+      this.reconnectPending = false
+      if (this.isShuttingDown) return
+      void this.start().catch((error) =>
+        this.logger.error({ error }, 'reconnect attempt failed')
+      )
+    }, delayMs)
   }
 }
