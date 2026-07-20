@@ -40,6 +40,64 @@ importers:
         specifier: ^6.48.0
         version: 6.48.0(ws@8.18.3)
 
+  packages/baileys-provider:
+    dependencies:
+      '@bot-wa/bot-wa-baileys':
+        specifier: workspace:*
+        version: link:../core
+      '@cacheable/node-cache':
+        specifier: ^1.5.0
+        version: 1.7.4
+      '@ffmpeg-installer/ffmpeg':
+        specifier: ^1.1.0
+        version: 1.1.0
+      '@hapi/boom':
+        specifier: ^10.0.1
+        version: 10.0.1
+      '@whiskeysockets/baileys':
+        specifier: 7.0.0-rc13
+        version: 7.0.0-rc13(sharp@0.35.3(@types/node@26.1.1))
+      fluent-ffmpeg:
+        specifier: ^2.1.3
+        version: 2.1.3
+      follow-redirects:
+        specifier: ^1.16.0
+        version: 1.16.0
+      mime-types:
+        specifier: ^3.0.2
+        version: 3.0.2
+      qr-image:
+        specifier: ^3.2.0
+        version: 3.2.0
+      qrcode-terminal:
+        specifier: ^0.12.0
+        version: 0.12.0
+      sharp:
+        specifier: ^0.35.3
+        version: 0.35.3(@types/node@26.1.1)
+    devDependencies:
+      '@types/fluent-ffmpeg':
+        specifier: ^2.1.28
+        version: 2.1.28
+      '@types/mime-types':
+        specifier: ^3.0.1
+        version: 3.0.1
+      '@types/node':
+        specifier: ^26.1.1
+        version: 26.1.1
+      '@types/qrcode-terminal':
+        specifier: ^0.12.2
+        version: 0.12.2
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
+      vite:
+        specifier: ^7.3.6
+        version: 7.3.6(@types/node@26.1.1)(yaml@2.9.0)
+      vitest:
+        specifier: ^4.1.10
+        version: 4.1.10(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
+
   packages/core:
     dependencies:
       '@cacheable/node-cache':
