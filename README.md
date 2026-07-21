@@ -6,13 +6,28 @@ Framework moderno y **agnóstico de transporte** para bots de mensajería: flows
 
 ## Paquetes
 
-| Paquete | Ruta | Descripción |
-| --- | --- | --- |
-| [`@bot-wa/core`](packages/core) | `packages/core` | Motor agnóstico de transporte: `Bot`, `IProvider v2`, dispatcher, flows/conversaciones, hooks, plugins, store, testing kit. |
-| [`@bot-wa/baileys`](packages/baileys-provider) | `packages/baileys-provider` | Transporte WhatsApp vía Baileys 7 (no oficial, QR). |
-| [`@bot-wa/meta`](packages/meta-provider) | `packages/meta-provider` | Transporte WhatsApp Cloud API **oficial** (webhook, sin baneo, botones/listas/templates nativos). |
-| [`@bot-wa/sqlite-store`](packages/sqlite-store) | `packages/sqlite-store` | Store persistente SQLite (`better-sqlite3`). |
-| [`@bot-wa/ai`](packages/ai) | `packages/ai` | Plugin de IA: Anthropic/OpenAI/Ollama/Gemini + 9 presets OpenAI-compatible (DeepSeek/Qwen/GLM/Kimi/Groq/…), autorespuesta. |
+| Paquete | Descripción |
+| --- | --- |
+| **Core** | |
+| [`@bot-wa/core`](packages/core) | Motor agnóstico de transporte: `Bot`, `IProvider v2`, dispatcher, flows/conversaciones, hooks, plugins, store, testing kit. |
+| **Transports (canales)** | |
+| [`@bot-wa/baileys`](packages/baileys-provider) | WhatsApp vía Baileys 7 (no oficial, QR). |
+| [`@bot-wa/meta`](packages/meta-provider) | WhatsApp Cloud API **oficial** (webhook, sin baneo, botones/listas/templates nativos). |
+| [`@bot-wa/messenger`](packages/messenger-provider) | Facebook Messenger (Meta Graph, quick replies/templates). |
+| [`@bot-wa/instagram`](packages/instagram-provider) | Instagram DM (Meta Graph, quick replies). |
+| [`@bot-wa/telegram`](packages/telegram-provider) | Telegram Bot API (long-poll/webhook, teclados inline, polls nativos). |
+| [`@bot-wa/discord`](packages/discord-provider) | Discord (gateway websocket + REST, slash/components). |
+| **Stores (persistencia)** | |
+| [`@bot-wa/sqlite-store`](packages/sqlite-store) | SQLite (`better-sqlite3`). |
+| [`@bot-wa/redis-store`](packages/redis-store) | Redis distribuido (+ lock multi-réplica). |
+| [`@bot-wa/mongo-store`](packages/mongo-store) | MongoDB. |
+| [`@bot-wa/postgres-store`](packages/postgres-store) | PostgreSQL (`pg`). |
+| [`@bot-wa/mysql-store`](packages/mysql-store) | MySQL (`mysql2`). |
+| **Plugins & tooling** | |
+| [`@bot-wa/ai`](packages/ai) | IA: Anthropic/OpenAI/Ollama/Gemini + 9 presets OpenAI-compatible (DeepSeek/Qwen/GLM/Kimi/Groq/…), autorespuesta. |
+| [`@bot-wa/nlu`](packages/nlu) | Intenciones/NLU local (define/match + `whenIntent`), sin servicios externos. |
+| [`@bot-wa/manager`](packages/manager) | Multi-bot orchestrator (registry, lifecycle) + HTTP API zero-dep. |
+| [`create-bot-wa`](packages/create-bot-wa) | CLI scaffolder (`npm create bot-wa`), 4 templates. |
 
 Empieza por el [README del core](packages/core/README.md) para el quickstart.
 
