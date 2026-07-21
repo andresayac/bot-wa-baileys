@@ -78,4 +78,4 @@ const store = new MongoStore({ client: fake })
 | `{prefix}conversations` | key                | `{ messages: AIMessage[] }` |
 | `{prefix}cursors`       | key                | `{ value: string }` (delivery cursor, e.g. Telegram `update_id`) |
 
-Note: `deleteChat(chatId)` removes the chat document **and** purges that chat's message log. Delete messages individually with `deleteMessage(ref)` if you need finer control.
+Note: `deleteChat(chatId)` removes only the chat document — the message log is kept (consistent with the other stores). Delete messages individually with `deleteMessage(ref)`.

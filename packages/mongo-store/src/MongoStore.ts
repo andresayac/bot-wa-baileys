@@ -207,7 +207,9 @@ export class MongoStore implements IStore {
   }
   /** Removes the chat document AND purges its message log. */
   async deleteChat(chatId: string): Promise<void> {
-    await Promise.all([this.chats.deleteOne({ _id: chatId }), this.messages.deleteMany({ chatId })])
+    // Consistent with the other stores: removes only the chat record, not the
+    // message log (purge messages individually via deleteMessage).
+    await this.chats.deleteOne({ _id: chatId })
   }
 
   /* Contacts -------------------------------------------------------------- */

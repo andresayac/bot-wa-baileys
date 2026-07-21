@@ -107,11 +107,13 @@ describe('MongoStore', () => {
     expect(await store.getChat('chat@g.us')).toBeUndefined()
   })
 
-  it('deleteChat purges that chat\'s message log only', async () => {
+  it('deleteChat removes only the chat record, keeping the message log (consistent with other stores)', async () => {
     await store.saveMessage(msg('gone@s.whatsapp.net', 'g1', 'x', 1))
     await store.saveMessage(msg('stays@s.whatsapp.net', 's1', 'y', 2))
     await store.deleteChat('gone@s.whatsapp.net')
-    expect(await store.getMessagesByChat('gone@s.whatsapp.net')).toHaveLength(0)
+    expect(await store.getChat('gone@s.whatsapp.net')).toBeUndefined()
+    // Message log is intentionally NOT purged (use deleteMessage for that).
+    expect(await store.getMessagesByChat('gone@s.whatsapp.net')).toHaveLength(1)
     expect(await store.getMessagesByChat('stays@s.whatsapp.net')).toHaveLength(1)
   })
 
