@@ -1,0 +1,162 @@
+/**
+ * InstagramProvider — Instagram DM (Messenger API for Instagram) transport for
+ * @bot-wa/core. Webhook-based (pushIngress): there is no socket. The host
+ * receives the 'page' webhook, verifies it with `verifyChallenge` (GET) and
+ * forwards the POST body to `ingest()`. Outbound goes to the Graph
+ * `me/messages` Send API endpoint.
+ *
+ * The IG account must be a professional account connected to a Facebook Page;
+ * events arrive on that Page's webhook and sends use the Page access token.
+ *
+ * @example
+ * ```ts
+ * const provider = new InstagramProvider({
+ *   accessToken: process.env.META_PAGE_TOKEN!,
+ *   verifyToken: 'my-verify-secret',
+ *   appSecret: process.env.META_APP_SECRET,   // verifies X-Hub-Signature-256
+ * })
+ * const bot = new Bot({ provider })
+ * // Host wires the webhook:
+ * //   app.get('/webhook',  (q) => res.send(provider.verifyChallenge(q)))
+ * //   app.post('/webhook', (body, headers) => provider.ingest(body, headers))
+ * ```
+ */
+
+import pino, { type Logger } from 'pino'
+import type {
+  ChatId,
+  IProvider,
+  InboundEvent,
+  MediaRef,
+  MessageRef,
+  OutboundContent,
+  ProviderCapabilities,
+  SendOptions,
+  SendResult,
+  UserId,
+} from '@bot-wa/core'
+import { ProviderError } from '@bot-wa/core'
+import type { InstagramProviderConfig } from './types.js'
+import { GraphClient } from './graphClient.js'
+import { toOutbound } from './toOutbound.js'
+import { parseInbound, type IgWebhookBody } from './parseInbound.js'
+import { verifyChallenge, verifySignature, type ChallengeQuery } from './webhook.js'
+
+export class InstagramProvider implements IProvider<unknown> {
+  readonly id = 'instagram'
+  readonly capabilities: ProviderCapabilities = {
+    contentKinds: ['text', 'image', 'video', 'audio', 'voice', 'document', 'buttons', 'list', 'card', 'native'],
+    buttons: true,                 // as quick replies
+    lists: false,                  // degraded to numbered text
+    polls: false,
+    reactions: true,               // inbound IG DM reactions
+    edit: false,
+    typing: true,                  // sender_action typing_on/typing_off
+    presence: false,
+    readReceipts: true,            // sender_action mark_seen
+    groups: false,                 // IG DMs only
+    templates: false,
+    interactionsRequireAck: false,
+    pushIngress: true,
+  }
+
+  private readonly config: Required<Pick<InstagramProviderConfig, 'apiVersion' | 'graphUrl'>> & InstagramProviderConfig
+  private readonly logger: Logger
+  private readonly graph: GraphClient
+  private listeners = new Set<(e: InboundEvent) => void | Promise<void>>()
+
+  constructor(config: InstagramProviderConfig) {
+    this.config = { apiVersion: 'v21.0', graphUrl: 'https://graph.facebook.com', ...config }
+    this.logger = config.logger ?? pino({ level: config.debug ? 'debug' : 'error' })
+    this.graph = new GraphClient({
+      accessToken: this.config.accessToken,
+      apiVersion: this.config.apiVersion,
+      graphUrl: this.config.graphUrl,
+    })
+  }
+
+  get connection(): unknown { return null }
+  get selfId(): UserId | null { return this.config.selfId ?? null }
+
+  /* Events ---------------------------------------------------------------- */
+
+  onEvent(listener: (e: InboundEvent) => void | Promise<void>): () => void {
+    this.listeners.add(listener)
+    return () => this.listeners.delete(listener)
+  }
+  private fan(e: InboundEvent): void {
+    for (const l of this.listeners) void l(e)
+  }
+
+  /** No socket to open — the transport is webhook-driven. */
+  async start(): Promise<void> {
+    this.logger.debug('InstagramProvider ready — wire your webhook to ingest()')
+  }
+  async stop(): Promise<void> {}
+
+  /* Webhook --------------------------------------------------------------- */
+
+  /** Validate the webhook GET handshake; returns the challenge to echo (or null → 403). */
+  verifyChallenge(query: ChallengeQuery): string | null {
+    return verifyChallenge(query, this.config.verifyToken)
+  }
+
+  /**
+   * Feed an inbound webhook POST. When `appSecret` is configured and `headers`
+   * are passed, the body is verified against `X-Hub-Signature-256` first
+   * (forged bodies are dropped → 403). Normalized events are emitted via
+   * onEvent. Returns the HTTP status the host should send.
+   */
+  ingest(body: unknown, headers?: Record<string, string | string[] | undefined>): number {
+    const raw = typeof body === 'string' ? body : JSON.stringify(body)
+    if (this.config.appSecret) {
+      const sig = headers?.['x-hub-signature-256']
+      const sigStr = Array.isArray(sig) ? sig[0] : sig
+      if (!verifySignature(raw, sigStr, this.config.appSecret)) {
+        this.logger.warn('webhook rejected: invalid X-Hub-Signature-256')
+        return 403
+      }
+    }
+    const parsed: IgWebhookBody = typeof body === 'string' ? JSON.parse(body) : (body as IgWebhookBody)
+    for (const event of parseInbound(parsed)) this.fan(event)
+    return 200
+  }
+
+  /* Outbound -------------------------------------------------------------- */
+
+  /**
+   * Send normalized content via the IG Send API. `options.quoted` is ignored —
+   * the Messenger API for Instagram has no client-visible reply-threading on send.
+   */
+  async send(chatId: ChatId, content: OutboundContent, options?: SendOptions): Promise<SendResult<unknown>> {
+    void options // quoted/mentions/interactionId have no Send API equivalent
+    const message = toOutbound(content)
+    const res = await this.graph.sendMessage(chatId, message)
+    return { ref: { id: res.message_id ?? '', chatId }, raw: res }
+  }
+
+  /* Capability-gated actions ---------------------------------------------- */
+
+  /** Download media bytes from the attachment URL stored in MediaRef.token. */
+  async downloadMedia(ref: MediaRef): Promise<Buffer | NodeJS.ReadableStream> {
+    const url = ref.token
+    if (typeof url !== 'string' || !/^https?:\/\//i.test(url)) {
+      throw new ProviderError('downloadMedia requires a media URL (MediaRef.token)')
+    }
+    return this.graph.downloadUrl(url)
+  }
+
+  /** Mark conversations as seen (sender_action 'mark_seen', one per chat). */
+  async markRead(refs: MessageRef[]): Promise<void> {
+    const chats = new Set(refs.map((r) => r.chatId).filter(Boolean))
+    for (const chatId of chats) await this.graph.sendSenderAction(chatId, 'mark_seen')
+  }
+
+  /** Typing indicator (sender_action 'typing_on'/'typing_off'). */
+  async typing(chatId: ChatId, state?: 'typing' | 'recording' | 'paused'): Promise<void> {
+    await this.graph.sendSenderAction(chatId, state === 'paused' ? 'typing_off' : 'typing_on')
+  }
+
+  /** IG quick replies carry no ack deadline — nothing to do. */
+  async acknowledgeInteraction(): Promise<void> {}
+}
