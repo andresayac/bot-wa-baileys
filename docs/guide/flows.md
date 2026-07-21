@@ -8,7 +8,7 @@ continues.
 ## Basic flow
 
 ```ts
-import { flow } from '@bot-wa/bot-wa-baileys'
+import { flow } from '@bot-wa/core'
 
 const greet = flow('hola')
   .ask('👋 Hello! What is your name?', 'name')
@@ -94,6 +94,7 @@ The text sent when it expires is configured once, globally, on the bot:
 
 ```ts
 const bot = new Bot({
+  provider: new BaileysProvider({ session: 'my-bot' }),
   conversation: { timeoutMessage: '⏰ Session expired due to inactivity.' },
 })
 ```
@@ -114,7 +115,10 @@ flow('registrar').persistent().ask('Name?', 'name').say('Done')
 **process restart** if the store is backed by a file:
 
 ```ts
-const bot = new Bot({ storeConfig: { file: './store.json' } })
+const bot = new Bot({
+  provider: new BaileysProvider({ session: 'my-bot' }),
+  storeConfig: { file: './store.json' }, // or a real store — see the Store guide
+})
 ```
 
 A flow needs a stable id to be checkpointed. A string trigger already

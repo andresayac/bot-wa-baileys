@@ -53,15 +53,22 @@ bot.onImage(async (ctx) => {
 })
 ```
 
-### 1. Bot — el centro
+### 1. Bot + Provider — el centro
 
 ```ts
-const bot = new Bot({ session: 'my-bot' })
+import { Bot } from '@bot-wa/core'
+import { BaileysProvider } from '@bot-wa/baileys'
+
+const bot = new Bot({ provider: new BaileysProvider({ session: 'my-bot' }) })
 await bot.start()
 ```
 
-El `Bot` es la instancia principal. Se conecta a WhatsApp, ejecuta el
-Dispatcher, los hooks, los flujos y el scheduler.
+El `Bot` (de `@bot-wa/core`) es el motor agnóstico de transporte: ejecuta
+el Dispatcher, los hooks, los flujos, las conversaciones y el scheduler.
+El **provider** es la frontera del transporte — `@bot-wa/baileys` se
+conecta a WhatsApp; `@bot-wa/meta` (Cloud API oficial), `@bot-wa/telegram`
+y `@bot-wa/discord` se enchufan al mismo motor. Todos los transportes
+alimentan al bot con los mismos eventos normalizados.
 
 ### 2. when — respuestas simples
 
@@ -150,7 +157,10 @@ internamente por `${from}:${sender}`). Usa `conversationScope: 'chat'` si
 quieres una única conversación compartida por chat de grupo:
 
 ```ts
-const bot = new Bot({ conversationScope: 'chat' })
+const bot = new Bot({
+  provider: new BaileysProvider({ session: 'my-bot' }),
+  conversationScope: 'chat',
+})
 ```
 
 ## El objeto ctx — tu mejor amigo
@@ -158,8 +168,8 @@ const bot = new Bot({ conversationScope: 'chat' })
 ```ts
 bot.when('hola', async (ctx) => {
   console.log(ctx.body)        // texto del mensaje
-  console.log(ctx.from)        // JID del chat
-  console.log(ctx.sender)      // JID del remitente (= from en DMs, participant en grupos)
+  console.log(ctx.from)        // id del chat (opaco; un JID en WhatsApp/Baileys)
+  console.log(ctx.sender)      // id del remitente (= from en DMs, participant en grupos)
   console.log(ctx.type)        // 'text', 'image', 'audio', ...
   console.log(ctx.isGroup)     // ¿es un grupo?
 
@@ -172,9 +182,11 @@ bot.when('hola', async (ctx) => {
 })
 ```
 
-## ¿Qué es un JID?
+## Ids de chat y remitente
 
-Un **JID** (Jabber ID) es un identificador de chat de WhatsApp:
+`ctx.from` (chat) y `ctx.sender` (usuario) son **strings opacos** que el
+provider resuelve — el core nunca inspecciona su forma. Para el transporte
+Baileys resultan ser **JIDs** (Jabber IDs) de WhatsApp:
 
 | Tipo | Formato | Ejemplo |
 |---|---|---|
@@ -182,7 +194,10 @@ Un **JID** (Jabber ID) es un identificador de chat de WhatsApp:
 | Grupo | `id@g.us` | `120363xxx@g.us` |
 | Newsletter | `id@newsletter` | `120363xxx@newsletter` |
 
-No necesitas memorizar esto — `ctx.from` te da el JID correcto.
+No necesitas memorizar esto — `ctx.from` te da el id correcto en cualquier
+transporte. Si necesitas la clave nativa del mensaje entrante (para
+citarlo/editarlo/borrarlo con llamadas del provider), usa `ctx.ref`
+(`{ id, chatId, native? }`).
 
 ## Siguientes pasos
 

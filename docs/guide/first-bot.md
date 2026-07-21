@@ -5,16 +5,19 @@ Let's build a complete bot with commands, media and a conversation flow.
 ## The complete bot
 
 ```ts
-import { Bot, flow, slashCommandsPlugin } from '@bot-wa/bot-wa-baileys'
+import { Bot, flow, slashCommandsPlugin } from '@bot-wa/core'
+import { BaileysProvider } from '@bot-wa/baileys'
 
-// 1. Create the bot
+// 1. Create the bot — transport options live on the provider
 const bot = new Bot({
-  session: 'demo-bot',
-  sessionsDir: './sessions',
-  qr: { terminal: true, small: true },
-  markOnlineOnConnect: false,
-  ignoreNewsletters: true,
-  ignoreBroadcasts: true,
+  provider: new BaileysProvider({
+    session: 'demo-bot',
+    sessionsDir: './sessions',
+    qr: { terminal: true, small: true },
+    markOnlineOnConnect: false,
+    ignoreNewsletters: true,
+    ignoreBroadcasts: true,
+  }),
 })
 
 // 2. Connection events
@@ -32,7 +35,7 @@ bot.when('hola', async (ctx) => {
 })
 
 bot.when('info', async (ctx) => {
-  await ctx.reply('ℹ️ I am a bot built with bot-wa-baileys v2')
+  await ctx.reply('ℹ️ I am a bot built with @bot-wa/core v2')
 })
 
 // 5. Media
@@ -72,12 +75,16 @@ await bot.start()
 
 ### 1. Create the bot
 
-`session` is your session name. It's saved in `./sessions/demo-bot/`.
-If you close and reopen, **you don't need to scan the QR again**.
+`new Bot({ provider })` wires the transport-agnostic engine to a concrete
+transport. `session` is a **provider** option: the WhatsApp login is saved
+in `./sessions/demo-bot/`. If you close and reopen, **you don't need to
+scan the QR again**.
 
 ### 2. Connection events
 
-Events that fire when the bot connects or shows the QR.
+Events that fire when the bot connects or shows the QR. `bot.on('qr', ...)`
+receives the provider's auth artifact (a QR string for Baileys — other
+transports may surface a pairing code or OAuth URL through the same event).
 
 ### 3. Slash commands
 

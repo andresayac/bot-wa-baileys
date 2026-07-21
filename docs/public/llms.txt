@@ -1,34 +1,51 @@
-# @bot-wa/bot-wa-baileys
+# @bot-wa/core (bot-wa-baileys monorepo)
 
-> WhatsApp bot framework on Baileys 7. One import. Flows for beginners
-> (flow().say().ask()) compile to an async conversation runtime
-> (bot.conversation with c.ask/c.waitText/c.choose). Priority dispatcher:
-> commands > active conversation > matchers (normalized-equals default) >
-> catch-all; first consumer wins. No native buttons (dead in WhatsApp Web
-> protocol) — use c.choose numbered menus or polls. ESM-only, Node >= 20.
+> Transport-agnostic bot framework. The core (@bot-wa/core) runs any
+> IProvider: @bot-wa/baileys (WhatsApp Web via Baileys 7), @bot-wa/meta
+> (official WhatsApp Cloud API), @bot-wa/telegram, @bot-wa/discord.
+> Flows for beginners (flow().say().ask()) compile to an async conversation
+> runtime (bot.conversation with c.ask/c.waitText/c.choose). Priority
+> dispatcher: commands > active conversation > matchers (normalized-equals
+> default) > catch-all; first consumer wins. Constructing a Bot REQUIRES a
+> provider: new Bot({ provider: new BaileysProvider({ session }) }).
+> ESM-only, Node >= 20.
 
 ## Docs
 - README: https://github.com/andresayac/bot-wa-baileys#readme
 - Migration v1→v2: https://github.com/andresayac/bot-wa-baileys/blob/main/docs/MIGRATION-v1-to-v2.md
 
+## Packages
+- @bot-wa/core — Bot engine, IProvider v2, flows/conversations, hooks, plugins, scheduler, DI, testing kit (createTestBot/MockProvider from '@bot-wa/core/testing')
+- @bot-wa/baileys — BaileysProvider (WhatsApp unofficial, QR/pairing code), RateLimiter, JID helpers
+- @bot-wa/meta — CloudAPIProvider (WhatsApp Cloud API official, webhook; feed inbound via provider.ingest(body, headers))
+- @bot-wa/telegram — TelegramProvider · @bot-wa/discord — DiscordProvider
+- @bot-wa/sqlite-store — SQLiteStore (better-sqlite3, WAL) · @bot-wa/redis-store — RedisStore
+- @bot-wa/ai — aiPlugin + AIClient
+
 ## API essentials
-- new Bot({ session }) ; await bot.start()
+- import { Bot } from '@bot-wa/core'; import { BaileysProvider } from '@bot-wa/baileys'
+- new Bot({ provider: new BaileysProvider({ session, qr: { terminal: true } }) }) ; await bot.start()
 - bot.when(trigger, handler) — trigger: 'texto' (equals normalizado) | RegExp | { pattern, match: 'contains'|'startsWith' } | fn
 - bot.command('reset', handler) — always beats active conversations
 - bot.use(flow('kw').say(t).ask(t, key, { validate, retries, timeout }).choose(p, {...}).do(fn))
 - bot.conversation(name, async (c, ctx) => { await c.ask(q); await c.waitText(); await c.choose(p, labels) })
-- Testing without WhatsApp: import { createTestBot } from '@bot-wa/bot-wa-baileys/testing'
+- ctx fields: ctx.from (chat id), ctx.sender, ctx.body, ctx.ref (MessageRef { id, chatId, native? }; was ctx.key), ctx.raw (native payload; was ctx.rawMessage), ctx.senderInfo, ctx.chat, ctx.media, ctx.tools
+- Outbound content is a tagged union: bot.send(chatId, { kind: 'image', media: { url }, caption }) ; bot.sendText(chatId, text) ; bot.broadcast(chatIds, { kind: 'text', text })
+- before('send') hook payload: { chatId, content, options } (was { jid, content, options })
+- Testing without WhatsApp: import { createTestBot } from '@bot-wa/core/testing'
 
 ## Other exports worth knowing
 - Hooks/plugins: bot.before/after/onError(event, handler), bot.plug(plugin, config) (returns unplug()), bot.provide(name, value)
 - Scheduler: bot.schedule(cron, fn), bot.every(interval, fn), bot.delay(duration, fn)
-- Sub-APIs: bot.groups, bot.profile, bot.privacy, bot.chats, bot.presence
 - Media handlers: bot.onImage/onAudio/onVideo/onDocument/onSticker/onLocation/onContact/onPoll(handler)
-- ctx (MessageContext) helpers: ctx.reply/say/answer/text, ctx.photo/video/audio/voice/file/sticker/location/contact/poll, ctx.react/quote/markRead/typing, ctx.pass()/abort()
+- Provider events forwarded on the bot: bot.on('ready'|'qr'|'connection'|'reaction'|'poll'|'call'|'group'|'presence'|'status', ...)
+- ctx (MessageContext) helpers: ctx.reply/say/answer/text, ctx.photo/video/audio/voice/file/sticker/location/contact/poll/buttons, ctx.react/quote/markRead/typing/recording/delete, ctx.pass()/abort(), ctx.sendNative(provider, payload)
+- Stores: store: new SQLiteStore({ file }) from @bot-wa/sqlite-store, new RedisStore({ url }) from @bot-wa/redis-store, or storeConfig { file } for the built-in MemoryStore; implement IStore for custom backends
+- v1 sub-APIs (bot.groups/profile/privacy/chats/presence) were REMOVED — reach the Baileys socket via provider.socket for WhatsApp-specific ops
 
 ## @bot-wa/ai (separate package)
-- Install: pnpm add @bot-wa/ai + the chosen provider's SDK (@anthropic-ai/sdk or openai; ollama needs none, it talks plain HTTP via fetch)
-- bot.plug(aiPlugin({ provider: 'anthropic'|'openai'|'ollama', model, apiKey, baseUrl, persona, maxTokens, effort, context: { maxMessages }, autoReply, resetCommand, errorMessage, refusalMessage, humanizeTyping })) — catch-all text autoresponder with per-chat history + a /reset command (install after slashCommandsPlugin so its /reset wins)
+- Install: pnpm add @bot-wa/ai + the chosen provider's SDK (@anthropic-ai/sdk, openai, or @google/genai; ollama needs none, it talks plain HTTP via fetch)
+- bot.plug(aiPlugin({ provider, model, apiKey, baseUrl, persona, maxTokens, effort, context: { maxMessages }, autoReply, resetCommand, errorMessage, refusalMessage, humanizeTyping })) — catch-all text autoresponder with per-chat history + a /reset command (install after slashCommandsPlugin so its /reset wins)
+- Providers: 'anthropic' (default model claude-opus-4-8), 'openai', 'ollama' (both require `model` explicitly), 'gemini' (default gemini-2.0-flash), and OpenAI-compatible presets 'deepseek'|'qwen'|'glm'|'kimi'|'groq'|'openrouter'|'mistral'|'grok'|'together' (each with its conventional env var, e.g. DEEPSEEK_API_KEY, and a default model)
 - ctx.tools.ai (AIClient, via bot.provide('ai', client)): ask(prompt), generate(input), stream(input)
-- Providers: anthropic (default model claude-opus-4-8), openai and ollama require `model` explicitly (no default)
 - Testing: MockAIProvider (implements AIProvider, no network) + ContextManager/AIClient exported for unit tests

@@ -3,9 +3,9 @@
 How to run your bot in production, always connected.
 
 ::: tip ESM-only, Node >= 20
-`@bot-wa/bot-wa-baileys` is pure ESM — no CommonJS build. Make sure your
-production `package.json` has `"type": "module"` (or your entrypoint uses
-`.mjs`), and that the runtime is **Node >= 20**.
+`@bot-wa/core` and the transport packages are pure ESM — no CommonJS build.
+Make sure your production `package.json` has `"type": "module"` (or your
+entrypoint uses `.mjs`), and that the runtime is **Node >= 20**.
 :::
 
 ## Option 1: VPS (recommended)
@@ -97,11 +97,13 @@ node bot.js
 ### Session persistence (auth)
 
 The WhatsApp login credentials are saved under
-`sessionsDir/session` (defaults to `./sessions/<session>`). **Don't delete
-it** or you'll need to scan the QR again:
+`sessionsDir/session` (defaults to `./sessions/<session>`) by the Baileys
+provider. **Don't delete it** or you'll need to scan the QR again:
 
 ```ts
-const bot = new Bot({ session: 'my-bot', sessionsDir: './sessions' })
+const bot = new Bot({
+  provider: new BaileysProvider({ session: 'my-bot', sessionsDir: './sessions' }),
+})
 ```
 
 ### Store persistence (conversations & history)
@@ -109,10 +111,12 @@ const bot = new Bot({ session: 'my-bot', sessionsDir: './sessions' })
 The default `MemoryStore` lives in memory only. For production, use **`SQLiteStore`** — a real database that persists messages, chats, contacts, flow state, checkpoints and AI conversations:
 
 ```ts
-import { Bot, SQLiteStore } from '@bot-wa/bot-wa-baileys'
+import { Bot } from '@bot-wa/core'
+import { BaileysProvider } from '@bot-wa/baileys'
+import { SQLiteStore } from '@bot-wa/sqlite-store'
 
 const bot = new Bot({
-  session: 'my-bot',
+  provider: new BaileysProvider({ session: 'my-bot' }),
   store: new SQLiteStore({ file: './data/bot.db' }),
 })
 ```
@@ -152,7 +156,7 @@ process.on('SIGTERM', async () => {
 
 ```ts
 const bot = new Bot({
-  debug: false,  // true for verbose logs
+  provider: new BaileysProvider({ session: 'my-bot', debug: false }), // true for verbose logs
 })
 ```
 

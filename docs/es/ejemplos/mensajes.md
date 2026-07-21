@@ -5,9 +5,12 @@ Recetas prácticas para responder a mensajes de texto.
 ## Configuración
 
 ```ts
-import { Bot } from '@bot-wa/bot-wa-baileys'
+import { Bot } from '@bot-wa/core'
+import { BaileysProvider } from '@bot-wa/baileys'
 
-const bot = new Bot({ session: 'demo-bot', qr: { terminal: true, small: true } })
+const bot = new Bot({
+  provider: new BaileysProvider({ session: 'demo-bot', qr: { terminal: true, small: true } }),
+})
 ```
 
 ## Responder a un texto

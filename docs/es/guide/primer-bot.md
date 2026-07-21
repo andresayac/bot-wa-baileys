@@ -5,16 +5,19 @@ Vamos a crear un bot completo con comandos, media y un flujo conversacional.
 ## El bot completo
 
 ```ts
-import { Bot, flow, slashCommandsPlugin } from '@bot-wa/bot-wa-baileys'
+import { Bot, flow, slashCommandsPlugin } from '@bot-wa/core'
+import { BaileysProvider } from '@bot-wa/baileys'
 
-// 1. Crear el bot
+// 1. Crear el bot — las opciones de transporte viven en el provider
 const bot = new Bot({
-  session: 'demo-bot',
-  sessionsDir: './sessions',
-  qr: { terminal: true, small: true },
-  markOnlineOnConnect: false,
-  ignoreNewsletters: true,
-  ignoreBroadcasts: true,
+  provider: new BaileysProvider({
+    session: 'demo-bot',
+    sessionsDir: './sessions',
+    qr: { terminal: true, small: true },
+    markOnlineOnConnect: false,
+    ignoreNewsletters: true,
+    ignoreBroadcasts: true,
+  }),
 })
 
 // 2. Eventos de conexión
@@ -32,7 +35,7 @@ bot.when('hola', async (ctx) => {
 })
 
 bot.when('info', async (ctx) => {
-  await ctx.reply('ℹ️ I am a bot built with bot-wa-baileys v2')
+  await ctx.reply('ℹ️ I am a bot built with @bot-wa/core v2')
 })
 
 // 5. Media
@@ -72,8 +75,10 @@ await bot.start()
 
 ### 1. Crear el bot
 
-`session` es el nombre de tu sesión. Se guarda en `./sessions/demo-bot/`.
-Si cierras y vuelves a abrir, **no necesitas escanear el QR de nuevo**.
+`new Bot({ provider })` conecta el motor agnóstico de transporte a un
+transporte concreto. `session` es una opción **del provider**: el login de
+WhatsApp se guarda en `./sessions/demo-bot/`. Si cierras y vuelves a abrir,
+**no necesitas escanear el QR de nuevo**.
 
 ### 2. Eventos de conexión
 

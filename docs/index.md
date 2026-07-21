@@ -3,8 +3,8 @@ layout: home
 
 hero:
   name: bot-wa-baileys
-  text: WhatsApp Bot Framework
-  tagline: Flows, hooks, plugins and sub-APIs on Baileys 7. Simple, declarative, TypeScript.
+  text: Transport-Agnostic Bot Framework
+  tagline: Flows, hooks, plugins and sub-APIs behind one IProvider — WhatsApp (Baileys / Cloud API), Telegram, Discord. Simple, declarative, TypeScript.
   actions:
     - theme: brand
       text: Get Started
@@ -17,6 +17,12 @@ hero:
       link: /api/
 
 features:
+  - title: Transport-agnostic
+    details: |
+      One engine, many transports. @bot-wa/core runs any IProvider:
+      @bot-wa/baileys (WhatsApp Web), @bot-wa/meta (official WhatsApp
+      Cloud API), @bot-wa/telegram, @bot-wa/discord.
+    icon: 🚆
   - title: Declarative
     details: |
       bot.when('hi', ctx => ctx.reply('Hello! 👋')) — no boilerplate,
@@ -47,10 +53,10 @@ features:
       Cron, intervals and delays with human syntax.
       bot.every('30 seconds', ...) or bot.schedule('0 9 * * 1-5', ...).
     icon: ⏰
-  - title: Typed sub-APIs
+  - title: Pluggable stores
     details: |
-      bot.groups, bot.profile, bot.privacy, bot.chats, bot.presence —
-      typed access to the full WhatsApp API.
+      MemoryStore by default; @bot-wa/sqlite-store and @bot-wa/redis-store
+      for persistence — or implement the generic IStore for anything else.
     icon: 📦
   - title: Full media support
     details: |

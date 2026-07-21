@@ -5,9 +5,10 @@ Los plugins son paquetes reutilizables de funcionalidad.
 ## Usar un plugin
 
 ```ts
-import { Bot, slashCommandsPlugin } from '@bot-wa/bot-wa-baileys'
+import { Bot, slashCommandsPlugin } from '@bot-wa/core'
+import { BaileysProvider } from '@bot-wa/baileys'
 
-const bot = new Bot({ session: 'my-bot' })
+const bot = new Bot({ provider: new BaileysProvider({ session: 'my-bot' }) })
 
 const unplug = bot.plug(slashCommandsPlugin, {
   greeting: '🤖 Hi! Send /help to see my commands.',
@@ -43,7 +44,7 @@ Los `/comandos` desconocidos reciben automáticamente una respuesta de
 ### Plugin simple
 
 ```ts
-import { definePlugin } from '@bot-wa/bot-wa-baileys'
+import { definePlugin } from '@bot-wa/core'
 
 const loggingPlugin = definePlugin({
   name: 'logging',

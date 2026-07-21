@@ -8,7 +8,7 @@ continúa.
 ## Flujo básico
 
 ```ts
-import { flow } from '@bot-wa/bot-wa-baileys'
+import { flow } from '@bot-wa/core'
 
 const greet = flow('hola')
   .ask('👋 Hello! What is your name?', 'name')
@@ -96,6 +96,7 @@ forma global, en el bot:
 
 ```ts
 const bot = new Bot({
+  provider: new BaileysProvider({ session: 'my-bot' }),
   conversation: { timeoutMessage: '⏰ Session expired due to inactivity.' },
 })
 ```
@@ -116,7 +117,10 @@ flow('registrar').persistent().ask('Name?', 'name').say('Done')
 sobrevive a un **reinicio del proceso** si el store tiene un archivo detrás:
 
 ```ts
-const bot = new Bot({ storeConfig: { file: './store.json' } })
+const bot = new Bot({
+  provider: new BaileysProvider({ session: 'my-bot' }),
+  storeConfig: { file: './store.json' }, // o un store real — ver la guía de Store
+})
 ```
 
 Un flow necesita un id estable para poder hacer checkpoint. Un trigger de

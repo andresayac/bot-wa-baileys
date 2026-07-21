@@ -7,9 +7,12 @@ path string, or a `Buffer`.
 ## Setup
 
 ```ts
-import { Bot } from '@bot-wa/bot-wa-baileys'
+import { Bot } from '@bot-wa/core'
+import { BaileysProvider } from '@bot-wa/baileys'
 
-const bot = new Bot({ session: 'demo-bot', qr: { terminal: true, small: true } })
+const bot = new Bot({
+  provider: new BaileysProvider({ session: 'demo-bot', qr: { terminal: true, small: true } }),
+})
 ```
 
 ## Photo
@@ -113,13 +116,15 @@ bot.onImage(async (ctx) => {
 
 ## Send media outside a handler — bot.send
 
-`bot.send` takes a raw Baileys-style content object and a JID
-(`'573001112233@s.whatsapp.net'` for a user, `'...@g.us'` for a group):
+`bot.send` takes a transport-neutral content object (`{ kind, ... }`) and a
+chat id (`'573001112233@s.whatsapp.net'` for a WhatsApp user, `'...@g.us'`
+for a group):
 
 ```ts
 bot.every('30 minutes', async () => {
   await bot.send('573001112233@s.whatsapp.net', {
-    image: { url: 'https://picsum.photos/400/300' },
+    kind: 'image',
+    media: { url: 'https://picsum.photos/400/300' },
     caption: '📸 Scheduled photo',
   })
 })

@@ -2,12 +2,15 @@
 
 El **store** es donde el bot guarda mensajes, chats, contactos, estado de flujos, checkpoints e historial de conversaciones de IA. Elegir el store correcto es la diferencia entre un bot que olvida todo al reiniciar y uno que sobrevive a los deploys.
 
-## Stores incluidos
+Los stores implementan el `IStore` genérico y neutral de transporte de `@bot-wa/core` — el mismo store funciona con cualquier provider (Baileys, Cloud API, Telegram, Discord).
 
-| Store | Persistencia | Caso de uso |
-|---|---|---|
-| `MemoryStore` *(default)* | En memoria (dump JSON opcional) | Desarrollo, tests, bots de vida corta |
-| `SQLiteStore` | Archivo SQLite (modo WAL) | **Producción** — single-bot, cero config |
+## Stores disponibles
+
+| Store | Paquete | Persistencia | Caso de uso |
+|---|---|---|---|
+| `MemoryStore` *(default)* | `@bot-wa/core` | En memoria (dump JSON opcional) | Desarrollo, tests, bots de vida corta |
+| `SQLiteStore` | `@bot-wa/sqlite-store` | Archivo SQLite (modo WAL) | **Producción** — single-bot, cero config |
+| `RedisStore` | `@bot-wa/redis-store` | Servidor Redis | Estado distribuido, varias instancias, TTL |
 
 ## MemoryStore (default)
 
@@ -15,7 +18,7 @@ Si no pasas un `store`, el bot crea un `MemoryStore`. Todo vive en RAM; un archi
 
 ```ts
 const bot = new Bot({
-  session: 'mi-bot',
+  provider: new BaileysProvider({ session: 'mi-bot' }),
   // Opcional: persistir chats + estado de flujo a un archivo JSON
   storeConfig: {
     file: './store.json',
@@ -31,13 +34,19 @@ const bot = new Bot({
 
 ## SQLiteStore (recomendado para producción)
 
-Una base de datos real con [better-sqlite3](https://github.com/WiseLibs/better-sqlite3) — síncrona, cero config, un solo archivo. Perfecta para una sola instancia de bot en un VPS o contenedor Docker.
+Una base de datos real con [better-sqlite3](https://github.com/WiseLibs/better-sqlite3) — síncrona, cero config, un solo archivo. Perfecta para una sola instancia de bot en un VPS o contenedor Docker. Es un **paquete separado** con `better-sqlite3` como peer dependency opcional (carga perezosa):
+
+```bash
+pnpm add @bot-wa/sqlite-store better-sqlite3
+```
 
 ```ts
-import { Bot, SQLiteStore } from '@bot-wa/bot-wa-baileys'
+import { Bot } from '@bot-wa/core'
+import { BaileysProvider } from '@bot-wa/baileys'
+import { SQLiteStore } from '@bot-wa/sqlite-store'
 
 const bot = new Bot({
-  session: 'mi-bot',
+  provider: new BaileysProvider({ session: 'mi-bot' }),
   store: new SQLiteStore({ file: './data/bot.db' }),
 })
 ```
@@ -55,8 +64,8 @@ const bot = new Bot({
 | Tabla | Contenido |
 |---|---|
 | `messages` | Cada mensaje entrante/saliente (indexado por chat + timestamp) |
-| `chats` | Metadatos de chats (nombre, no leídos, etc.) |
-| `contacts` | Info de contactos (push name, etc.) |
+| `chats` | Metadatos de chats (nombre, kind, etc.) |
+| `contacts` | Info de contactos (display name, username, etc.) |
 | `flow_states` | Estado de flujo por usuario (`c.state`) |
 | `checkpoints` | Checkpoints de flujos `persistent()` — sobreviven reinicios |
 | `conversations` | Historial de conversaciones AI (`@bot-wa/ai`) |
@@ -70,10 +79,12 @@ El store ejecuta **migraciones automáticas** al arrancar. Nunca necesitas crear
 Con `SQLiteStore`, los checkpoints de `flow(...).persistent()` sobreviven reinicios del proceso gratis:
 
 ```ts
-import { Bot, SQLiteStore, flow } from '@bot-wa/bot-wa-baileys'
+import { Bot, flow } from '@bot-wa/core'
+import { BaileysProvider } from '@bot-wa/baileys'
+import { SQLiteStore } from '@bot-wa/sqlite-store'
 
 const bot = new Bot({
-  session: 'mi-bot',
+  provider: new BaileysProvider({ session: 'mi-bot' }),
   store: new SQLiteStore({ file: './data/bot.db' }),
 })
 
@@ -88,22 +99,41 @@ bot.use(
 
 Si el proceso se cae a mitad del flujo, el próximo mensaje de ese usuario **reanuda en el paso exacto** donde se quedó.
 
-## Stores personalizados
+## RedisStore (distribuido)
 
-Implementa la interfaz `IStore` para conectar Redis, Postgres, Mongo, etc.:
+Cuando necesitas estado compartido entre procesos/instancias (escalamiento horizontal, logs por chat con TTL), usa el store de Redis:
+
+```bash
+pnpm add @bot-wa/redis-store
+```
 
 ```ts
-import type { IStore } from '@bot-wa/bot-wa-baileys'
+import { Bot } from '@bot-wa/core'
+import { BaileysProvider } from '@bot-wa/baileys'
+import { RedisStore } from '@bot-wa/redis-store'
 
-class RedisStore implements IStore {
+const bot = new Bot({
+  provider: new BaileysProvider({ session: 'mi-bot' }),
+  store: new RedisStore({ url: 'redis://localhost:6379' }),
+})
+```
+
+## Stores personalizados
+
+Implementa la interfaz `IStore` para conectar Postgres, Mongo o lo que quieras:
+
+```ts
+import type { IStore } from '@bot-wa/core'
+
+class PostgresStore implements IStore {
   async saveMessage(msg) { /* ... */ }
-  async getMessage(key) { /* ... */ }
+  async getMessage(ref) { /* ... */ }
   // ... implementa cada método
 }
 
 const bot = new Bot({
-  session: 'mi-bot',
-  store: new RedisStore({ url: 'redis://localhost:6379' }),
+  provider: new BaileysProvider({ session: 'mi-bot' }),
+  store: new PostgresStore({ /* ... */ }),
 })
 ```
 

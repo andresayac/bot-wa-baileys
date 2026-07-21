@@ -6,11 +6,14 @@ A support conversation with an inactivity timeout, built with
 ## The conversation
 
 ```ts
-import { Bot } from '@bot-wa/bot-wa-baileys'
+import { Bot } from '@bot-wa/core'
+import { BaileysProvider } from '@bot-wa/baileys'
 
 const bot = new Bot({
-  session: 'demo-bot',
-  qr: { terminal: true, small: true },
+  provider: new BaileysProvider({
+    session: 'demo-bot',
+    qr: { terminal: true, small: true },
+  }),
   conversation: { timeoutMessage: '⏰ Your support session expired due to inactivity.' },
 })
 
@@ -50,9 +53,12 @@ early — catch them to customize the reply instead of relying on the global
 `conversation.timeoutMessage`:
 
 ```ts
-import { Bot, ConversationTimeout, ConversationCancelled } from '@bot-wa/bot-wa-baileys'
+import { Bot, ConversationTimeout, ConversationCancelled } from '@bot-wa/core'
+import { BaileysProvider } from '@bot-wa/baileys'
 
-const bot = new Bot({ session: 'demo-bot', qr: { terminal: true, small: true } })
+const bot = new Bot({
+  provider: new BaileysProvider({ session: 'demo-bot', qr: { terminal: true, small: true } }),
+})
 
 bot.conversation('support', async (c, ctx) => {
   try {

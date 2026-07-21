@@ -5,9 +5,12 @@ A flow with a numbered menu and branching using `.choose()`.
 ## The flow
 
 ```ts
-import { Bot, flow } from '@bot-wa/bot-wa-baileys'
+import { Bot, flow } from '@bot-wa/core'
+import { BaileysProvider } from '@bot-wa/baileys'
 
-const bot = new Bot({ session: 'demo-bot', qr: { terminal: true, small: true } })
+const bot = new Bot({
+  provider: new BaileysProvider({ session: 'demo-bot', qr: { terminal: true, small: true } }),
+})
 
 const catalog: Record<string, string> = {
   electronics: '📱 *Electronics* — iPhone 15 ($999), Samsung S24 ($899), Xiaomi 14 ($599)',
@@ -81,7 +84,7 @@ argument — configure it once on the bot:
 
 ```ts
 const bot = new Bot({
-  session: 'demo-bot',
+  provider: new BaileysProvider({ session: 'demo-bot' }),
   conversation: { timeoutMessage: '⏰ Session expired due to inactivity.' },
 })
 

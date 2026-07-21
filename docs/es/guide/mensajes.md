@@ -63,20 +63,33 @@ await ctx.location(4.7110, -74.0721, 'Bogotá, Colombia 🇨🇴')
 await ctx.contact('573001234567', 'Support Bot')
 ```
 
-## Sin botones nativos — usa un menú o una encuesta
+## Botones: normalizados, degradados por transporte
 
-Los botones/listas interactivos nativos están muertos en el protocolo
-actual de WhatsApp Web, así que no existe `ctx.buttons()`. Usa un menú
-numerado (`.choose()` en un flow, o `c.choose()` en una conversación — ver
-[Flujos](./flujos)) o una encuesta real de WhatsApp:
+`ctx.buttons(text, buttons)` envía contenido de botones normalizado. Cómo
+aterriza depende del provider:
+
+- **`@bot-wa/baileys`** — los botones/listas interactivos nativos están
+  muertos en el protocolo actual de WhatsApp Web, así que se degradan a un
+  **menú de texto numerado**. Un menú numerado (`.choose()` en un flow, o
+  `c.choose()` en una conversación — ver [Flujos](./flujos)) o una encuesta
+  real suele leerse mejor.
+- **`@bot-wa/meta`** (Cloud API) — botones/listas/templates nativos.
 
 ```ts
-// Selección única
+await ctx.buttons('Choose one', [
+  { id: 'a', title: 'Option A' },
+  { id: 'b', title: 'Option B' },
+])
+
+// Las encuestas funcionan nativamente en WhatsApp de todas formas:
 await ctx.poll('What do you prefer?', ['Option A', 'Option B'])
 
 // Selección múltiple
 await ctx.poll('What do you like?', ['🍕 Pizza', '🍔 Burger'], true)
 ```
+
+Si un provider no puede honrar un tipo de contenido, `send` rechaza con un
+`UnsupportedContentError` tipado de `@bot-wa/core`.
 
 ## Reaccionar
 
@@ -93,6 +106,8 @@ await ctx.typing()     // muestra "escribiendo…"
 await ctx.recording()  // muestra "grabando audio…"
 await ctx.delete()     // elimina el mensaje entrante (si está permitido)
 ```
+
+Las acciones se degradan a no-op en providers que no tienen la capacidad.
 
 ## Recibir media
 
@@ -129,24 +144,31 @@ bot.onImage(async (ctx) => {
 ## El `MessageContext` completo
 
 Además de los helpers de respuesta, cada handler recibe campos de datos en
-`ctx`: `ctx.body`, `ctx.from` (id del chat), `ctx.sender` (JID; = `from` en
-DMs, participant en grupos), `ctx.senderInfo`, `ctx.pushName`, `ctx.chat`
-(`{ id, name?, isGroup, isBroadcast, participants? }`), `ctx.type`,
-`ctx.isGroup` / `ctx.isPrivate` / `ctx.isFromMe`, `ctx.mentions`,
-`ctx.quoted?`, `ctx.media?`, `ctx.timestamp`, `ctx.tools` (registro de DI),
-`ctx.rawMessage`, `ctx.key`.
+`ctx`: `ctx.body`, `ctx.from` (id del chat), `ctx.sender` (id del usuario;
+= `from` en DMs, participant en grupos), `ctx.senderInfo`, `ctx.pushName`,
+`ctx.chat` (`{ id, kind, name?, isGroup, isBroadcast, participants? }`),
+`ctx.type`, `ctx.isGroup` / `ctx.isPrivate` / `ctx.isFromMe`,
+`ctx.mentions`, `ctx.quoted?`, `ctx.media?`, `ctx.timestamp`, `ctx.tools`
+(registro de DI), `ctx.raw` (payload nativo del provider), `ctx.ref` (la
+referencia al mensaje — `{ id, chatId, native? }`, reemplaza el `ctx.key`
+de v1).
 
 ## Enviar fuera de un handler
 
 Para escribirle a alguien sin esperar a que escriba primero — p. ej. desde
-una [tarea programada](./scheduler) — usa la instancia del bot directamente:
+una [tarea programada](./scheduler) — usa la instancia del bot directamente.
+El contenido es la unión etiquetada neutral de transporte (`{ kind, ... }`):
 
 ```ts
 await bot.sendText('573001234567@s.whatsapp.net', '🌅 Good morning!')
-await bot.send('573001234567@s.whatsapp.net', { image: { url }, caption: 'hi' })
+await bot.send('573001234567@s.whatsapp.net', {
+  kind: 'image',
+  media: { url },
+  caption: 'hi',
+})
 await bot.broadcast(
   ['573001234567@s.whatsapp.net', '573001112233@s.whatsapp.net'],
-  { text: 'Announcement!' },
+  { kind: 'text', text: 'Announcement!' },
 )
 ```
 

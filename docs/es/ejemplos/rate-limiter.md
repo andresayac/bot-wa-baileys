@@ -6,7 +6,8 @@ ventana de tiempo.
 ## El plugin
 
 ```ts
-import { Bot, definePlugin } from '@bot-wa/bot-wa-baileys'
+import { Bot, definePlugin } from '@bot-wa/core'
+import { BaileysProvider } from '@bot-wa/baileys'
 
 interface RateLimitConfig {
   max?: number
@@ -48,8 +49,8 @@ const rateLimitPlugin = definePlugin<RateLimitConfig>({
     // limpieza — aquí, un barrido periódico de contadores expirados.
     const gc = setInterval(() => {
       const now = Date.now()
-      for (const [jid, entry] of counts) {
-        if (entry.resetAt < now) counts.delete(jid)
+      for (const [chatId, entry] of counts) {
+        if (entry.resetAt < now) counts.delete(chatId)
       }
     }, windowMs)
     ctx.onDispose(() => clearInterval(gc))
@@ -58,7 +59,9 @@ const rateLimitPlugin = definePlugin<RateLimitConfig>({
   },
 })
 
-const bot = new Bot({ session: 'demo-bot', qr: { terminal: true, small: true } })
+const bot = new Bot({
+  provider: new BaileysProvider({ session: 'demo-bot', qr: { terminal: true, small: true } }),
+})
 
 // Configuración por defecto (10 msg / 60s)
 const unplug = bot.plug(rateLimitPlugin)
@@ -136,17 +139,18 @@ ctx.bot.before('message', async (msgCtx, next) => {
 ### Limitar los envíos salientes del propio bot
 
 `before('send')` se dispara en cada mensaje saliente (`bot.send`,
-`ctx.reply`, `ctx.photo`, ...). Su payload es `{ jid, content, options }` y
-se puede abortar de la misma forma, saltándose el envío por completo:
+`ctx.reply`, `ctx.photo`, ...). Su payload es `{ chatId, content, options }`
+(donde `content` es el `OutboundContent` neutral de transporte) y se puede
+abortar de la misma forma, saltándose el envío por completo:
 
 ```ts
 ctx.bot.before('send', async (payload, next) => {
   const now = Date.now()
-  let entry = counts.get(payload.jid)
+  let entry = counts.get(payload.chatId)
 
   if (!entry || entry.resetAt < now) {
     entry = { count: 0, resetAt: now + windowMs }
-    counts.set(payload.jid, entry)
+    counts.set(payload.chatId, entry)
   }
 
   entry.count++

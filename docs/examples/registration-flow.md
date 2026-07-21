@@ -5,9 +5,12 @@ A complete registration flow with `.ask()`, validation and a dynamic summary.
 ## The flow
 
 ```ts
-import { Bot, flow } from '@bot-wa/bot-wa-baileys'
+import { Bot, flow } from '@bot-wa/core'
+import { BaileysProvider } from '@bot-wa/baileys'
 
-const bot = new Bot({ session: 'demo-bot', qr: { terminal: true, small: true } })
+const bot = new Bot({
+  provider: new BaileysProvider({ session: 'demo-bot', qr: { terminal: true, small: true } }),
+})
 
 const register = flow('register')
   .say('📝 *Let us register you*')

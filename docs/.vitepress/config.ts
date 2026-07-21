@@ -3,7 +3,7 @@ import { defineConfig } from 'vitepress'
 // https://vitepress.dev/reference/site-config
 export default defineConfig({
   title: 'bot-wa-baileys',
-  description: 'A modern WhatsApp bot framework built on Baileys 7',
+  description: 'A modern, transport-agnostic bot framework — WhatsApp (Baileys 7 / Cloud API), Telegram and Discord behind one IProvider',
 
   // Output to docs/dist/ — served by GitHub Pages
   srcDir: '.',

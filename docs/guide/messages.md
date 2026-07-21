@@ -63,20 +63,32 @@ await ctx.location(4.7110, -74.0721, 'Bogotá, Colombia 🇨🇴')
 await ctx.contact('573001234567', 'Support Bot')
 ```
 
-## No native buttons — use a menu or a poll
+## Buttons: normalized, degraded per transport
 
-Native interactive buttons/lists are dead in the current WhatsApp Web
-protocol, so there's no `ctx.buttons()`. Use a numbered menu (`.choose()` in
-a flow, or `c.choose()` in a conversation — see [Flows](./flows)) or a real
-WhatsApp poll:
+`ctx.buttons(text, buttons)` sends normalized button content. How it lands
+depends on the provider:
+
+- **`@bot-wa/baileys`** — native interactive buttons are dead in the
+  current WhatsApp Web protocol, so buttons degrade to a **numbered text
+  menu**. A numbered menu (`.choose()` in a flow, or `c.choose()` in a
+  conversation — see [Flows](./flows)) or a real poll usually reads better.
+- **`@bot-wa/meta`** (Cloud API) — native interactive buttons/lists/templates.
 
 ```ts
-// Single select
+await ctx.buttons('Choose one', [
+  { id: 'a', title: 'Option A' },
+  { id: 'b', title: 'Option B' },
+])
+
+// Polls work natively on WhatsApp either way:
 await ctx.poll('What do you prefer?', ['Option A', 'Option B'])
 
 // Multi select
 await ctx.poll('What do you like?', ['🍕 Pizza', '🍔 Burger'], true)
 ```
+
+If a provider cannot honor a content kind at all, `send` rejects with a
+typed `UnsupportedContentError` from `@bot-wa/core`.
 
 ## React
 
@@ -93,6 +105,8 @@ await ctx.typing()     // show "typing…"
 await ctx.recording()  // show "recording audio…"
 await ctx.delete()     // delete the inbound message (if allowed)
 ```
+
+Actions degrade to a no-op on providers that lack the capability.
 
 ## Receive media
 
@@ -128,24 +142,30 @@ bot.onImage(async (ctx) => {
 ## The full `MessageContext`
 
 Besides the reply helpers, every handler receives data fields on `ctx`:
-`ctx.body`, `ctx.from` (chat id), `ctx.sender` (JID; = `from` in DMs,
+`ctx.body`, `ctx.from` (chat id), `ctx.sender` (user id; = `from` in DMs,
 participant in groups), `ctx.senderInfo`, `ctx.pushName`, `ctx.chat`
-(`{ id, name?, isGroup, isBroadcast, participants? }`), `ctx.type`,
+(`{ id, kind, name?, isGroup, isBroadcast, participants? }`), `ctx.type`,
 `ctx.isGroup` / `ctx.isPrivate` / `ctx.isFromMe`, `ctx.mentions`,
 `ctx.quoted?`, `ctx.media?`, `ctx.timestamp`, `ctx.tools` (DI registry),
-`ctx.rawMessage`, `ctx.key`.
+`ctx.raw` (provider-native payload), `ctx.ref` (the message reference —
+`{ id, chatId, native? }`, replaces v1's `ctx.key`).
 
 ## Sending outside a handler
 
 To message someone without waiting for them to write first — e.g. from a
-[scheduled task](./scheduler) — use the bot instance directly:
+[scheduled task](./scheduler) — use the bot instance directly. Content is
+the transport-neutral tagged union (`{ kind, ... }`):
 
 ```ts
 await bot.sendText('573001234567@s.whatsapp.net', '🌅 Good morning!')
-await bot.send('573001234567@s.whatsapp.net', { image: { url }, caption: 'hi' })
+await bot.send('573001234567@s.whatsapp.net', {
+  kind: 'image',
+  media: { url },
+  caption: 'hi',
+})
 await bot.broadcast(
   ['573001234567@s.whatsapp.net', '573001112233@s.whatsapp.net'],
-  { text: 'Announcement!' },
+  { kind: 'text', text: 'Announcement!' },
 )
 ```
 

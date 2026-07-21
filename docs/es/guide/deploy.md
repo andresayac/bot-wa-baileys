@@ -3,9 +3,10 @@
 Cómo ejecutar tu bot en producción, siempre conectado.
 
 ::: tip Solo ESM, Node >= 20
-`@bot-wa/bot-wa-baileys` es ESM puro — no hay build de CommonJS. Asegúrate
-de que el `package.json` de producción tenga `"type": "module"` (o que tu
-entrypoint use `.mjs`), y que el runtime sea **Node >= 20**.
+`@bot-wa/core` y los paquetes de transporte son ESM puro — no hay build de
+CommonJS. Asegúrate de que el `package.json` de producción tenga
+`"type": "module"` (o que tu entrypoint use `.mjs`), y que el runtime sea
+**Node >= 20**.
 :::
 
 ## Opción 1: VPS (recomendado)
@@ -97,11 +98,13 @@ node bot.js
 ### Persistencia de sesión (auth)
 
 Las credenciales de inicio de sesión de WhatsApp se guardan bajo
-`sessionsDir/session` (por defecto `./sessions/<session>`). **No la
-borres** o tendrás que escanear el QR de nuevo:
+`sessionsDir/session` (por defecto `./sessions/<session>`) por el provider
+de Baileys. **No la borres** o tendrás que escanear el QR de nuevo:
 
 ```ts
-const bot = new Bot({ session: 'my-bot', sessionsDir: './sessions' })
+const bot = new Bot({
+  provider: new BaileysProvider({ session: 'my-bot', sessionsDir: './sessions' }),
+})
 ```
 
 ### Persistencia del store (conversaciones e historial)
@@ -109,10 +112,12 @@ const bot = new Bot({ session: 'my-bot', sessionsDir: './sessions' })
 El `MemoryStore` por defecto vive solo en memoria. Para producción, usa **`SQLiteStore`** — una base de datos real que persiste mensajes, chats, contactos, estado de flujos, checkpoints y conversaciones AI:
 
 ```ts
-import { Bot, SQLiteStore } from '@bot-wa/bot-wa-baileys'
+import { Bot } from '@bot-wa/core'
+import { BaileysProvider } from '@bot-wa/baileys'
+import { SQLiteStore } from '@bot-wa/sqlite-store'
 
 const bot = new Bot({
-  session: 'mi-bot',
+  provider: new BaileysProvider({ session: 'mi-bot' }),
   store: new SQLiteStore({ file: './data/bot.db' }),
 })
 ```
@@ -152,7 +157,7 @@ process.on('SIGTERM', async () => {
 
 ```ts
 const bot = new Bot({
-  debug: false,  // true para logs detallados
+  provider: new BaileysProvider({ session: 'mi-bot', debug: false }), // true para logs detallados
 })
 ```
 

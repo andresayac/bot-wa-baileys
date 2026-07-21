@@ -51,15 +51,22 @@ bot.onImage(async (ctx) => {
 })
 ```
 
-### 1. Bot — the center
+### 1. Bot + Provider — the center
 
 ```ts
-const bot = new Bot({ session: 'my-bot' })
+import { Bot } from '@bot-wa/core'
+import { BaileysProvider } from '@bot-wa/baileys'
+
+const bot = new Bot({ provider: new BaileysProvider({ session: 'my-bot' }) })
 await bot.start()
 ```
 
-The `Bot` is the main instance. It connects to WhatsApp, runs the
-Dispatcher, hooks, flows and the scheduler.
+The `Bot` (from `@bot-wa/core`) is the transport-agnostic engine: it runs
+the Dispatcher, hooks, flows, conversations and the scheduler. The
+**provider** is the transport boundary — `@bot-wa/baileys` connects to
+WhatsApp; `@bot-wa/meta` (official Cloud API), `@bot-wa/telegram` and
+`@bot-wa/discord` plug into the same engine. All transports feed the bot
+the same normalized events.
 
 ### 2. when — simple responses
 
@@ -146,7 +153,10 @@ get **independent conversations** by default (keyed internally by
 shared conversation per group chat instead:
 
 ```ts
-const bot = new Bot({ conversationScope: 'chat' })
+const bot = new Bot({
+  provider: new BaileysProvider({ session: 'my-bot' }),
+  conversationScope: 'chat',
+})
 ```
 
 ## The ctx object — your best friend
@@ -154,8 +164,8 @@ const bot = new Bot({ conversationScope: 'chat' })
 ```ts
 bot.when('hola', async (ctx) => {
   console.log(ctx.body)        // message text
-  console.log(ctx.from)        // chat JID
-  console.log(ctx.sender)      // sender JID (= from in DMs, participant in groups)
+  console.log(ctx.from)        // chat id (opaque; a JID on WhatsApp/Baileys)
+  console.log(ctx.sender)      // sender id (= from in DMs, participant in groups)
   console.log(ctx.type)        // 'text', 'image', 'audio', ...
   console.log(ctx.isGroup)     // is it a group?
 
@@ -168,9 +178,11 @@ bot.when('hola', async (ctx) => {
 })
 ```
 
-## What is a JID?
+## Chat and sender ids
 
-A **JID** (Jabber ID) is a WhatsApp chat identifier:
+`ctx.from` (chat) and `ctx.sender` (user) are **opaque strings** the
+provider resolves — the core never sniffs their shape. For the Baileys
+transport they happen to be WhatsApp **JIDs** (Jabber IDs):
 
 | Type | Format | Example |
 |---|---|---|
@@ -178,7 +190,10 @@ A **JID** (Jabber ID) is a WhatsApp chat identifier:
 | Group | `id@g.us` | `120363xxx@g.us` |
 | Newsletter | `id@newsletter` | `120363xxx@newsletter` |
 
-You don't need to memorize this — `ctx.from` gives you the correct JID.
+You don't need to memorize this — `ctx.from` gives you the correct id on
+every transport. If you need the transport-native key of the inbound
+message (to quote/edit/delete it with provider calls), use `ctx.ref`
+(`{ id, chatId, native? }`).
 
 ## Next steps
 

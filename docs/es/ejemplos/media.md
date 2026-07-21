@@ -7,9 +7,12 @@ de un archivo local, o un `Buffer`.
 ## Configuración
 
 ```ts
-import { Bot } from '@bot-wa/bot-wa-baileys'
+import { Bot } from '@bot-wa/core'
+import { BaileysProvider } from '@bot-wa/baileys'
 
-const bot = new Bot({ session: 'demo-bot', qr: { terminal: true, small: true } })
+const bot = new Bot({
+  provider: new BaileysProvider({ session: 'demo-bot', qr: { terminal: true, small: true } }),
+})
 ```
 
 ## Foto
@@ -114,13 +117,15 @@ bot.onImage(async (ctx) => {
 
 ## Enviar media fuera de un handler — bot.send
 
-`bot.send` recibe un objeto de contenido estilo Baileys y un JID
-(`'573001112233@s.whatsapp.net'` para un usuario, `'...@g.us'` para un grupo):
+`bot.send` recibe un objeto de contenido neutral de transporte
+(`{ kind, ... }`) y un id de chat (`'573001112233@s.whatsapp.net'` para un
+usuario de WhatsApp, `'...@g.us'` para un grupo):
 
 ```ts
 bot.every('30 minutes', async () => {
   await bot.send('573001112233@s.whatsapp.net', {
-    image: { url: 'https://picsum.photos/400/300' },
+    kind: 'image',
+    media: { url: 'https://picsum.photos/400/300' },
     caption: '📸 Scheduled photo',
   })
 })

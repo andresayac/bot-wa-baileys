@@ -8,16 +8,23 @@ desvinculó el dispositivo), necesitarás escanear de nuevo.
 
 ## ¿Puedo usar el bot sin escanear el QR?
 
-Sí, con **pairing code**:
+Sí, con **pairing code** (transporte Baileys):
 
 ```ts
 const bot = new Bot({
-  session: 'my-bot',
-  pairingCode: '+57300XXXXXXX', // formato internacional completo
+  provider: new BaileysProvider({
+    session: 'my-bot',
+    pairingCode: '+57300XXXXXXX', // formato internacional completo
+  }),
 })
 
-bot.on('pairing_code', (code) => console.log('Pairing code:', code))
+// v2 emite el artifact de auth (QR string / pairing code) por el evento 'qr':
+bot.on('qr', (artifact) => console.log('Auth artifact:', artifact))
 ```
+
+En v2 ya no hay un evento `pairing_code` dedicado — el código de
+vinculación llega como payload del evento `qr` (un artifact de auth en
+string que el core reenvía tal cual del provider).
 
 ## ¿El bot funciona en grupos?
 
@@ -67,7 +74,10 @@ por defecto vive en memoria — un reinicio pierde esos checkpoints a menos
 que el store tenga un archivo detrás:
 
 ```ts
-const bot = new Bot({ storeConfig: { file: './store.json' } })
+const bot = new Bot({
+  provider: new BaileysProvider({ session: 'my-bot' }),
+  storeConfig: { file: './store.json' }, // o usa @bot-wa/sqlite-store
+})
 ```
 
 ## ¿Puedo enviar mensajes sin que alguien me escriba primero?
@@ -92,14 +102,17 @@ process.on('SIGINT', async () => {
 
 ## ¿Puedo tener varios bots en el mismo proceso?
 
-Sí, con sesiones diferentes:
+Sí, con providers/sesiones diferentes:
 
 ```ts
-const bot1 = new Bot({ session: 'bot-1' })
-const bot2 = new Bot({ session: 'bot-2' })
+const bot1 = new Bot({ provider: new BaileysProvider({ session: 'bot-1' }) })
+const bot2 = new Bot({ provider: new BaileysProvider({ session: 'bot-2' }) })
 await bot1.start()
 await bot2.start()
 ```
+
+Incluso puedes mezclar transportes — un `Bot` por provider (p. ej. un bot
+Baileys y un bot con `CloudAPIProvider` en el mismo proceso).
 
 ## ¿Funciona con WhatsApp Business?
 
@@ -111,9 +124,10 @@ WhatsApp Business.
 WhatsApp puede detectar automatización excesiva. Para minimizar el riesgo:
 
 - No envíes spam ni mensajes masivos
-- Usa `markOnlineOnConnect: false`
-- Respeta los límites de rate
+- Usa `markOnlineOnConnect: false` (opción de `BaileysProvider`)
+- Respeta los límites de rate (el [limiter integrado](./rate-limiting) del provider)
 - No respondas instantáneamente a todo (usa delays humanos)
+- Considera la [Cloud API](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/meta-provider) oficial (`@bot-wa/meta`) para bots críticos — sin riesgo de baneo
 
 ## ¿Necesito TypeScript?
 
@@ -125,11 +139,11 @@ type-checking, pero es opcional.
 
 ## ¿Por qué me sale `ERR_REQUIRE_ESM` o "require is not defined"?
 
-Estás intentando hacer `require('@bot-wa/bot-wa-baileys')` desde un archivo
-CommonJS. No hay build de CJS — cambia a `import` (agrega `"type":
-"module"` a tu `package.json`, o usa la extensión `.mjs`). Node >= 22.12
-también puede hacer `require()` de un paquete ESM gracias a su soporte
-experimental `require(esm)`.
+Estás intentando hacer `require('@bot-wa/core')` (o un paquete de
+transporte) desde un archivo CommonJS. No hay build de CJS — cambia a
+`import` (agrega `"type": "module"` a tu `package.json`, o usa la extensión
+`.mjs`). Node >= 22.12 también puede hacer `require()` de un paquete ESM
+gracias a su soporte experimental `require(esm)`.
 
 ## ¿Dónde está la API reference completa?
 

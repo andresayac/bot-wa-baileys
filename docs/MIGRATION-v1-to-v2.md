@@ -1,6 +1,8 @@
 # Guía de migración v1 → v2
 
-`@bot-wa/bot-wa-baileys` v2 es un **rewrite del core**, no un parche sobre la v1. Cambian los nombres (`BaileysClass` → `Bot`), pero también cambia el motor por debajo: el viejo "router de mensajes" y el engine de flujos por arrays de pasos desaparecen, reemplazados por un **Dispatcher** con prioridad por especificidad y un **runtime de conversaciones async** sobre el que se compila el DSL declarativo (`flow()`).
+`@bot-wa/core` v2 (antes `@bot-wa/bot-wa-baileys`) es un **rewrite del core**, no un parche sobre la v1. Cambian los nombres (`BaileysClass` → `Bot`), pero también cambia el motor por debajo: el viejo "router de mensajes" y el engine de flujos por arrays de pasos desaparecen, reemplazados por un **Dispatcher** con prioridad por especificidad y un **runtime de conversaciones async** sobre el que se compila el DSL declarativo (`flow()`).
+
+Además, la v2 es **agnóstica de transporte**: el core ya no sabe de WhatsApp. Todo lo específico de la conexión (QR, sesión, JIDs, auth) vive en un **provider** que tú construyes e inyectas: `new Bot({ provider: new BaileysProvider({...}) })`. Ver la sección de [reorganización de paquetes](#reorganización-de-paquetes-core-transportes-stores) para el mapa completo.
 
 Si tu bot v1 es simple (unos cuantos `addKeyword`/respuestas de texto), la migración es mecánica. Si usa flujos con `capture` anidados, botones, o depende de que `bot.on('message')` reciba *todos* los mensajes, lee también la sección de [cambios de comportamiento](#cambios-de-comportamiento-en-v2) — hay diferencias de semántica, no solo de nombres.
 
@@ -8,14 +10,19 @@ Si tu bot v1 es simple (unos cuantos `addKeyword`/respuestas de texto), la migra
 
 | v1 | v2 |
 |---|---|
-| `new BaileysClass(opts)` | `new Bot(config)` + `await bot.start()` |
+| `new BaileysClass(opts)` | `new Bot({ provider: new BaileysProvider(opts) })` + `await bot.start()` |
+| `import { ... } from '@bot-wa/bot-wa-baileys'` | `import { Bot, flow, ... } from '@bot-wa/core'` + `import { BaileysProvider } from '@bot-wa/baileys'` |
 | `bot.on('message', ...)` global | `bot.onMessage()` (catch-all, corre solo si nada más consumió el mensaje) o `bot.when(trigger, handler)` |
 | `addKeyword().addAnswer(txt, { capture })` | `flow(trigger).say(txt)` / `.ask(txt, stateKey)` (alias de compatibilidad: `addKeyword = flow`) |
 | `sendText/sendImage/sendVideo/sendAudio/sendFile/...` | Conservados en `bot.sendText`/`bot.send` + los helpers de contexto `ctx.reply/photo/video/audio/file/...` |
-| Eventos `qr` / `ready` | Iguales: `bot.on('qr', (qr) => ...)`, `bot.on('ready', () => ...)` |
-| `usePairingCode: true, phoneNumber: 'XXX'` + evento `pairing_code` | Config `pairingCode: '+57300XXXXXXX'` (formato internacional completo) + `bot.on('pairing_code', (code) => ...)` — el evento conserva su nombre v1 |
-| `auth_failure` | No hay evento `auth_failure` dedicado: los fallos de credenciales llegan como un cierre de conexión → `bot.on('connection', (u) => { if (u.state === 'close') ... })` (revisa `u.lastDisconnect`). El evento `bot.on('error', ...)` es para errores de procesamiento de mensajes, no de auth. |
-| `sendButtons` (ya deprecado en v1) | **Eliminado.** Usa `c.choose()` / `.choose()` (menú numerado) o `ctx.poll()` |
+| `bot.send(jid, { image: { url }, caption })` | `bot.send(chatId, { kind: 'image', media: { url }, caption })` — contenido normalizado |
+| `ctx.key` / `ctx.rawMessage` | `ctx.ref` (`MessageRef`: `{ id, chatId, native? }`) / `ctx.raw` |
+| Hook `before('send')` con payload `{ jid, content, options }` | Payload `{ chatId, content, options }` — `content` es `OutboundContent` |
+| Eventos `qr` / `ready` | Iguales: `bot.on('qr', (artifact) => ...)`, `bot.on('ready', () => ...)` |
+| `usePairingCode: true, phoneNumber: 'XXX'` + evento `pairing_code` | Opción `pairingCode: '+57300XXXXXXX'` (formato internacional completo) en `BaileysProvider`. **Ya no hay evento `pairing_code`**: el código llega como payload del evento `qr` (el artifact de auth del provider). |
+| `auth_failure` | No hay evento `auth_failure` dedicado: los fallos de credenciales llegan como un cierre de conexión → `bot.on('connection', (u) => { if (u.state === 'closed') ... })` (revisa `u.reason`, p.ej. `'sessionInvalid'`). El evento `bot.on('error', ...)` es para errores de procesamiento de mensajes, no de auth. |
+| `sendButtons` (ya deprecado en v1) | **Eliminado** como botón nativo en Baileys (degrada a texto numerado). Usa `c.choose()` / `.choose()` (menú numerado) o `ctx.poll()`. Con `@bot-wa/meta` sí hay botones/listas nativos. |
+| Sub-APIs `bot.groups/profile/privacy/chats/presence` | **Eliminadas del core** (específicas de WhatsApp). Ver [Sub-APIs](./guide/sub-apis) — acceso directo al socket vía `provider.socket`. |
 
 ## Ejemplos antes / después
 
@@ -30,9 +37,13 @@ botBaileys.on('ready', () => console.log('READY'))
 ```
 
 ```ts
-// v2
-import { Bot } from '@bot-wa/bot-wa-baileys'
-const bot = new Bot({ session: 'mi-bot' })
+// v2 — el provider lleva las opciones de transporte (sesión, QR, auth)
+import { Bot } from '@bot-wa/core'
+import { BaileysProvider } from '@bot-wa/baileys'
+
+const bot = new Bot({
+  provider: new BaileysProvider({ session: 'mi-bot' }),
+})
 bot.on('qr', (qr) => console.log('QR', qr))
 bot.on('ready', () => console.log('READY'))
 await bot.start()
@@ -51,7 +62,7 @@ addKeyword('registrar')
 
 ```ts
 // v2 — flow() compila a un bot.conversation real
-import { flow } from '@bot-wa/bot-wa-baileys'
+import { flow } from '@bot-wa/core'
 
 bot.use(
   flow('registrar')
@@ -150,18 +161,42 @@ En v2, `bot.on('message', ...)` se emite al final del pipeline del Dispatcher pa
 En un grupo, dos participantes distintos que le hablan al bot en el mismo chat ahora tienen **conversaciones independientes** (clave interna `${from}:${sender}`). En v1 (y si quieres ese comportamiento en v2) la conversación es una sola por chat. Para volver al modo v1 dentro de un grupo:
 
 ```ts
-const bot = new Bot({ conversationScope: 'chat' })
+const bot = new Bot({
+  provider: new BaileysProvider({ session: 'mi-bot' }),
+  conversationScope: 'chat',
+})
 ```
 
 ### e) ESM-only + Node >= 20
 
-El paquete es **ESM puro** (`"type": "module"`, sin build CommonJS). Tu proyecto debe:
+Los paquetes son **ESM puros** (`"type": "module"`, sin build CommonJS). Tu proyecto debe:
 
 - Tener `"type": "module"` en su propio `package.json`, **o**
 - Usar extensión `.mjs`, **o**
-- Estar en Node **>= 22.12**, donde `require('@bot-wa/bot-wa-baileys')` funciona vía el soporte experimental de Node para `require(esm)`.
+- Estar en Node **>= 22.12**, donde `require('@bot-wa/core')` funciona vía el soporte experimental de Node para `require(esm)`.
 
-Mínimo soportado: **Node >= 20**. Baileys 7 (el motor de transporte) también es ESM-only — es una de las razones por las que la v2 no ofrece un build CJS.
+Mínimo soportado: **Node >= 20**. Baileys 7 (un transporte, no el core) también es ESM-only — es una de las razones por las que la v2 no ofrece un build CJS.
+
+## Reorganización de paquetes: core, transportes, stores
+
+La v2 separó el motor de los transportes. El paquete `@bot-wa/bot-wa-baileys` de la v1 ya no existe como tal:
+
+| v1 | v2 |
+|---|---|
+| `@bot-wa/bot-wa-baileys` (todo junto) | `@bot-wa/core` — el motor (`Bot`, `flow`, hooks, plugins, scheduler, `IProvider v2`, testing kit) |
+| Conexión WhatsApp embebida | `@bot-wa/baileys` — `BaileysProvider` (WhatsApp Web vía Baileys 7, QR) |
+| — | `@bot-wa/meta` — `CloudAPIProvider` (WhatsApp Cloud API oficial, webhook) |
+| — | `@bot-wa/telegram` — `TelegramProvider` · `@bot-wa/discord` — `DiscordProvider` |
+| `SQLiteStore` incluido | `@bot-wa/sqlite-store` — `SQLiteStore` (peer dep `better-sqlite3`) |
+| — | `@bot-wa/redis-store` — `RedisStore` (estado distribuido) |
+| `@bot-wa/ai` (anthropic/openai/ollama) | `@bot-wa/ai` + `gemini` + 9 presets OpenAI-compatible: `deepseek`, `qwen`, `glm`, `kimi`, `groq`, `openrouter`, `mistral`, `grok`, `together` |
+
+Reglas prácticas:
+
+- **Todo lo que sea sesión/auth/QR/conexión se movió al provider.** `BotConfig` solo acepta opciones agnósticas (`conversation`, `conversationScope`, `groupMode`, `commandPrefix`, `store`, `debug`, ...).
+- **`ctx.key` → `ctx.ref`** (`MessageRef` con `{ id, chatId, native? }`) y **`ctx.rawMessage` → `ctx.raw`** en handlers, hooks y flujos.
+- **El contenido de `bot.send` es un tagged union neutral**: `{ kind: 'image', media, caption }` en lugar del objeto estilo Baileys `{ image: { url }, caption }`.
+- **Instalación típica**: `pnpm add @bot-wa/core @bot-wa/baileys` (+ `@bot-wa/sqlite-store better-sqlite3` si quieres persistencia, + `@bot-wa/ai` y el SDK del proveedor de IA que uses).
 
 ## Desviaciones respecto a la API v1 / BuilderBot
 
@@ -170,7 +205,10 @@ Detalles concretos donde la forma v2 NO coincide 1:1 con lo que quizá esperas d
 - **`.timeout(ms)` no lleva mensaje.** En el DSL, `flow(...).timeout('30s')` fija solo la duración del `wait`. El texto que se envía al expirar NO es un parámetro de `.timeout()` — se configura globalmente al crear el bot con `conversation.timeoutMessage`:
 
   ```ts
-  const bot = new Bot({ conversation: { timeout: '30s', timeoutMessage: '⏰ Se acabó el tiempo.' } })
+  const bot = new Bot({
+    provider: new BaileysProvider({ session: 'mi-bot' }),
+    conversation: { timeout: '30s', timeoutMessage: '⏰ Se acabó el tiempo.' },
+  })
   ```
 
 - **`addKeyword` es el ÚNICO alias de compatibilidad.** `addKeyword` existe como alias directo de `flow`. Los métodos de BuilderBot `.addAnswer(...)` y `.addAction(...)` **no existen** — usa el DSL v2: `.say(text)`, `.ask(text, stateKey)`, `.do(fn)`, `.choose(prompt, opciones, stateKey?)`.
@@ -179,18 +217,23 @@ Detalles concretos donde la forma v2 NO coincide 1:1 con lo que quizá esperas d
 
 ## Flujos persistentes (`.persistent()`)
 
-`flow(...).persistent()` solo **sobrevive a reinicios del proceso** si el store está respaldado por un archivo. El store por defecto (`MemoryStore`) vive en memoria: sin `file`, los checkpoints se pierden al reiniciar. Para persistencia real:
+`flow(...).persistent()` solo **sobrevive a reinicios del proceso** si el store está respaldado por algo durable. El store por defecto (`MemoryStore`) vive en memoria: sin `file` (o sin un store real como `SQLiteStore` de `@bot-wa/sqlite-store`), los checkpoints se pierden al reiniciar. Para persistencia real:
 
 ```ts
+import { Bot, flow } from '@bot-wa/core'
+import { BaileysProvider } from '@bot-wa/baileys'
+import { SQLiteStore } from '@bot-wa/sqlite-store'
+
 const bot = new Bot({
-  storeConfig: { file: './store.json' },   // MemoryStore respaldado por disco
+  provider: new BaileysProvider({ session: 'mi-bot' }),
+  store: new SQLiteStore({ file: './data/bot.db' }),
 })
 bot.use(flow('registrar').persistent().ask('¿Nombre?', 'name').say('listo'))
 ```
 
-Sin `storeConfig.file`, `.persistent()` sigue funcionando dentro de la misma ejecución (checkpoints en memoria) pero un reinicio empieza de cero.
+Alternativa sin dependencias: `storeConfig: { file: './store.json' }` (dump JSON del `MemoryStore`). Sin almacenamiento durable, `.persistent()` sigue funcionando dentro de la misma ejecución (checkpoints en memoria) pero un reinicio empieza de cero.
 
 ## Ver también
 
-- [README — Quickstart](https://github.com/andresayac/bot-wa-baileys#quickstart-30-segundos)
+- [README — Quickstart](https://github.com/andresayac/bot-wa-baileys#readme)
 - [`docs/public/llms.txt`](public/llms.txt) — resumen de la API completa en un solo archivo

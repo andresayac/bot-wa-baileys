@@ -1,8 +1,9 @@
 # AI plugin
 
 `@bot-wa/ai` is a **separate package** that adds a multi-provider AI
-autoresponder (Anthropic / OpenAI / Ollama) plus a `ctx.tools.ai` client you
-can call from your own handlers, flows and conversations.
+autoresponder (Anthropic / OpenAI / Ollama / Gemini plus nine
+OpenAI-compatible presets) and a `ctx.tools.ai` client you can call from
+your own handlers, flows and conversations.
 
 ::: tip Separate package
 Unlike `slashCommandsPlugin` (bundled with the core), `@bot-wa/ai` ships as
@@ -21,15 +22,18 @@ The second package is the SDK of whichever provider you use:
 |---|---|
 | `anthropic` (default) | `@anthropic-ai/sdk` |
 | `openai` | `openai` |
+| `gemini` | `@google/genai` |
 | `ollama` | none — talks plain HTTP (`fetch`) to a local/remote Ollama server |
+| `deepseek`, `qwen`, `glm`, `kimi`, `groq`, `openrouter`, `mistral`, `grok`, `together` | `openai` — they're OpenAI-compatible presets reached through the `openai` SDK with a custom `baseURL` |
 
 ## Quickstart (autoresponder)
 
 ```ts
-import { Bot } from '@bot-wa/bot-wa-baileys'
+import { Bot } from '@bot-wa/core'
+import { BaileysProvider } from '@bot-wa/baileys'
 import { aiPlugin } from '@bot-wa/ai'
 
-const bot = new Bot({ session: 'my-bot' })
+const bot = new Bot({ provider: new BaileysProvider({ session: 'my-bot' }) })
 
 bot.plug(aiPlugin({
   provider: 'anthropic',
@@ -79,7 +83,7 @@ bot.conversation('summary', async (c, ctx) => {
 - `stream(input): AsyncIterable<string>` — same as `generate` but yields the
   text incrementally (`for await (const delta of ...)`).
 
-## The 3 providers
+## The providers
 
 ### Anthropic (default)
 
@@ -104,6 +108,16 @@ bot.plug(aiPlugin({
 
 `baseUrl` is optional (OpenAI-compatible endpoints).
 
+### Gemini
+
+```ts
+bot.plug(aiPlugin({
+  provider: 'gemini',
+  apiKey: process.env.GEMINI_API_KEY,  // or GOOGLE_API_KEY in the environment
+  // model: 'gemini-2.0-flash',        // default if omitted
+}))
+```
+
 ### Ollama (local, no API key)
 
 ```ts
@@ -114,11 +128,43 @@ bot.plug(aiPlugin({
 }))
 ```
 
+### Presets — DeepSeek, Qwen, GLM, Kimi, Groq, OpenRouter, Mistral, Grok, Together
+
+Every preset is an OpenAI-compatible endpoint reached through the `openai`
+SDK with a custom `baseURL` — zero extra dependencies beyond `openai`, and
+each ships a default model and its conventional env var for the API key:
+
+```ts
+bot.plug(aiPlugin({ provider: 'deepseek' }))  // reads DEEPSEEK_API_KEY, model deepseek-chat
+```
+
+| Preset | Env var | Default model |
+|---|---|---|
+| `deepseek` | `DEEPSEEK_API_KEY` | `deepseek-chat` |
+| `qwen` | `DASHSCOPE_API_KEY` | `qwen-plus` |
+| `glm` | `ZHIPUAI_API_KEY` | `glm-4-plus` |
+| `kimi` | `MOONSHOT_API_KEY` | `moonshot-v1-8k` |
+| `groq` | `GROQ_API_KEY` | `llama-3.3-70b-versatile` |
+| `openrouter` | `OPENROUTER_API_KEY` | `openrouter/auto` |
+| `mistral` | `MISTRAL_API_KEY` | `mistral-small-latest` |
+| `grok` | `XAI_API_KEY` | `grok-2-latest` |
+| `together` | `TOGETHER_API_KEY` | `meta-llama/Llama-3.3-70B-Instruct-Turbo` |
+
+`apiKey` and `model` override the defaults:
+
+```ts
+bot.plug(aiPlugin({
+  provider: 'groq',
+  apiKey: process.env.GROQ_API_KEY,
+  model: 'llama-3.3-70b-versatile',
+}))
+```
+
 ::: warning `model` is required for openai and ollama
 Neither provider ships a sensible default (too many valid model ids, and
 they change often) — if you omit it, the provider throws an explicit error
-on the first `generate`/`stream` call. `anthropic` does have a default
-(`claude-opus-4-8`).
+on the first `generate`/`stream` call. `anthropic` (`claude-opus-4-8`),
+`gemini` and the presets do have defaults.
 :::
 
 If the provider is misconfigured (SDK not installed, unknown provider, missing
@@ -132,12 +178,12 @@ down.
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `provider` | `'anthropic' \| 'openai' \| 'ollama'` | `'anthropic'` | provider to resolve |
+| `provider` | `'anthropic' \| 'openai' \| 'ollama' \| 'gemini' \| 'deepseek' \| 'qwen' \| 'glm' \| 'kimi' \| 'groq' \| 'openrouter' \| 'mistral' \| 'grok' \| 'together'` | `'anthropic'` | provider to resolve |
 | `model` | `string` | provider-dependent | model to use (required for openai/ollama) |
-| `apiKey` | `string` | — | API key (anthropic/openai; if omitted, the provider's SDK tries to read it from the environment) |
-| `baseUrl` | `string` | — | endpoint override (openai `baseURL` / ollama host) |
+| `apiKey` | `string` | env var fallback | API key (if omitted, each provider tries its conventional env var) |
+| `baseUrl` | `string` | preset-dependent | endpoint override (openai `baseURL` / ollama host) |
 | `persona` | `string` | — | system prompt |
-| `maxTokens` | `number` | `4096` (anthropic) / `1024` (openai) | output token limit (anthropic/openai; ollama currently ignores it) |
+| `maxTokens` | `number` | `4096` (anthropic) / `1024` (openai-compatible) | output token limit |
 | `effort` | `'low' \| 'medium' \| 'high' \| 'xhigh' \| 'max'` | — | reasoning effort (Anthropic only) |
 | `context.maxMessages` | `number` | `20` | history window kept per chat |
 | `autoReply` | `boolean` | `true` | registers the catch-all autoresponder |

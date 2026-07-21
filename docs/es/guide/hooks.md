@@ -112,12 +112,14 @@ bot.before('message', async (ctx, next) => {
 
 `'send'` se dispara en **cada** envío saliente, ya sea que venga de
 `ctx.reply`/`ctx.photo`/... o de `bot.send`/`bot.sendText`. El payload es
-`{ jid, content, options }` — muta `payload.content` para transformar un
-mensaje, o aborta para saltarte el envío por completo:
+`{ chatId, content, options }` — `content` es el `OutboundContent` neutral
+de transporte (`{ kind: 'text', text }`, `{ kind: 'image', media,
+caption }`, ...); mútalo para transformar un mensaje, o aborta para
+saltarte el envío por completo:
 
 ```ts
 bot.before('send', async (payload, next) => {
-  console.log('📤 sending to', payload.jid, payload.content)
+  console.log('📤 sending to', payload.chatId, payload.content)
   await next()
 })
 ```

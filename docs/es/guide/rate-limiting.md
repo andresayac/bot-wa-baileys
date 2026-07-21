@@ -1,6 +1,14 @@
 # Rate Limiting (Anti-Ban)
 
-WhatsApp **banea cuentas** que envían demasiados mensajes en poco tiempo. El rate limiter integrado protege tu bot automáticamente — está **activo por defecto** y se sitúa dentro del pipeline de envío saliente, así que cada `ctx.reply()`, `bot.sendText()`, `bot.broadcast()` y envío de media pasa por él.
+WhatsApp **banea cuentas** que envían demasiados mensajes en poco tiempo. El rate limiter integrado del provider Baileys protege tu bot automáticamente — está **activo por defecto** y se sitúa dentro del pipeline de envío saliente del provider, así que cada `ctx.reply()`, `bot.sendText()`, `bot.broadcast()` y envío de media pasa por él.
+
+::: tip Pacing propio de cada transporte
+En v2 la política de pacing vive en el **provider**, no en el core: cada
+transporte puede aplicar sus propios límites (429s de Telegram, buckets de
+Discord, tiers de la Cloud API — expuestos como `RateLimitedError` tipados).
+Esta página cubre el limiter de token bucket de WhatsApp (Baileys) que
+configuras al construir `BaileysProvider`.
+:::
 
 ## Cómo funciona
 
@@ -14,7 +22,7 @@ Cuando un bucket se vacía, los mensajes se **encolan** (nunca se descartan) y s
 ```mermaid
 flowchart LR
     A["ctx.reply()"] --> B["before('send') hooks"]
-    B --> C["RateLimiter.acquire(jid)"]
+    B --> C["RateLimiter.acquire(chatId)"]
     C -->|"tokens disponibles"| D["provider.send()"]
     C -->|"bucket vacío"| E["cola — esperar recarga"]
     E --> D
@@ -23,18 +31,21 @@ flowchart LR
 
 ## Configuración
 
-Pasa `rateLimit` en el constructor de `Bot`:
+Pasa `rateLimit` al constructor del **provider**:
 
 ```ts
-import { Bot } from '@bot-wa/bot-wa-baileys'
+import { Bot } from '@bot-wa/core'
+import { BaileysProvider } from '@bot-wa/baileys'
 
 const bot = new Bot({
-  session: 'mi-bot',
-  rateLimit: {
-    perChat: { max: 5, window: '10s' },   // máx 5 msgs por chat cada 10s
-    global:  { max: 50, window: '60s' },   // máx 50 msgs totales cada 60s
-    jitter:  { min: 500, max: 1500 },      // delay aleatorio 500–1500ms entre envíos
-  },
+  provider: new BaileysProvider({
+    session: 'mi-bot',
+    rateLimit: {
+      perChat: { max: 5, window: '10s' },   // máx 5 msgs por chat cada 10s
+      global:  { max: 50, window: '60s' },   // máx 50 msgs totales cada 60s
+      jitter:  { min: 500, max: 1500 },      // delay aleatorio 500–1500ms entre envíos
+    },
+  }),
 })
 ```
 
@@ -54,8 +65,10 @@ Para tests o entornos de alta confianza:
 
 ```ts
 const bot = new Bot({
-  session: 'mi-bot',
-  rateLimit: { enabled: false },
+  provider: new BaileysProvider({
+    session: 'mi-bot',
+    rateLimit: { enabled: false },
+  }),
 })
 ```
 
@@ -74,10 +87,10 @@ Un número de WhatsApp recién registrado se banea más rápido que uno con anti
 
 ## Acceso programático
 
-La instancia de `RateLimiter` es interna, pero puedes importar la clase para uso avanzado:
+La instancia de `RateLimiter` es interna, pero puedes importar la clase desde el paquete de transporte para uso avanzado:
 
 ```ts
-import { RateLimiter } from '@bot-wa/bot-wa-baileys'
+import { RateLimiter } from '@bot-wa/baileys'
 
 const limiter = new RateLimiter({
   perChat: { max: 5, window: '10s' },

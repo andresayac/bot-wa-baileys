@@ -1,103 +1,76 @@
-# Sub-APIs
+# Sub-APIs (v1) → transport escape hatches (v2)
 
-The bot exposes 5 typed sub-APIs for advanced WhatsApp functionality:
-`bot.groups`, `bot.profile`, `bot.privacy`, `bot.chats`, `bot.presence`.
+In v1 the bot exposed 5 typed WhatsApp sub-APIs: `bot.groups`,
+`bot.profile`, `bot.privacy`, `bot.chats`, `bot.presence`. **In v2 these
+were removed from the core**: `@bot-wa/core` is transport-agnostic, and
+group/privacy/profile management is WhatsApp-specific — it doesn't exist on
+Telegram or Discord in the same shape.
 
-::: tip Real socket only
-These call the underlying Baileys socket directly, so they only work against
-a real WhatsApp connection — not against the `MockProvider` used by
-`createTestBot()`.
+## What replaces them
+
+Two layers, depending on what you need:
+
+### 1. Normalized capabilities on every provider
+
+The common operations survived on the shared contract — feature-detect,
+never assume:
+
+```ts
+await ctx.markRead()     // provider.markRead(refs)
+await ctx.typing()       // provider.typing(chatId, state)
+await ctx.delete()       // provider.deleteMessage(ref)
+bot.on('group', ...)     // group participant changes (add/remove/promote/demote)
+bot.on('presence', ...)  // contact presence updates
+bot.on('status', ...)    // delivery/read receipts
+```
+
+Every provider publishes `provider.capabilities` (`groups`, `presence`,
+`edit`, `typing`, ...) so you can branch on what the transport supports.
+
+### 2. The transport-native socket (Baileys only)
+
+For everything else — creating groups, invite links, privacy settings,
+chat archive/pin/mute — reach through the Baileys provider to the raw
+socket. The provider keeps a debug handle (`provider.connection`) and a
+typed getter (`provider.socket`):
+
+```ts
+import { Bot } from '@bot-wa/core'
+import { BaileysProvider } from '@bot-wa/baileys'
+
+const provider = new BaileysProvider({ session: 'my-bot' })
+const bot = new Bot({ provider })
+
+bot.on('ready', async () => {
+  const sock = provider.socket // the raw Baileys 7 socket
+  if (!sock) return
+
+  // v1 bot.groups.create(...) equivalent:
+  const group = await sock.groupCreate('My group', ['573001234567@s.whatsapp.net'])
+
+  // v1 bot.profile.setName(...):
+  await sock.updateProfileName('My Bot')
+
+  // v1 bot.privacy.setLastSeen(...):
+  await sock.updateLastSeenPrivacy('all')
+
+  // v1 bot.groups.inviteLink(...):
+  const code = await sock.groupInviteCode(group.id)
+})
+
+await bot.start()
+```
+
+::: warning Transport-specific code stays transport-specific
+Anything you write against `provider.socket` only works with
+`@bot-wa/baileys` (and only against a real WhatsApp connection — not the
+`MockProvider` used by `createTestBot()`). Guard it behind
+`provider.id === 'baileys'` if your code may run on other transports.
 :::
 
-## groups — group management
-
-```ts
-const { id } = await bot.groups.create('My group', ['573001234567@s.whatsapp.net'])
-const meta = await bot.groups.metadata(id)
-const members = await bot.groups.members(id)
-const admins = await bot.groups.admins(id)
-
-await bot.groups.addMember(id, '573001112233@s.whatsapp.net')
-await bot.groups.removeMember(id, '573001112233@s.whatsapp.net')
-await bot.groups.promote(id, '573001112233@s.whatsapp.net')
-await bot.groups.demote(id, '573001112233@s.whatsapp.net')
-
-await bot.groups.setName(id, 'New name')
-await bot.groups.setDescription(id, 'New description')
-await bot.groups.setSetting(id, 'locked')          // 'announcement' | 'not_announcement' | 'locked' | 'unlocked'
-await bot.groups.setEphemeral(id, 604800)           // 0 | 86400 | 604800 | 7776000 (seconds)
-await bot.groups.setMemberAddMode(id, 'admin_add')  // 'all_member_add' | 'admin_add'
-
-const link = await bot.groups.inviteLink(id)
-await bot.groups.revokeInviteLink(id)
-const info = await bot.groups.infoFromInvite('invite-code')
-await bot.groups.join('invite-code')
-
-const all = await bot.groups.listAll()
-const pending = await bot.groups.listJoinRequests(id)
-await bot.groups.resolveJoinRequests(id, ['573001112233@s.whatsapp.net'], 'approve') // or 'reject'
-
-await bot.groups.leave(id)
-```
-
-## profile — your bot's profile
-
-```ts
-await bot.profile.setName('My Bot')
-await bot.profile.setStatus('Online')
-await bot.profile.setPhoto('https://example.com/avatar.png')
-await bot.profile.removePhoto()
-
-const photoUrl = await bot.profile.getPhoto('573001234567@s.whatsapp.net')
-const status = await bot.profile.getStatus('573001234567@s.whatsapp.net')
-const business = await bot.profile.getBusiness('573001234567@s.whatsapp.net')
-const me = bot.profile.getMe() // { id, name?, pushName? } — not async
-```
-
-## privacy — privacy settings
-
-```ts
-await bot.privacy.setLastSeen('all')          // 'all' | 'contacts' | 'contact_blacklist' | 'none'
-await bot.privacy.setOnline('all')            // 'all' | 'match_last_seen'
-await bot.privacy.setProfilePicture('contacts')  // 'all' | 'contacts' | 'contact_blacklist' | 'none'
-await bot.privacy.setStatus('contacts')       // 'all' | 'contacts' | 'contact_blacklist' | 'none'
-await bot.privacy.setReadReceipts('all')      // 'all' | 'none'
-await bot.privacy.setGroupsAdd('contacts')    // 'all' | 'contacts' | 'contact_blacklist'
-await bot.privacy.setDefaultDisappearing(604800) // 0 | 86400 | 604800 | 7776000 (seconds)
-
-await bot.privacy.block('573001234567@s.whatsapp.net')
-await bot.privacy.unblock('573001234567@s.whatsapp.net')
-const blocked = await bot.privacy.listBlocked()
-```
-
-## chats — chat management
-
-```ts
-const chatId = '573001234567@s.whatsapp.net'
-
-await bot.chats.archive(chatId)                 // archive(chatId, archive? = true)
-await bot.chats.mute(chatId, 24 * 60 * 60 * 1000) // ms, or null to unmute
-await bot.chats.pin(chatId)                      // pin(chatId, pin? = true)
-await bot.chats.unpin(chatId)
-await bot.chats.star([messageKey], true)         // star(messageKeys, star?)
-await bot.chats.markRead(chatId, [messageKey])   // markRead(chatId, messageKeys)
-await bot.chats.clear(chatId, [messageKey])      // clear(chatId, messageKeys)
-await bot.chats.delete(chatId)
-
-const chats = await bot.chats.list()
-```
-
-## presence — presence & typing
-
-```ts
-const chatId = '573001234567@s.whatsapp.net'
-
-await bot.presence.update('composing', chatId)  // 'available' | 'unavailable' | 'composing' | 'recording' | 'paused'
-await bot.presence.update('recording', chatId)
-await bot.presence.update('available')          // global presence, no chatId needed
-
-await bot.presence.subscribe(chatId)            // subscribe to this contact's presence updates
-```
+See the [Baileys docs](https://github.com/WhiskeySockets/Baileys) for the
+full socket API (`groupCreate`, `groupMetadata`, `groupParticipantsUpdate`,
+`updateProfilePicture`, `chatModify`, ...).
 
 ## Next steps
 

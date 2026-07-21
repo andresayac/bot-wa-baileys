@@ -5,7 +5,8 @@ A complete plugin that limits how many messages a user can send per time window.
 ## The plugin
 
 ```ts
-import { Bot, definePlugin } from '@bot-wa/bot-wa-baileys'
+import { Bot, definePlugin } from '@bot-wa/core'
+import { BaileysProvider } from '@bot-wa/baileys'
 
 interface RateLimitConfig {
   max?: number
@@ -47,8 +48,8 @@ const rateLimitPlugin = definePlugin<RateLimitConfig>({
     // cleanup — here, a periodic sweep of expired counters.
     const gc = setInterval(() => {
       const now = Date.now()
-      for (const [jid, entry] of counts) {
-        if (entry.resetAt < now) counts.delete(jid)
+      for (const [chatId, entry] of counts) {
+        if (entry.resetAt < now) counts.delete(chatId)
       }
     }, windowMs)
     ctx.onDispose(() => clearInterval(gc))
@@ -57,7 +58,9 @@ const rateLimitPlugin = definePlugin<RateLimitConfig>({
   },
 })
 
-const bot = new Bot({ session: 'demo-bot', qr: { terminal: true, small: true } })
+const bot = new Bot({
+  provider: new BaileysProvider({ session: 'demo-bot', qr: { terminal: true, small: true } }),
+})
 
 // Default config (10 msg / 60s)
 const unplug = bot.plug(rateLimitPlugin)
@@ -134,17 +137,18 @@ ctx.bot.before('message', async (msgCtx, next) => {
 ### Limit the bot's own outbound sends
 
 `before('send')` fires for every outbound message (`bot.send`, `ctx.reply`,
-`ctx.photo`, ...). Its payload is `{ jid, content, options }` and it can be
-aborted the same way, skipping the send entirely:
+`ctx.photo`, ...). Its payload is `{ chatId, content, options }` (where
+`content` is the transport-neutral `OutboundContent`) and it can be aborted
+the same way, skipping the send entirely:
 
 ```ts
 ctx.bot.before('send', async (payload, next) => {
   const now = Date.now()
-  let entry = counts.get(payload.jid)
+  let entry = counts.get(payload.chatId)
 
   if (!entry || entry.resetAt < now) {
     entry = { count: 0, resetAt: now + windowMs }
-    counts.set(payload.jid, entry)
+    counts.set(payload.chatId, entry)
   }
 
   entry.count++
