@@ -1,0 +1,18 @@
+{
+  "name": "@bot-wa/nlu",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Lightweight local intent/NLU for @bot-wa/core — define intents with utterances, match incoming text, no external services.",
+  "main": "lib/index.js", "types": "lib/index.d.ts",
+  "exports": { ".": { "types": "./lib/index.d.ts", "default": "./lib/index.js" } },
+  "engines": { "node": ">=20" },
+  "keywords": ["bot-wa", "nlu", "intent", "intents", "dialogflow"],
+  "author": "Andres Aya", "license": "MIT",
+  "repository": { "type": "git", "url": "git+https://github.com/andresayac/bot-wa-baileys.git", "directory": "packages/nlu" },
+  "homepage": "https://github.com/andresayac/bot-wa-baileys/tree/main/packages/nlu#readme",
+  "bugs": { "url": "https://github.com/andresayac/bot-wa-baileys/issues" },
+  "files": ["./lib/**/*"],
+  "scripts": { "build": "tsc", "test": "vitest run", "prepublishOnly": "pnpm build" },
+  "dependencies": { "@bot-wa/core": "workspace:*" },
+  "devDependencies": { "@types/node": "^26.1.1", "typescript": "^7.0.2", "vite": "^7.3.6", "vitest": "^4.1.10" }
+}
