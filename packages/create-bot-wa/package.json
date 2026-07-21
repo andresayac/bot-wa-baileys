@@ -1,0 +1,18 @@
+{
+  "name": "create-bot-wa",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Scaffold a new @bot-wa bot project (npm create bot-wa).",
+  "main": "lib/index.js", "types": "lib/index.d.ts",
+  "bin": { "create-bot-wa": "lib/cli.js" },
+  "exports": { ".": { "types": "./lib/index.d.ts", "default": "./lib/index.js" } },
+  "engines": { "node": ">=20" },
+  "keywords": ["bot-wa", "cli", "scaffolder", "create"],
+  "author": "Andres Aya", "license": "MIT",
+  "repository": { "type": "git", "url": "git+https://github.com/andresayac/bot-wa-baileys.git", "directory": "packages/create-bot-wa" },
+  "homepage": "https://github.com/andresayac/bot-wa-baileys/tree/main/packages/create-bot-wa#readme",
+  "bugs": { "url": "https://github.com/andresayac/bot-wa-baileys/issues" },
+  "files": ["./lib/**/*"],
+  "scripts": { "build": "tsc", "test": "vitest run", "prepublishOnly": "pnpm build" },
+  "devDependencies": { "@types/node": "^26.1.1", "typescript": "^7.0.2", "vite": "^7.3.6", "vitest": "^4.1.10" }
+}
