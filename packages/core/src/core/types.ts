@@ -22,6 +22,7 @@ export type {
   UserId,
   MessageId,
   MessageRef,
+  QuotedRef,
   ChatKind,
   ChatInfo,
   SenderInfo,

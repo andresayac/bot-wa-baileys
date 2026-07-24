@@ -92,11 +92,26 @@ export class FlowBuilder {
       // counter so two structurally-identical anonymous flows can never collide on the same id
       // (which previously misrouted one flow's trigger into the other).
       id: id ?? `flow_${Math.abs(hashSteps(this.steps))}_${anonCounter++}`,
-      trigger: this.trigger,
+      trigger: applyScope(this.trigger, this._scope),
       steps: [...this.steps],   // copy: later builder mutations must not leak into a compiled flow
       opts: { timeoutMs: this._timeoutMs, persistent: this._persistent, scope: this._scope },
     }
   }
+}
+
+function applyScope(trigger: Trigger, scope: TriggerScope | undefined): Trigger {
+  if (!scope) return trigger
+  if (typeof trigger === 'function') {
+    return (ctx) => {
+      if (scope === 'dm' && ctx.isGroup) return false
+      if (scope === 'group' && !ctx.isGroup) return false
+      return trigger(ctx)
+    }
+  }
+  if (typeof trigger === 'object' && trigger !== null && !(trigger instanceof RegExp) && !Array.isArray(trigger) && 'pattern' in trigger) {
+    return { ...trigger, scope }
+  }
+  return { pattern: trigger, scope }
 }
 
 /** Module-level monotonic counter — guarantees unique anonymous flow ids per process. */

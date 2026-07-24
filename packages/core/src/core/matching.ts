@@ -30,7 +30,12 @@ export function matchTrigger(trigger: Trigger, ctx: MatchInput): boolean {
   return patterns.some((p) => {
     // Intentional: RegExp patterns run against the RAW body (no normalization) —
     // regex authors control their own flags and diacritics handling.
-    if (p instanceof RegExp) return p.test(ctx.body ?? '')
+    if (p instanceof RegExp) {
+      p.lastIndex = 0
+      const matched = p.test(ctx.body ?? '')
+      p.lastIndex = 0
+      return matched
+    }
     const text = normalizeText(String(p))
     switch (strategy) {
       case 'contains': return body.includes(text)

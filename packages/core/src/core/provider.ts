@@ -423,7 +423,7 @@ export interface IProvider<TRaw = unknown> {
   readonly id: string
   readonly capabilities: ProviderCapabilities
 
-  /** The bot's own user id once connected (for group @mention matching). Optional. */
+  /** The bot's own user id once connected (for group mention matching). Optional. */
   readonly selfId?: UserId | null
 
   start(): Promise<void>
@@ -586,10 +586,19 @@ export interface StoredMessage {
   ref: MessageRef
   chatId: ChatId
   senderId?: UserId
+  tenantId?: string
+  environmentId?: string
+  botId?: string
+  providerId?: string
+  connectionId?: string
   timestamp: number
-  type: MessageType
+  type: MessageType | OutboundContent['kind']
   body?: string
   fromMe?: boolean
+  direction?: 'inbound' | 'outbound'
+  status?: 'received' | 'queued' | 'sent' | 'delivered' | 'read' | 'failed'
+  error?: { code?: string | number; message?: string }
+  quoted?: MessageRef
   raw?: unknown
 }
 
@@ -600,15 +609,28 @@ export interface AIMessage {
 }
 export interface StoredChat {
   id: ChatId
+  tenantId?: string
+  environmentId?: string
+  botId?: string
+  providerId?: string
+  connectionId?: string
   kind?: ChatKind
   name?: string
+  lastMessageAt?: number
+  updatedAt?: number
   raw?: unknown
 }
 export interface StoredContact {
   id: UserId
+  tenantId?: string
+  environmentId?: string
+  botId?: string
+  providerId?: string
+  connectionId?: string
   name?: string
   username?: string
   phoneNumber?: string
+  updatedAt?: number
   raw?: unknown
 }
 
@@ -633,6 +655,7 @@ export interface IStore {
   upsertContact(contact: StoredContact): Promise<void>
   getContact(userId: UserId): Promise<StoredContact | undefined>
   listContacts(): Promise<StoredContact[]>
+  deleteContact(userId: UserId): Promise<void>
 
   /** Delivery cursor for long-poll/webhook transports (Telegram update_id). */
   getCursor?(key: string): Promise<string | undefined>
@@ -680,6 +703,16 @@ export type StoreKind = 'memory' | 'sqlite' | 'redis' | 'postgres' | 'mongo' | '
  */
 export interface BotConfig {
   session?: string
+  /** Storage and control-plane namespace. Defaults to `local`. */
+  tenantId?: string
+  /** Deployment environment namespace. Defaults to `default`. */
+  environmentId?: string
+  /** Stable bot namespace. Defaults to `session` or the provider id. */
+  botId?: string
+  /** Stable provider-account/connection namespace. Defaults to `session` or `default`. */
+  connectionId?: string
+  /** Persist provider-native payloads. Disabled by default to minimize PII. */
+  persistRaw?: boolean
   store?: StoreKind | IStore
   storeConfig?: Record<string, unknown>
   /** REQUIRED in v2: the constructed transport provider (BaileysProvider, ...). */

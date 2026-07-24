@@ -4,7 +4,7 @@
 [![npm](https://img.shields.io/npm/v/@bot-wa/core)](https://www.npmjs.com/package/@bot-wa/core)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](https://github.com/andresayac/bot-wa-baileys/blob/main/LICENSE.md)
 
-Motor de bots **agnóstico de transporte**: flows declarativos para empezar en 30 segundos, un runtime de conversaciones async para control total, hooks/plugins/DI y scheduler. Tú inyectas el transporte (WhatsApp vía [`@bot-wa/baileys`](../baileys-provider); Telegram/Discord vendrán sobre el mismo contrato `IProvider`).
+Motor de bots **agnóstico de transporte**: flows declarativos para empezar en 30 segundos, un runtime de conversaciones async para control total, hooks/plugins/DI y scheduler. Tú inyectas el transporte (WhatsApp vía [`@bot-wa/baileys`](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/baileys-provider); Telegram/Discord usan el mismo contrato `IProvider`).
 
 > **v2 es un rewrite transport-agnostic.** Si vienes de la v1 (`BaileysClass`), lee la [guía de migración](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/MIGRATION-v1-to-v2.md).
 
@@ -14,7 +14,7 @@ Motor de bots **agnóstico de transporte**: flows declarativos para empezar en 3
 npm i @bot-wa/core @bot-wa/baileys
 ```
 
-Requiere **Node >= 20** (ESM-only). El core no tiene dependencias de transporte — las instala el paquete del transporte que uses.
+Requiere **Node >= 22** (ESM-only). El core no tiene dependencias de transporte — las instala el paquete del transporte que uses.
 
 ## Quickstart (30 segundos)
 
@@ -52,7 +52,7 @@ Un ejemplo completo (comandos, media, hooks, DI, scheduler) vive en [`packages/b
 
 ¿Sin cámara? Configura `pairingCode: '+57300XXXXXXX'` en el `BaileysProvider` (formato internacional completo) y escucha `bot.on('qr', ...)` — el código de emparejamiento llega por ahí también.
 
-> **Flujos persistentes:** `flow(...).persistent()` solo sobrevive a un reinicio si el store es persistente. El `MemoryStore` por defecto vive en memoria; para conservar los checkpoints usa un store con disco (p.ej. [`@bot-wa/sqlite-store`](../sqlite-store)).
+> **Flujos persistentes:** `flow(...).persistent()` solo sobrevive a un reinicio si el store es persistente. El `MemoryStore` por defecto vive en memoria; para conservar los checkpoints usa un store con disco (p.ej. [`@bot-wa/sqlite-store`](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/sqlite-store)).
 
 ## Características (v2)
 
@@ -73,7 +73,7 @@ Un ejemplo completo (comandos, media, hooks, DI, scheduler) vive en [`packages/b
 
 ## Store persistente (SQLite)
 
-El `MemoryStore` por defecto es ideal para desarrollo. Para producción usa el paquete [`@bot-wa/sqlite-store`](../sqlite-store):
+El `MemoryStore` por defecto es ideal para desarrollo. Para producción usa el paquete [`@bot-wa/sqlite-store`](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/sqlite-store):
 
 ```ts
 import { Bot } from '@bot-wa/core'

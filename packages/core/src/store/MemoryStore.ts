@@ -190,6 +190,10 @@ export class MemoryStore implements IStore {
     return [...this.contacts.values()]
   }
 
+  async deleteContact(userId: string): Promise<void> {
+    this.contacts.delete(userId)
+  }
+
   /* Delivery cursor ------------------------------------------------------- */
 
   async getCursor(key: string): Promise<string | undefined> {

@@ -21,16 +21,18 @@ export class Scheduler {
   private isRunning = false
 
   start(logger?: Logger): void {
+    if (this.isRunning) return
     this.logger = logger
     this.isRunning = true
+    for (const task of this.tasks.values()) this.schedule(task)
   }
 
   stop(): void {
     this.isRunning = false
     for (const t of this.tasks.values()) {
       if (t.timer) clearTimeout(t.timer)
+      t.timer = undefined
     }
-    this.tasks.clear()
   }
 
   /** Add a cron-style task. */
@@ -55,23 +57,24 @@ export class Scheduler {
     handler: () => void | Promise<void>
   ): ScheduledTask {
     const id = randomId('task')
+    const runAt = once !== undefined
+      ? new Date(Date.now() + parseDuration(once))
+      : undefined
 
     const computeNextRun = (): Date | null => {
       if (cronExpr) return cronNextRun(cronExpr)
       if (interval !== undefined) {
         return new Date(Date.now() + parseDuration(interval))
       }
-      if (once !== undefined) {
-        return new Date(Date.now() + parseDuration(once))
-      }
+      if (runAt) return runAt
       return null
     }
 
     const task: InternalTask = {
       id,
       cron: cronExpr,
-      interval: interval ? String(interval) : undefined,
-      runAt: once ? new Date(Date.now() + parseDuration(once)) : undefined,
+      interval: interval !== undefined ? String(interval) : undefined,
+      runAt,
       isRecurring: cronExpr !== undefined || interval !== undefined,
       handler,
       nextRunDate: computeNextRun(),
@@ -90,6 +93,8 @@ export class Scheduler {
 
   private schedule(task: InternalTask): void {
     if (!this.isRunning) return
+    if (!this.tasks.has(task.id)) return
+    if (task.timer) clearTimeout(task.timer)
     const next = task.computeNextRun()
     if (!next) return
     task.nextRunDate = next
@@ -100,8 +105,15 @@ export class Scheduler {
       } catch (err) {
         this.logger?.error?.({ err, taskId: task.id }, 'scheduled task failed')
       }
-      if (task.isRecurring) this.schedule(task)
-      else this.tasks.delete(task.id)
+      task.timer = undefined
+      if (task.isRecurring) {
+        // Reschedule while running; if stop() landed mid-handler, KEEP the
+        // definition (pause-not-delete) so start() resumes it — deleting here
+        // permanently dropped the recurring task.
+        if (this.isRunning && this.tasks.has(task.id)) this.schedule(task)
+      } else {
+        this.tasks.delete(task.id) // one-shot: done
+      }
     }, delayMs)
   }
 }
@@ -122,8 +134,8 @@ function cronNextRun(expr: string): Date | null {
   next.setSeconds(0, 0)
   next.setMinutes(next.getMinutes() + 1)
 
-  // Brute-force search up to 7 days ahead
-  for (let i = 0; i < 7 * 24 * 60; i++) {
+  // Search far enough to cover monthly and annual expressions.
+  for (let i = 0; i < 366 * 24 * 60; i++) {
     const candidate = new Date(next.getTime() + i * 60_000)
     if (matchesField(candidate.getMinutes(), m) &&
         matchesField(candidate.getHours(), h) &&
@@ -143,6 +155,7 @@ function matchesField(actual: number, expr: string): boolean {
     if (part.includes('/')) {
       const [base, step] = part.split('/')
       const stepN = parseInt(step, 10)
+      if (!Number.isInteger(stepN) || stepN <= 0) continue
       let min = base === '*' ? 0 : parseInt(base, 10)
       if (isNaN(min)) min = 0
       if (actual >= min && (actual - min) % stepN === 0) return true

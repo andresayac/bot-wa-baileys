@@ -14,6 +14,38 @@ describe('Bot integration (MockProvider)', () => {
     expect(chat.replies()).toEqual(['👋 ¡Hola!'])
   })
 
+  it('persists an inbound/outbound ledger and contact/chat projections', async () => {
+    const { bot, chat } = await createTestBot({ tenantId: 't1', botId: 'support' })
+    bot.when('hola', async (ctx) => { await ctx.reply('respuesta') })
+    await chat.send('hola')
+    await chat.expectReply('respuesta')
+
+    const messages = await bot.getStore().getMessagesByChat(chat.jid)
+    expect(messages.map((message) => message.direction)).toEqual(['inbound', 'outbound'])
+    expect(messages.map((message) => message.status)).toEqual(['received', 'sent'])
+    expect(messages.every((message) => message.tenantId === 't1' && message.botId === 'support')).toBe(true)
+    expect(messages[0]?.timestamp).toBeGreaterThan(1_000_000_000_000)
+    expect(messages[0]?.raw).toBeUndefined()
+    expect((await bot.getStore().getChat(chat.jid))?.lastMessageAt).toBeDefined()
+    expect((await bot.getStore().listContacts())[0]?.name).toBe('Test User')
+  })
+
+  it('exports and deletes subject data inside its namespace', async () => {
+    const { bot, chat } = await createTestBot({ tenantId: 'privacy', botId: 'desk' })
+    bot.when('hola', async (ctx) => { await ctx.reply('respuesta') })
+    await chat.send('hola')
+    await chat.expectReply('respuesta')
+
+    const exported = await bot.exportSubject(chat.jid)
+    expect(exported.contact?.name).toBe('Test User')
+    expect(exported.messages).toHaveLength(2)
+
+    const deleted = await bot.deleteSubject(chat.jid)
+    expect(deleted).toMatchObject({ contacts: 1, chats: 1, messages: 2 })
+    expect(await bot.getStore().getContact(chat.jid)).toBeUndefined()
+    expect(await bot.getStore().getMessagesByChat(chat.jid)).toEqual([])
+  })
+
   it('full register flow over the bot', async () => {
     const { bot, chat } = await createTestBot()
     bot.use(flow('registrar')

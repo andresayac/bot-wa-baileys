@@ -3,6 +3,7 @@ import { ConversationRuntime } from '../src/conversations/ConversationRuntime.js
 import { createControls } from '../src/conversations/controls.js'
 import { flow } from '../src/flows/FlowBuilder.js'
 import { flowToConversation } from '../src/conversations/interpreter.js'
+import { matchTrigger } from '../src/core/matching.js'
 
 function makeMsg(body: string) {
   return { from: 'a@s.whatsapp.net', sender: 'a@s.whatsapp.net', body, type: 'text', isGroup: false, reply: vi.fn(async () => {}) }
@@ -76,6 +77,16 @@ describe('FlowBuilder + interpreter', () => {
     const compiled = builder.compile()
     builder.say('dos')   // mutate the builder AFTER compiling
     expect(compiled.steps).toHaveLength(1)
+  })
+
+  it('scope() is applied to the compiled trigger', () => {
+    const groupOnly = flow('hello').scope('group').compile()
+    expect(matchTrigger(groupOnly.trigger, { body: 'hello', isGroup: true })).toBe(true)
+    expect(matchTrigger(groupOnly.trigger, { body: 'hello', isGroup: false })).toBe(false)
+
+    const dmOnlyFn = flow((ctx) => ctx.body === 'hello').scope('dm').compile()
+    expect(matchTrigger(dmOnlyFn.trigger, { body: 'hello', isGroup: false })).toBe(true)
+    expect(matchTrigger(dmOnlyFn.trigger, { body: 'hello', isGroup: true })).toBe(false)
   })
 
   it('choose stores the picked key in state.choice for later steps (I5)', async () => {

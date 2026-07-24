@@ -40,9 +40,21 @@ export function validateConfig<T extends Partial<BotConfig>>(config: T): T {
   assertType('session', config.session, 'string')
   assertType('commandPrefix', config.commandPrefix, 'string')
   assertType('debug', config.debug, 'boolean')
+  assertType('tenantId', config.tenantId, 'string')
+  assertType('environmentId', config.environmentId, 'string')
+  assertType('botId', config.botId, 'string')
+  assertType('connectionId', config.connectionId, 'string')
+  assertType('persistRaw', config.persistRaw, 'boolean')
 
   if (config.commandPrefix === '') {
     throw new ConfigValidationError('commandPrefix', 'a non-empty string', '')
+  }
+
+  for (const field of ['tenantId', 'environmentId', 'botId', 'connectionId'] as const) {
+    const value = config[field]
+    if (value !== undefined && (value.trim() === '' || /[\u0000-\u001f]/.test(value))) {
+      throw new ConfigValidationError(field, 'a non-empty string without control characters', value)
+    }
   }
 
   if (config.conversationScope !== undefined) {

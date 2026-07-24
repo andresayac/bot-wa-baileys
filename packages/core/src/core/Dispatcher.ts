@@ -11,7 +11,7 @@ export interface DispatchContext extends RuntimeMessage {
 export type MessageHandler = (ctx: DispatchContext) => unknown | Promise<unknown>
 export type CommandHandler = (ctx: DispatchContext, args: string[]) => unknown | Promise<unknown>
 
-interface HooksLike {
+export interface HooksLike {
   runBefore(event: string, ctx: unknown): Promise<boolean>
   runAfter(event: string, ctx: unknown): Promise<void>
   runError(event: string, ctx: unknown, err: unknown): Promise<void>

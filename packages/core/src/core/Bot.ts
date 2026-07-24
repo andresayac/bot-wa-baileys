@@ -43,6 +43,7 @@ import type {
   CallEvent,
   DeliveryStatus,
   MessageContext,
+  MessageRef,
   MessageType,
   OutboundContent,
   Plugin,
@@ -52,11 +53,16 @@ import type {
   SendResult,
   SentMessage,
   StoredMessage,
+  StoredChat,
+  StoredContact,
+  AIMessage,
+  FlowCheckpoint,
   Trigger,
 } from './types.js'
 
 import { HookSystem } from '../hooks/HookSystem.js'
 import { MemoryStore } from '../store/MemoryStore.js'
+import { NamespacedStore, type StoreNamespace } from '../store/NamespacedStore.js'
 import type { IStore } from '../store/IStore.js'
 import { Dispatcher, type DispatchContext } from './Dispatcher.js'
 import { buildMessageContext } from './context.js'
@@ -65,6 +71,7 @@ import { createControls, type ConversationControls } from '../conversations/cont
 import { FlowBuilder, isCompiledFlow, type CompiledFlow } from '../flows/FlowBuilder.js'
 import { Scheduler } from '../scheduler/Scheduler.js'
 import { parseDuration } from '../utils/duration.js'
+import { randomId } from '../utils/timers.js'
 import { validateConfig } from '../utils/validateConfig.js'
 
 /** A user message handler — receives the full inbound {@link MessageContext}. */
@@ -110,7 +117,26 @@ export interface BotEvents {
   status: DeliveryStatus
 }
 
-type BotEventArgs<K extends keyof BotEvents> = BotEvents[K] extends void ? [] : [BotEvents[K]]
+export type BotEventArgs<K extends keyof BotEvents> = BotEvents[K] extends void ? [] : [BotEvents[K]]
+
+export interface SubjectDataExport {
+  namespace: Readonly<StoreNamespace>
+  userId: UserId
+  contact?: StoredContact
+  chats: StoredChat[]
+  messages: StoredMessage[]
+  conversation?: AIMessage[]
+  checkpoints: Array<[string, FlowCheckpoint]>
+  exportedAt: number
+}
+
+export interface SubjectDeletionResult {
+  contacts: number
+  chats: number
+  messages: number
+  conversations: number
+  checkpoints: number
+}
 
 export class Bot extends EventEmitter {
   readonly logger: Logger
@@ -119,12 +145,15 @@ export class Bot extends EventEmitter {
   private hooks: HookSystem
   private store: IStore
   private provider: IProvider
+  private namespace: StoreNamespace
   private runtime: ConversationRuntime
   private dispatcher: Dispatcher
   private scheduler = new Scheduler()
   private tools: Record<string, unknown> = {}
   private disposables = new DisposableList()
   private isStarted = false
+  private acceptingInbound = false
+  private lifecycleQueue: Promise<void> = Promise.resolve()
   private connState: ConnectionState = 'closed'
   /** In-flight outbound sends — tracked so `stop({ drain: true })` can wait for them. */
   private inflightSends = new Set<Promise<unknown>>()
@@ -147,13 +176,13 @@ export class Bot extends EventEmitter {
 
     this.logger = config.logger as Logger ?? pino({
       level: config.debug ? 'debug' : 'error',
-      transport: config.debug ? { target: 'pino-pretty', options: { colorize: true } } : undefined,
     })
 
     this.hooks = new HookSystem(this.logger.child({ module: 'hooks' }))
 
-    // Store — injected instance, or the built-in MemoryStore.
-    this.store =
+    // Store — injected instance, or the built-in MemoryStore. Every key is
+    // namespaced so sharing one backend across bots cannot collide.
+    const baseStore =
       (typeof this.config.store === 'object' && this.config.store !== null
         ? (this.config.store as IStore)
         : null) ??
@@ -163,6 +192,19 @@ export class Bot extends EventEmitter {
         autoSaveInterval: (this.config.storeConfig as { autoSaveInterval?: number } | undefined)?.autoSaveInterval,
         logger: this.logger.child({ module: 'store' }),
       })
+    this.namespace = {
+      tenantId: this.config.tenantId ?? 'local',
+      environmentId: this.config.environmentId ?? 'default',
+      botId: this.config.botId ?? this.config.session ?? this.provider.id,
+      providerId: this.provider.id,
+      connectionId: this.config.connectionId ?? this.config.session ?? 'default',
+    }
+    if (baseStore instanceof NamespacedStore) {
+      this.store = baseStore
+      this.namespace = baseStore.namespace
+    } else {
+      this.store = new NamespacedStore(baseStore, this.namespace)
+    }
 
     const conv = this.config.conversation ?? {}
     this.runtime = new ConversationRuntime({
@@ -227,14 +269,38 @@ export class Bot extends EventEmitter {
    * LIFECYCLE
    * ====================================================================== */
 
-  async start(): Promise<void> {
+  start(): Promise<void> {
+    return this.enqueueLifecycle(() => this.startOnce())
+  }
+
+  private async startOnce(): Promise<void> {
     if (this.isStarted) return
-    this.isStarted = true
-    await this.store.start()
-    await this.runtime.loadDormant()
-    await this.provider.start()
-    await this.scheduler.start(this.logger.child({ module: 'scheduler' }))
-    this.emit('started')
+    let storeAttempted = false
+    let providerAttempted = false
+    try {
+      storeAttempted = true
+      await this.store.start()
+      await this.runtime.loadDormant()
+      providerAttempted = true
+      await this.provider.start()
+      this.scheduler.start(this.logger.child({ module: 'scheduler' }))
+      this.isStarted = true
+      this.acceptingInbound = true
+      this.emit('started')
+    } catch (error) {
+      this.acceptingInbound = false
+      this.scheduler.stop()
+      if (providerAttempted) {
+        try { await this.provider.stop() }
+        catch (rollbackError) { this.logger.error({ err: rollbackError }, 'provider start rollback failed') }
+      }
+      if (storeAttempted) {
+        try { await this.store.stop() }
+        catch (rollbackError) { this.logger.error({ err: rollbackError }, 'store start rollback failed') }
+      }
+      this.connState = 'closed'
+      throw error
+    }
   }
 
   /**
@@ -242,9 +308,13 @@ export class Bot extends EventEmitter {
    * @param opts.drain - Wait for in-flight sends to complete before stopping (default false).
    * @param opts.timeout - Max ms to wait for drain before forcing stop (default 10000).
    */
-  async stop(opts?: { drain?: boolean; timeout?: number }): Promise<void> {
+  stop(opts?: { drain?: boolean; timeout?: number }): Promise<void> {
+    return this.enqueueLifecycle(() => this.stopOnce(opts))
+  }
+
+  private async stopOnce(opts?: { drain?: boolean; timeout?: number }): Promise<void> {
     if (!this.isStarted) return
-    this.isStarted = false
+    this.acceptingInbound = false
     this.scheduler.stop()
     if (opts?.drain && this.inflightSends.size > 0) {
       const timeout = opts.timeout ?? 10_000
@@ -254,9 +324,21 @@ export class Bot extends EventEmitter {
       ])
     }
     this.runtime.abortAll()
-    await this.provider.stop()
-    await this.store.stop()
+    let stopError: unknown
+    try { await this.provider.stop() }
+    catch (error) { stopError = error }
+    try { await this.store.stop() }
+    catch (error) { stopError ??= error }
+    this.isStarted = false
+    this.connState = 'closed'
     this.emit('stopped')
+    if (stopError) throw stopError
+  }
+
+  private enqueueLifecycle(operation: () => Promise<void>): Promise<void> {
+    const next = this.lifecycleQueue.then(operation, operation)
+    this.lifecycleQueue = next.catch(() => undefined)
+    return next
   }
 
   /**
@@ -278,11 +360,34 @@ export class Bot extends EventEmitter {
     if (!proceed) {
       return { ref: { id: 'skipped', chatId: payload.chatId }, skipped: true }
     }
+    const localRef = { id: randomId('out'), chatId: payload.chatId }
     const op = this.provider.send(payload.chatId, payload.content, payload.options)
     this.inflightSends.add(op)
-    const res = await op.finally(() => { this.inflightSends.delete(op) })
-    await this.hooks.runAfter('send', payload)
-    return res
+    try {
+      const res = await op
+      await this.hooks.runAfter('send', payload)
+      await this.persistOutbound({
+        ref: res.ref,
+        chatId: payload.chatId,
+        content: payload.content,
+        options: payload.options,
+        status: 'sent',
+        raw: this.config.persistRaw ? res.raw : undefined,
+      })
+      return res
+    } catch (error) {
+      await this.persistOutbound({
+        ref: localRef,
+        chatId: payload.chatId,
+        content: payload.content,
+        options: payload.options,
+        status: 'failed',
+        error: toStoredError(error),
+      })
+      throw error
+    } finally {
+      this.inflightSends.delete(op)
+    }
   }
 
   /** Helper to send plain text to a chat. */
@@ -478,7 +583,71 @@ export class Bot extends EventEmitter {
   getStore(): IStore { return this.store }
   getProvider(): IProvider { return this.provider }
   getConnectionState(): ConnectionState { return this.connState }
+  getNamespace(): Readonly<StoreNamespace> { return this.namespace }
   getSessionName() { return this.config.session ?? 'default' }
+
+  /** Export normalized data associated with one subject in this bot namespace. */
+  async exportSubject(userId: UserId): Promise<SubjectDataExport> {
+    const contact = await this.store.getContact(userId)
+    const chats = await this.store.listChats()
+    const messages: StoredMessage[] = []
+    for (const chat of chats) {
+      const history = await this.store.getMessagesByChat(chat.id, 2_147_483_647)
+      messages.push(...history.filter((message) => message.senderId === userId || message.chatId === userId))
+    }
+    const checkpoints = (await this.store.listCheckpoints())
+      .filter(([key]) => checkpointBelongsToSubject(key, userId))
+    return {
+      namespace: this.namespace,
+      userId,
+      contact,
+      chats: chats.filter((chat) => chat.id === userId || messages.some((message) => message.chatId === chat.id)),
+      messages,
+      conversation: await this.store.getConversation(userId),
+      checkpoints,
+      exportedAt: Date.now(),
+    }
+  }
+
+  /** Delete normalized subject data in this bot namespace. */
+  async deleteSubject(userId: UserId): Promise<SubjectDeletionResult> {
+    const result: SubjectDeletionResult = {
+      contacts: 0,
+      chats: 0,
+      messages: 0,
+      conversations: 0,
+      checkpoints: 0,
+    }
+    if (await this.store.getContact(userId)) {
+      await this.store.deleteContact(userId)
+      result.contacts++
+    }
+    const chats = await this.store.listChats()
+    for (const chat of chats) {
+      if (chat.id === userId) {
+        result.messages += (await this.store.getMessagesByChat(chat.id, 2_147_483_647)).length
+        await this.store.deleteChat(chat.id)
+        result.chats++
+        continue
+      }
+      const messages = await this.store.getMessagesByChat(chat.id, 2_147_483_647)
+      for (const message of messages) {
+        if (message.senderId !== userId) continue
+        await this.store.deleteMessage(message.ref)
+        result.messages++
+      }
+    }
+    if (await this.store.getConversation(userId)) {
+      await this.store.clearConversation(userId)
+      result.conversations++
+    }
+    for (const [key] of await this.store.listCheckpoints()) {
+      if (!checkpointBelongsToSubject(key, userId)) continue
+      await this.store.clearCheckpoint(key)
+      result.checkpoints++
+    }
+    return result
+  }
 
   /* =========================================================================
    * INTERNAL WIRING
@@ -502,45 +671,83 @@ export class Bot extends EventEmitter {
   /** Subscribe to the provider's normalized event stream and route each kind. */
   private wireEvents(): void {
     this.disposables.add(this.provider.onEvent((event: InboundEvent) => {
-      switch (event.kind) {
-        case 'message':
-          if (event.message.fromMe) return
-          void this.handleInbound(event.message)
-          return
-        case 'interaction':
-          void this.handleInteraction(event.interaction)
-          return
-        case 'connection': {
-          const u = event.update
-          this.connState = u.state
-          this.emit('connection', u)
-          if (typeof u.authPayload === 'string') this.emit('qr', u.authPayload)
-          if (u.state === 'ready') this.emit('ready')
-          return
-        }
-        case 'reaction': void this.dispatchHookEvent('reaction', event.reaction); return
-        case 'poll-vote': void this.dispatchHookEvent('poll', event.vote); return
-        case 'call': void this.dispatchHookEvent('call', event.event); return
-        case 'group': void this.dispatchHookEvent('group', event.event); return
-        case 'presence': void this.dispatchHookEvent('presence', event.event); return
-        case 'status': void this.dispatchHookEvent('status', event.status); return
-      }
+      void this.handleProviderEvent(event).catch((error) => this.emitError({ error }))
     }))
   }
 
-  private async handleInbound(inbound: InboundMessage): Promise<void> {
+  private async handleProviderEvent(event: InboundEvent): Promise<void> {
+    switch (event.kind) {
+      case 'message':
+        if (!this.acceptingInbound || event.message.fromMe) return
+        await this.handleInbound(event.message)
+        return
+      case 'interaction':
+        if (!this.acceptingInbound) return
+        await this.handleInteraction(event.interaction)
+        return
+      case 'connection': {
+        const u = event.update
+        this.connState = u.state
+        this.emit('connection', u)
+        if (typeof u.authPayload === 'string') this.emit('qr', u.authPayload)
+        if (u.state === 'ready') this.emit('ready')
+        return
+      }
+      case 'reaction': await this.dispatchHookEvent('reaction', event.reaction); return
+      case 'poll-vote': await this.dispatchHookEvent('poll', event.vote); return
+      case 'call': await this.dispatchHookEvent('call', event.event); return
+      case 'group': await this.dispatchHookEvent('group', event.event); return
+      case 'presence': await this.dispatchHookEvent('presence', event.event); return
+      case 'status':
+        await this.handleDeliveryStatus(event.status)
+        await this.dispatchHookEvent('status', event.status)
+        return
+    }
+  }
+
+  private async handleInbound(
+    inbound: InboundMessage,
+    interaction?: { id: string; data: string; respondBy?: number },
+  ): Promise<void> {
+    const timestamp = normalizeTimestamp(inbound.timestamp)
     const stored: StoredMessage = {
       ref: inbound.ref,
       chatId: inbound.chatId,
       senderId: inbound.senderId,
-      timestamp: inbound.timestamp,
+      ...this.namespace,
+      timestamp,
       type: inbound.type,
       body: inbound.body,
       fromMe: inbound.fromMe,
-      raw: inbound.raw,
+      direction: 'inbound',
+      status: 'received',
+      quoted: inbound.quoted?.ref,
+      raw: this.config.persistRaw ? inbound.raw : undefined,
     }
-    await this.store.saveMessage(stored)
-    await this.processMessage(inbound)
+    await Promise.all([
+      this.store.upsertChat({
+        id: inbound.chatId,
+        ...this.namespace,
+        kind: inbound.chat.kind,
+        name: inbound.chat.name,
+        lastMessageAt: timestamp,
+        updatedAt: timestamp,
+        raw: this.config.persistRaw ? inbound.chat.platformData : undefined,
+      }),
+      this.store.upsertContact({
+        id: inbound.senderId,
+        ...this.namespace,
+        name: inbound.senderInfo.displayName,
+        username: inbound.senderInfo.username,
+        phoneNumber: typeof inbound.senderInfo.platformData?.phoneNumber === 'string'
+          ? inbound.senderInfo.platformData.phoneNumber
+          : undefined,
+        updatedAt: timestamp,
+        raw: this.config.persistRaw ? inbound.senderInfo.platformData : undefined,
+      }),
+      this.store.saveMessage(stored),
+    ])
+    await this.processMessage(inbound, interaction)
   }
 
   /** Project an interaction (button/slash/callback) into a message-shaped context. */
@@ -562,7 +769,72 @@ export class Bot extends EventEmitter {
       mentions: [],
       raw: it.raw,
     }
-    await this.processMessage(inbound, { id: it.interactionId, data: it.data, respondBy: it.respondBy })
+    await this.handleInbound(inbound, { id: it.interactionId, data: it.data, respondBy: it.respondBy })
+  }
+
+  private async persistOutbound(input: {
+    ref: MessageRef
+    chatId: ChatId
+    content: OutboundContent
+    options?: SendOptions
+    status: 'sent' | 'failed'
+    error?: { code?: string | number; message?: string }
+    raw?: unknown
+  }): Promise<void> {
+    const timestamp = Date.now()
+    try {
+      // A delivery/read receipt for this ref may already have landed during the
+      // after-send hook window. Don't regress a more-advanced status back to
+      // 'sent' — keep whichever is further along.
+      const existing = await this.store.getMessage(input.ref)
+      const status = higherDeliveryStatus(existing?.status, input.status)
+      await Promise.all([
+        this.store.upsertChat({
+          id: input.chatId,
+          ...this.namespace,
+          lastMessageAt: timestamp,
+          updatedAt: timestamp,
+        }),
+        this.store.saveMessage({
+          ref: input.ref,
+          chatId: input.chatId,
+          senderId: this.provider.selfId ?? undefined,
+          ...this.namespace,
+          timestamp,
+          type: input.content.kind,
+          body: outboundBody(input.content),
+          fromMe: true,
+          direction: 'outbound',
+          status,
+          error: status === 'failed' ? input.error : existing?.error,
+          quoted: input.options?.quoted,
+          raw: input.raw,
+        }),
+      ])
+    } catch (error) {
+      // The provider may already have delivered the message. Reporting a false
+      // send failure would encourage a retry and duplicate it, so ledger errors
+      // travel through the bot error channel instead.
+      this.emitError({ error })
+    }
+  }
+
+  private async handleDeliveryStatus(status: DeliveryStatus): Promise<void> {
+    const existing = await this.store.getMessage(status.ref)
+    await this.store.saveMessage({
+      ...(existing ?? {
+        ref: status.ref,
+        chatId: status.ref.chatId,
+        timestamp: normalizeTimestamp(status.timestamp),
+        type: 'unknown' as const,
+        fromMe: true,
+        direction: 'outbound' as const,
+      }),
+      ...this.namespace,
+      status: status.status,
+      error: status.error,
+      timestamp: existing?.timestamp ?? normalizeTimestamp(status.timestamp),
+    })
   }
 
   private async processMessage(inbound: InboundMessage, interaction?: { id: string; data: string; respondBy?: number }): Promise<void> {
@@ -614,4 +886,53 @@ export class Bot extends EventEmitter {
 function isPluginSpec(x: unknown): x is Plugin {
   if (typeof x === 'function') return true
   return typeof x === 'object' && x !== null && 'name' in x && 'install' in x
+}
+
+function normalizeTimestamp(timestamp: number): number {
+  return timestamp > 0 && timestamp < 1_000_000_000_000 ? timestamp * 1000 : timestamp
+}
+
+/**
+ * Does a conversation checkpoint key belong to `userId`? Keys are `keyFor(ctx)`:
+ * the bare subject id (DM) or `${chatJid}:${participantJid}` (group scope). Match
+ * on boundaries — NOT substring — so `5511999...` does not falsely match
+ * `15511999...` (one JID being a substring of another), which would leak/delete
+ * an unrelated subject's data in the export/erasure APIs.
+ */
+function checkpointBelongsToSubject(key: string, userId: string): boolean {
+  return key === userId || key.startsWith(`${userId}:`) || key.endsWith(`:${userId}`)
+}
+
+type StoredStatus = NonNullable<StoredMessage['status']>
+const DELIVERY_RANK: Record<StoredStatus, number> = {
+  received: 0, queued: 0, sent: 1, failed: 1, delivered: 2, read: 3,
+}
+/** Pick the further-along delivery status so a late 'sent' write can't regress a delivered/read receipt. */
+function higherDeliveryStatus(existing: StoredStatus | undefined, incoming: StoredStatus): StoredStatus {
+  if (!existing) return incoming
+  return (DELIVERY_RANK[existing] ?? 0) > (DELIVERY_RANK[incoming] ?? 0) ? existing : incoming
+}
+
+function outboundBody(content: OutboundContent): string | undefined {
+  switch (content.kind) {
+    case 'text': return content.text
+    case 'image':
+    case 'video':
+    case 'document': return content.caption
+    case 'location': return content.name ?? content.address
+    case 'contact': return content.displayName ?? content.phone
+    case 'poll': return content.question
+    case 'buttons':
+    case 'list': return content.text
+    case 'card': return content.title
+    case 'template': return content.name
+    case 'reaction': return content.emoji
+    default: return undefined
+  }
+}
+
+function toStoredError(error: unknown): { code?: string | number; message?: string } {
+  if (!(error instanceof Error)) return { message: String(error).slice(0, 500) }
+  const code = (error as Error & { code?: string | number }).code
+  return { code, message: error.message.slice(0, 500) }
 }

@@ -25,6 +25,12 @@ describe('matchTrigger', () => {
     expect(matchTrigger(/\d{4,}/, dm('code 12345'))).toBe(true)
     expect(matchTrigger({ pattern: 'x', scope: 'group' }, dm('x'))).toBe(false)
   })
+
+  it('regex triggers with stateful flags match consistently', () => {
+    const trigger = /hello/g
+    expect(matchTrigger(trigger, dm('hello'))).toBe(true)
+    expect(matchTrigger(trigger, dm('hello'))).toBe(true)
+  })
   it('function trigger', () => {
     expect(matchTrigger((c) => c.body.length > 3, dm('abcd'))).toBe(true)
   })

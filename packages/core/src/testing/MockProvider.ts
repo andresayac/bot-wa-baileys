@@ -68,7 +68,12 @@ export class MockProvider implements IProvider {
   async downloadMedia(): Promise<Buffer> { return Buffer.alloc(0) }
 
   private emitEvent(e: InboundEvent): void {
-    for (const l of this.listeners) void l(e)
+    for (const listener of this.listeners) {
+      // Match real transports' fire-and-forget delivery without leaking
+      // rejected async listeners as process-level unhandled rejections.
+      try { void Promise.resolve(listener(e)).catch(() => undefined) }
+      catch { /* tests may assert errors through Bot's public error event */ }
+    }
   }
 
   /** Simulate an incoming message. */
