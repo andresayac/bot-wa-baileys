@@ -23,7 +23,7 @@ corresponda:
 | `gemini` | `@google/generative-ai` |
 | `deepseek` · `qwen` · `glm` · `kimi` · `groq` · `openrouter` · `mistral` · `grok` · `together` | `openai` (son OpenAI-compatible; usan su `baseURL`, **sin SDK extra**) |
 
-Requiere **Node >= 20** y `@bot-wa/core` ya instalado en tu proyecto.
+Requiere **Node >= 22** y `@bot-wa/core` ya instalado en tu proyecto.
 
 ## Quickstart (modo principiante)
 

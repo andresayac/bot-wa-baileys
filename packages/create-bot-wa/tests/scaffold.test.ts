@@ -92,6 +92,10 @@ describe('scaffold — every template', () => {
     expect(bot).toContain('new CloudAPIProvider(')
     expect(bot).toContain('provider.verifyChallenge(')
     expect(bot).toContain('provider.ingest(')
+    expect(bot).toContain('provider.ingest(raw, req.headers)')
+    expect(bot).toContain('MAX_WEBHOOK_BYTES')
+    expect(bot).toContain('res.writeHead(413)')
+    expect(bot).not.toContain('provider.ingest(JSON.parse(raw)')
 
     const env = await read(target, '.env.example')
     expect(env).toContain('META_TOKEN=')

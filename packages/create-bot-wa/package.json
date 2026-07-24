@@ -6,7 +6,7 @@
   "main": "lib/index.js", "types": "lib/index.d.ts",
   "bin": { "create-bot-wa": "lib/cli.js" },
   "exports": { ".": { "types": "./lib/index.d.ts", "default": "./lib/index.js" } },
-  "engines": { "node": ">=20" },
+  "engines": { "node": ">=22" },
   "keywords": ["bot-wa", "cli", "scaffolder", "create"],
   "author": "Andres Aya", "license": "MIT",
   "repository": { "type": "git", "url": "git+https://github.com/andresayac/bot-wa-baileys.git", "directory": "packages/create-bot-wa" },
