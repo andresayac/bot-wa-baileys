@@ -21,8 +21,6 @@ import makeWASocket, {
   useMultiFileAuthState,
   downloadMediaMessage,
 } from '@whiskeysockets/baileys'
-import { existsSync, rmSync } from 'fs'
-import { join } from 'path'
 import pino, { type Logger } from 'pino'
 
 import type {
@@ -51,6 +49,11 @@ import { IdentityStore } from './identity.js'
 import { toInbound } from './toInbound.js'
 import { toOutbound } from './toOutbound.js'
 import { RateLimiter, type RateLimitConfig } from './RateLimiter.js'
+import {
+  assertSessionDirectorySafe,
+  removeSessionDirectory,
+  resolveSessionDirectory,
+} from './sessionPath.js'
 
 const LID_CACHE_MAX = 2000
 const MSG_CACHE_MAX = 2000
@@ -146,9 +149,10 @@ export class BaileysProvider implements IProvider<WAMessage> {
     this.config = config
     this.logger = config.logger ?? pino({
       level: config.debug ? 'debug' : 'error',
-      transport: config.debug ? { target: 'pino-pretty', options: { colorize: true } } : undefined,
     })
     this.rateLimiter = new RateLimiter(config.rateLimit)
+    // Validate eagerly, before any filesystem or network operation.
+    resolveSessionDirectory(this.config.sessionsDir, this.config.session)
   }
 
   get connection(): unknown | null { return this.sock }
@@ -162,7 +166,7 @@ export class BaileysProvider implements IProvider<WAMessage> {
   }
 
   get sessionDir(): string {
-    return join(this.config.sessionsDir ?? './sessions', this.config.session ?? 'default')
+    return resolveSessionDirectory(this.config.sessionsDir, this.config.session)
   }
 
   onEvent(listener: (e: InboundEvent<WAMessage>) => void | Promise<void>): () => void {
@@ -171,13 +175,21 @@ export class BaileysProvider implements IProvider<WAMessage> {
   }
 
   private fan(e: InboundEvent<WAMessage>): void {
-    for (const l of this.listeners) void l(e)
+    for (const listener of this.listeners) {
+      try {
+        void Promise.resolve(listener(e))
+          .catch((error) => this.logger.error({ err: error, eventKind: e.kind }, 'provider event listener failed'))
+      } catch (error) {
+        this.logger.error({ err: error, eventKind: e.kind }, 'provider event listener failed')
+      }
+    }
   }
 
   async start(): Promise<void> {
     this.pairingCodeRequested = false
     this.isShuttingDown = false
-    this.authState = await useMultiFileAuthState(this.sessionDir)
+    const sessionDir = assertSessionDirectorySafe(this.config.sessionsDir, this.config.session)
+    this.authState = await useMultiFileAuthState(sessionDir)
     const versionInfo = await fetchLatestBaileysVersion()
     this.version = versionInfo.version
     this.logger.debug({ version: this.version, latest: versionInfo.isLatest }, 'baileys version')
@@ -189,10 +201,25 @@ export class BaileysProvider implements IProvider<WAMessage> {
     this.isShuttingDown = true
     this.rateLimiter.reset()
     if (this.sock) {
-      try { await this.sock.logout() }
-      catch { try { this.sock.end(new Error('shutdown')) } catch { /* ignore */ } }
+      try { this.sock.end(new Error('shutdown')) } catch { /* socket may already be closed */ }
       this.sock = null
     }
+  }
+
+  /**
+   * Explicit destructive logout. Unlike {@link stop}, this unlinks the device
+   * and removes its local auth state, so a new QR/pairing flow will be required.
+   */
+  async logoutAndDeleteSession(): Promise<void> {
+    this.reconnectPending = false
+    this.isShuttingDown = true
+    this.rateLimiter.reset()
+    if (this.sock) {
+      try { await this.sock.logout() }
+      finally { this.sock = null }
+    }
+    removeSessionDirectory(this.config.sessionsDir, this.config.session)
+    this.authState = null
   }
 
   async send(chatId: ChatId, content: OutboundContent, options?: SendOptions): Promise<SendResult<WAMessage>> {
@@ -425,7 +452,13 @@ export class BaileysProvider implements IProvider<WAMessage> {
 
       if (action === 'wipe') {
         this.logger.warn({ statusCode }, 'session invalid — wiping')
-        try { if (existsSync(this.sessionDir)) rmSync(this.sessionDir, { recursive: true, force: true }) } catch { /* ignore */ }
+        try {
+          removeSessionDirectory(this.config.sessionsDir, this.config.session)
+        } catch (error) {
+          this.logger.error({ err: error, statusCode }, 'refusing to wipe an unsafe session path')
+          this.fan({ kind: 'connection', update: { state: 'closed', detail: new Error('unsafe session path') } })
+          return
+        }
         this.reconnectAttempts = 0
         this.scheduleReconnect(0)
         return

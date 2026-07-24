@@ -6,12 +6,14 @@
 
 import { ProviderError, type ChatId } from '@bot-wa/core'
 import { toGraphError, type GraphError } from '@bot-wa/graph-core'
+import { secureFetch, type SecureFetchOptions } from '@bot-wa/http'
 
 export interface GraphClientConfig {
   accessToken: string
   phoneNumberId: string
   apiVersion: string
   graphUrl: string
+  mediaDownload?: Omit<SecureFetchOptions, 'fetch'>
 }
 
 /**
@@ -85,8 +87,8 @@ export class GraphClient {
     const meta = await fetch(this.base(mediaId), { headers: this.headers() })
     const info = (await this.check(meta, '')) as { url?: string; mime_type?: string }
     if (!info.url) throw new ProviderError('Media metadata returned no url')
-    const file = await fetch(info.url, { headers: this.headers() })
+    const { response: file, body } = await secureFetch(info.url, { ...this.cfg.mediaDownload, headers: this.headers() })
     if (!file.ok) throw new ProviderError(`Media download failed: HTTP ${file.status}`)
-    return { buffer: Buffer.from(await file.arrayBuffer()), mimetype: info.mime_type ?? 'application/octet-stream' }
+    return { buffer: body, mimetype: info.mime_type ?? 'application/octet-stream' }
   }
 }

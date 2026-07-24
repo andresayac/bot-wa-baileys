@@ -12,7 +12,7 @@
     }
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "keywords": ["bot-wa", "whatsapp", "cloud-api", "meta", "provider", "transport", "webhook"],
   "author": "Andres Aya",
@@ -33,6 +33,7 @@
   "dependencies": {
     "@bot-wa/core": "workspace:*",
     "@bot-wa/graph-core": "workspace:*",
+    "@bot-wa/http": "workspace:*",
     "pino": "^10.3.1"
   },
   "devDependencies": {

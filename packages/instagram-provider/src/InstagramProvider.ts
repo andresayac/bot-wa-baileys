@@ -72,11 +72,17 @@ export class InstagramProvider implements IProvider<unknown> {
       accessToken: this.config.accessToken,
       apiVersion: this.config.apiVersion,
       graphUrl: this.config.graphUrl,
+      mediaDownload: this.config.mediaDownload,
     })
+    if (!this.config.appSecret && !this.config.allowUnsignedWebhooks) {
+      throw new Error(
+        'InstagramProvider requires `appSecret` to authenticate webhook POSTs. ' +
+          'For isolated local development only, set `allowUnsignedWebhooks: true` explicitly.',
+      )
+    }
     if (!this.config.appSecret) {
       this.logger.warn(
-        'InstagramProvider has no `appSecret` — ingest() will accept ANY webhook body unverified. ' +
-          'Set appSecret so X-Hub-Signature-256 is checked, or the endpoint is spoofable.',
+        'InstagramProvider unsigned webhook mode explicitly enabled; never expose this endpoint publicly.',
       )
     }
   }
@@ -91,14 +97,24 @@ export class InstagramProvider implements IProvider<unknown> {
     return () => this.listeners.delete(listener)
   }
   private fan(e: InboundEvent): void {
-    for (const l of this.listeners) void l(e)
+    for (const listener of this.listeners) {
+      try {
+        void Promise.resolve(listener(e))
+          .catch((error) => this.logger.error({ err: error, eventKind: e.kind }, 'provider event listener failed'))
+      } catch (error) {
+        this.logger.error({ err: error, eventKind: e.kind }, 'provider event listener failed')
+      }
+    }
   }
 
   /** No socket to open — the transport is webhook-driven. */
   async start(): Promise<void> {
+    this.fan({ kind: 'connection', update: { state: 'ready' } })
     this.logger.debug('InstagramProvider ready — wire your webhook to ingest()')
   }
-  async stop(): Promise<void> {}
+  async stop(): Promise<void> {
+    this.fan({ kind: 'connection', update: { state: 'closed' } })
+  }
 
   /* Webhook --------------------------------------------------------------- */
 

@@ -5,6 +5,7 @@
  */
 
 import type { Logger } from 'pino'
+import type { SecureFetchOptions } from '@bot-wa/http'
 
 export interface InstagramProviderConfig {
   /** Page access token of the Facebook Page the IG account is connected to. */
@@ -14,12 +15,16 @@ export interface InstagramProviderConfig {
   /**
    * App secret — when set, inbound POSTs are verified against the
    * `X-Hub-Signature-256` header (HMAC-SHA256). Strongly recommended.
-   */
+  */
   appSecret?: string
+  /** Explicit local-development escape hatch for unsigned webhook POSTs. */
+  allowUnsignedWebhooks?: boolean
   /** Graph API version. Default 'v21.0'. */
   apiVersion?: string
   /** Graph base URL. Default 'https://graph.facebook.com'. */
   graphUrl?: string
+  /** Safe-download policy for inbound media. HTTPS/public hosts are enforced by default. */
+  mediaDownload?: Omit<SecureFetchOptions, 'fetch'>
   /** The bot's own IG user id (IGSID). Optional. */
   selfId?: string
   debug?: boolean

@@ -12,6 +12,7 @@ import {
 } from '@bot-wa/core'
 import type { DiscordApiErrorBody, DiscordMessageResponse } from './types.js'
 import type { DiscordFile } from './toOutbound.js'
+import { secureFetch, type SecureFetchOptions } from '@bot-wa/http'
 
 export interface DiscordRestClientConfig {
   token: string
@@ -19,6 +20,7 @@ export interface DiscordRestClientConfig {
   apiUrl: string
   /** E.g. 'v10'. */
   apiVersion: string
+  mediaDownload?: Omit<SecureFetchOptions, 'fetch'>
 }
 
 /** Translate a Discord REST error into a typed provider error. */
@@ -123,10 +125,10 @@ export class DiscordRestClient {
 
   /** Plain HTTPS GET (Discord CDN media urls need no auth). */
   async download(url: string): Promise<{ buffer: Buffer; contentType: string }> {
-    const res = await fetch(url)
+    const { response: res, body } = await secureFetch(url, this.cfg.mediaDownload)
     if (!res.ok) throw new ProviderError(`Media download failed: HTTP ${res.status}`)
     return {
-      buffer: Buffer.from(await res.arrayBuffer()),
+      buffer: body,
       contentType: res.headers.get('content-type') ?? 'application/octet-stream',
     }
   }

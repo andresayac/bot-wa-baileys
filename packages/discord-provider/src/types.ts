@@ -4,6 +4,7 @@
  */
 
 import type { Logger } from 'pino'
+import type { SecureFetchOptions } from '@bot-wa/http'
 
 /* --- Socket seam (injectable for hermetic tests) ------------------------- */
 
@@ -43,6 +44,8 @@ export interface DiscordProviderConfig {
   apiUrl?: string
   /** REST API version. Default 'v10'. */
   apiVersion?: string
+  /** Safe-download policy for Discord CDN URLs. */
+  mediaDownload?: Omit<SecureFetchOptions, 'fetch'>
   /** Injectable websocket factory — tests pass a fake; production uses `ws`. */
   socketFactory?: SocketFactory
   /** Base delay between gateway reconnects (ms, exponential backoff on top). Default 500. */

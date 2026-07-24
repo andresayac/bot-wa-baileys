@@ -110,21 +110,33 @@ export class RateLimiter {
     this.enabled = config.enabled !== false
 
     const perChat = config.perChat ?? DEFAULT_PER_CHAT
+    assertPositive('perChat.max', perChat.max)
     this.perChatMax = perChat.max
     this.perChatWindowMs = parseDuration(perChat.window)
+    assertPositive('perChat.window', this.perChatWindowMs)
 
     const global = config.global ?? DEFAULT_GLOBAL
+    assertPositive('global.max', global.max)
+    const globalWindowMs = parseDuration(global.window)
+    assertPositive('global.window', globalWindowMs)
     this.globalBucket = {
       tokens: global.max,
       lastRefill: Date.now(),
       max: global.max,
-      windowMs: parseDuration(global.window),
+      windowMs: globalWindowMs,
     }
 
     this.jitterMin = config.jitter?.min ?? 0
     this.jitterMax = config.jitter?.max ?? 0
     this.maxWaitMs = config.maxWait !== undefined ? parseDuration(config.maxWait) : parseDuration(DEFAULT_MAX_WAIT)
     this.maxChats = config.maxChats ?? DEFAULT_MAX_CHATS
+    assertNonNegative('jitter.min', this.jitterMin)
+    assertNonNegative('jitter.max', this.jitterMax)
+    if (this.jitterMax < this.jitterMin) {
+      throw new RangeError('RateLimiter jitter.max must be greater than or equal to jitter.min')
+    }
+    assertNonNegative('maxWait', this.maxWaitMs)
+    assertPositiveInteger('maxChats', this.maxChats)
   }
 
   /**
@@ -292,5 +304,23 @@ export class RateLimiter {
     }
     this.queue = []
     this.processing = false
+  }
+}
+
+function assertPositive(field: string, value: number): void {
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new RangeError(`RateLimiter ${field} must be a finite number greater than 0`)
+  }
+}
+
+function assertNonNegative(field: string, value: number): void {
+  if (!Number.isFinite(value) || value < 0) {
+    throw new RangeError(`RateLimiter ${field} must be a finite number greater than or equal to 0`)
+  }
+}
+
+function assertPositiveInteger(field: string, value: number): void {
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new RangeError(`RateLimiter ${field} must be a positive integer`)
   }
 }

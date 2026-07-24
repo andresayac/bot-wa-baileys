@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { createHmac } from 'node:crypto'
+import { createServer } from 'node:http'
 import { RateLimitedError, UnsupportedContentError } from '@bot-wa/core'
 import { InstagramProvider } from '../src/InstagramProvider.js'
 
@@ -25,12 +26,24 @@ function mockFetch(responder: (call: Call) => { status?: number; body?: unknown;
   return calls
 }
 
-const baseCfg = { accessToken: 'TOK', verifyToken: 'vt', apiVersion: 'v21.0', graphUrl: 'https://graph.facebook.com' }
+const baseCfg = { accessToken: 'TOK', verifyToken: 'vt', apiVersion: 'v21.0', graphUrl: 'https://graph.facebook.com', allowUnsignedWebhooks: true, mediaDownload: { resolver: async () => ['93.184.216.34'] } }
 
 beforeEach(() => vi.unstubAllGlobals())
 afterEach(() => vi.unstubAllGlobals())
 
 describe('InstagramProvider', () => {
+  it('requires signed webhooks unless local unsigned mode is explicit', () => {
+    expect(() => new InstagramProvider({ ...baseCfg, allowUnsignedWebhooks: false })).toThrow(/appSecret/)
+  })
+
+  it('emits ready and closed lifecycle states in webhook mode', async () => {
+    const p = new InstagramProvider(baseCfg)
+    const states: string[] = []
+    p.onEvent((event) => { if (event.kind === 'connection') states.push(event.update.state) })
+    await p.start()
+    await p.stop()
+    expect(states).toEqual(['ready', 'closed'])
+  })
   it('sends text to me/messages with recipient.id', async () => {
     const calls = mockFetch(() => ({ body: { recipient_id: 'IGSID_1', message_id: 'mid.OUT' } }))
     const p = new InstagramProvider(baseCfg)
@@ -125,13 +138,19 @@ describe('InstagramProvider', () => {
   })
 
   it('downloadMedia fetches the MediaRef.token URL', async () => {
-    const bytes = Uint8Array.from([1, 2, 3])
-    const calls = mockFetch(() => ({ bytes }))
-    const p = new InstagramProvider(baseCfg)
-    const out = await p.downloadMedia({ kind: 'image', token: 'https://cdn.cdninstagram.com/x.jpg' })
-    expect(calls[0].url).toBe('https://cdn.cdninstagram.com/x.jpg')
-    expect(Buffer.isBuffer(out)).toBe(true)
-    expect(Buffer.from(out as Buffer)).toEqual(Buffer.from([1, 2, 3]))
+    // downloadMedia uses the hardened secureFetch (real undici, IP-pinned), so it
+    // hits a real loopback server; pin to 127.0.0.1 via mediaDownload.
+    const server = createServer((_req, res) => { res.statusCode = 200; res.end(Buffer.from([1, 2, 3])) })
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()))
+    const port = (server.address() as { port: number }).port
+    try {
+      const p = new InstagramProvider({ ...baseCfg, mediaDownload: { allowHttp: true, allowPrivateHosts: true, resolver: async () => ['127.0.0.1'] } })
+      const out = await p.downloadMedia({ kind: 'image', token: `http://127.0.0.1:${port}/x.jpg` })
+      expect(Buffer.isBuffer(out)).toBe(true)
+      expect(Buffer.from(out as Buffer)).toEqual(Buffer.from([1, 2, 3]))
+    } finally {
+      await new Promise<void>((r) => server.close(() => r()))
+    }
   })
 
   it('capabilities advertise IG DM limits', () => {

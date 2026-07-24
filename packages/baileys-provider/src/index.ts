@@ -37,3 +37,10 @@ export { toOutbound } from './toOutbound.js'
 
 // reconnect classification (advanced)
 export { classifyDisconnect, backoffDelay, MAX_RECONNECT_ATTEMPTS } from './reconnect.js'
+
+// Session path validation (advanced/self-hosted tooling)
+export {
+  assertSessionDirectorySafe,
+  removeSessionDirectory,
+  resolveSessionDirectory,
+} from './sessionPath.js'

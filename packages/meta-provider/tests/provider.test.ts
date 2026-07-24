@@ -23,12 +23,24 @@ function mockFetch(responder: (call: Call) => { status?: number; body?: unknown;
   return calls
 }
 
-const baseCfg = { accessToken: 'TOK', phoneNumberId: 'PNID', verifyToken: 'vt', apiVersion: 'v21.0', graphUrl: 'https://graph.facebook.com' }
+const baseCfg = { accessToken: 'TOK', phoneNumberId: 'PNID', verifyToken: 'vt', apiVersion: 'v21.0', graphUrl: 'https://graph.facebook.com', allowUnsignedWebhooks: true, mediaDownload: { resolver: async () => ['93.184.216.34'] } }
 
 beforeEach(() => vi.unstubAllGlobals())
 afterEach(() => vi.unstubAllGlobals())
 
 describe('CloudAPIProvider', () => {
+  it('requires signed webhooks unless local unsigned mode is explicit', () => {
+    expect(() => new CloudAPIProvider({ ...baseCfg, allowUnsignedWebhooks: false })).toThrow(/appSecret/)
+  })
+
+  it('emits ready and closed lifecycle states in webhook mode', async () => {
+    const p = new CloudAPIProvider(baseCfg)
+    const states: string[] = []
+    p.onEvent((event) => { if (event.kind === 'connection') states.push(event.update.state) })
+    await p.start()
+    await p.stop()
+    expect(states).toEqual(['ready', 'closed'])
+  })
   it('sends text to the Graph messages endpoint', async () => {
     const calls = mockFetch(() => ({ body: { messages: [{ id: 'wamid.OUT' }] } }))
     const p = new CloudAPIProvider(baseCfg)

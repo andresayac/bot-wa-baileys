@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { createHmac } from 'node:crypto'
+import { createServer } from 'node:http'
 import { ProviderError, RateLimitedError, UnsupportedContentError } from '@bot-wa/core'
 import { MessengerProvider } from '../src/MessengerProvider.js'
 
@@ -26,12 +27,24 @@ function mockFetch(responder: (call: Call) => { status?: number; body?: unknown;
   return calls
 }
 
-const baseCfg = { accessToken: 'TOK', verifyToken: 'vt', apiVersion: 'v21.0', graphUrl: 'https://graph.facebook.com', pageId: 'me' }
+const baseCfg = { accessToken: 'TOK', verifyToken: 'vt', apiVersion: 'v21.0', graphUrl: 'https://graph.facebook.com', pageId: 'me', allowUnsignedWebhooks: true, mediaDownload: { resolver: async () => ['93.184.216.34'] } }
 
 beforeEach(() => vi.unstubAllGlobals())
 afterEach(() => vi.unstubAllGlobals())
 
 describe('MessengerProvider', () => {
+  it('requires signed webhooks unless local unsigned mode is explicit', () => {
+    expect(() => new MessengerProvider({ ...baseCfg, allowUnsignedWebhooks: false })).toThrow(/appSecret/)
+  })
+
+  it('emits ready and closed lifecycle states in webhook mode', async () => {
+    const p = new MessengerProvider(baseCfg)
+    const states: string[] = []
+    p.onEvent((event) => { if (event.kind === 'connection') states.push(event.update.state) })
+    await p.start()
+    await p.stop()
+    expect(states).toEqual(['ready', 'closed'])
+  })
   it('exposes id and webhook capabilities', () => {
     const p = new MessengerProvider(baseCfg)
     expect(p.id).toBe('messenger')
@@ -120,12 +133,19 @@ describe('MessengerProvider', () => {
   })
 
   it('downloadMedia fetches the attachment URL into a Buffer', async () => {
+    // downloadMedia uses the hardened secureFetch (real undici, IP-pinned), so it
+    // hits a real loopback server; pin to 127.0.0.1 via mediaDownload.
     const png = Buffer.from([0x89, 0x50, 0x4e, 0x47])
-    const calls = mockFetch(() => ({ bytes: png }))
-    const p = new MessengerProvider(baseCfg)
-    const buf = await p.downloadMedia({ kind: 'image', token: 'https://cdn.fbsbx.com/img.png' })
-    expect(calls[0].url).toBe('https://cdn.fbsbx.com/img.png')
-    expect(Buffer.compare(buf as Buffer, png)).toBe(0)
+    const server = createServer((_req, res) => { res.statusCode = 200; res.end(png) })
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()))
+    const port = (server.address() as { port: number }).port
+    try {
+      const p = new MessengerProvider({ ...baseCfg, mediaDownload: { allowHttp: true, allowPrivateHosts: true, resolver: async () => ['127.0.0.1'] } })
+      const buf = await p.downloadMedia({ kind: 'image', token: `http://127.0.0.1:${port}/img.png` })
+      expect(Buffer.compare(buf as Buffer, png)).toBe(0)
+    } finally {
+      await new Promise<void>((r) => server.close(() => r()))
+    }
   })
 
   it('maps Graph rate limits (code 4) to RateLimitedError with Retry-After', async () => {

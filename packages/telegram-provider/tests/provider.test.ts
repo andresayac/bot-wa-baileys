@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { createServer } from 'node:http'
 import {
   PayloadTooLargeError,
   RateLimitedError,
@@ -193,15 +194,30 @@ describe('TelegramProvider actions', () => {
   })
 
   it('downloadMedia resolves getFile then fetches the file bytes', async () => {
-    const calls = mockFetch((call) =>
-      call.url.endsWith('/getFile')
-        ? { body: { ok: true, result: { file_id: 'f1', file_path: 'photos/1.jpg' } } }
-        : { body: {} })
-    const p = new TelegramProvider(baseCfg)
-    const buf = (await p.downloadMedia!({ kind: 'image', token: 'f1' })) as Buffer
-    expect(JSON.parse(calls[0].init!.body as string)).toEqual({ file_id: 'f1' })
-    expect(calls[1].url).toBe('https://api.telegram.org/file/botTOK/photos/1.jpg')
-    expect(buf.toString()).toBe('BYTES')
+    // getFile goes through callApi (global fetch, stubbed). The file download
+    // goes through the hardened secureFetch (real undici, IP-pinned), so it must
+    // hit a real loopback server — point baseUrl there and pin to 127.0.0.1.
+    const filePaths: string[] = []
+    const server = createServer((req, res) => { filePaths.push(req.url ?? ''); res.statusCode = 200; res.end('BYTES') })
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()))
+    const port = (server.address() as { port: number }).port
+    try {
+      const calls = mockFetch((call) =>
+        call.url.endsWith('/getFile')
+          ? { body: { ok: true, result: { file_id: 'f1', file_path: 'photos/1.jpg' } } }
+          : { body: {} })
+      const p = new TelegramProvider({
+        token: 'TOK',
+        baseUrl: `http://127.0.0.1:${port}`,
+        mediaDownload: { allowHttp: true, allowPrivateHosts: true, resolver: async () => ['127.0.0.1'] },
+      })
+      const buf = (await p.downloadMedia!({ kind: 'image', token: 'f1' })) as Buffer
+      expect(JSON.parse(calls[0].init!.body as string)).toEqual({ file_id: 'f1' })
+      expect(filePaths).toContain('/file/botTOK/photos/1.jpg')
+      expect(buf.toString()).toBe('BYTES')
+    } finally {
+      await new Promise<void>((r) => server.close(() => r()))
+    }
   })
 })
 
@@ -294,7 +310,7 @@ describe('TelegramProvider long-poll', () => {
 
 describe('TelegramProvider webhook ingest', () => {
   it('parses an Update object and fans out normalized events', () => {
-    const p = new TelegramProvider({ token: 'TOK', polling: false, selfId: '9' })
+    const p = new TelegramProvider({ token: 'TOK', polling: false, selfId: '9', allowUnsignedWebhooks: true })
     const seen: string[] = []
     p.onEvent((e) => { if (e.kind === 'message') seen.push(e.message.body) })
     const code = p.ingest({ update_id: 1, message: { message_id: 1, date: 1, from: ana, chat: privateChat, text: 'hey' } })
@@ -303,7 +319,7 @@ describe('TelegramProvider webhook ingest', () => {
   })
 
   it('accepts a JSON string body; rejects garbage with 400', () => {
-    const p = new TelegramProvider({ token: 'TOK', polling: false, selfId: '9' })
+    const p = new TelegramProvider({ token: 'TOK', polling: false, selfId: '9', allowUnsignedWebhooks: true })
     expect(p.ingest(JSON.stringify({ update_id: 2, message: { message_id: 1, date: 1, chat: privateChat, text: 'x' } }))).toBe(200)
     expect(p.ingest('nope{')).toBe(400)
     expect(p.ingest({ foo: 1 })).toBe(400)
@@ -334,8 +350,9 @@ describe('TelegramProvider webhook ingest', () => {
       expect(seen).toEqual(['hi'])
     })
 
-    it('ignores the header entirely when no secret is configured', () => {
-      const p = new TelegramProvider({ token: 'TOK', polling: false, selfId: '9' })
+    it('requires a secret unless local unsigned mode is explicit', () => {
+      expect(() => new TelegramProvider({ token: 'TOK', polling: false, selfId: '9' })).toThrow(/webhookSecret/)
+      const p = new TelegramProvider({ token: 'TOK', polling: false, selfId: '9', allowUnsignedWebhooks: true })
       expect(p.ingest(update, { 'x-telegram-bot-api-secret-token': 'whatever' })).toBe(200)
     })
   })

@@ -6,11 +6,13 @@
 
 import { ProviderError } from '@bot-wa/core'
 import { toGraphError, type GraphError } from '@bot-wa/graph-core'
+import { secureFetch, type SecureFetchOptions } from '@bot-wa/http'
 
 export interface GraphClientConfig {
   accessToken: string
   apiVersion: string
   graphUrl: string
+  mediaDownload?: Omit<SecureFetchOptions, 'fetch'>
 }
 
 /**
@@ -64,8 +66,8 @@ export class GraphClient {
 
   /** Download media bytes from a hosted URL (attachment payload.url). */
   async downloadUrl(url: string): Promise<Buffer> {
-    const res = await fetch(url)
+    const { response: res, body } = await secureFetch(url, this.cfg.mediaDownload)
     if (!res.ok) throw new ProviderError(`Media download failed: HTTP ${res.status}`)
-    return Buffer.from(await res.arrayBuffer())
+    return body
   }
 }

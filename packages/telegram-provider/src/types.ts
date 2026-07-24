@@ -6,12 +6,15 @@
  */
 
 import type { Logger } from 'pino'
+import type { SecureFetchOptions } from '@bot-wa/http'
 
 export interface TelegramProviderConfig {
   /** Bot token from @BotFather. */
   token: string
   /** Bot API base URL. Default 'https://api.telegram.org'. */
   baseUrl?: string
+  /** Safe-download policy for Telegram file URLs. */
+  mediaDownload?: Omit<SecureFetchOptions, 'fetch'>
   /**
    * true (default): start() runs a getUpdates long-poll loop.
    * false: webhook mode — the host POSTs Updates to `ingest()`.
@@ -25,8 +28,10 @@ export interface TelegramProviderConfig {
    * `X-Telegram-Bot-Api-Secret-Token` header does not match (401). Without it,
    * ANY caller who discovers the webhook URL can inject forged Updates.
    * Strongly recommended in webhook mode.
-   */
+  */
   webhookSecret?: string
+  /** Explicit local-development escape hatch for unsigned webhook mode. */
+  allowUnsignedWebhooks?: boolean
   /** Long-poll server timeout in seconds (getUpdates `timeout`). Default 30. */
   pollTimeout?: number
   /** Base backoff (ms) after a failed getUpdates round. Grows exponentially per consecutive failure. Default 1000. */

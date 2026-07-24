@@ -11,7 +11,7 @@ webhook que cablear.
 pnpm add @bot-wa/core @bot-wa/discord
 ```
 
-Dependencias: `ws` (gateway), `fetch`/`FormData` nativos de Node ≥ 20 (REST).
+Dependencias: `ws` (gateway), `fetch`/`FormData` nativos de Node ≥ 22 (REST).
 
 ## Requisitos (Discord)
 

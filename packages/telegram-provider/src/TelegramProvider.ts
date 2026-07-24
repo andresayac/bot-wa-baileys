@@ -21,6 +21,7 @@ import { readFile } from 'node:fs/promises'
 import { basename } from 'node:path'
 import { timingSafeEqual } from 'node:crypto'
 import pino, { type Logger } from 'pino'
+import { secureFetch } from '@bot-wa/http'
 import type {
   ChatId,
   ConnectionState,
@@ -86,7 +87,7 @@ export class TelegramProvider implements IProvider<unknown> {
     pushIngress: true,     // supports webhook; also owns a long-poll loop
   }
 
-  private readonly config: Required<Pick<TelegramProviderConfig, 'token' | 'baseUrl' | 'polling' | 'pollTimeout' | 'errorBackoffMs' | 'maxBackoffMs' | 'pollIdleMs'>>
+  private readonly config: Required<Pick<TelegramProviderConfig, 'token' | 'baseUrl' | 'polling' | 'pollTimeout' | 'errorBackoffMs' | 'maxBackoffMs' | 'pollIdleMs'>> & Pick<TelegramProviderConfig, 'mediaDownload'>
   private readonly webhookSecret?: string
   /** Consecutive getUpdates failures — drives the exponential backoff; reset on success. */
   private pollErrors = 0
@@ -109,14 +110,20 @@ export class TelegramProvider implements IProvider<unknown> {
       errorBackoffMs: config.errorBackoffMs ?? 1000,
       maxBackoffMs: config.maxBackoffMs ?? 60_000,
       pollIdleMs: config.pollIdleMs ?? 250,
+      mediaDownload: config.mediaDownload,
     }
     if (config.selfId) this._selfId = config.selfId
     this.webhookSecret = config.webhookSecret
     this.logger = config.logger ?? pino({ level: config.debug ? 'debug' : 'error' })
+    if (config.polling === false && !config.webhookSecret && !config.allowUnsignedWebhooks) {
+      throw new Error(
+        'TelegramProvider webhook mode requires `webhookSecret`. ' +
+          'For isolated local development only, set `allowUnsignedWebhooks: true` explicitly.',
+      )
+    }
     if (config.polling === false && !config.webhookSecret) {
       this.logger.warn(
-        'TelegramProvider in webhook mode without `webhookSecret` — ingest() accepts ANY caller. ' +
-          'Set secret_token in setWebhook and pass webhookSecret to authenticate incoming Updates.',
+        'TelegramProvider unsigned webhook mode explicitly enabled; never expose this endpoint publicly.',
       )
     }
   }
@@ -143,7 +150,14 @@ export class TelegramProvider implements IProvider<unknown> {
     return () => this.listeners.delete(listener)
   }
   private fan(e: InboundEvent): void {
-    for (const l of this.listeners) void l(e)
+    for (const listener of this.listeners) {
+      try {
+        void Promise.resolve(listener(e))
+          .catch((error) => this.logger.error({ err: error, eventKind: e.kind }, 'provider event listener failed'))
+      } catch (error) {
+        this.logger.error({ err: error, eventKind: e.kind }, 'provider event listener failed')
+      }
+    }
   }
   private emitConnection(state: ConnectionState, reason?: DisconnectReason, detail?: string): void {
     this.fan({ kind: 'connection', update: { state, reason, detail: detail ? { message: detail } : undefined } })
@@ -351,9 +365,9 @@ export class TelegramProvider implements IProvider<unknown> {
     if (!fileId) throw new ProviderError('downloadMedia requires a Telegram file_id (MediaRef.token)')
     const info = await this.callApi<{ file_path?: string }>('getFile', { file_id: fileId })
     if (!info.file_path) throw new ProviderError(`getFile returned no file_path for ${fileId}`)
-    const res = await fetch(`${this.config.baseUrl}/file/bot${this.config.token}/${info.file_path}`)
+    const { response: res, body } = await secureFetch(`${this.config.baseUrl}/file/bot${this.config.token}/${info.file_path}`, this.config.mediaDownload)
     if (!res.ok) throw new ProviderError(`Media download failed: HTTP ${res.status}`)
-    return Buffer.from(await res.arrayBuffer())
+    return body
   }
 
   /** answerCallbackQuery — stops the client spinner / shows optional text. */

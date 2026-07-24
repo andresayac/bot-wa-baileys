@@ -168,4 +168,15 @@ describe('RateLimiter', () => {
 
     await p // cleanup
   })
+
+  it.each([
+    { perChat: { max: 0, window: '1s' } },
+    { global: { max: -1, window: '1s' } },
+    { perChat: { max: 1, window: 0 } },
+    { jitter: { min: 10, max: 5 } },
+    { maxWait: -1 },
+    { maxChats: 0 },
+  ])('rejects invalid configuration: %o', (config) => {
+    expect(() => new RateLimiter(config)).toThrow(/RateLimiter/)
+  })
 })

@@ -8,7 +8,7 @@ Transporte **Facebook Messenger (Send API oficial de Meta)** para [`@bot-wa/core
 pnpm add @bot-wa/core @bot-wa/messenger
 ```
 
-**Cero dependencias extra** — usa `fetch` y `crypto` nativos de Node ≥ 20.
+**Cero dependencias extra** — usa `fetch` y `crypto` nativos de Node ≥ 22.
 
 ## Requisitos (Meta)
 
@@ -26,7 +26,7 @@ import express from 'express'
 const provider = new MessengerProvider({
   accessToken: process.env.MESSENGER_TOKEN!,
   verifyToken: 'mi-verify-secret',               // el que pusiste en Meta
-  appSecret: process.env.META_APP_SECRET,        // opcional: verifica X-Hub-Signature-256
+  appSecret: process.env.META_APP_SECRET!,       // requerido: verifica X-Hub-Signature-256
   pageId: 'me',                                  // o el id numérico de la página
 })
 
@@ -46,9 +46,10 @@ app.post('/webhook', express.json({ verify: (req, _res, buf) => { (req as any).r
 app.listen(3000)
 ```
 
-> **Firma del webhook:** si pasás `appSecret`, `ingest` valida `X-Hub-Signature-256`
+> **Firma del webhook:** `appSecret` es obligatorio en producción; `ingest` valida `X-Hub-Signature-256`
 > (HMAC-SHA256 en tiempo constante) y rechaza cuerpos falsificados con `403`.
 > Pasale el **body crudo** (no el ya parseado) para que la firma calcule igual.
+> Solo para desarrollo local se puede usar `allowUnsignedWebhooks: true` de forma explícita.
 
 ## Configuración
 
@@ -56,7 +57,7 @@ app.listen(3000)
 |---|---|---|
 | `accessToken` | — | Page Access Token (`pages_messaging`). |
 | `verifyToken` | — | Secreto del handshake GET del webhook. |
-| `appSecret` | — | Si está, verifica `X-Hub-Signature-256` en cada POST. |
+| `appSecret` | Sí | Verifica `X-Hub-Signature-256` en cada POST. |
 | `apiVersion` | `v21.0` | Versión del Graph API. |
 | `graphUrl` | `https://graph.facebook.com` | Base del Graph. |
 | `pageId` | `me` | Id de la página (o `me`). |

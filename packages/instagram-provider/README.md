@@ -8,7 +8,7 @@ Transporte **Instagram DM (Messenger API for Instagram, oficial de Meta)** para 
 pnpm add @bot-wa/core @bot-wa/instagram
 ```
 
-**Cero dependencias extra** — usa `fetch` y `crypto` nativos de Node ≥ 20.
+**Cero dependencias extra** — usa `fetch` y `crypto` nativos de Node ≥ 22.
 
 ## Requisitos (Meta)
 
@@ -27,7 +27,7 @@ import express from 'express'
 const provider = new InstagramProvider({
   accessToken: process.env.META_PAGE_TOKEN!,      // token de la Página conectada
   verifyToken: 'mi-verify-secret',                // el que pusiste en Meta
-  appSecret: process.env.META_APP_SECRET,         // opcional: verifica X-Hub-Signature-256
+  appSecret: process.env.META_APP_SECRET!,        // requerido: verifica X-Hub-Signature-256
   selfId: process.env.IG_ACCOUNT_ID,              // opcional: IGSID de la cuenta IG
 })
 
@@ -47,9 +47,10 @@ app.post('/webhook', express.json({ verify: (req, _res, buf) => { (req as any).r
 app.listen(3000)
 ```
 
-> **Firma del webhook:** si pasás `appSecret`, `ingest` valida `X-Hub-Signature-256`
+> **Firma del webhook:** `appSecret` es obligatorio en producción; `ingest` valida `X-Hub-Signature-256`
 > (HMAC-SHA256 en tiempo constante) y rechaza cuerpos falsificados con `403`.
 > Pasale el **body crudo** (no el ya parseado) para que la firma calcule igual.
+> Solo para desarrollo local se puede usar `allowUnsignedWebhooks: true` de forma explícita.
 
 ## Qué soporta
 

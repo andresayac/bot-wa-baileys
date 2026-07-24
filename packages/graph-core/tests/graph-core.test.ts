@@ -78,8 +78,10 @@ describe('checkGraphSignature', () => {
   })
   it('warns when a non-raw body is passed with appSecret set', () => {
     const warnings: string[] = []
-    const res = checkGraphSignature({ object: 'page' }, {}, secret, { warn: (m) => warnings.push(m) })
-    expect(res.ok).toBe(false)
+    const parsed = { object: 'page' }
+    const parsedSig = 'sha256=' + createHmac('sha256', secret).update(JSON.stringify(parsed)).digest('hex')
+    const res = checkGraphSignature(parsed, { 'x-hub-signature-256': parsedSig }, secret, { warn: (m) => warnings.push(m) })
+    expect(res).toEqual({ ok: false, status: 400 })
     expect(warnings.some((w) => w.includes('non-raw body'))).toBe(true)
   })
 })

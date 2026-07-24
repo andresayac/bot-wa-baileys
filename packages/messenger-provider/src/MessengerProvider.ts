@@ -34,6 +34,7 @@ import type {
 } from '@bot-wa/core'
 import { ProviderError, UnsupportedContentError } from '@bot-wa/core'
 import { toGraphError, verifyChallenge, checkGraphSignature, parseGraphBody, type GraphError, type ChallengeQuery } from '@bot-wa/graph-core'
+import { secureFetch } from '@bot-wa/http'
 import type { GraphErrorBody, MessengerProviderConfig, MessengerSendResponse } from './types.js'
 import { toOutbound } from './toOutbound.js'
 import { parseInbound, type PageWebhookBody } from './parseInbound.js'
@@ -63,10 +64,15 @@ export class MessengerProvider implements IProvider<unknown> {
   constructor(config: MessengerProviderConfig) {
     this.config = { apiVersion: 'v21.0', graphUrl: 'https://graph.facebook.com', pageId: 'me', ...config }
     this.logger = config.logger ?? pino({ level: config.debug ? 'debug' : 'error' })
+    if (!this.config.appSecret && !this.config.allowUnsignedWebhooks) {
+      throw new Error(
+        'MessengerProvider requires `appSecret` to authenticate webhook POSTs. ' +
+          'For isolated local development only, set `allowUnsignedWebhooks: true` explicitly.',
+      )
+    }
     if (!this.config.appSecret) {
       this.logger.warn(
-        'MessengerProvider has no `appSecret` — ingest() will accept ANY webhook body unverified. ' +
-          'Set appSecret so X-Hub-Signature-256 is checked, or the endpoint is spoofable.',
+        'MessengerProvider unsigned webhook mode explicitly enabled; never expose this endpoint publicly.',
       )
     }
   }
@@ -81,14 +87,24 @@ export class MessengerProvider implements IProvider<unknown> {
     return () => this.listeners.delete(listener)
   }
   private fan(e: InboundEvent): void {
-    for (const l of this.listeners) void l(e)
+    for (const listener of this.listeners) {
+      try {
+        void Promise.resolve(listener(e))
+          .catch((error) => this.logger.error({ err: error, eventKind: e.kind }, 'provider event listener failed'))
+      } catch (error) {
+        this.logger.error({ err: error, eventKind: e.kind }, 'provider event listener failed')
+      }
+    }
   }
 
   /** No socket to open — the transport is webhook-driven. */
   async start(): Promise<void> {
+    this.fan({ kind: 'connection', update: { state: 'ready' } })
     this.logger.debug('MessengerProvider ready — wire your webhook to ingest()')
   }
-  async stop(): Promise<void> {}
+  async stop(): Promise<void> {
+    this.fan({ kind: 'connection', update: { state: 'closed' } })
+  }
 
   /* Webhook --------------------------------------------------------------- */
 
@@ -172,9 +188,9 @@ export class MessengerProvider implements IProvider<unknown> {
   async downloadMedia(ref: MediaRef): Promise<Buffer> {
     const url = ref.token
     if (typeof url !== 'string' || !url) throw new ProviderError('downloadMedia requires the attachment URL (MediaRef.token)')
-    const res = await fetch(url)
+    const { response: res, body } = await secureFetch(url, this.config.mediaDownload)
     if (!res.ok) throw new ProviderError(`Media download failed: HTTP ${res.status}`)
-    return Buffer.from(await res.arrayBuffer())
+    return body
   }
 
   /** Mark conversations as seen (sender_action 'mark_seen' per chat). */

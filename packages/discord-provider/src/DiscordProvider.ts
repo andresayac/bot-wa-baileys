@@ -99,6 +99,7 @@ export class DiscordProvider implements IProvider<unknown> {
       token: this.config.token,
       apiUrl: this.config.apiUrl,
       apiVersion: this.config.apiVersion,
+      mediaDownload: this.config.mediaDownload,
     })
     this._selfId = config.selfId ?? null
   }
@@ -114,7 +115,14 @@ export class DiscordProvider implements IProvider<unknown> {
     return () => this.listeners.delete(listener)
   }
   private fan(e: InboundEvent): void {
-    for (const l of this.listeners) void l(e)
+    for (const listener of this.listeners) {
+      try {
+        void Promise.resolve(listener(e))
+          .catch((error) => this.logger.error({ err: error, eventKind: e.kind }, 'provider event listener failed'))
+      } catch (error) {
+        this.logger.error({ err: error, eventKind: e.kind }, 'provider event listener failed')
+      }
+    }
   }
 
   /* Lifecycle --------------------------------------------------------------- */
