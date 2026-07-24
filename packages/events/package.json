@@ -1,0 +1,35 @@
+{
+  "name": "@bot-wa/events",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Versioned event envelopes, idempotent journals and retry/DLQ primitives for BotWA.",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    }
+  },
+  "engines": { "node": ">=22" },
+  "keywords": ["bot-wa", "events", "inbox", "outbox", "idempotency", "dlq"],
+  "author": "Andres Aya",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/andresayac/bot-wa-baileys.git",
+    "directory": "packages/events"
+  },
+  "files": ["./lib/**/*"],
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "prepublishOnly": "pnpm build"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "typescript": "^7.0.2",
+    "vite": "^7.3.6",
+    "vitest": "^4.1.10"
+  }
+}
