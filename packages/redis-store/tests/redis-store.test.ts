@@ -83,6 +83,35 @@ describe('RedisStore', () => {
     expect(await store.getChat('chat@g.us')).toBeUndefined()
   })
 
+  it('maxMessagesPerChat prunes the oldest messages (ZSET members + item keys)', async () => {
+    const capped = new RedisStore({ client: fake, prefix: 'cap', maxMessagesPerChat: 3 })
+    for (let i = 0; i < 6; i++) await capped.saveMessage(msg('c1', `m${i}`, `msg ${i}`, 1000 + i))
+    const kept = await capped.getMessagesByChat('c1')
+    expect(kept.map((m) => m.body)).toEqual(['msg 3', 'msg 4', 'msg 5'])
+    // The pruned item keys are gone too (no orphans).
+    expect(fake.strings.has('cap:msg:item:c1:m0')).toBe(false)
+    expect(fake.strings.has('cap:msg:item:c1:m5')).toBe(true)
+    expect(await fake.zCard('cap:msg:c1')).toBe(3)
+  })
+
+  it('deleteChat purges the message log (ZSET + items), leaving no orphan keys', async () => {
+    const scoped = new RedisStore({ client: fake, prefix: 'acme' })
+    await scoped.saveMessage(msg('c1', 'm1', 'hi', 1))
+    await scoped.saveMessage(msg('c1', 'm2', 'bye', 2))
+    await scoped.upsertChat({ id: 'c1', name: 'C1' })
+    expect(fake.zsets.has('acme:msg:c1')).toBe(true)
+    expect(fake.strings.has('acme:msg:item:c1:m1')).toBe(true)
+
+    await scoped.deleteChat('c1')
+
+    expect(await scoped.getChat('c1')).toBeUndefined()
+    expect(await scoped.getMessagesByChat('c1')).toEqual([])
+    // No orphaned keys survive.
+    expect(fake.zsets.has('acme:msg:c1')).toBe(false)
+    expect(fake.strings.has('acme:msg:item:c1:m1')).toBe(false)
+    expect(fake.strings.has('acme:msg:item:c1:m2')).toBe(false)
+  })
+
   it('upserts and retrieves contacts', async () => {
     await store.upsertContact({ id: 'user@s.whatsapp.net', name: 'Alice' })
     expect((await store.getContact('user@s.whatsapp.net'))?.name).toBe('Alice')

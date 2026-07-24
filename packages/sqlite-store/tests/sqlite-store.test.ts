@@ -54,6 +54,31 @@ describe('SQLiteStore', () => {
     expect(await store.listChats()).toHaveLength(1)
   })
 
+  it('maxMessagesPerChat prunes the oldest messages beyond the cap', async () => {
+    const CAP_DB = './test-sqlite-cap.db'
+    for (const s of ['', '-wal', '-shm']) if (existsSync(CAP_DB + s)) unlinkSync(CAP_DB + s)
+    const capped = new SQLiteStore({ file: CAP_DB, maxMessagesPerChat: 3 })
+    await capped.start()
+    for (let i = 0; i < 6; i++) await capped.saveMessage(msg('c@s.whatsapp.net', `m${i}`, `msg ${i}`, 1000 + i))
+    const kept = await capped.getMessagesByChat('c@s.whatsapp.net')
+    expect(kept.map((m) => m.body)).toEqual(['msg 3', 'msg 4', 'msg 5']) // newest 3, oldest dropped
+    // A different chat is unaffected.
+    await capped.saveMessage(msg('other@s.whatsapp.net', 'o1', 'keep', 1))
+    expect(await capped.getMessagesByChat('other@s.whatsapp.net')).toHaveLength(1)
+    await capped.stop()
+    for (const s of ['', '-wal', '-shm']) if (existsSync(CAP_DB + s)) unlinkSync(CAP_DB + s)
+  })
+
+  it('deleteChat purges the chat\'s message log (consistent with MemoryStore)', async () => {
+    await store.saveMessage(msg('gone@s.whatsapp.net', 'g1', 'x', 1))
+    await store.saveMessage(msg('stays@s.whatsapp.net', 's1', 'y', 2))
+    await store.upsertChat({ id: 'gone@s.whatsapp.net' })
+    await store.deleteChat('gone@s.whatsapp.net')
+    expect(await store.getChat('gone@s.whatsapp.net')).toBeUndefined()
+    expect(await store.getMessagesByChat('gone@s.whatsapp.net')).toHaveLength(0)
+    expect(await store.getMessagesByChat('stays@s.whatsapp.net')).toHaveLength(1)
+  })
+
   it('upserts and retrieves contacts', async () => {
     await store.upsertContact({ id: 'user@s.whatsapp.net', name: 'Alice' })
     expect((await store.getContact('user@s.whatsapp.net'))?.name).toBe('Alice')

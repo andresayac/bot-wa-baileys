@@ -26,6 +26,7 @@ const RE = {
   selectWhere: /^SELECT (.+) FROM (\S+) WHERE (\w+) = \$1$/,
   selectAll: /^SELECT (.+) FROM (\S+)$/,
   deleteWhere: /^DELETE FROM (\S+) WHERE (\w+) = \$1$/,
+  deleteTrim: /^DELETE FROM (\S+) WHERE (\w+) = \$1 AND id NOT IN \(SELECT id FROM \S+ WHERE \w+ = \$1 ORDER BY (\w+) DESC, id DESC LIMIT \$2\)$/,
 }
 
 export class FakePool implements PostgresPoolLike {
@@ -55,6 +56,9 @@ export class FakePool implements PostgresPoolLike {
 
     m = RE.selectAll.exec(stmt)
     if (m) return this.selectAll(m[1], m[2])
+
+    m = RE.deleteTrim.exec(stmt)
+    if (m) return this.deleteTrim(m[1], m[2], m[3], values)
 
     m = RE.deleteWhere.exec(stmt)
     if (m) return this.deleteWhere(m[1], m[2], values)
@@ -132,6 +136,24 @@ export class FakePool implements PostgresPoolLike {
     let removed = 0
     for (const [key, row] of def.rows) {
       if (String(row[col]) === want) {
+        def.rows.delete(key)
+        removed++
+      }
+    }
+    return { rows: [], rowCount: removed }
+  }
+
+  /** DELETE ... WHERE chat = $1 AND id NOT IN (newest $2 by timestamp desc, id desc). */
+  private deleteTrim(table: string, col: string, orderCol: string, values: unknown[]): PostgresQueryResult {
+    const def = this.table(table)
+    const want = String(values[0])
+    const keep = Number(values[1])
+    const matching = [...def.rows.values()].filter((r) => String(r[col]) === want)
+    matching.sort((a, b) => Number(b[orderCol]) - Number(a[orderCol]) || (String(a.id) < String(b.id) ? 1 : -1))
+    const keepIds = new Set(matching.slice(0, keep).map((r) => String(r.id)))
+    let removed = 0
+    for (const [key, row] of def.rows) {
+      if (String(row[col]) === want && !keepIds.has(String(row.id))) {
         def.rows.delete(key)
         removed++
       }

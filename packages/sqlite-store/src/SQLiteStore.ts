@@ -32,15 +32,23 @@ export interface SQLiteStoreOptions {
   file?: string
   /** Enable WAL mode for better concurrent read performance. Default: true */
   wal?: boolean
+  /**
+   * Max messages retained per chat. When set, `saveMessage` prunes the oldest
+   * rows (by timestamp) beyond the cap. Default: undefined = unbounded (a
+   * persistent DB is often the full archive; opt in to bound growth).
+   */
+  maxMessagesPerChat?: number
   logger?: { error?: (...args: unknown[]) => void }
 }
 
 export class SQLiteStore implements IStore {
   private db: BetterSqlite3.Database
+  private readonly maxMessagesPerChat?: number
   private readonly logger?: { error?: (...args: unknown[]) => void }
 
   constructor(opts: SQLiteStoreOptions = {}) {
     this.logger = opts.logger
+    this.maxMessagesPerChat = opts.maxMessagesPerChat
     let DatabaseCtor: typeof BetterSqlite3
     try {
       DatabaseCtor = createRequire(import.meta.url)('better-sqlite3') as typeof BetterSqlite3
@@ -77,6 +85,18 @@ export class SQLiteStore implements IStore {
     this.db
       .prepare('INSERT OR REPLACE INTO messages (id, chat_id, sender_id, timestamp, type, body, from_me, msg_json) VALUES (?,?,?,?,?,?,?,?)')
       .run(messageKey(msg.ref), msg.chatId, msg.senderId ?? null, msg.timestamp, msg.type, msg.body ?? null, msg.fromMe ? 1 : 0, JSON.stringify(msg))
+    this.trimChat(msg.chatId)
+  }
+
+  /** Prune the oldest messages of a chat beyond `maxMessagesPerChat` (no-op when unset). */
+  private trimChat(chatId: string): void {
+    if (this.maxMessagesPerChat == null) return
+    this.db
+      .prepare(
+        'DELETE FROM messages WHERE chat_id = ? AND id NOT IN ' +
+          '(SELECT id FROM messages WHERE chat_id = ? ORDER BY timestamp DESC, id DESC LIMIT ?)',
+      )
+      .run(chatId, chatId, this.maxMessagesPerChat)
   }
 
   async getMessage(ref: MessageRef): Promise<StoredMessage | undefined> {
@@ -96,7 +116,11 @@ export class SQLiteStore implements IStore {
   /* Chats ----------------------------------------------------------------- */
 
   async upsertChat(chat: StoredChat): Promise<void> {
-    this.db.prepare('INSERT OR REPLACE INTO chats (id, chat_json) VALUES (?, ?)').run(chat.id, JSON.stringify(chat))
+    // Merge over any existing record (shallow) so a partial upsert doesn't wipe
+    // previously-set fields — consistent with MemoryStore/MongoStore.
+    const existing = await this.getChat(chat.id)
+    const merged = { ...existing, ...chat }
+    this.db.prepare('INSERT OR REPLACE INTO chats (id, chat_json) VALUES (?, ?)').run(chat.id, JSON.stringify(merged))
   }
   async getChat(chatId: string): Promise<StoredChat | undefined> {
     const row = this.db.prepare('SELECT chat_json FROM chats WHERE id = ?').get(chatId) as { chat_json: string } | undefined
@@ -105,14 +129,21 @@ export class SQLiteStore implements IStore {
   async listChats(): Promise<StoredChat[]> {
     return (this.db.prepare('SELECT chat_json FROM chats').all() as Array<{ chat_json: string }>).map((r) => JSON.parse(r.chat_json) as StoredChat)
   }
+  /** Removes the chat record AND purges its message log (consistent with MemoryStore). */
   async deleteChat(chatId: string): Promise<void> {
-    this.db.prepare('DELETE FROM chats WHERE id = ?').run(chatId)
+    const tx = this.db.transaction((id: string) => {
+      this.db.prepare('DELETE FROM messages WHERE chat_id = ?').run(id)
+      this.db.prepare('DELETE FROM chats WHERE id = ?').run(id)
+    })
+    tx(chatId)
   }
 
   /* Contacts -------------------------------------------------------------- */
 
   async upsertContact(contact: StoredContact): Promise<void> {
-    this.db.prepare('INSERT OR REPLACE INTO contacts (id, contact_json) VALUES (?, ?)').run(contact.id, JSON.stringify(contact))
+    const existing = await this.getContact(contact.id)
+    const merged = { ...existing, ...contact }
+    this.db.prepare('INSERT OR REPLACE INTO contacts (id, contact_json) VALUES (?, ?)').run(contact.id, JSON.stringify(merged))
   }
   async getContact(userId: string): Promise<StoredContact | undefined> {
     const row = this.db.prepare('SELECT contact_json FROM contacts WHERE id = ?').get(userId) as { contact_json: string } | undefined

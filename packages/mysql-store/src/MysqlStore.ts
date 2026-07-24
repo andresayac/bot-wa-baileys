@@ -85,6 +85,11 @@ export interface MysqlStoreOptions {
    * on `start()`.
    */
   pool?: PoolLike | NativeMysqlPool
+  /**
+   * Max messages retained per chat. When set, `saveMessage` prunes the oldest
+   * rows (by timestamp) beyond the cap. Default: undefined = unbounded.
+   */
+  maxMessagesPerChat?: number
   logger?: { error?: (...args: unknown[]) => void }
 }
 
@@ -107,6 +112,7 @@ export class MysqlStore implements IStore {
     conversations: string
     cursors: string
   }
+  private readonly maxMessagesPerChat?: number
   private readonly logger?: { error?: (...args: unknown[]) => void }
 
   constructor(opts: MysqlStoreOptions = {}) {
@@ -114,6 +120,7 @@ export class MysqlStore implements IStore {
     // subset used here matches at runtime, so narrow at the boundary.
     this.pool = (opts.pool ?? null) as PoolLike | null
     this.ownsPool = !opts.pool
+    this.maxMessagesPerChat = opts.maxMessagesPerChat
     this.uri = opts.uri
     const { host, port, user, password, database } = opts
     if (host != null || port != null || user != null || password != null || database != null) {
@@ -150,6 +157,22 @@ export class MysqlStore implements IStore {
         'ON DUPLICATE KEY UPDATE chat_id = VALUES(chat_id), timestamp = VALUES(timestamp), msg = VALUES(msg)',
       [messageKey(msg.ref), msg.chatId, msg.timestamp, JSON.stringify(msg)],
     )
+    await this.trimChat(msg.chatId)
+  }
+
+  /**
+   * Prune the oldest messages of a chat beyond `maxMessagesPerChat` (no-op when
+   * unset). MySQL forbids referencing the DELETE target in a plain subquery, so
+   * the keep-set is wrapped in a derived table.
+   */
+  private async trimChat(chatId: string): Promise<void> {
+    if (this.maxMessagesPerChat == null) return
+    const t = this.t.messages
+    await this.query(
+      `DELETE FROM \`${t}\` WHERE chat_id = ? AND id NOT IN ` +
+        `(SELECT id FROM (SELECT id FROM \`${t}\` WHERE chat_id = ? ORDER BY timestamp DESC, id DESC LIMIT ?) keep)`,
+      [chatId, chatId, this.maxMessagesPerChat],
+    )
   }
 
   async getMessage(ref: MessageRef): Promise<StoredMessage | undefined> {
@@ -175,9 +198,13 @@ export class MysqlStore implements IStore {
   /* Chats ----------------------------------------------------------------- */
 
   async upsertChat(chat: StoredChat): Promise<void> {
+    // Shallow-merge over any existing record so a partial upsert keeps prior
+    // fields — consistent with MemoryStore/MongoStore.
+    const existing = await this.getChat(chat.id)
+    const merged = { ...existing, ...chat }
     await this.query(
       `INSERT INTO \`${this.t.chats}\` (id, data) VALUES (?, ?) ON DUPLICATE KEY UPDATE data = VALUES(data)`,
-      [chat.id, JSON.stringify(chat)],
+      [chat.id, JSON.stringify(merged)],
     )
   }
   async getChat(chatId: string): Promise<StoredChat | undefined> {
@@ -188,16 +215,20 @@ export class MysqlStore implements IStore {
     const [rows] = await this.query(`SELECT data FROM \`${this.t.chats}\``)
     return rows.map((r) => fromJson<StoredChat>(r.data)).filter((c): c is StoredChat => c != null)
   }
+  /** Removes the chat record AND purges its message log (consistent with MemoryStore). */
   async deleteChat(chatId: string): Promise<void> {
+    await this.query(`DELETE FROM \`${this.t.messages}\` WHERE chat_id = ?`, [chatId])
     await this.query(`DELETE FROM \`${this.t.chats}\` WHERE id = ?`, [chatId])
   }
 
   /* Contacts -------------------------------------------------------------- */
 
   async upsertContact(contact: StoredContact): Promise<void> {
+    const existing = await this.getContact(contact.id)
+    const merged = { ...existing, ...contact }
     await this.query(
       `INSERT INTO \`${this.t.contacts}\` (id, data) VALUES (?, ?) ON DUPLICATE KEY UPDATE data = VALUES(data)`,
-      [contact.id, JSON.stringify(contact)],
+      [contact.id, JSON.stringify(merged)],
     )
   }
   async getContact(userId: string): Promise<StoredContact | undefined> {

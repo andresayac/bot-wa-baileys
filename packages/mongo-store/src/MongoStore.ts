@@ -46,6 +46,7 @@ export type NativeMongoClient = MongoClient
 export interface MongoLikeCursor<T extends { _id: string }> {
   sort(spec: Record<string, 1 | -1>): this
   limit(count: number): this
+  skip(count: number): this
   toArray(): Promise<T[]>
 }
 
@@ -94,6 +95,11 @@ export interface MongoStoreOptions {
    * the caller owns the lifecycle.
    */
   client?: MongoLikeClient | NativeMongoClient
+  /**
+   * Max messages retained per chat. When set, `saveMessage` prunes the oldest
+   * documents (by timestamp) beyond the cap. Default: undefined = unbounded.
+   */
+  maxMessagesPerChat?: number
   logger?: { error?: (...args: unknown[]) => void }
 }
 
@@ -131,6 +137,7 @@ export class MongoStore implements IStore {
   private readonly client: MongoLikeClient
   private readonly ownsClient: boolean
   private readonly dbName: string
+  private readonly maxMessagesPerChat?: number
   private readonly logger?: { error?: (...args: unknown[]) => void }
   private started = false
 
@@ -144,6 +151,7 @@ export class MongoStore implements IStore {
   constructor(opts: MongoStoreOptions = {}) {
     this.dbName = opts.dbName ?? 'botwa'
     this.logger = opts.logger
+    this.maxMessagesPerChat = opts.maxMessagesPerChat
     this.ownsClient = !opts.client
     const client = opts.client ?? new MongoClient(opts.url ?? 'mongodb://localhost:27017')
     // The driver's generic command signatures aren't directly assignable to the
@@ -169,6 +177,19 @@ export class MongoStore implements IStore {
       { $set: { chatId: msg.chatId, timestamp: msg.timestamp, msg } },
       { upsert: true },
     )
+    await this.trimChat(msg.chatId)
+  }
+
+  /** Prune the oldest messages of a chat beyond `maxMessagesPerChat` (no-op when unset). */
+  private async trimChat(chatId: string): Promise<void> {
+    if (this.maxMessagesPerChat == null) return
+    // Newest first, skip the ones we keep — anything left is stale overflow.
+    const stale = await this.messages
+      .find({ chatId })
+      .sort({ timestamp: -1 })
+      .skip(this.maxMessagesPerChat)
+      .toArray()
+    for (const d of stale) await this.messages.deleteOne({ _id: d._id })
   }
 
   async getMessage(ref: MessageRef): Promise<StoredMessage | undefined> {
@@ -205,10 +226,9 @@ export class MongoStore implements IStore {
     const docs = await this.chats.find({}).toArray()
     return docs.map(({ _id, ...chat }) => chat)
   }
-  /** Removes the chat document AND purges its message log. */
+  /** Removes the chat document AND purges its message log (consistent with MemoryStore). */
   async deleteChat(chatId: string): Promise<void> {
-    // Consistent with the other stores: removes only the chat record, not the
-    // message log (purge messages individually via deleteMessage).
+    await this.messages.deleteMany({ chatId })
     await this.chats.deleteOne({ _id: chatId })
   }
 

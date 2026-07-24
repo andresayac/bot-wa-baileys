@@ -92,11 +92,27 @@ export interface RedisLikeClient {
     options?: RedisZRangeOptions,
   ): Promise<Array<{ score: number; value: string }>>
   zRem(key: string, member: string | string[]): Promise<number>
+  zCard(key: string): Promise<number>
   eval(script: string, options?: { keys?: string[]; arguments?: string[] }): Promise<unknown>
+  /** Begin a MULTI transaction — queued commands execute atomically on exec(). */
+  multi(): RedisMulti
   connect(): Promise<unknown>
   quit(): Promise<unknown>
   /** Connection state; when true, start() skips connecting an own client. */
   isOpen?: boolean
+}
+
+/**
+ * Minimal chainable MULTI surface (node-redis v4). Only the commands the store
+ * batches are declared; each returns the transaction for chaining, and `exec()`
+ * runs them atomically.
+ */
+export interface RedisMulti {
+  set(key: string, value: string, options?: { NX?: true; XX?: true; EX?: number; PX?: number }): RedisMulti
+  del(key: string | string[]): RedisMulti
+  zAdd(key: string, members: { score: number; value: string } | Array<{ score: number; value: string }>, options?: { NX?: true; XX?: true }): RedisMulti
+  zRem(key: string, member: string | string[]): RedisMulti
+  exec(): Promise<unknown[]>
 }
 
 export interface RedisStoreOptions {
@@ -117,6 +133,12 @@ export interface RedisStoreOptions {
    * and cursors are never expired — delete them explicitly.
    */
   ttl?: number
+  /**
+   * Max messages retained per chat. When set, `saveMessage` prunes the oldest
+   * entries (by score/timestamp) beyond the cap — both the ZSET members and
+   * their item keys. Default: undefined = unbounded.
+   */
+  maxMessagesPerChat?: number
   logger?: { error?: (...args: unknown[]) => void }
 }
 
@@ -130,11 +152,13 @@ export class RedisStore implements IStore {
   private readonly ownsClient: boolean
   private readonly prefix: string
   private readonly ttl?: number
+  private readonly maxMessagesPerChat?: number
   private readonly logger?: { error?: (...args: unknown[]) => void }
 
   constructor(opts: RedisStoreOptions = {}) {
     this.prefix = opts.prefix ?? 'botwa'
     this.ttl = opts.ttl
+    this.maxMessagesPerChat = opts.maxMessagesPerChat
     this.logger = opts.logger
     // node-redis' generated command signatures aren't directly assignable to a
     // plain interface (union-rest + MaximumOneOf option types); the command
@@ -196,10 +220,34 @@ export class RedisStore implements IStore {
 
   async saveMessage(msg: StoredMessage): Promise<void> {
     const member = messageKey(msg.ref)
-    await Promise.all([
-      this.client.set(this.msgItemKey(member), JSON.stringify(msg)),
-      this.client.zAdd(this.msgSetKey(msg.chatId), { score: msg.timestamp, value: member }),
-    ])
+    // Atomic: the item write and the ZSET index entry commit together, so a
+    // failure can never leave a ZSET member without its item (which would make
+    // getMessagesByChat silently return fewer than `limit` rows).
+    await this.client
+      .multi()
+      .set(this.msgItemKey(member), JSON.stringify(msg))
+      .zAdd(this.msgSetKey(msg.chatId), { score: msg.timestamp, value: member })
+      .exec()
+    await this.trimChat(msg.chatId)
+  }
+
+  /** Prune the oldest messages of a chat beyond `maxMessagesPerChat` (ZSET members + item keys). */
+  private async trimChat(chatId: string): Promise<void> {
+    if (this.maxMessagesPerChat == null) return
+    const setKey = this.msgSetKey(chatId)
+    const count = await this.client.zCard(setKey)
+    const overflow = count - this.maxMessagesPerChat
+    if (overflow <= 0) return
+    // Oldest `overflow` members (lowest scores first).
+    const stale = await this.client.zRange(setKey, '-inf', '+inf', {
+      BY: 'SCORE',
+      LIMIT: { offset: 0, count: overflow },
+    })
+    if (!stale.length) return
+    const tx = this.client.multi()
+    tx.del(stale.map((m) => this.msgItemKey(m)))
+    tx.zRem(setKey, stale)
+    await tx.exec()
   }
 
   async getMessage(ref: MessageRef): Promise<StoredMessage | undefined> {
@@ -224,13 +272,21 @@ export class RedisStore implements IStore {
 
   async deleteMessage(ref: MessageRef): Promise<void> {
     const member = messageKey(ref)
-    await Promise.all([this.client.del(this.msgItemKey(member)), this.client.zRem(this.msgSetKey(ref.chatId), member)])
+    // Atomic: drop the item and its ZSET index entry together (no orphan member).
+    await this.client
+      .multi()
+      .del(this.msgItemKey(member))
+      .zRem(this.msgSetKey(ref.chatId), member)
+      .exec()
   }
 
   /* Chats ----------------------------------------------------------------- */
 
   async upsertChat(chat: StoredChat): Promise<void> {
-    await this.client.set(this.chatKey(chat.id), JSON.stringify(chat))
+    // Shallow-merge over any existing record so a partial upsert keeps prior
+    // fields — consistent with MemoryStore/MongoStore.
+    const existing = await this.getChat(chat.id)
+    await this.client.set(this.chatKey(chat.id), JSON.stringify({ ...existing, ...chat }))
   }
   async getChat(chatId: string): Promise<StoredChat | undefined> {
     const raw = await this.client.get(this.chatKey(chatId))
@@ -244,14 +300,25 @@ export class RedisStore implements IStore {
     }
     return out
   }
+  /**
+   * Removes the chat record AND purges its entire message log — the ZSET index
+   * plus every message item (consistent with MemoryStore). Previously only the
+   * chat key was deleted, leaking the ZSET and all `:msg:item:` keys forever.
+   */
   async deleteChat(chatId: string): Promise<void> {
-    await this.client.del(this.chatKey(chatId))
+    const members = await this.client.zRange(this.msgSetKey(chatId), '-inf', '+inf', { BY: 'SCORE' })
+    const tx = this.client.multi()
+    if (members.length) tx.del(members.map((m) => this.msgItemKey(m)))
+    tx.del(this.msgSetKey(chatId))
+    tx.del(this.chatKey(chatId))
+    await tx.exec()
   }
 
   /* Contacts -------------------------------------------------------------- */
 
   async upsertContact(contact: StoredContact): Promise<void> {
-    await this.client.set(this.contactKey(contact.id), JSON.stringify(contact))
+    const existing = await this.getContact(contact.id)
+    await this.client.set(this.contactKey(contact.id), JSON.stringify({ ...existing, ...contact }))
   }
   async getContact(userId: string): Promise<StoredContact | undefined> {
     const raw = await this.client.get(this.contactKey(userId))
@@ -315,9 +382,23 @@ export class RedisStore implements IStore {
    * Try to acquire a distributed lock at `{prefix}:lock:{key}`.
    *
    * Returns an opaque token on success — pass it to {@link releaseLock} — or
-   * `null` when the lock is already held. The lock auto-expires after
-   * `ttlMs` so a crashed holder never wedges the fleet. Building block for
-   * multi-replica FIFO message processing.
+   * `null` when the lock is already held. The lock auto-expires after `ttlMs`
+   * so a crashed holder never wedges the fleet.
+   *
+   * LIMITATIONS — read before relying on this for mutual exclusion:
+   *  - **No fencing token.** The returned token only proves ownership to
+   *    {@link releaseLock}; it is NOT a monotonic fence a protected resource can
+   *    use to reject a stale holder. If a holder stalls (GC/IO pause) past
+   *    `ttlMs`, the lock expires, another client acquires it, and BOTH may run
+   *    the critical section concurrently. Size `ttlMs` well above worst-case
+   *    section time, and make the protected work idempotent.
+   *  - **No auto-renewal (watchdog).** A section longer than `ttlMs` is not safe.
+   *  - **Not Redlock.** On a single master, a `SET NX` can be lost if the master
+   *    fails over before replicating. Do not use for correctness-critical mutual
+   *    exclusion across a failover-capable cluster.
+   *
+   * It is a best-effort coordination primitive, adequate for at-most-once-ish
+   * scheduling of idempotent work — not a guarantee of strict exclusion.
    */
   async acquireLock(key: string, ttlMs = 30_000): Promise<string | null> {
     const token = randomUUID()

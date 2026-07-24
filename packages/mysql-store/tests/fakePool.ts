@@ -105,6 +105,25 @@ export class FakePool implements PoolLike {
       this.table(messages).delete(String(p[0]))
       return [[], []]
     }
+    if (s === `DELETE FROM \`${messages}\` WHERE chat_id = ?`) {
+      for (const [k, r] of this.table(messages)) if (r.chat_id === p[0]) this.table(messages).delete(k)
+      return [[], []]
+    }
+    if (
+      s ===
+      `DELETE FROM \`${messages}\` WHERE chat_id = ? AND id NOT IN ` +
+        `(SELECT id FROM (SELECT id FROM \`${messages}\` WHERE chat_id = ? ORDER BY timestamp DESC, id DESC LIMIT ?) keep)`
+    ) {
+      const chatId = p[0]
+      const keep = Number(p[2])
+      const matching = [...this.table(messages).values()].filter((r) => r.chat_id === chatId)
+      matching.sort((a, b) => Number(b.timestamp) - Number(a.timestamp) || (String(a.id) < String(b.id) ? 1 : -1))
+      const keepIds = new Set(matching.slice(0, keep).map((r) => String(r.id)))
+      for (const [k, r] of this.table(messages)) {
+        if (r.chat_id === chatId && !keepIds.has(String(r.id))) this.table(messages).delete(k)
+      }
+      return [[], []]
+    }
 
     /* chats / contacts (identical shape: id PK + data JSON) ------------------ */
     for (const name of [chats, contacts]) {

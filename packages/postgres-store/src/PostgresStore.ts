@@ -84,6 +84,11 @@ export interface PostgresStoreOptions {
    * lifecycle.
    */
   pool?: PostgresPoolLike | NativePostgresPool
+  /**
+   * Max messages retained per chat. When set, `saveMessage` prunes the oldest
+   * rows (by timestamp) beyond the cap. Default: undefined = unbounded.
+   */
+  maxMessagesPerChat?: number
   logger?: { error?: (...args: unknown[]) => void }
 }
 
@@ -94,12 +99,14 @@ export class PostgresStore implements IStore {
   private readonly connectionString: string
   private readonly prefix: string
   private readonly injectedPool?: PostgresPoolLike
+  private readonly maxMessagesPerChat?: number
   private readonly logger?: { error?: (...args: unknown[]) => void }
   private pool?: PostgresPoolLike
   private started = false
 
   constructor(opts: PostgresStoreOptions = {}) {
     this.connectionString = opts.connectionString ?? 'postgres://localhost:5432/botwa'
+    this.maxMessagesPerChat = opts.maxMessagesPerChat
     const prefix = opts.tablePrefix ?? ''
     if (prefix !== '' && !TABLE_PREFIX_RE.test(prefix)) {
       throw new Error(
@@ -161,6 +168,18 @@ export class PostgresStore implements IStore {
       `INSERT INTO ${this.table('messages')} (id, chat_id, timestamp, msg) VALUES ($1, $2, $3, $4) ON CONFLICT (id) DO UPDATE SET chat_id = EXCLUDED.chat_id, timestamp = EXCLUDED.timestamp, msg = EXCLUDED.msg`,
       [messageKey(msg.ref), msg.chatId, msg.timestamp, JSON.stringify(msg)],
     )
+    await this.trimChat(msg.chatId)
+  }
+
+  /** Prune the oldest messages of a chat beyond `maxMessagesPerChat` (no-op when unset). */
+  private async trimChat(chatId: string): Promise<void> {
+    if (this.maxMessagesPerChat == null) return
+    const t = this.table('messages')
+    await this.query(
+      `DELETE FROM ${t} WHERE chat_id = $1 AND id NOT IN ` +
+        `(SELECT id FROM ${t} WHERE chat_id = $1 ORDER BY timestamp DESC, id DESC LIMIT $2)`,
+      [chatId, this.maxMessagesPerChat],
+    )
   }
 
   async getMessage(ref: MessageRef): Promise<StoredMessage | undefined> {
@@ -188,9 +207,13 @@ export class PostgresStore implements IStore {
   /* Chats ------------------------------------------------------------------- */
 
   async upsertChat(chat: StoredChat): Promise<void> {
+    // Shallow-merge over any existing record so a partial upsert keeps prior
+    // fields — consistent with MemoryStore/MongoStore.
+    const existing = await this.getChat(chat.id)
+    const merged = { ...existing, ...chat }
     await this.query(
       `INSERT INTO ${this.table('chats')} (id, data) VALUES ($1, $2) ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data`,
-      [chat.id, JSON.stringify(chat)],
+      [chat.id, JSON.stringify(merged)],
     )
   }
   async getChat(chatId: string): Promise<StoredChat | undefined> {
@@ -205,16 +228,20 @@ export class PostgresStore implements IStore {
     const { rows } = await this.query<{ data: unknown }>(`SELECT data FROM ${this.table('chats')}`)
     return rows.map((r) => this.asJson<StoredChat>(r.data))
   }
+  /** Removes the chat record AND purges its message log (consistent with MemoryStore). */
   async deleteChat(chatId: string): Promise<void> {
+    await this.query(`DELETE FROM ${this.table('messages')} WHERE chat_id = $1`, [chatId])
     await this.query(`DELETE FROM ${this.table('chats')} WHERE id = $1`, [chatId])
   }
 
   /* Contacts ---------------------------------------------------------------- */
 
   async upsertContact(contact: StoredContact): Promise<void> {
+    const existing = await this.getContact(contact.id)
+    const merged = { ...existing, ...contact }
     await this.query(
       `INSERT INTO ${this.table('contacts')} (id, data) VALUES ($1, $2) ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data`,
-      [contact.id, JSON.stringify(contact)],
+      [contact.id, JSON.stringify(merged)],
     )
   }
   async getContact(userId: string): Promise<StoredContact | undefined> {

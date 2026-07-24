@@ -78,6 +78,16 @@ describe('PostgresStore', () => {
     expect(await store.getMessagesByChat('b@s.whatsapp.net')).toHaveLength(1)
   })
 
+  it('maxMessagesPerChat prunes the oldest messages beyond the cap', async () => {
+    const capped = new PostgresStore({ pool: fake, maxMessagesPerChat: 3 })
+    await capped.start()
+    for (let i = 0; i < 6; i++) await capped.saveMessage(msg('c@s.whatsapp.net', `m${i}`, `msg ${i}`, 1000 + i))
+    const kept = await capped.getMessagesByChat('c@s.whatsapp.net')
+    expect(kept.map((m) => m.body)).toEqual(['msg 3', 'msg 4', 'msg 5'])
+    await capped.saveMessage(msg('other@s.whatsapp.net', 'o1', 'keep', 1))
+    expect(await capped.getMessagesByChat('other@s.whatsapp.net')).toHaveLength(1)
+  })
+
   it('deletes a message', async () => {
     await store.saveMessage(msg('u@s.whatsapp.net', 'del1', 'bye', 1))
     await store.saveMessage(msg('u@s.whatsapp.net', 'keep', 'stay', 2))

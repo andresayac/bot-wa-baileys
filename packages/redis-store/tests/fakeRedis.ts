@@ -6,7 +6,7 @@
  * in {@link FakeRedisClient.expires}. `eval` implements the ONE script the
  * store sends (the Lua compare-and-delete lock release).
  */
-import type { RedisLikeClient, RedisZRangeOptions } from '../src/RedisStore.js'
+import type { RedisLikeClient, RedisMulti, RedisZRangeOptions } from '../src/RedisStore.js'
 
 interface ZEntry {
   score: number
@@ -164,6 +164,30 @@ export class FakeRedisClient implements RedisLikeClient {
     let removed = 0
     for (const m of members) if (set.delete(m)) removed++
     return removed
+  }
+
+  async zCard(key: string): Promise<number> {
+    return this.zsets.get(key)?.size ?? 0
+  }
+
+  /**
+   * MULTI — queue commands and apply them on exec(). The fake is single-threaded
+   * so sequential application on exec() is atomic enough to model a transaction.
+   */
+  multi(): RedisMulti {
+    const ops: Array<() => Promise<unknown>> = []
+    const tx: RedisMulti = {
+      set: (key, value, options) => { ops.push(() => this.set(key, value, options)); return tx },
+      del: (key) => { ops.push(() => this.del(key)); return tx },
+      zAdd: (key, members, options) => { ops.push(() => this.zAdd(key, members, options)); return tx },
+      zRem: (key, member) => { ops.push(() => this.zRem(key, member)); return tx },
+      exec: async () => {
+        const results: unknown[] = []
+        for (const op of ops) results.push(await op())
+        return results
+      },
+    }
+    return tx
   }
 
   /** Implements the single script RedisStore sends: Lua compare-and-delete. */

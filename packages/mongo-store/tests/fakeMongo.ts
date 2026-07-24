@@ -47,6 +47,11 @@ export class FakeCursor<T extends Doc> implements MongoLikeCursor<T> {
     return this
   }
 
+  skip(count: number): this {
+    this.docs = this.docs.slice(count)
+    return this
+  }
+
   async toArray(): Promise<T[]> {
     return this.docs.map(clone)
   }

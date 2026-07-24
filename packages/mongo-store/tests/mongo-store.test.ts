@@ -107,13 +107,23 @@ describe('MongoStore', () => {
     expect(await store.getChat('chat@g.us')).toBeUndefined()
   })
 
-  it('deleteChat removes only the chat record, keeping the message log (consistent with other stores)', async () => {
+  it('maxMessagesPerChat prunes the oldest messages beyond the cap', async () => {
+    const capped = new MongoStore({ client: fake, maxMessagesPerChat: 3 })
+    await capped.start()
+    for (let i = 0; i < 6; i++) await capped.saveMessage(msg('c@s.whatsapp.net', `m${i}`, `msg ${i}`, 1000 + i))
+    const kept = await capped.getMessagesByChat('c@s.whatsapp.net')
+    expect(kept.map((m) => m.body)).toEqual(['msg 3', 'msg 4', 'msg 5'])
+    await capped.saveMessage(msg('other@s.whatsapp.net', 'o1', 'keep', 1))
+    expect(await capped.getMessagesByChat('other@s.whatsapp.net')).toHaveLength(1)
+  })
+
+  it('deleteChat removes the chat record AND purges its message log (consistent with MemoryStore)', async () => {
     await store.saveMessage(msg('gone@s.whatsapp.net', 'g1', 'x', 1))
     await store.saveMessage(msg('stays@s.whatsapp.net', 's1', 'y', 2))
     await store.deleteChat('gone@s.whatsapp.net')
     expect(await store.getChat('gone@s.whatsapp.net')).toBeUndefined()
-    // Message log is intentionally NOT purged (use deleteMessage for that).
-    expect(await store.getMessagesByChat('gone@s.whatsapp.net')).toHaveLength(1)
+    // The deleted chat's messages are purged; other chats' logs are untouched.
+    expect(await store.getMessagesByChat('gone@s.whatsapp.net')).toHaveLength(0)
     expect(await store.getMessagesByChat('stays@s.whatsapp.net')).toHaveLength(1)
   })
 
