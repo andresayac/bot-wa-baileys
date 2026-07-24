@@ -6,7 +6,7 @@
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
   "exports": { ".": { "types": "./lib/index.d.ts", "default": "./lib/index.js" } },
-  "engines": { "node": ">=20" },
+  "engines": { "node": ">=22" },
   "keywords": ["bot-wa", "redis", "store", "distributed"],
   "author": "Andres Aya",
   "license": "MIT",

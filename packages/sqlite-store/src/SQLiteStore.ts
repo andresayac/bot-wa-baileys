@@ -153,6 +153,10 @@ export class SQLiteStore implements IStore {
     return (this.db.prepare('SELECT contact_json FROM contacts').all() as Array<{ contact_json: string }>).map((r) => JSON.parse(r.contact_json) as StoredContact)
   }
 
+  async deleteContact(userId: string): Promise<void> {
+    this.db.prepare('DELETE FROM contacts WHERE id = ?').run(userId)
+  }
+
   /* Delivery cursor ------------------------------------------------------- */
 
   async getCursor(key: string): Promise<string | undefined> {

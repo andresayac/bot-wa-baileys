@@ -12,7 +12,7 @@
     }
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "keywords": ["bot-wa", "store", "sqlite", "better-sqlite3"],
   "author": "Andres Aya",

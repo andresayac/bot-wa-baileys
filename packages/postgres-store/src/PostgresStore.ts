@@ -257,6 +257,10 @@ export class PostgresStore implements IStore {
     return rows.map((r) => this.asJson<StoredContact>(r.data))
   }
 
+  async deleteContact(userId: string): Promise<void> {
+    await this.query(`DELETE FROM ${this.table('contacts')} WHERE id = $1`, [userId])
+  }
+
   /* Delivery cursor ---------------------------------------------------------- */
 
   async getCursor(key: string): Promise<string | undefined> {

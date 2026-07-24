@@ -333,6 +333,10 @@ export class RedisStore implements IStore {
     return out
   }
 
+  async deleteContact(userId: string): Promise<void> {
+    await this.client.del(this.contactKey(userId))
+  }
+
   /* Delivery cursor ------------------------------------------------------- */
 
   async getCursor(key: string): Promise<string | undefined> {

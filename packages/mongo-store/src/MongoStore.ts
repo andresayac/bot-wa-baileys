@@ -248,6 +248,10 @@ export class MongoStore implements IStore {
     return docs.map(({ _id, ...contact }) => contact)
   }
 
+  async deleteContact(userId: string): Promise<void> {
+    await this.contacts.deleteOne({ _id: userId })
+  }
+
   /* Delivery cursor ------------------------------------------------------- */
 
   async getCursor(key: string): Promise<string | undefined> {

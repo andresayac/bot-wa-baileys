@@ -5,7 +5,7 @@
   "description": "MySQL IStore for @bot-wa/core (mysql2).",
   "main": "lib/index.js", "types": "lib/index.d.ts",
   "exports": { ".": { "types": "./lib/index.d.ts", "default": "./lib/index.js" } },
-  "engines": { "node": ">=20" },
+  "engines": { "node": ">=22" },
   "keywords": ["bot-wa", "store", "mysql-store"],
   "author": "Andres Aya", "license": "MIT",
   "repository": { "type": "git", "url": "git+https://github.com/andresayac/bot-wa-baileys.git", "directory": "packages/mysql-store" },

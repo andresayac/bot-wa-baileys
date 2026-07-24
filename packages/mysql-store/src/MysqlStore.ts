@@ -240,6 +240,10 @@ export class MysqlStore implements IStore {
     return rows.map((r) => fromJson<StoredContact>(r.data)).filter((c): c is StoredContact => c != null)
   }
 
+  async deleteContact(userId: string): Promise<void> {
+    await this.query(`DELETE FROM \`${this.t.contacts}\` WHERE id = ?`, [userId])
+  }
+
   /* Delivery cursor ------------------------------------------------------- */
 
   async getCursor(key: string): Promise<string | undefined> {

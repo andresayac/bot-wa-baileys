@@ -101,6 +101,14 @@ export function runStoreConformance(name: string, h: ConformanceHarness): void {
       expect((await store.listContacts()).map((c) => c.id)).toEqual(['u1'])
     })
 
+    it('deletes a contact without affecting others', async () => {
+      await store.upsertContact({ id: 'delete-me' })
+      await store.upsertContact({ id: 'keep-me' })
+      await store.deleteContact('delete-me')
+      expect(await store.getContact('delete-me')).toBeUndefined()
+      expect((await store.listContacts()).map((contact) => contact.id)).toEqual(['keep-me'])
+    })
+
     it('stores and reads a delivery cursor', async () => {
       expect(await store.getCursor('k')).toBeUndefined()
       await store.setCursor('k', '42')
