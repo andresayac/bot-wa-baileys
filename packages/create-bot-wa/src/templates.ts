@@ -25,7 +25,14 @@ export interface ProjectTemplate {
   files: (name: string) => TemplateFile[]
 }
 
-/* Versions stamped into generated package.json files. */
+/* Versions stamped into generated package.json files.
+ *
+ * These track the CURRENT published line. While core is on the alpha line, a
+ * caret over a prerelease (`^2.0.0-alpha.1`) only matches other `2.0.0-*`
+ * prereleases, NOT a future stable `2.0.0` — so re-stamp CORE_VERSION to
+ * `^2.0.0` (drop the prerelease) as part of the stable release. Until the
+ * `@bot-wa/*` packages are published to npm, generated projects install only
+ * against a registry/local mirror that has them. */
 const CORE_VERSION = '^2.0.0-alpha.1'
 const TRANSPORT_VERSION = '^0.1.0'
 const ANTHROPIC_SDK_VERSION = '^0.68.0'

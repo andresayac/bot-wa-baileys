@@ -37,7 +37,7 @@ interface HttpResponse {
 }
 
 /** Invoke the handler with fake req/res and resolve with the JSON response. */
-function call(handler: ManagerApiHandler, method: string, url: string): Promise<HttpResponse> {
+function call(handler: ManagerApiHandler, method: string, url: string, headers: Record<string, string> = {}): Promise<HttpResponse> {
   return new Promise((resolve, reject) => {
     const res = {
       statusCode: 200,
@@ -57,7 +57,7 @@ function call(handler: ManagerApiHandler, method: string, url: string): Promise<
         })
       },
     }
-    const req = { method, url }
+    const req = { method, url, headers }
     Promise.resolve(handler(req as unknown as IncomingMessage, res as unknown as ServerResponse)).catch(reject)
   })
 }
@@ -187,5 +187,46 @@ describe('createManagerApi', () => {
     const res = await call(handler, 'GET', '/bots/a')
     expect(res.status).toBe(200)
     expect((res.body as { running: boolean }).running).toBe(true)
+  })
+
+  describe('auth', () => {
+    it('rejects every route with 401 when no token is presented', async () => {
+      const secured = createManagerApi(manager, { auth: { token: 'secret' } })
+      const list = await call(secured, 'GET', '/bots')
+      expect(list.status).toBe(401)
+      expect(list.body).toEqual({ error: 'unauthorized' })
+      const start = await call(secured, 'POST', '/bots/a/start')
+      expect(start.status).toBe(401)
+      // The mutating route must NOT have touched the manager.
+      expect(good.calls).toEqual([])
+    })
+
+    it('rejects a wrong token', async () => {
+      const secured = createManagerApi(manager, { auth: { token: 'secret' } })
+      const res = await call(secured, 'GET', '/bots', { authorization: 'Bearer nope' })
+      expect(res.status).toBe(401)
+    })
+
+    it('accepts the correct token with the Bearer prefix', async () => {
+      const secured = createManagerApi(manager, { auth: { token: 'secret' } })
+      const res = await call(secured, 'GET', '/bots', { authorization: 'Bearer secret' })
+      expect(res.status).toBe(200)
+      expect(Array.isArray(res.body)).toBe(true)
+    })
+
+    it('accepts the raw token without the Bearer prefix', async () => {
+      const secured = createManagerApi(manager, { auth: { token: 'secret' } })
+      const res = await call(secured, 'GET', '/bots', { authorization: 'secret' })
+      expect(res.status).toBe(200)
+    })
+
+    it('supports a custom header name', async () => {
+      const secured = createManagerApi(manager, { auth: { token: 'secret', header: 'x-api-key' } })
+      const ok = await call(secured, 'POST', '/bots/a/start', { 'x-api-key': 'secret' })
+      expect(ok.status).toBe(200)
+      expect(good.calls).toEqual(['start'])
+      const bad = await call(secured, 'GET', '/bots', { authorization: 'Bearer secret' })
+      expect(bad.status).toBe(401)
+    })
   })
 })

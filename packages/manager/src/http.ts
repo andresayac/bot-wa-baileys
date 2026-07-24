@@ -14,6 +14,7 @@
  * Every response is JSON.
  */
 
+import { timingSafeEqual } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { BotManager } from './BotManager.js'
 
@@ -21,7 +22,41 @@ import type { BotManager } from './BotManager.js'
 export interface ManagerApiOptions {
   /** URL prefix for every route, e.g. `'/api'` → `GET /api/bots`. */
   prefix?: string
+  /**
+   * Shared-secret authentication for the control plane. When set, EVERY request
+   * must present the token or it is rejected with 401. Sent as
+   * `Authorization: Bearer <token>` by default, or in the header named by
+   * `auth.header` (compared case-insensitively, `Bearer ` prefix optional).
+   *
+   * When omitted the API is UNAUTHENTICATED: anyone who can reach the socket can
+   * enumerate bots and start/stop them. A one-time warning is logged in that case.
+   * Never expose an unauthenticated manager API to an untrusted network.
+   */
+  auth?: { token: string; header?: string }
 }
+
+/** Timing-safe string compare that never short-circuits on length. */
+function safeEqual(a: string, b: string): boolean {
+  const ab = Buffer.from(a)
+  const bb = Buffer.from(b)
+  // Compare against a fixed-length digest-like buffer so length itself isn't a side channel.
+  if (ab.length !== bb.length) {
+    // Still burn a comparison to keep timing roughly constant.
+    timingSafeEqual(ab, ab)
+    return false
+  }
+  return timingSafeEqual(ab, bb)
+}
+
+/** Extract the presented token from the configured header (`Bearer ` prefix optional). */
+function presentedToken(req: IncomingMessage, headerName: string): string | undefined {
+  const raw = req.headers[headerName.toLowerCase()]
+  const value = Array.isArray(raw) ? raw[0] : raw
+  if (!value) return undefined
+  return value.startsWith('Bearer ') ? value.slice('Bearer '.length) : value
+}
+
+let warnedUnauthenticated = false
 
 /** The handler returned by {@link createManagerApi}. */
 export type ManagerApiHandler = (req: IncomingMessage, res: ServerResponse) => void | Promise<void>
@@ -35,7 +70,9 @@ export type ManagerApiHandler = (req: IncomingMessage, res: ServerResponse) => v
  * import { BotManager, createManagerApi } from '@bot-wa/manager'
  *
  * const manager = new BotManager()
- * createServer(createManagerApi(manager, { prefix: '/api' })).listen(3000)
+ * const api = createManagerApi(manager, { prefix: '/api', auth: { token: process.env.MANAGER_TOKEN! } })
+ * createServer(api).listen(3000)
+ * // → callers must send `Authorization: Bearer <MANAGER_TOKEN>`
  * ```
  */
 export function createManagerApi(manager: BotManager, opts: ManagerApiOptions = {}): ManagerApiHandler {
@@ -45,6 +82,17 @@ export function createManagerApi(manager: BotManager, opts: ManagerApiOptions = 
   const reStart = new RegExp(`^${esc}/bots/([^/]+)/start/?$`)
   const reStop = new RegExp(`^${esc}/bots/([^/]+)/stop/?$`)
   const reOne = new RegExp(`^${esc}/bots/([^/]+)/?$`)
+
+  const auth = opts.auth
+  const authHeader = auth?.header ?? 'authorization'
+  if (!auth && !warnedUnauthenticated) {
+    warnedUnauthenticated = true
+    // eslint-disable-next-line no-console
+    console.warn(
+      '[bot-wa/manager] createManagerApi() has no `auth` token — the control plane is UNAUTHENTICATED. ' +
+        'Anyone who can reach this socket can start/stop your bots. Pass { auth: { token } } or keep it off untrusted networks.',
+    )
+  }
 
   return (req, res) => {
     const send = (status: number, body: unknown): void => {
@@ -58,6 +106,15 @@ export function createManagerApi(manager: BotManager, opts: ManagerApiOptions = 
     if (path === undefined) {
       send(400, { error: 'bad request: unparseable url' })
       return
+    }
+
+    // Auth gate — applies to every route when a token is configured.
+    if (auth) {
+      const token = presentedToken(req, authHeader)
+      if (!token || !safeEqual(token, auth.token)) {
+        send(401, { error: 'unauthorized' })
+        return
+      }
     }
 
     if (method === 'GET' && reList.test(path)) {
