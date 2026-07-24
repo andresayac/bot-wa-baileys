@@ -2,10 +2,10 @@
 
 How to run your bot in production, always connected.
 
-::: tip ESM-only, Node >= 20
+::: tip ESM-only, Node >= 22
 `@bot-wa/core` and the transport packages are pure ESM — no CommonJS build.
 Make sure your production `package.json` has `"type": "module"` (or your
-entrypoint uses `.mjs`), and that the runtime is **Node >= 20**.
+entrypoint uses `.mjs`), and that the runtime is **Node >= 22**.
 :::
 
 ## Option 1: VPS (recommended)
@@ -54,7 +54,7 @@ pm2 stop my-bot     # stop
 ### Dockerfile
 
 ```dockerfile
-FROM node:20-slim
+FROM node:22-slim
 WORKDIR /app
 COPY package.json pnpm-lock.yaml ./
 RUN npm install -g pnpm && pnpm install --frozen-lockfile

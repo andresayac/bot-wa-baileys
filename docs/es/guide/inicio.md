@@ -2,7 +2,7 @@
 
 ## Requisitos
 
-- **Node.js** 20 o superior ([descargar](https://nodejs.org/))
+- **Node.js** 22 o superior ([descargar](https://nodejs.org/))
 - **pnpm** (recomendado) o npm/yarn
 - Un teléfono con WhatsApp
 

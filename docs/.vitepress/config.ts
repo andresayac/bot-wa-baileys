@@ -55,6 +55,8 @@ export default defineConfig({
                 { text: 'Scheduler', link: '/guide/scheduler' },
                 { text: 'Rate limiting (anti-ban)', link: '/guide/rate-limiting' },
                 { text: 'Persistent store', link: '/guide/store' },
+                { text: 'Control plane', link: '/guide/control-plane' },
+                { text: 'Operations', link: '/guide/operations' },
               ],
             },
             {
@@ -121,6 +123,8 @@ export default defineConfig({
                 { text: 'Scheduler', link: '/es/guide/scheduler' },
                 { text: 'Rate limiting (anti-ban)', link: '/es/guide/rate-limiting' },
                 { text: 'Store persistente', link: '/es/guide/store' },
+                { text: 'Control plane', link: '/es/guide/control-plane' },
+                { text: 'Operación', link: '/es/guide/operations' },
               ],
             },
             {

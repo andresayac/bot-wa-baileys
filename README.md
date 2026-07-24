@@ -24,6 +24,13 @@ Framework moderno y **agnóstico de transporte** para bots de mensajería: flows
 | [`@bot-wa/postgres-store`](packages/postgres-store) | PostgreSQL (`pg`). |
 | [`@bot-wa/mysql-store`](packages/mysql-store) | MySQL (`mysql2`). |
 | **Plugins & tooling** | |
+| [`@bot-wa/events`](packages/events) | Envelopes versionados, journal idempotente, reintentos y DLQ para procesos asíncronos. |
+| [`@bot-wa/http`](packages/http) | Cliente HTTP seguro: anti-SSRF, validación de redirecciones, timeout y límites de descarga. |
+| [`@bot-wa/inbox`](packages/inbox) | Inbox omnicanal: asignación, handoff, notas, unread, SLA y CAS por conversación. |
+| [`@bot-wa/crm`](packages/crm) | Contactos, tags, atributos, consentimiento y segmentos aislados por tenant. |
+| [`@bot-wa/hub`](packages/hub) | Manifiestos de plugins, permisos declarados, compatibilidad y registro por tenant. |
+| [`@bot-wa/campaigns`](packages/campaigns) | Planificación de campañas con consentimiento, segmentos y deduplicación. |
+| [`@bot-wa/deployments`](packages/deployments) | Versiones de despliegue inmutables, publicación y rollback por tenant. |
 | [`@bot-wa/ai`](packages/ai) | IA: Anthropic/OpenAI/Ollama/Gemini + 9 presets OpenAI-compatible (DeepSeek/Qwen/GLM/Kimi/Groq/…), autorespuesta. |
 | [`@bot-wa/nlu`](packages/nlu) | Intenciones/NLU local (define/match + `whenIntent`), sin servicios externos. |
 | [`@bot-wa/manager`](packages/manager) | Multi-bot orchestrator (registry, lifecycle) + HTTP API zero-dep (auth por token). |
@@ -40,7 +47,7 @@ pnpm add @bot-wa/core @bot-wa/baileys        # bot WhatsApp (Baileys)
 pnpm add @bot-wa/ai @anthropic-ai/sdk        # + IA (opcional; instala el SDK del proveedor que uses)
 ```
 
-Requiere **Node >= 20**. Todos los paquetes son **ESM-only**.
+Requiere **Node >= 22**. Todos los paquetes son **ESM-only**.
 
 ## Desarrollo (en este repo)
 
@@ -48,7 +55,7 @@ Requiere **Node >= 20**. Todos los paquetes son **ESM-only**.
 pnpm install            # instala todo el workspace
 pnpm build              # pnpm -r build  → compila todos los paquetes
 pnpm test               # pnpm -r test   → suite completa
-pnpm docs               # vitepress build docs → sitio de documentación
+pnpm run docs           # TypeDoc + VitePress → sitio de documentación
 ```
 
 Por paquete: `pnpm --filter @bot-wa/ai test`, `pnpm --filter @bot-wa/core build`, etc.

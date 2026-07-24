@@ -31,3 +31,8 @@ baileys_store.json
 
 # Third-party reference repos (NOT part of this project, never committed)
 terceros/
+
+# VitePress build artifacts
+docs/.vitepress/.temp/
+docs/.vitepress/cache/
+docs/.vitepress/dist/

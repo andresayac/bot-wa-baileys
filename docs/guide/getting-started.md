@@ -2,7 +2,7 @@
 
 ## Requirements
 
-- **Node.js** 20+ ([download](https://nodejs.org/))
+- **Node.js** 22+ ([download](https://nodejs.org/))
 - **pnpm** (recommended) or npm/yarn
 - A phone with WhatsApp (for the Baileys transport)
 

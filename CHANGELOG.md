@@ -8,7 +8,7 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/). Versionado po
 - **Reorganizado a monorepo pnpm transporte-agnóstico.** El core dejó de ser específico de WhatsApp: `@bot-wa/bot-wa-baileys` pasó a **`@bot-wa/core`** (motor con `IProvider v2`, cero concepto de transporte). WhatsApp/Baileys vive ahora en `@bot-wa/baileys`.
 - **17 paquetes**: core; transportes (`baileys`, `meta`, `messenger`, `instagram`, `telegram`, `discord`); stores (`sqlite-store`, `redis-store`, `mongo-store`, `postgres-store`, `mysql-store`); helpers compartidos (`graph-core`); tooling (`ai`, `nlu`, `manager`, `create-bot-wa`).
 - **`@bot-wa/graph-core`**: helpers Meta Graph compartidos (verificación de webhook, mapeo de errores, guard de ingest) usados por meta/messenger/instagram — elimina la triplicación previa.
-- CI en GitHub Actions: `build` + `test` en Node 20 y 22 por PR.
+- CI en GitHub Actions: `build` + `test` en Node 22 y 24 por PR.
 - Docs VitePress + TypeDoc desde la raíz (`pnpm docs`). Paquetes compilados con TypeScript 7 (native port); TypeDoc corre con TS 5.9 en la raíz.
 
 ### Seguridad (endurecimiento 2026-07-23)

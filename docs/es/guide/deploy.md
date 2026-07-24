@@ -2,11 +2,11 @@
 
 Cómo ejecutar tu bot en producción, siempre conectado.
 
-::: tip Solo ESM, Node >= 20
+::: tip Solo ESM, Node >= 22
 `@bot-wa/core` y los paquetes de transporte son ESM puro — no hay build de
 CommonJS. Asegúrate de que el `package.json` de producción tenga
 `"type": "module"` (o que tu entrypoint use `.mjs`), y que el runtime sea
-**Node >= 20**.
+**Node >= 22**.
 :::
 
 ## Opción 1: VPS (recomendado)
@@ -55,7 +55,7 @@ pm2 stop my-bot     # detener
 ### Dockerfile
 
 ```dockerfile
-FROM node:20-slim
+FROM node:22-slim
 WORKDIR /app
 COPY package.json pnpm-lock.yaml ./
 RUN npm install -g pnpm && pnpm install --frozen-lockfile

@@ -4,7 +4,7 @@ Gracias por querer contribuir a `bot-wa-baileys`. Este repo es un **monorepo pnp
 
 ## Requisitos
 
-- **Node >= 20** (recomendado 22).
+- **Node >= 22** (recomendado 24 LTS).
 - **pnpm** (ver la versión en `packageManager` de `package.json`; instala con `corepack enable`).
 
 ## Puesta en marcha
@@ -24,7 +24,7 @@ pnpm --filter @bot-wa/core build
 
 ## Reglas del código
 
-- **ESM-only**: `"type": "module"`, imports relativos con extensión `.js` (NodeNext). Node >= 20.
+- **ESM-only**: `"type": "module"`, imports relativos con extensión `.js` (NodeNext). Node >= 22.
 - **Sin `console.*`** en `src/` — usa el `logger` inyectado. La salida del QR por terminal es la única excepción.
 - **Sin `any`** en tipos exportados públicos.
 - **TDD**: escribe el test que falla primero, luego la implementación mínima. Cada cambio de comportamiento necesita su test.
@@ -41,7 +41,7 @@ pnpm -r build && pnpm -r test        # ambos verdes
 pnpm docs                            # opcional: verifica que el sitio compila sin links muertos
 ```
 
-CI (GitHub Actions) corre `build` + `test` en Node 20 y 22 en cada PR contra `main`.
+CI (GitHub Actions) corre `build` + `test` en Node 22 y 24 en cada PR contra `main`.
 
 ## Documentación
 

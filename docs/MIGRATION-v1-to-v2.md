@@ -167,7 +167,7 @@ const bot = new Bot({
 })
 ```
 
-### e) ESM-only + Node >= 20
+### e) ESM-only + Node >= 22
 
 Los paquetes son **ESM puros** (`"type": "module"`, sin build CommonJS). Tu proyecto debe:
 
@@ -175,7 +175,7 @@ Los paquetes son **ESM puros** (`"type": "module"`, sin build CommonJS). Tu proy
 - Usar extensión `.mjs`, **o**
 - Estar en Node **>= 22.12**, donde `require('@bot-wa/core')` funciona vía el soporte experimental de Node para `require(esm)`.
 
-Mínimo soportado: **Node >= 20**. Baileys 7 (un transporte, no el core) también es ESM-only — es una de las razones por las que la v2 no ofrece un build CJS.
+Mínimo soportado: **Node >= 22**. Baileys 7 (un transporte, no el core) también es ESM-only — es una de las razones por las que la v2 no ofrece un build CJS.
 
 ## Reorganización de paquetes: core, transportes, stores
 
