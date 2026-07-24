@@ -246,7 +246,17 @@ export class ConversationRuntime {
     if (this.active.get(entry.key) !== entry || entry.cancelled) {
       return Promise.reject(entry.cancelled ?? new ConversationCancelled(true))
     }
-    const queued = opts.filter ? undefined : entry.inbox.shift()
+    // A buffered message that already satisfies the filter must be consumed —
+    // previously a filtered wait skipped the inbox entirely and only looked at
+    // FUTURE messages, silently dropping an in-flight answer. With no filter it
+    // stays FIFO (shift the oldest).
+    let queued: RuntimeMessage | undefined
+    if (opts.filter) {
+      const idx = entry.inbox.findIndex((m) => opts.filter!(m))
+      if (idx >= 0) queued = entry.inbox.splice(idx, 1)[0]
+    } else {
+      queued = entry.inbox.shift()
+    }
     if (queued) return Promise.resolve(queued)
 
     return new Promise<RuntimeMessage>((resolve, reject) => {

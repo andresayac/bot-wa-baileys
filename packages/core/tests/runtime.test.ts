@@ -73,6 +73,22 @@ describe('ConversationRuntime', () => {
     expect(seen).toEqual(['queued'])
   })
 
+  it('a filtered wait consumes a matching message already buffered in the inbox', async () => {
+    const rt = new ConversationRuntime()
+    const seen: string[] = []
+    let release!: () => void
+    const gate = new Promise<void>((r) => { release = r })
+    const entry = rt.enter(async (c) => {
+      await gate                                              // parked: no pending wait → deliveries buffer
+      seen.push((await c.waitAny({ filter: (m) => m.type === 'image' })).body)
+    }, msg('start'))
+    expect(rt.deliver(msg('texto'))).toBe(true)               // inbox (non-matching)
+    expect(rt.deliver(msg('foto', { type: 'image' }))).toBe(true) // inbox (matching)
+    release()
+    await entry
+    expect(seen).toEqual(['foto'])                            // picked the image out of the inbox, not a future msg
+  })
+
   it('filter rejection leaves message unconsumed', async () => {
     const rt = new ConversationRuntime()
     const start = msg('start')

@@ -7,7 +7,7 @@
  */
 
 import { existsSync } from 'fs'
-import { readFile, writeFile } from 'fs/promises'
+import { readFile, writeFile, rename } from 'fs/promises'
 import type {
   AIMessage,
   FlowCheckpoint,
@@ -42,6 +42,9 @@ export class MemoryStore implements IStore {
   private conversations = new Map<string, AIMessage[]>()
   private cursors = new Map<string, string>()
   private autoSaveTimer: NodeJS.Timeout | null = null
+  /** Serializes persist() calls so a timer save and a stop() save never overlap. */
+  private persistQueue: Promise<void> = Promise.resolve()
+  private persistSeq = 0
 
   constructor(private opts: MemoryStoreOptions = {}) {}
 
@@ -74,7 +77,19 @@ export class MemoryStore implements IStore {
     if (this.opts.file) await this.persist()
   }
 
-  private async persist(): Promise<void> {
+  /**
+   * Serialize a snapshot to disk. Calls are CHAINED (never concurrent): the
+   * autosave timer and stop() can both trigger a persist, and two overlapping
+   * writes to the same temp file could interleave and corrupt it. Queueing
+   * guarantees one-at-a-time; the temp name is also per-write for extra safety.
+   */
+  private persist(): Promise<void> {
+    if (!this.opts.file) return Promise.resolve()
+    this.persistQueue = this.persistQueue.then(() => this.writeSnapshot())
+    return this.persistQueue
+  }
+
+  private async writeSnapshot(): Promise<void> {
     if (!this.opts.file) return
     const payload = {
       chats: [...this.chats.values()],
@@ -84,7 +99,12 @@ export class MemoryStore implements IStore {
       cursors: Object.fromEntries(this.cursors),
     }
     try {
-      await writeFile(this.opts.file, JSON.stringify(payload), 'utf8')
+      // Atomic write: serialize to a UNIQUE temp file, then rename over the
+      // target. A crash mid-write leaves the previous good file intact instead
+      // of a truncated JSON that would wipe persisted checkpoints on next load.
+      const tmp = `${this.opts.file}.${process.pid}.${++this.persistSeq}.tmp`
+      await writeFile(tmp, JSON.stringify(payload), 'utf8')
+      await rename(tmp, this.opts.file)
     } catch (err) {
       this.opts.logger?.error?.({ err, file: this.opts.file }, 'MemoryStore failed to persist')
     }

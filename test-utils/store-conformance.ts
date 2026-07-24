@@ -1,0 +1,128 @@
+/**
+ * Shared IStore conformance suite.
+ *
+ * One set of assertions run against EVERY IStore implementation (MemoryStore +
+ * the five persistent stores) so the contract stays uniform. Import it from a
+ * store's test and pass a factory that yields a fresh, started store plus a
+ * teardown. Type-only imports keep this file runtime-dependency-free (it only
+ * needs `vitest`, which the runner injects).
+ *
+ * Ordering note: assertions use DISTINCT timestamps on purpose — tie-break
+ * order for equal timestamps is intentionally NOT part of the contract and
+ * varies by backend, so it isn't asserted here.
+ */
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import type { IStore, StoredMessage } from '@bot-wa/core'
+
+export interface ConformanceHarness {
+  /** Build a fresh, started store and a teardown that releases it. */
+  make(): Promise<{ store: IStore; teardown: () => Promise<void> }>
+}
+
+const msg = (chatId: string, id: string, body: string, ts: number): StoredMessage => ({
+  ref: { id, chatId }, chatId, senderId: chatId, timestamp: ts, type: 'text', body, fromMe: false,
+})
+
+export function runStoreConformance(name: string, h: ConformanceHarness): void {
+  describe(`IStore conformance: ${name}`, () => {
+    let store: IStore
+    let teardown: () => Promise<void>
+
+    beforeEach(async () => {
+      const made = await h.make()
+      store = made.store
+      teardown = made.teardown
+    })
+    afterEach(async () => { await teardown() })
+
+    it('saves and reads back a message', async () => {
+      await store.saveMessage(msg('c@x', 'm1', 'hello', 1))
+      const got = await store.getMessage({ id: 'm1', chatId: 'c@x' })
+      expect(got?.body).toBe('hello')
+    })
+
+    it('returns undefined for a missing message', async () => {
+      expect(await store.getMessage({ id: 'nope', chatId: 'c@x' })).toBeUndefined()
+    })
+
+    it('lists a chat window oldest→newest, capped to the limit', async () => {
+      for (let i = 0; i < 5; i++) await store.saveMessage(msg('c@x', `m${i}`, `msg ${i}`, 1000 + i))
+      const win = await store.getMessagesByChat('c@x', 3)
+      expect(win.map((m) => m.body)).toEqual(['msg 2', 'msg 3', 'msg 4'])
+      const all = await store.getMessagesByChat('c@x')
+      expect(all.map((m) => m.body)).toEqual(['msg 0', 'msg 1', 'msg 2', 'msg 3', 'msg 4'])
+    })
+
+    it('isolates message logs per chat', async () => {
+      await store.saveMessage(msg('a@x', 'a1', 'in a', 1))
+      await store.saveMessage(msg('b@x', 'b1', 'in b', 2))
+      expect(await store.getMessagesByChat('a@x')).toHaveLength(1)
+      expect(await store.getMessagesByChat('b@x')).toHaveLength(1)
+    })
+
+    it('deletes a single message', async () => {
+      await store.saveMessage(msg('c@x', 'del', 'bye', 1))
+      await store.saveMessage(msg('c@x', 'keep', 'stay', 2))
+      await store.deleteMessage({ id: 'del', chatId: 'c@x' })
+      expect((await store.getMessagesByChat('c@x')).map((m) => m.ref.id)).toEqual(['keep'])
+    })
+
+    it('deleteChat removes the record AND purges the chat message log', async () => {
+      await store.saveMessage(msg('gone@x', 'g1', 'x', 1))
+      await store.saveMessage(msg('stays@x', 's1', 'y', 2))
+      await store.upsertChat({ id: 'gone@x', name: 'Gone' })
+      await store.deleteChat('gone@x')
+      expect(await store.getChat('gone@x')).toBeUndefined()
+      expect(await store.getMessagesByChat('gone@x')).toHaveLength(0)
+      expect(await store.getMessagesByChat('stays@x')).toHaveLength(1)
+    })
+
+    it('upsertChat shallow-merges over the existing record (partial keeps prior fields)', async () => {
+      await store.upsertChat({ id: 'c@x', name: 'Group', kind: 'group' })
+      await store.upsertChat({ id: 'c@x', name: 'Renamed' }) // omits `kind`
+      const chat = await store.getChat('c@x')
+      expect(chat?.name).toBe('Renamed')
+      expect(chat?.kind).toBe('group') // preserved
+    })
+
+    it('upsertContact shallow-merges over the existing record', async () => {
+      await store.upsertContact({ id: 'u@x', name: 'Alice', pushName: 'A' })
+      await store.upsertContact({ id: 'u@x', name: 'Alice B.' }) // omits pushName
+      const c = await store.getContact('u@x')
+      expect(c?.name).toBe('Alice B.')
+      expect(c?.pushName).toBe('A') // preserved
+    })
+
+    it('lists chats and contacts', async () => {
+      await store.upsertChat({ id: 'c1' })
+      await store.upsertChat({ id: 'c2' })
+      await store.upsertContact({ id: 'u1' })
+      expect((await store.listChats()).map((c) => c.id).sort()).toEqual(['c1', 'c2'])
+      expect((await store.listContacts()).map((c) => c.id)).toEqual(['u1'])
+    })
+
+    it('stores and reads a delivery cursor', async () => {
+      expect(await store.getCursor('k')).toBeUndefined()
+      await store.setCursor('k', '42')
+      expect(await store.getCursor('k')).toBe('42')
+    })
+
+    it('manages flow checkpoints (set/get/list/clear)', async () => {
+      const cp = { flowId: 'reg', step: 2, state: { name: 'Ana' }, updatedAt: 1 }
+      await store.setCheckpoint('u@x', cp)
+      expect((await store.getCheckpoint('u@x'))?.flowId).toBe('reg')
+      expect(await store.listCheckpoints()).toEqual([['u@x', cp]])
+      await store.clearCheckpoint('u@x')
+      expect(await store.getCheckpoint('u@x')).toBeUndefined()
+      expect(await store.listCheckpoints()).toHaveLength(0)
+    })
+
+    it('manages AI conversation history (set/get/clear)', async () => {
+      const msgs = [{ role: 'user' as const, content: 'hi' }, { role: 'assistant' as const, content: 'yo' }]
+      await store.setConversation('c@x', msgs)
+      expect(await store.getConversation('c@x')).toEqual(msgs)
+      await store.clearConversation('c@x')
+      expect(await store.getConversation('c@x')).toBeUndefined()
+    })
+  })
+}

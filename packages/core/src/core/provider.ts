@@ -316,6 +316,12 @@ export interface ProviderCapabilities {
   buttons: boolean
   lists: boolean
   polls: boolean
+  /**
+   * Can SEND reactions (an outbound `reaction` OutboundContent). This does NOT
+   * describe inbound reaction receipt — providers may emit inbound `reaction`
+   * events regardless of this flag (e.g. Messenger/Instagram receive reactions
+   * but cannot send them, so they set this false).
+   */
   reactions: boolean
   edit: boolean
   typing: boolean
