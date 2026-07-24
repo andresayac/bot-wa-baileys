@@ -5,7 +5,7 @@
   "description": "Multi-bot orchestrator for @bot-wa/core — manage many Bot instances (registry, lifecycle, status) + optional zero-dep HTTP API.",
   "main": "lib/index.js", "types": "lib/index.d.ts",
   "exports": { ".": { "types": "./lib/index.d.ts", "default": "./lib/index.js" } },
-  "engines": { "node": ">=20" },
+  "engines": { "node": ">=22" },
   "keywords": ["bot-wa", "manager", "multi-bot", "orchestrator"],
   "author": "Andres Aya", "license": "MIT",
   "repository": { "type": "git", "url": "git+https://github.com/andresayac/bot-wa-baileys.git", "directory": "packages/manager" },

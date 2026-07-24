@@ -53,7 +53,7 @@ function call(handler: ManagerApiHandler, method: string, url: string, headers: 
           status: this.statusCode,
           headers: this.headers,
           raw,
-          body: raw ? JSON.parse(raw) : undefined,
+          body: raw && String(this.headers['content-type'] ?? '').includes('application/json') ? JSON.parse(raw) : undefined,
         })
       },
     }
@@ -88,6 +88,16 @@ describe('createManagerApi', () => {
       { id: 'a', running: false, meta: { tenant: 'acme' } },
       { id: 'bad', running: false, meta: undefined },
     ])
+  })
+
+  it('exposes health and Prometheus-compatible metrics', async () => {
+    const health = await call(handler, 'GET', '/health')
+    expect(health.status).toBe(200)
+    expect(health.body).toEqual({ status: 'ok', bots: 2, running: 0 })
+    const metrics = await call(handler, 'GET', '/metrics')
+    expect(metrics.status).toBe(200)
+    expect(metrics.headers['content-type']).toContain('text/plain')
+    expect(metrics.raw).toContain('botwa_manager_bots_registered 2')
   })
 
   it('GET /bots tolerates a trailing slash', async () => {

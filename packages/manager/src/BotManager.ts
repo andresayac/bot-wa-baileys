@@ -99,6 +99,7 @@ type ManagerListener<K extends keyof ManagerEventMap> = (...args: ManagerEventMa
 export class BotManager extends EventEmitter {
   private readonly registry = new Map<string, BotEntry>()
   private readonly runningIds = new Set<string>()
+  private readonly lifecycleOperations = new Map<string, Promise<void>>()
   private counter = 0
   readonly logger: Logger
 
@@ -197,6 +198,7 @@ export class BotManager extends EventEmitter {
    * re-throws start failures (after emitting `error`).
    */
   async start(id: string): Promise<void> {
+    return this.serializeLifecycle(id, async () => {
     const entry = this.registry.get(id)
     if (!entry) throw new Error(`Bot "${id}" is not registered`)
     if (this.runningIds.has(id)) return
@@ -209,6 +211,7 @@ export class BotManager extends EventEmitter {
     this.runningIds.add(id)
     this.logger.debug({ id }, 'bot started')
     this.emit('started', id)
+    })
   }
 
   /**
@@ -217,6 +220,7 @@ export class BotManager extends EventEmitter {
    * is considered still running.
    */
   async stop(id: string): Promise<void> {
+    return this.serializeLifecycle(id, async () => {
     const entry = this.registry.get(id)
     if (!entry) throw new Error(`Bot "${id}" is not registered`)
     if (!this.runningIds.has(id)) return
@@ -229,6 +233,7 @@ export class BotManager extends EventEmitter {
     this.runningIds.delete(id)
     this.logger.debug({ id }, 'bot stopped')
     this.emit('stopped', id)
+    })
   }
 
   /**
@@ -305,6 +310,16 @@ export class BotManager extends EventEmitter {
       id = `bot-${++this.counter}`
     } while (this.registry.has(id))
     return id
+  }
+
+  private serializeLifecycle(id: string, operation: () => Promise<void>): Promise<void> {
+    const previous = this.lifecycleOperations.get(id) ?? Promise.resolve()
+    const next = previous.catch(() => {}).then(operation)
+    this.lifecycleOperations.set(id, next)
+    void next.finally(() => {
+      if (this.lifecycleOperations.get(id) === next) this.lifecycleOperations.delete(id)
+    }).catch(() => {})
+    return next
   }
 
   private emitError(id: string, error: unknown): void {

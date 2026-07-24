@@ -79,6 +79,8 @@ export function createManagerApi(manager: BotManager, opts: ManagerApiOptions = 
   const prefix = normalizePrefix(opts.prefix ?? '')
   const esc = escapeRegExp(prefix)
   const reList = new RegExp(`^${esc}/bots/?$`)
+  const reHealth = new RegExp(`^${esc}/health/?$`)
+  const reMetrics = new RegExp(`^${esc}/metrics/?$`)
   const reStart = new RegExp(`^${esc}/bots/([^/]+)/start/?$`)
   const reStop = new RegExp(`^${esc}/bots/([^/]+)/stop/?$`)
   const reOne = new RegExp(`^${esc}/bots/([^/]+)/?$`)
@@ -99,6 +101,10 @@ export function createManagerApi(manager: BotManager, opts: ManagerApiOptions = 
       res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' })
       res.end(JSON.stringify(body))
     }
+    const sendText = (status: number, body: string): void => {
+      res.writeHead(status, { 'content-type': 'text/plain; version=0.0.4; charset=utf-8' })
+      res.end(body)
+    }
     const notFound = (message = 'not found'): void => send(404, { error: message })
 
     const method = (req.method ?? 'GET').toUpperCase()
@@ -115,6 +121,27 @@ export function createManagerApi(manager: BotManager, opts: ManagerApiOptions = 
         send(401, { error: 'unauthorized' })
         return
       }
+    }
+
+    if (method === 'GET' && reHealth.test(path)) {
+      const bots = manager.list()
+      send(200, { status: 'ok', bots: bots.length, running: bots.filter((bot) => bot.running).length })
+      return
+    }
+
+    if (method === 'GET' && reMetrics.test(path)) {
+      const bots = manager.list()
+      const running = bots.filter((bot) => bot.running).length
+      sendText(200, [
+        '# HELP botwa_manager_bots_registered Registered bots.',
+        '# TYPE botwa_manager_bots_registered gauge',
+        `botwa_manager_bots_registered ${bots.length}`,
+        '# HELP botwa_manager_bots_running Running bots.',
+        '# TYPE botwa_manager_bots_running gauge',
+        `botwa_manager_bots_running ${running}`,
+        '',
+      ].join('\n'))
+      return
     }
 
     if (method === 'GET' && reList.test(path)) {

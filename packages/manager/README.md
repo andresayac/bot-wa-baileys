@@ -84,6 +84,17 @@ is installed so an unobserved failure can never crash the process through
 
 ## HTTP API
 
+También está disponible `createControlPlaneApi(manager, { tenantId, apiKeys })`, un API `/v1` sin modo anónimo. Cada API key tiene scopes, toda respuesta incluye `x-request-id`, y las operaciones lifecycle pueden usar `Idempotency-Key`.
+
+```ts
+createServer(createControlPlaneApi(manager, {
+  tenantId: 'acme',
+  apiKeys: [{ id: 'ops', tenantId: 'acme', secret: process.env.MANAGER_KEY!, scopes: ['bots:read', 'bots:operate', 'audit:read'] }],
+})).listen(3000)
+```
+
+Rutas iniciales: `GET /v1/health`, `GET /v1/bots`, `POST /v1/bots/:id/start`, `POST /v1/bots/:id/stop` y `GET /v1/audit`.
+
 `createManagerApi(manager, opts?: { prefix? })` returns a plain Node
 `(req, res) => void` handler (uses `node:http` only — mount it on
 `http.createServer` or call it from any framework). Every response is JSON.
