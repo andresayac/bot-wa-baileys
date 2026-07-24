@@ -4,14 +4,8 @@
  * core's typed provider errors.
  */
 
-import {
-  ProviderError,
-  OutsideSessionWindowError,
-  RecipientUnreachableError,
-  RateLimitedError,
-  UnsupportedContentError,
-  type ChatId,
-} from '@bot-wa/core'
+import { ProviderError, type ChatId } from '@bot-wa/core'
+import { toGraphError, type GraphError } from '@bot-wa/graph-core'
 
 export interface GraphClientConfig {
   accessToken: string
@@ -20,27 +14,13 @@ export interface GraphClientConfig {
   graphUrl: string
 }
 
-interface GraphError { code?: number; message?: string; error_subcode?: number }
-
-/** Translate a Graph error code into a typed provider error. */
+/**
+ * Translate a Graph error into a typed provider error. Thin wrapper over the
+ * shared {@link toGraphError} (kept for API compatibility + the chatId-first
+ * signature callers expect).
+ */
 export function toProviderError(chatId: ChatId, err: GraphError, retryAfterMs?: number): ProviderError {
-  const code = err.code
-  const msg = err.message ?? 'Graph API error'
-  switch (code) {
-    case 131047: // re-engagement: outside the 24h free-form window
-      return new OutsideSessionWindowError(chatId, `${msg} (131047) — envía una plantilla (kind template).`)
-    case 131026: // message undeliverable (recipient can't receive)
-      return new RecipientUnreachableError(chatId, `${msg} (131026)`)
-    case 131051: // unsupported message type
-      return new UnsupportedContentError('native', `${msg} (131051)`)
-    case 4:
-    case 613:
-    case 80007:
-    case 36003: // rate limits
-      return new RateLimitedError(retryAfterMs ?? 60_000, `${msg} (${code})`)
-    default:
-      return new ProviderError(`${msg}${code ? ` (code ${code})` : ''}`)
-  }
+  return toGraphError(err, { chatId, retryAfterMs })
 }
 
 export class GraphClient {

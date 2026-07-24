@@ -144,6 +144,11 @@ export function parseInbound(body: PageWebhookBody, selfId?: string): InboundEve
 
       if (ev.message) {
         const m = ev.message
+        // Echoes are the Page's OWN outbound messages replayed back to us. Their
+        // `sender.id` is the Page (not the user), so keeping them would corrupt the
+        // conversation key and risk an echo loop. Drop them — consistent with the
+        // Instagram provider and with core's fromMe filter.
+        if (m.is_echo) continue
         // Reactions → reaction events.
         if (m.reaction) {
           events.push({

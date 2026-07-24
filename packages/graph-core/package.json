@@ -1,0 +1,42 @@
+{
+  "name": "@bot-wa/graph-core",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Shared Meta Graph helpers (webhook verification, typed error mapping, ingest guard) for @bot-wa/meta, @bot-wa/messenger and @bot-wa/instagram.",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    }
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": ["bot-wa", "meta", "graph", "webhook", "whatsapp", "messenger", "instagram"],
+  "author": "Andres Aya",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/andresayac/bot-wa-baileys.git",
+    "directory": "packages/graph-core"
+  },
+  "homepage": "https://github.com/andresayac/bot-wa-baileys/tree/main/packages/graph-core#readme",
+  "bugs": { "url": "https://github.com/andresayac/bot-wa-baileys/issues" },
+  "files": ["./lib/**/*"],
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "prepublishOnly": "pnpm build"
+  },
+  "dependencies": {
+    "@bot-wa/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "typescript": "^7.0.2",
+    "vite": "^7.3.6",
+    "vitest": "^4.1.10"
+  }
+}

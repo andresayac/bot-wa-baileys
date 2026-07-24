@@ -19,7 +19,7 @@ export { IdentityStore } from './identity.js'
 export {
   toJid, sanitizeNumber, normalize as normalizeJid, parseJid, buildJid, shortJid,
   isGroup, isBroadcast, isStatus, isNewsletter, isPn, isLid, sameUser,
-  isSelfChat, toUserId, toChatId, isValidJid,
+  toUserId, toChatId, isValidJid,
 } from './jid.js'
 export type { JID, JidInput } from './jid.js'
 

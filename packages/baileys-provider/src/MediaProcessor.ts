@@ -95,22 +95,25 @@ export async function transcodeToOpus(source: MediaSource): Promise<Buffer> {
   const outPath = join(tmpdir(), `baileys-out-${randomUUID()}.ogg`)
   await writeFile(inPath, input)
 
-  await new Promise<void>((resolve, reject) => {
-    ffmpeg(inPath)
-      .outputOptions([
-        '-c:a libopus',
-        '-ac 1',
-        '-avoid_negative_ts make_zero',
-        '-ar 48000',
-      ])
-      .output(outPath)
-      .on('end', () => resolve())
-      .on('error', (err: Error) => reject(err))
-      .run()
-  })
-
-  try { await unlink(inPath) } catch {}
-  const buf = await readFile(outPath)
-  try { await unlink(outPath) } catch {}
-  return buf
+  try {
+    await new Promise<void>((resolve, reject) => {
+      ffmpeg(inPath)
+        .outputOptions([
+          '-c:a libopus',
+          '-ac 1',
+          '-avoid_negative_ts make_zero',
+          '-ar 48000',
+        ])
+        .output(outPath)
+        .on('end', () => resolve())
+        .on('error', (err: Error) => reject(err))
+        .run()
+    })
+    return await readFile(outPath)
+  } finally {
+    // Always clean up both temp files — even when ffmpeg rejects — so a stream
+    // of failed transcodes can't leak the OS temp dir.
+    await unlink(inPath).catch(() => {})
+    await unlink(outPath).catch(() => {})
+  }
 }

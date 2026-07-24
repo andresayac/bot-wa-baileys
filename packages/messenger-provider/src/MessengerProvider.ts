@@ -32,32 +32,26 @@ import type {
   SendResult,
   UserId,
 } from '@bot-wa/core'
-import { ProviderError, RateLimitedError, UnsupportedContentError } from '@bot-wa/core'
+import { ProviderError, UnsupportedContentError } from '@bot-wa/core'
+import { toGraphError, verifyChallenge, checkGraphSignature, parseGraphBody, type GraphError, type ChallengeQuery } from '@bot-wa/graph-core'
 import type { GraphErrorBody, MessengerProviderConfig, MessengerSendResponse } from './types.js'
 import { toOutbound } from './toOutbound.js'
 import { parseInbound, type PageWebhookBody } from './parseInbound.js'
-import { verifyChallenge, verifySignature, type ChallengeQuery } from './webhook.js'
 
-interface GraphError { code?: number; message?: string; error_subcode?: number; type?: string }
-
-/** Translate a Graph error into a typed provider error. */
+/**
+ * Translate a Graph error into a typed provider error. Thin wrapper over the
+ * shared {@link toGraphError} — now maps the full Graph code set, not just 4/613.
+ */
 export function toProviderError(err: GraphError, retryAfterMs?: number): ProviderError {
-  const code = err.code
-  const msg = err.message ?? 'Graph API error'
-  switch (code) {
-    case 4:   // application request limit
-    case 613: // page-level rate limit
-      return new RateLimitedError(retryAfterMs ?? 60_000, `${msg} (${code})`)
-    default:
-      return new ProviderError(`${msg}${code != null ? ` (code ${code})` : ''}`)
-  }
+  return toGraphError(err, { retryAfterMs })
 }
 
 export class MessengerProvider implements IProvider<unknown> {
   readonly id = 'messenger'
   readonly capabilities: ProviderCapabilities = {
     contentKinds: ['text', 'image', 'video', 'audio', 'voice', 'document', 'buttons', 'list', 'card', 'native'],
-    buttons: true, lists: true, polls: false, reactions: true, edit: false,
+    // reactions: false — Messenger has no Send API for reactions (inbound only).
+    buttons: true, lists: true, polls: false, reactions: false, edit: false,
     typing: true, presence: false, readReceipts: true, groups: false, templates: false,
     interactionsRequireAck: false, pushIngress: true,
   }
@@ -69,6 +63,12 @@ export class MessengerProvider implements IProvider<unknown> {
   constructor(config: MessengerProviderConfig) {
     this.config = { apiVersion: 'v21.0', graphUrl: 'https://graph.facebook.com', pageId: 'me', ...config }
     this.logger = config.logger ?? pino({ level: config.debug ? 'debug' : 'error' })
+    if (!this.config.appSecret) {
+      this.logger.warn(
+        'MessengerProvider has no `appSecret` — ingest() will accept ANY webhook body unverified. ' +
+          'Set appSecret so X-Hub-Signature-256 is checked, or the endpoint is spoofable.',
+      )
+    }
   }
 
   get connection(): unknown { return null }
@@ -104,16 +104,9 @@ export class MessengerProvider implements IProvider<unknown> {
    * signature computes over exactly what Meta signed.
    */
   ingest(body: unknown, headers?: Record<string, string | string[] | undefined>): number {
-    const raw = typeof body === 'string' ? body : JSON.stringify(body)
-    if (this.config.appSecret) {
-      const sig = headers?.['x-hub-signature-256']
-      const sigStr = Array.isArray(sig) ? sig[0] : sig
-      if (!verifySignature(raw, sigStr, this.config.appSecret)) {
-        this.logger.warn('webhook rejected: invalid X-Hub-Signature-256')
-        return 403
-      }
-    }
-    const parsed: PageWebhookBody = typeof body === 'string' ? JSON.parse(body) : (body as PageWebhookBody)
+    const sig = checkGraphSignature(body, headers, this.config.appSecret, this.logger)
+    if (!sig.ok) return sig.status
+    const parsed = parseGraphBody<PageWebhookBody>(body)
     for (const event of parseInbound(parsed, this.config.selfId)) this.fan(event)
     return 200
   }

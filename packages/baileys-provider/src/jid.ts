@@ -107,12 +107,6 @@ export function shortJid(jid: JID): string {
   return `…${short}@${server}`
 }
 
-/** True if the JID came from the user themselves (used to ignore echoes). */
-export function isSelfChat(jid: JID): boolean {
-  // status@broadcast and similar stubs — never a real self chat
-  return false
-}
-
 /** Coerce any input to a `UserId`. */
 export function toUserId(input: JidInput): UserId {
   return toJid(input, 'user')

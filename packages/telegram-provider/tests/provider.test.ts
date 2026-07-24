@@ -245,6 +245,35 @@ describe('TelegramProvider long-poll', () => {
     expect(conn[conn.length - 1]).toBe('closed')
   })
 
+  it('backs off exponentially (capped) on repeated getUpdates failures, resetting on success', async () => {
+    let failCount = 0
+    mockFetch((call) => {
+      if (call.url.endsWith('/getMe')) return { body: { ok: true, result: { id: 9 } } }
+      if (call.url.includes('/getUpdates')) {
+        // Fail the first 4 rounds with a generic 500, then succeed.
+        if (failCount++ < 4) return { status: 500, body: { ok: false, error_code: 500, description: 'server boom' } }
+        return { body: { ok: true, result: [] } }
+      }
+      return { body: { ok: true, result: {} } }
+    })
+    // Capture sleep delays via setTimeout.
+    const delays: number[] = []
+    const realSetTimeout = globalThis.setTimeout
+    vi.stubGlobal('setTimeout', ((fn: () => void, ms?: number, ...a: unknown[]) => {
+      if (typeof ms === 'number') delays.push(ms)
+      return (realSetTimeout as unknown as (f: () => void, m?: number, ...r: unknown[]) => unknown)(fn, ms, ...a)
+    }) as unknown as typeof setTimeout)
+
+    const p = new TelegramProvider({ token: 'TOK', errorBackoffMs: 10, maxBackoffMs: 40, pollIdleMs: 5 })
+    await p.start()
+    await waitFor(() => failCount >= 5, 3000) // 4 failures + at least one success
+    await p.stop()
+
+    // The backoff delays must follow 10, 20, 40, 40 (doubling, then capped at 40).
+    const backoff = delays.filter((d) => [10, 20, 40].includes(d))
+    expect(backoff.slice(0, 4)).toEqual([10, 20, 40, 40])
+  })
+
   it('emits sessionTakenOver and stops on 409 conflict (another poller)', async () => {
     const calls = mockFetch((call) => {
       if (call.url.endsWith('/getMe')) return { body: { ok: true, result: { id: 9 } } }
@@ -278,5 +307,36 @@ describe('TelegramProvider webhook ingest', () => {
     expect(p.ingest(JSON.stringify({ update_id: 2, message: { message_id: 1, date: 1, chat: privateChat, text: 'x' } }))).toBe(200)
     expect(p.ingest('nope{')).toBe(400)
     expect(p.ingest({ foo: 1 })).toBe(400)
+  })
+
+  describe('webhookSecret', () => {
+    const update = { update_id: 3, message: { message_id: 1, date: 1, from: ana, chat: privateChat, text: 'hi' } }
+
+    it('rejects an Update with a missing secret-token header (401) and fans out nothing', () => {
+      const p = new TelegramProvider({ token: 'TOK', polling: false, selfId: '9', webhookSecret: 's3cr3t' })
+      const seen: string[] = []
+      p.onEvent((e) => { if (e.kind === 'message') seen.push(e.message.body) })
+      expect(p.ingest(update)).toBe(401)
+      expect(p.ingest(update, {})).toBe(401)
+      expect(seen).toEqual([])
+    })
+
+    it('rejects a wrong secret token (401)', () => {
+      const p = new TelegramProvider({ token: 'TOK', polling: false, selfId: '9', webhookSecret: 's3cr3t' })
+      expect(p.ingest(update, { 'x-telegram-bot-api-secret-token': 'wrong' })).toBe(401)
+    })
+
+    it('accepts the matching secret token (200)', () => {
+      const p = new TelegramProvider({ token: 'TOK', polling: false, selfId: '9', webhookSecret: 's3cr3t' })
+      const seen: string[] = []
+      p.onEvent((e) => { if (e.kind === 'message') seen.push(e.message.body) })
+      expect(p.ingest(update, { 'x-telegram-bot-api-secret-token': 's3cr3t' })).toBe(200)
+      expect(seen).toEqual(['hi'])
+    })
+
+    it('ignores the header entirely when no secret is configured', () => {
+      const p = new TelegramProvider({ token: 'TOK', polling: false, selfId: '9' })
+      expect(p.ingest(update, { 'x-telegram-bot-api-secret-token': 'whatever' })).toBe(200)
+    })
   })
 })

@@ -31,12 +31,14 @@ describe('parseInbound', () => {
     expect(m.media).toBeUndefined()
   })
 
-  it('marks fromMe when the sender matches selfId', () => {
-    const [ev] = parseInbound(
-      page({ sender: { id: 'BOT' }, recipient: { id: 'PG' }, timestamp: 1, message: { mid: 'x', text: 'echo', is_echo: true } }),
+  it('drops the Page\'s own echo messages (is_echo) instead of emitting them', () => {
+    // An echo's sender.id is the Page, not the user — emitting it would corrupt
+    // the conversation key and risk an echo loop, so it must be dropped entirely.
+    const events = parseInbound(
+      page({ sender: { id: 'BOT' }, recipient: { id: 'USER1' }, timestamp: 1, message: { mid: 'x', text: 'echo', is_echo: true } }),
       'BOT',
     )
-    expect(ev.kind === 'message' && ev.message.fromMe).toBe(true)
+    expect(events).toEqual([])
   })
 
   it('parses an image attachment into a media message', () => {

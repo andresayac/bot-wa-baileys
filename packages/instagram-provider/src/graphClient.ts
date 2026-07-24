@@ -4,7 +4,8 @@
  * core's typed provider errors (code 4 / 613 → RateLimitedError).
  */
 
-import { ProviderError, RateLimitedError } from '@bot-wa/core'
+import { ProviderError } from '@bot-wa/core'
+import { toGraphError, type GraphError } from '@bot-wa/graph-core'
 
 export interface GraphClientConfig {
   accessToken: string
@@ -12,19 +13,12 @@ export interface GraphClientConfig {
   graphUrl: string
 }
 
-interface GraphError { code?: number; message?: string; error_subcode?: number }
-
-/** Translate a Graph error code into a typed provider error. */
+/**
+ * Translate a Graph error into a typed provider error. Thin wrapper over the
+ * shared {@link toGraphError} — now maps the full Graph code set, not just 4/613.
+ */
 export function toProviderError(err: GraphError, retryAfterMs?: number): ProviderError {
-  const code = err.code
-  const msg = err.message ?? 'Graph API error'
-  switch (code) {
-    case 4:   // app-level rate limit
-    case 613: // calls to this API have exceeded the rate limit
-      return new RateLimitedError(retryAfterMs ?? 60_000, `${msg} (${code})`)
-    default:
-      return new ProviderError(`${msg}${code ? ` (code ${code})` : ''}`)
-  }
+  return toGraphError(err, { retryAfterMs })
 }
 
 export class GraphClient {

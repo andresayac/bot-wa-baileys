@@ -40,7 +40,7 @@ import type { InstagramProviderConfig } from './types.js'
 import { GraphClient } from './graphClient.js'
 import { toOutbound } from './toOutbound.js'
 import { parseInbound, type IgWebhookBody } from './parseInbound.js'
-import { verifyChallenge, verifySignature, type ChallengeQuery } from './webhook.js'
+import { verifyChallenge, checkGraphSignature, parseGraphBody, type ChallengeQuery } from '@bot-wa/graph-core'
 
 export class InstagramProvider implements IProvider<unknown> {
   readonly id = 'instagram'
@@ -49,7 +49,7 @@ export class InstagramProvider implements IProvider<unknown> {
     buttons: true,                 // as quick replies
     lists: false,                  // degraded to numbered text
     polls: false,
-    reactions: true,               // inbound IG DM reactions
+    reactions: false,              // SEND capability: IG has no reaction Send API (inbound DM reactions still arrive)
     edit: false,
     typing: true,                  // sender_action typing_on/typing_off
     presence: false,
@@ -73,6 +73,12 @@ export class InstagramProvider implements IProvider<unknown> {
       apiVersion: this.config.apiVersion,
       graphUrl: this.config.graphUrl,
     })
+    if (!this.config.appSecret) {
+      this.logger.warn(
+        'InstagramProvider has no `appSecret` — ingest() will accept ANY webhook body unverified. ' +
+          'Set appSecret so X-Hub-Signature-256 is checked, or the endpoint is spoofable.',
+      )
+    }
   }
 
   get connection(): unknown { return null }
@@ -108,16 +114,9 @@ export class InstagramProvider implements IProvider<unknown> {
    * onEvent. Returns the HTTP status the host should send.
    */
   ingest(body: unknown, headers?: Record<string, string | string[] | undefined>): number {
-    const raw = typeof body === 'string' ? body : JSON.stringify(body)
-    if (this.config.appSecret) {
-      const sig = headers?.['x-hub-signature-256']
-      const sigStr = Array.isArray(sig) ? sig[0] : sig
-      if (!verifySignature(raw, sigStr, this.config.appSecret)) {
-        this.logger.warn('webhook rejected: invalid X-Hub-Signature-256')
-        return 403
-      }
-    }
-    const parsed: IgWebhookBody = typeof body === 'string' ? JSON.parse(body) : (body as IgWebhookBody)
+    const sig = checkGraphSignature(body, headers, this.config.appSecret, this.logger)
+    if (!sig.ok) return sig.status
+    const parsed = parseGraphBody<IgWebhookBody>(body)
     for (const event of parseInbound(parsed)) this.fan(event)
     return 200
   }

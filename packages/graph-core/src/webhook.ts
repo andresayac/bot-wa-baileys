@@ -1,7 +1,8 @@
 /**
- * Webhook verification for the Facebook Messenger platform.
+ * Webhook verification shared by every Meta Graph platform (WhatsApp Cloud API,
+ * Facebook Messenger, Instagram) — the handshake + signature logic is identical.
  *
- * Identical to every other Meta Graph platform (WhatsApp Cloud API, Instagram):
+ * Two independent checks:
  *  1. `verifyChallenge` — the one-time GET handshake Meta does when you save a
  *     webhook subscription: it sends `hub.mode=subscribe`, `hub.verify_token`
  *     and `hub.challenge`; you must echo the challenge only if the token matches.

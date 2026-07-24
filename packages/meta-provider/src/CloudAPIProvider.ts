@@ -39,7 +39,7 @@ import type { CloudAPIProviderConfig } from './types.js'
 import { GraphClient } from './graphClient.js'
 import { toOutbound, type ResolvedMedia } from './toOutbound.js'
 import { parseInbound, type GraphWebhookBody } from './parseInbound.js'
-import { verifyChallenge, verifySignature, type ChallengeQuery } from './webhook.js'
+import { verifyChallenge, checkGraphSignature, parseGraphBody, type ChallengeQuery } from '@bot-wa/graph-core'
 
 const EXT_MIME: Record<string, string> = {
   jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp',
@@ -70,6 +70,12 @@ export class CloudAPIProvider implements IProvider<unknown> {
       apiVersion: this.config.apiVersion,
       graphUrl: this.config.graphUrl,
     })
+    if (!this.config.appSecret) {
+      this.logger.warn(
+        'CloudAPIProvider has no `appSecret` — ingest() will accept ANY webhook body unverified. ' +
+          'Set appSecret to the Meta app secret so X-Hub-Signature-256 is checked, or the endpoint is spoofable.',
+      )
+    }
   }
 
   get connection(): unknown { return null }
@@ -102,18 +108,17 @@ export class CloudAPIProvider implements IProvider<unknown> {
    * Feed an inbound webhook POST. When `appSecret` is configured and `headers`
    * are passed, the body is verified against `X-Hub-Signature-256` first
    * (forged bodies are dropped). Normalized events are emitted via onEvent.
+   *
+   * IMPORTANT: Meta signs the EXACT raw bytes it sent. Pass `body` as the raw
+   * request string/Buffer (e.g. `express.raw()`), NOT a re-parsed object — a
+   * JSON object re-serialized here won't reproduce the original bytes and the
+   * signature check will fail on legitimate requests. When `appSecret` is set
+   * and a non-string body is received, a warning is logged.
    */
   ingest(body: unknown, headers?: Record<string, string | string[] | undefined>): number {
-    const raw = typeof body === 'string' ? body : JSON.stringify(body)
-    if (this.config.appSecret) {
-      const sig = headers?.['x-hub-signature-256']
-      const sigStr = Array.isArray(sig) ? sig[0] : sig
-      if (!verifySignature(raw, sigStr, this.config.appSecret)) {
-        this.logger.warn('webhook rejected: invalid X-Hub-Signature-256')
-        return 403
-      }
-    }
-    const parsed: GraphWebhookBody = typeof body === 'string' ? JSON.parse(body) : (body as GraphWebhookBody)
+    const sig = checkGraphSignature(body, headers, this.config.appSecret, this.logger)
+    if (!sig.ok) return sig.status
+    const parsed = parseGraphBody<GraphWebhookBody>(body)
     for (const event of parseInbound(parsed)) this.fan(event)
     return 200
   }

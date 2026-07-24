@@ -19,10 +19,20 @@ export interface TelegramProviderConfig {
   polling?: boolean
   /** The bot's own user id (numeric, as string). If omitted, resolved via getMe. */
   selfId?: string
+  /**
+   * Secret token for webhook mode. Set the SAME value in Telegram's `setWebhook`
+   * (`secret_token`) and here; `ingest()` then rejects any request whose
+   * `X-Telegram-Bot-Api-Secret-Token` header does not match (401). Without it,
+   * ANY caller who discovers the webhook URL can inject forged Updates.
+   * Strongly recommended in webhook mode.
+   */
+  webhookSecret?: string
   /** Long-poll server timeout in seconds (getUpdates `timeout`). Default 30. */
   pollTimeout?: number
-  /** Backoff (ms) after a failed getUpdates round, to avoid tight error loops. Default 1000. */
+  /** Base backoff (ms) after a failed getUpdates round. Grows exponentially per consecutive failure. Default 1000. */
   errorBackoffMs?: number
+  /** Ceiling (ms) for the exponential getUpdates error backoff. Default 60000. */
+  maxBackoffMs?: number
   /** Pause (ms) after an empty getUpdates batch. Default 250 (server long-poll already waited). */
   pollIdleMs?: number
   debug?: boolean

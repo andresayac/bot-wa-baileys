@@ -39,6 +39,12 @@ import type {
   SendResult,
   UserId,
 } from '@bot-wa/core'
+import {
+  ProviderError,
+  RateLimitedError,
+  RecipientUnreachableError,
+  PayloadTooLargeError,
+} from '@bot-wa/core'
 import { classifyDisconnect, backoffDelay, MAX_RECONNECT_ATTEMPTS } from './reconnect.js'
 import { putBounded } from './boundedMap.js'
 import { IdentityStore } from './identity.js'
@@ -52,7 +58,12 @@ const MSG_CACHE_MAX = 2000
 /** Terminal/file QR rendering options. */
 export interface QrConfig {
   terminal?: boolean
-  file?: boolean
+  /**
+   * Write the QR as a PNG. `true` → `<session>.qr.png` in the CWD; a string sets
+   * an explicit output path (recommended — the CWD default is often not writable
+   * or not where you expect). Write errors are logged, never thrown.
+   */
+  file?: boolean | string
   small?: boolean
   handler?: (qr: string) => void | Promise<void>
 }
@@ -77,6 +88,33 @@ export interface BaileysProviderConfig {
 }
 
 const cacheKey = (k: WAMessageKey) => `${k.remoteJid}:${k.id}`
+
+/**
+ * Map a raw error thrown by `sock.sendMessage` to a typed {@link ProviderError},
+ * so callers can `catch (e instanceof RateLimitedError)` portably across
+ * transports. Unknown errors are wrapped in a generic ProviderError (with the
+ * original attached as `cause`) rather than leaking a Baileys/Boom internal.
+ */
+export function mapSendError(err: unknown, chatId: ChatId): ProviderError {
+  if (err instanceof ProviderError) return err
+  const boom = err instanceof Boom ? err : undefined
+  const status = boom?.output?.statusCode
+  const message = err instanceof Error ? err.message : String(err)
+
+  if (status === 429) {
+    const retryAfter = Number(boom?.output?.headers?.['retry-after']) * 1000
+    return new RateLimitedError(Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : 1000, message)
+  }
+  if (status === 413 || /too large|payload.*large|exceeds/i.test(message)) {
+    return new PayloadTooLargeError(message)
+  }
+  if (status === 403 || status === 401 || /forbidden|not-authorized|unauthorized|blocked/i.test(message)) {
+    return new RecipientUnreachableError(chatId, message)
+  }
+  const wrapped = new ProviderError(message || 'Baileys send failed')
+  ;(wrapped as { cause?: unknown }).cause = err
+  return wrapped
+}
 
 export class BaileysProvider implements IProvider<WAMessage> {
   readonly id = 'baileys'
@@ -158,14 +196,18 @@ export class BaileysProvider implements IProvider<WAMessage> {
   }
 
   async send(chatId: ChatId, content: OutboundContent, options?: SendOptions): Promise<SendResult<WAMessage>> {
-    if (!this.sock) throw new Error('Provider not connected')
+    if (!this.sock) throw new ProviderError('Provider not connected')
     const waContent = await toOutbound(content)
     const waOptions: Record<string, unknown> = {}
     if (options?.quoted?.native) waOptions.quoted = options.quoted.native
     const resolvedJid = await this.resolveJid(chatId)
     await this.rateLimiter.acquire(chatId)
-    const sent = (await this.sock.sendMessage(resolvedJid, waContent, waOptions)) as WAMessage
-    return { ref: { id: sent.key.id ?? '', chatId, native: sent }, raw: sent }
+    try {
+      const sent = (await this.sock.sendMessage(resolvedJid, waContent, waOptions)) as WAMessage
+      return { ref: { id: sent.key.id ?? '', chatId, native: sent }, raw: sent }
+    } catch (err) {
+      throw mapSendError(err, chatId)
+    }
   }
 
   async downloadMedia(ref: MediaRef): Promise<Buffer | NodeJS.ReadableStream> {
@@ -410,8 +452,32 @@ export class BaileysProvider implements IProvider<WAMessage> {
     setTimeout(() => {
       this.reconnectPending = false
       if (this.isShuttingDown) return
-      void this.start().catch((error) => this.logger.error({ error }, 'reconnect attempt failed'))
+      void this.start().catch((error) => this.onReconnectStartFailed(error))
     }, delayMs)
+  }
+
+  /**
+   * A `start()` invoked from a scheduled reconnect rejected BEFORE a socket was
+   * built (e.g. `fetchLatestBaileysVersion()` hit a network blip, or the auth
+   * state failed to load). No socket means no future `connection: 'close'` event
+   * will ever fire to drive the retry — so if we merely logged here the provider
+   * would stay dead permanently. We must reschedule the retry ourselves, with
+   * backoff, until the cap is reached.
+   */
+  private onReconnectStartFailed(error: unknown): void {
+    if (this.isShuttingDown) return
+    if (this.reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+      this.logger.error(
+        { error, attempts: this.reconnectAttempts },
+        `giving up: start() failed ${MAX_RECONNECT_ATTEMPTS} times during reconnect`,
+      )
+      this.fan({ kind: 'connection', update: { state: 'closed', reason: 'transient', detail: { message: 'reconnect exhausted' } } })
+      return
+    }
+    const delay = backoffDelay(this.reconnectAttempts)
+    this.reconnectAttempts++
+    this.logger.warn({ error, attempt: this.reconnectAttempts, delayMs: delay }, 'reconnect start() failed — retrying with backoff')
+    this.scheduleReconnect(delay)
   }
 
   private renderQr(qr: string): void {
@@ -424,11 +490,21 @@ export class BaileysProvider implements IProvider<WAMessage> {
       }).catch((err) => this.logger.warn({ err }, 'failed to render QR in terminal'))
     }
     if (cfg.file) {
-      const file = `${this.config.session ?? 'default'}.qr.png`
+      const file = typeof cfg.file === 'string' ? cfg.file : `${this.config.session ?? 'default'}.qr.png`
       void (async () => {
         try {
           const [{ image }, { createWriteStream }] = await Promise.all([import('qr-image'), import('fs')])
-          image(qr, { type: 'png' }).pipe(createWriteStream(file))
+          // Hook error/finish on BOTH ends of the pipe so an async write failure
+          // (bad path, no permission, disk full) is surfaced instead of crashing
+          // the process with an unhandled 'error' event.
+          await new Promise<void>((resolve, reject) => {
+            const src = image(qr, { type: 'png' })
+            const out = createWriteStream(file)
+            src.on('error', reject)
+            out.on('error', reject)
+            out.on('finish', () => resolve())
+            src.pipe(out)
+          })
         } catch (err) { this.logger.warn({ err }, `failed to write QR image to ${file}`) }
       })()
     }

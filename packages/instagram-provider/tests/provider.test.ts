@@ -138,7 +138,7 @@ describe('InstagramProvider', () => {
     const p = new InstagramProvider(baseCfg)
     expect(p.id).toBe('instagram')
     expect(p.capabilities).toMatchObject({
-      pushIngress: true, buttons: true, lists: false, polls: false, reactions: true,
+      pushIngress: true, buttons: true, lists: false, polls: false, reactions: false,
       edit: false, typing: true, presence: false, readReceipts: true, groups: false,
       templates: false, interactionsRequireAck: false,
     })

@@ -19,6 +19,7 @@
 
 import { readFile } from 'node:fs/promises'
 import { basename } from 'node:path'
+import { timingSafeEqual } from 'node:crypto'
 import pino, { type Logger } from 'pino'
 import type {
   ChatId,
@@ -85,7 +86,10 @@ export class TelegramProvider implements IProvider<unknown> {
     pushIngress: true,     // supports webhook; also owns a long-poll loop
   }
 
-  private readonly config: Required<Pick<TelegramProviderConfig, 'token' | 'baseUrl' | 'polling' | 'pollTimeout' | 'errorBackoffMs' | 'pollIdleMs'>>
+  private readonly config: Required<Pick<TelegramProviderConfig, 'token' | 'baseUrl' | 'polling' | 'pollTimeout' | 'errorBackoffMs' | 'maxBackoffMs' | 'pollIdleMs'>>
+  private readonly webhookSecret?: string
+  /** Consecutive getUpdates failures — drives the exponential backoff; reset on success. */
+  private pollErrors = 0
   private readonly logger: Logger
   private listeners = new Set<(e: InboundEvent) => void | Promise<void>>()
   private _selfId: string | null = null
@@ -103,10 +107,30 @@ export class TelegramProvider implements IProvider<unknown> {
       polling: config.polling ?? true,
       pollTimeout: config.pollTimeout ?? 30,
       errorBackoffMs: config.errorBackoffMs ?? 1000,
+      maxBackoffMs: config.maxBackoffMs ?? 60_000,
       pollIdleMs: config.pollIdleMs ?? 250,
     }
     if (config.selfId) this._selfId = config.selfId
+    this.webhookSecret = config.webhookSecret
     this.logger = config.logger ?? pino({ level: config.debug ? 'debug' : 'error' })
+    if (config.polling === false && !config.webhookSecret) {
+      this.logger.warn(
+        'TelegramProvider in webhook mode without `webhookSecret` — ingest() accepts ANY caller. ' +
+          'Set secret_token in setWebhook and pass webhookSecret to authenticate incoming Updates.',
+      )
+    }
+  }
+
+  /** Timing-safe compare of the incoming secret-token header against the configured secret. */
+  private secretMatches(headers?: Record<string, string | string[] | undefined>): boolean {
+    if (!this.webhookSecret) return true
+    const raw = headers?.['x-telegram-bot-api-secret-token']
+    const presented = Array.isArray(raw) ? raw[0] : raw
+    if (!presented) return false
+    const a = Buffer.from(presented)
+    const b = Buffer.from(this.webhookSecret)
+    if (a.length !== b.length) return false
+    return timingSafeEqual(a, b)
   }
 
   get connection(): unknown { return null }
@@ -180,6 +204,7 @@ export class TelegramProvider implements IProvider<unknown> {
           timeout: this.config.pollTimeout,
           allowed_updates: allowedUpdates,
         }, { signal: this.pollAbort.signal })
+        this.pollErrors = 0 // a successful round resets the backoff ramp
         for (const u of updates ?? []) {
           if (typeof u.update_id === 'number') this.offset = u.update_id + 1
           const ev = parseUpdate(u, this._selfId ?? undefined)
@@ -204,8 +229,12 @@ export class TelegramProvider implements IProvider<unknown> {
           this.emitConnection('closed', 'sessionTakenOver', detail)
           break
         }
-        this.logger.warn(`getUpdates failed (${detail}); retrying in ${this.config.errorBackoffMs}ms`)
-        await sleep(this.config.errorBackoffMs)
+        // Exponential backoff with a ceiling so a sustained network outage
+        // doesn't hammer getUpdates every second forever.
+        const delay = Math.min(this.config.errorBackoffMs * 2 ** this.pollErrors, this.config.maxBackoffMs)
+        this.pollErrors++
+        this.logger.warn(`getUpdates failed (${detail}); retrying in ${delay}ms (attempt ${this.pollErrors})`)
+        await sleep(delay)
       }
     }
   }
@@ -215,9 +244,14 @@ export class TelegramProvider implements IProvider<unknown> {
   /**
    * Feed one raw Update (object or JSON string) from the host's webhook route.
    * Returns the HTTP status the host should answer with (200 accepted,
-   * 400 unparseable — Telegram retries non-200s).
+   * 401 when the secret-token header is missing/wrong, 400 unparseable —
+   * Telegram retries non-200s).
    */
-  ingest(rawEvent: unknown, _headers?: Record<string, string | string[] | undefined>): number {
+  ingest(rawEvent: unknown, headers?: Record<string, string | string[] | undefined>): number {
+    if (!this.secretMatches(headers)) {
+      this.logger.warn('ingest: rejected Update with missing/invalid X-Telegram-Bot-Api-Secret-Token')
+      return 401
+    }
     let update: TelegramUpdate
     try {
       update = typeof rawEvent === 'string' ? JSON.parse(rawEvent) : (rawEvent as TelegramUpdate)

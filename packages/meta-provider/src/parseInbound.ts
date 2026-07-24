@@ -50,8 +50,6 @@ export interface GraphWebhookBody {
   entry?: Array<{ id?: string; changes?: Array<{ field?: string; value?: GraphValue }> }>
 }
 
-const MEDIA_BODY: Record<string, string> = {}
-
 function mediaOf(msg: GraphMessage): { type: MessageType; body: string; ref?: MediaRef } {
   const kind = msg.type as keyof typeof mediaFields
   const field = mediaFields[kind]
