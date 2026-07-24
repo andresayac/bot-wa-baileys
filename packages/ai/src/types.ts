@@ -39,6 +39,13 @@ export interface AIConfig {
   persona?: string
   maxTokens?: number
   effort?: Effort
+  /**
+   * Hard timeout (ms) for a single non-streaming AI call. On expiry the request
+   * is aborted (via AbortSignal where the SDK honors it) AND the promise rejects,
+   * so a hung provider can never block the per-chat FIFO queue forever.
+   * Default 60000. Set 0 to disable (not recommended for the autoresponder).
+   */
+  timeoutMs?: number
   context?: { maxMessages?: number }
   autoReply?: boolean
   resetCommand?: boolean

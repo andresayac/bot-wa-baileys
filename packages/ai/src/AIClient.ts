@@ -8,14 +8,30 @@ export interface AIClientOptions {
   maxTokens?: number
   effort?: Effort
   refusalMessage?: string
+  /** Hard timeout (ms) per non-streaming call. Default 60000; 0 disables. */
+  timeoutMs?: number
+}
+
+const DEFAULT_TIMEOUT_MS = 60_000
+
+/** Thrown when an AI call exceeds its configured timeout. */
+export class AITimeoutError extends Error {
+  constructor(ms: number) {
+    super(`AI request timed out after ${ms}ms`)
+    this.name = 'AITimeoutError'
+  }
 }
 
 export class AIClient {
+  private readonly timeoutMs: number
+
   constructor(
     private provider: AIProvider,
     private ctx: ContextManager,
     private opts: AIClientOptions = {},
-  ) {}
+  ) {
+    this.timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS
+  }
 
   private base(messages: AIMessage[]): GenerateInput {
     return {
@@ -27,28 +43,79 @@ export class AIClient {
     }
   }
 
-  async ask(prompt: string): Promise<string> {
-    const r = await this.provider.generate(this.base([{ role: 'user', content: prompt }]))
+  /**
+   * Run an AI operation under a hard timeout. Bridges an optional caller signal
+   * with an internal timeout controller: on timeout the controller aborts (so
+   * SDKs that honor `signal` actually cancel the socket) AND the returned
+   * promise rejects with {@link AITimeoutError}, guaranteeing the awaiter is
+   * released even if the provider never honors the abort.
+   */
+  private async withTimeout<T>(op: (signal: AbortSignal) => Promise<T>, userSignal?: AbortSignal): Promise<T> {
+    const ctrl = new AbortController()
+    const onUserAbort = () => ctrl.abort()
+    if (userSignal) {
+      if (userSignal.aborted) ctrl.abort()
+      else userSignal.addEventListener('abort', onUserAbort, { once: true })
+    }
+    if (this.timeoutMs <= 0) {
+      try { return await op(ctrl.signal) }
+      finally { if (userSignal) userSignal.removeEventListener('abort', onUserAbort) }
+    }
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const timeout = new Promise<never>((_, reject) => {
+      // Reject FIRST, then abort: otherwise abort() can synchronously reject the
+      // provider promise (via its own signal listener) and win the race, so the
+      // caller would sometimes see the provider's abort error instead of a
+      // deterministic AITimeoutError. The abort still fires to cancel the socket.
+      timer = setTimeout(() => { reject(new AITimeoutError(this.timeoutMs)); ctrl.abort() }, this.timeoutMs)
+    })
+    try {
+      return await Promise.race([op(ctrl.signal), timeout])
+    } finally {
+      if (timer) clearTimeout(timer)
+      if (userSignal) userSignal.removeEventListener('abort', onUserAbort)
+    }
+  }
+
+  async ask(prompt: string, opts?: { signal?: AbortSignal }): Promise<string> {
+    const r = await this.withTimeout(
+      (signal) => this.provider.generate({ ...this.base([{ role: 'user', content: prompt }]), signal }),
+      opts?.signal,
+    )
     return r.stopReason === 'refusal' ? (this.opts.refusalMessage ?? 'No puedo ayudar con eso.') : r.text
   }
 
   async generate(input: Partial<GenerateInput> & { messages: AIMessage[] }): Promise<GenerateResult> {
-    return this.provider.generate({ ...this.base(input.messages), ...input })
+    // `signal` (the internal timeout controller) MUST win over input.signal:
+    // withTimeout already bridges the caller's input.signal into it, and only
+    // this signal is aborted on timeout — so the provider socket gets cancelled.
+    return this.withTimeout(
+      (signal) => this.provider.generate({ ...this.base(input.messages), ...input, signal }),
+      input.signal,
+    )
   }
 
   stream(input: Partial<GenerateInput> & { messages: AIMessage[] }): AsyncIterable<string> {
+    // Streaming passes the caller's signal straight through; the timeout guard
+    // applies to non-streaming calls (a stream's duration is legitimately open-ended).
     return this.provider.stream({ ...this.base(input.messages), ...input })
   }
 
-  async replyInChat(chatKey: string, userText: string): Promise<string> {
+  async replyInChat(chatKey: string, userText: string, opts?: { signal?: AbortSignal }): Promise<string> {
     const history = await this.ctx.history(chatKey)
     const messages: AIMessage[] = [...history, { role: 'user', content: userText }]
-    const r = await this.provider.generate(this.base(messages))
+    const r = await this.withTimeout(
+      (signal) => this.provider.generate({ ...this.base(messages), signal }),
+      opts?.signal,
+    )
     if (r.stopReason === 'refusal') {
       return this.opts.refusalMessage ?? 'No puedo ayudar con eso.'
     }
-    await this.ctx.append(chatKey, { role: 'user', content: userText })
-    await this.ctx.append(chatKey, { role: 'assistant', content: r.text })
+    // Single store write for the whole turn (user + assistant).
+    await this.ctx.appendMany(chatKey, [
+      { role: 'user', content: userText },
+      { role: 'assistant', content: r.text },
+    ])
     return r.text
   }
 }

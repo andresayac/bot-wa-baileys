@@ -1,5 +1,5 @@
 export { aiPlugin } from './plugin.js'
-export { AIClient } from './AIClient.js'
+export { AIClient, AITimeoutError } from './AIClient.js'
 export type { AIClientOptions } from './AIClient.js'
 export { ContextManager } from './ContextManager.js'
 export type { ConvStore } from './ContextManager.js'

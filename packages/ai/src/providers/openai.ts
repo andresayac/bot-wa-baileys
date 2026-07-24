@@ -17,10 +17,13 @@ export interface OpenAIChatCompletion {
 export interface OpenAIStreamChunk {
   choices: Array<{ delta?: { content?: string } }>
 }
+export interface OpenAIRequestOptions {
+  signal?: AbortSignal
+}
 export interface OpenAILike {
   chat: {
     completions: {
-      create(args: Record<string, unknown>): Promise<OpenAIChatCompletion | AsyncIterable<OpenAIStreamChunk>>
+      create(args: Record<string, unknown>, options?: OpenAIRequestOptions): Promise<OpenAIChatCompletion | AsyncIterable<OpenAIStreamChunk>>
     }
   }
 }
@@ -64,8 +67,12 @@ export class OpenAIProvider implements AIProvider {
     }
   }
 
+  private reqOpts(input: GenerateInput): OpenAIRequestOptions | undefined {
+    return input.signal ? { signal: input.signal } : undefined
+  }
+
   async generate(input: GenerateInput): Promise<GenerateResult> {
-    const res = (await this.client.chat.completions.create(this.baseArgs(input))) as OpenAIChatCompletion
+    const res = (await this.client.chat.completions.create(this.baseArgs(input), this.reqOpts(input))) as OpenAIChatCompletion
     return {
       text: res.choices[0]?.message?.content ?? '',
       model: res.model,
@@ -78,7 +85,7 @@ export class OpenAIProvider implements AIProvider {
     const s = (await this.client.chat.completions.create({
       ...this.baseArgs(input),
       stream: true,
-    })) as AsyncIterable<OpenAIStreamChunk>
+    }, this.reqOpts(input))) as AsyncIterable<OpenAIStreamChunk>
     for await (const chunk of s) {
       const d = chunk.choices[0]?.delta?.content
       if (d) yield d

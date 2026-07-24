@@ -11,11 +11,14 @@ export interface GeminiUsage {
   promptTokenCount?: number
   candidatesTokenCount?: number
 }
+export interface GeminiRequestOptions {
+  signal?: AbortSignal
+}
 export interface GeminiModelLike {
-  generateContent(args: Record<string, unknown>): Promise<{
+  generateContent(args: Record<string, unknown>, requestOptions?: GeminiRequestOptions): Promise<{
     response: { text(): string; usageMetadata?: GeminiUsage }
   }>
-  generateContentStream?(args: Record<string, unknown>): Promise<{
+  generateContentStream?(args: Record<string, unknown>, requestOptions?: GeminiRequestOptions): Promise<{
     stream: AsyncIterable<{ text(): string }>
   }>
 }
@@ -49,8 +52,12 @@ export class GeminiProvider implements AIProvider {
     return this.client.getGenerativeModel({ model: input.model ?? this.cfg.model ?? DEFAULT_MODEL })
   }
 
+  private reqOpts(input: GenerateInput): GeminiRequestOptions | undefined {
+    return input.signal ? { signal: input.signal } : undefined
+  }
+
   async generate(input: GenerateInput): Promise<GenerateResult> {
-    const res = await this.model(input).generateContent(this.buildArgs(input))
+    const res = await this.model(input).generateContent(this.buildArgs(input), this.reqOpts(input))
     const usage = res.response.usageMetadata
     return {
       text: res.response.text(),
@@ -66,7 +73,7 @@ export class GeminiProvider implements AIProvider {
       if (r.text) yield r.text
       return
     }
-    const { stream } = await model.generateContentStream(this.buildArgs(input))
+    const { stream } = await model.generateContentStream(this.buildArgs(input), this.reqOpts(input))
     for await (const chunk of stream) {
       const t = chunk.text()
       if (t) yield t

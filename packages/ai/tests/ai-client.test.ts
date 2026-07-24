@@ -2,7 +2,8 @@ import { describe, it, expect } from 'vitest'
 import { MemoryStore } from '@bot-wa/core'
 import { MockAIProvider } from '../src/MockAIProvider.js'
 import { ContextManager } from '../src/ContextManager.js'
-import { AIClient } from '../src/AIClient.js'
+import { AIClient, AITimeoutError } from '../src/AIClient.js'
+import type { AIProvider, GenerateInput, GenerateResult } from '../src/types.js'
 
 function make(reply?: any, opts?: any) {
   const provider = new MockAIProvider({ reply })
@@ -38,5 +39,72 @@ describe('AIClient', () => {
     const client = new AIClient(provider, cm, { refusalMessage: 'No puedo.' })
     expect(await client.replyInChat('k', 'x')).toBe('No puedo.')
     expect(await cm.history('k')).toEqual([])
+  })
+
+  it('propagates an AbortSignal into the provider on ask/generate/replyInChat', async () => {
+    const { client, provider } = make('ok')
+    await client.ask('hi')
+    expect(provider.calls[0].signal).toBeInstanceOf(AbortSignal)
+    await client.generate({ messages: [{ role: 'user', content: 'x' }] })
+    expect(provider.calls[1].signal).toBeInstanceOf(AbortSignal)
+    await client.replyInChat('k', 'hey')
+    expect(provider.calls[2].signal).toBeInstanceOf(AbortSignal)
+  })
+
+  it('rejects with AITimeoutError and aborts the request when the provider hangs', async () => {
+    let abortedByClient = false
+    const hanging: AIProvider = {
+      name: 'hang',
+      async generate(input: GenerateInput): Promise<GenerateResult> {
+        return new Promise<GenerateResult>((_, reject) => {
+          input.signal?.addEventListener('abort', () => { abortedByClient = true; reject(new Error('aborted')) })
+        })
+      },
+      async *stream() { /* unused */ },
+    }
+    const client = new AIClient(hanging, new ContextManager(new MemoryStore({})), { timeoutMs: 20 })
+    await expect(client.ask('hola')).rejects.toBeInstanceOf(AITimeoutError)
+    expect(abortedByClient).toBe(true) // the internal controller fired so a hung socket is cancelled
+  })
+
+  it('generate() aborts the provider socket on timeout even when the caller passes its own signal', async () => {
+    let abortedByClient = false
+    const outer = new AbortController() // caller-supplied, never aborted here
+    const hanging: AIProvider = {
+      name: 'hang',
+      generate: (input: GenerateInput) => new Promise<GenerateResult>((_, reject) => {
+        input.signal?.addEventListener('abort', () => { abortedByClient = true; reject(new Error('aborted')) })
+      }),
+      async *stream() {},
+    }
+    const client = new AIClient(hanging, new ContextManager(new MemoryStore({})), { timeoutMs: 20 })
+    await expect(client.generate({ messages: [{ role: 'user', content: 'x' }], signal: outer.signal }))
+      .rejects.toBeInstanceOf(AITimeoutError)
+    expect(abortedByClient).toBe(true) // internal controller (not the untouched caller signal) cancelled the socket
+  })
+
+  it('a hung autoreply does not block forever — replyInChat rejects on timeout', async () => {
+    const hanging: AIProvider = {
+      name: 'hang',
+      generate: () => new Promise<GenerateResult>(() => {}), // never resolves, ignores signal
+      async *stream() {},
+    }
+    const client = new AIClient(hanging, new ContextManager(new MemoryStore({})), { timeoutMs: 20 })
+    await expect(client.replyInChat('k', 'x')).rejects.toBeInstanceOf(AITimeoutError)
+  })
+
+  it('honors a caller-provided signal (aborting before timeout)', async () => {
+    const ctrl = new AbortController()
+    const hanging: AIProvider = {
+      name: 'hang',
+      generate: (input: GenerateInput) => new Promise<GenerateResult>((_, reject) => {
+        input.signal?.addEventListener('abort', () => reject(new Error('user aborted')))
+      }),
+      async *stream() {},
+    }
+    const client = new AIClient(hanging, new ContextManager(new MemoryStore({})), { timeoutMs: 10_000 })
+    const p = client.ask('hola', { signal: ctrl.signal })
+    ctrl.abort()
+    await expect(p).rejects.toThrow('user aborted')
   })
 })

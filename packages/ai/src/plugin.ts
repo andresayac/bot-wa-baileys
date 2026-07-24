@@ -55,8 +55,11 @@ export function aiPlugin(config: AIPluginConfig = {}): PluginSpec<AIPluginConfig
         maxTokens: cfg.maxTokens,
         effort: cfg.effort,
         refusalMessage: cfg.refusalMessage,
+        timeoutMs: cfg.timeoutMs,
       })
       bot.provide('ai', client)
+      // Remove the injected tool on unplug so `ctx.tools.ai` doesn't outlive the plugin.
+      ctx.onDispose(() => { delete (ctx.tools as Record<string, unknown>).ai })
 
       const errorMessage = cfg.errorMessage ?? DEFAULT_ERROR_MESSAGE
 

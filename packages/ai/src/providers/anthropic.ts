@@ -18,10 +18,13 @@ export interface AnthropicStreamEvent {
   type?: string
   delta?: { type?: string; text?: string }
 }
+export interface AnthropicRequestOptions {
+  signal?: AbortSignal
+}
 export interface AnthropicLike {
   messages: {
-    create(args: Record<string, unknown>): Promise<AnthropicMessage>
-    stream?(args: Record<string, unknown>): AsyncIterable<AnthropicStreamEvent> & { getFinalMessage?: () => Promise<unknown> }
+    create(args: Record<string, unknown>, options?: AnthropicRequestOptions): Promise<AnthropicMessage>
+    stream?(args: Record<string, unknown>, options?: AnthropicRequestOptions): AsyncIterable<AnthropicStreamEvent> & { getFinalMessage?: () => Promise<unknown> }
   }
 }
 
@@ -50,8 +53,12 @@ export class AnthropicProvider implements AIProvider {
     return args
   }
 
+  private reqOpts(input: GenerateInput): AnthropicRequestOptions | undefined {
+    return input.signal ? { signal: input.signal } : undefined
+  }
+
   async generate(input: GenerateInput): Promise<GenerateResult> {
-    const res = await this.client.messages.create(this.buildArgs(input))
+    const res = await this.client.messages.create(this.buildArgs(input), this.reqOpts(input))
     const text = res.content
       .filter((b) => b.type === 'text')
       .map((b) => b.text ?? '')
@@ -70,7 +77,7 @@ export class AnthropicProvider implements AIProvider {
       if (r.text) yield r.text
       return
     }
-    const s = this.client.messages.stream(this.buildArgs(input))
+    const s = this.client.messages.stream(this.buildArgs(input), this.reqOpts(input))
     for await (const event of s) {
       if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta' && event.delta.text) {
         yield event.delta.text
