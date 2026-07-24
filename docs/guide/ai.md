@@ -22,7 +22,7 @@ The second package is the SDK of whichever provider you use:
 |---|---|
 | `anthropic` (default) | `@anthropic-ai/sdk` |
 | `openai` | `openai` |
-| `gemini` | `@google/genai` |
+| `gemini` | `@google/generative-ai` |
 | `ollama` | none — talks plain HTTP (`fetch`) to a local/remote Ollama server |
 | `deepseek`, `qwen`, `glm`, `kimi`, `groq`, `openrouter`, `mistral`, `grok`, `together` | `openai` — they're OpenAI-compatible presets reached through the `openai` SDK with a custom `baseURL` |
 
@@ -109,6 +109,10 @@ bot.plug(aiPlugin({
 `baseUrl` is optional (OpenAI-compatible endpoints).
 
 ### Gemini
+
+Requires `@google/generative-ai` (optional peer, lazy-loaded). Note: Google has
+since published a newer SDK (`@google/genai`); this provider still targets
+`@google/generative-ai` — migration is tracked separately.
 
 ```ts
 bot.plug(aiPlugin({

@@ -26,7 +26,8 @@ Framework moderno y **agnóstico de transporte** para bots de mensajería: flows
 | **Plugins & tooling** | |
 | [`@bot-wa/ai`](packages/ai) | IA: Anthropic/OpenAI/Ollama/Gemini + 9 presets OpenAI-compatible (DeepSeek/Qwen/GLM/Kimi/Groq/…), autorespuesta. |
 | [`@bot-wa/nlu`](packages/nlu) | Intenciones/NLU local (define/match + `whenIntent`), sin servicios externos. |
-| [`@bot-wa/manager`](packages/manager) | Multi-bot orchestrator (registry, lifecycle) + HTTP API zero-dep. |
+| [`@bot-wa/manager`](packages/manager) | Multi-bot orchestrator (registry, lifecycle) + HTTP API zero-dep (auth por token). |
+| [`@bot-wa/graph-core`](packages/graph-core) | Helpers Meta Graph compartidos (verificación de webhook, mapeo de errores, guard de ingest) usados por meta/messenger/instagram. |
 | [`create-bot-wa`](packages/create-bot-wa) | CLI scaffolder (`npm create bot-wa`), 4 templates. |
 
 Empieza por el [README del core](packages/core/README.md) para el quickstart.
@@ -39,23 +40,26 @@ pnpm add @bot-wa/core @bot-wa/baileys        # bot WhatsApp (Baileys)
 pnpm add @bot-wa/ai @anthropic-ai/sdk        # + IA (opcional; instala el SDK del proveedor que uses)
 ```
 
-Requiere **Node >= 20**. Ambos paquetes son **ESM-only**.
+Requiere **Node >= 20**. Todos los paquetes son **ESM-only**.
 
 ## Desarrollo (en este repo)
 
 ```bash
 pnpm install            # instala todo el workspace
-pnpm build              # pnpm -r build  → compila core y ai
-pnpm test               # pnpm -r test   → suite completa (core + ai)
+pnpm build              # pnpm -r build  → compila todos los paquetes
+pnpm test               # pnpm -r test   → suite completa
 pnpm docs               # vitepress build docs → sitio de documentación
 ```
 
-Por paquete: `pnpm --filter @bot-wa/ai test`, `pnpm --filter @bot-wa/bot-wa-baileys build`, etc.
+Por paquete: `pnpm --filter @bot-wa/ai test`, `pnpm --filter @bot-wa/core build`, etc.
 
 ## Documentación
 
 - Sitio: [andresayac.github.io/bot-wa-baileys](https://andresayac.github.io/bot-wa-baileys/) (fuente en [`docs/`](docs)).
 - Guía de migración v1 → v2: [`docs/MIGRATION-v1-to-v2.md`](docs/MIGRATION-v1-to-v2.md).
+- Plan estratégico de producto e ingeniería: [`ROADMAP.md`](ROADMAP.md).
+- Catálogo detallado de propuestas: [`FEATURES.md`](FEATURES.md).
+- Política de reporte de vulnerabilidades: [`SECURITY.md`](SECURITY.md).
 - Diseño y decisiones: [`docs/superpowers/specs/`](docs/superpowers/specs) y [`docs/superpowers/plans/`](docs/superpowers/plans).
 
 ## Contribuir

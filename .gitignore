@@ -28,3 +28,6 @@ baileys_store.json
 
 # Claude Code scratch / tooling — may contain secrets; never commit
 .claude/
+
+# Third-party reference repos (NOT part of this project, never committed)
+terceros/

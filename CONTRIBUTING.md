@@ -1,6 +1,6 @@
 # Contributing
 
-Gracias por querer contribuir a `bot-wa-baileys`. Este repo es un **monorepo pnpm** con dos paquetes: `@bot-wa/bot-wa-baileys` (`packages/core`) y `@bot-wa/ai` (`packages/ai`).
+Gracias por querer contribuir a `bot-wa-baileys`. Este repo es un **monorepo pnpm** transporte-agnóstico: el motor es `@bot-wa/core` (`packages/core`), rodeado de transportes (baileys/meta/messenger/instagram/telegram/discord), stores (sqlite/redis/mongo/postgres/mysql), helpers compartidos (`@bot-wa/graph-core`) y tooling (`@bot-wa/ai`, `@bot-wa/nlu`, `@bot-wa/manager`, `create-bot-wa`). Ver la tabla completa en el [README](README.md#paquetes).
 
 ## Requisitos
 
@@ -11,7 +11,7 @@ Gracias por querer contribuir a `bot-wa-baileys`. Este repo es un **monorepo pnp
 
 ```bash
 pnpm install          # instala todo el workspace
-pnpm build            # compila core + ai (pnpm -r build)
+pnpm build            # compila todos los paquetes (pnpm -r build)
 pnpm test             # suite completa (pnpm -r test)
 ```
 
@@ -19,7 +19,7 @@ Trabajar en un solo paquete:
 
 ```bash
 pnpm --filter @bot-wa/ai test
-pnpm --filter @bot-wa/bot-wa-baileys build
+pnpm --filter @bot-wa/core build
 ```
 
 ## Reglas del código
