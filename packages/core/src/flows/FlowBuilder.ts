@@ -10,7 +10,12 @@ export type FlowAction = (ctx: RuntimeMessage, c: ConversationControls) => unkno
 export type CompiledStep =
   | { kind: 'say'; text: string | DynamicText }
   | { kind: 'ask'; text: string | DynamicText; stateKey: string; opts?: WaitOptions }
-  | { kind: 'do'; fn: FlowAction }
+  | {
+      kind: 'do'
+      fn: FlowAction
+      /** Set by `.media()` so introspection (`describeFlows`/`lintFlows`) can tell a media send from an opaque action. */
+      media?: { source: string; caption?: string }
+    }
   | { kind: 'choose'; prompt: string; options: Record<string, { label: string; then?: CompiledFlow | FlowAction }>; stateKey?: string; opts?: WaitOptions }
   | { kind: 'goto'; target: string }
 
@@ -47,7 +52,11 @@ export class FlowBuilder {
   do(fn: FlowAction): this { this.steps.push({ kind: 'do', fn }); return this }
 
   media(source: string, caption?: string): this {
-    this.steps.push({ kind: 'do', fn: async (ctx) => { await (ctx as RuntimeMessage & { photo?(s: string, c?: string): Promise<unknown> }).photo?.(source, caption) } })
+    this.steps.push({
+      kind: 'do',
+      fn: async (ctx) => { await (ctx as RuntimeMessage & { photo?(s: string, c?: string): Promise<unknown> }).photo?.(source, caption) },
+      media: { source, caption },
+    })
     return this
   }
 
