@@ -35,6 +35,16 @@ export class FakePool implements PoolLike {
   ended = false
 
   private readonly jsonAsString: boolean
+  /**
+   * How the user_data identifier columns (user_id, namespace, `key`) compare,
+   * read from the CREATE TABLE the store issues, like the real server:
+   *  - `binary`: VARBINARY. Exact bytes; mysql2 returns them as Buffers.
+   *  - `padSpace`: VARCHAR under a PAD SPACE collation (utf8mb4_bin and every
+   *    pre-0900 collation). Trailing spaces are ignored in comparisons AND in
+   *    primary-key uniqueness.
+   *  - `exact`: VARCHAR under a NO PAD binary collation (utf8mb4_0900_bin).
+   */
+  userDataIdentifiers: 'binary' | 'padSpace' | 'exact' = 'exact'
   private readonly t: Record<'messages' | 'chats' | 'contacts' | 'checkpoints' | 'conversations' | 'cursors' | 'userData', string>
 
   constructor(opts: FakePoolOptions = {}) {
@@ -51,15 +61,27 @@ export class FakePool implements PoolLike {
     }
   }
 
+  /** Classify the user_data identifier columns from the table's DDL (see {@link userDataIdentifiers}). */
+  private classifyUserDataDdl(ddl: string): void {
+    const columns = ['user_id', 'namespace', '`key`']
+    if (columns.every((col) => ddl.includes(`${col} VARBINARY(`))) this.userDataIdentifiers = 'binary'
+    else if (/_0900_bin|_nopad_bin/.test(ddl)) this.userDataIdentifiers = 'exact'
+    else this.userDataIdentifiers = 'padSpace'
+  }
+
   /**
    * user_data (ctx.user) statements. Rows are keyed by (user_id, namespace, key)
-   * with exact string comparison (the real table uses utf8mb4_bin). DML replies
-   * mimic mysql2's ResultSetHeader (`affectedRows`) in the rows slot.
+   * and compared the way the declared column type compares them
+   * ({@link userDataIdentifiers}). DML replies mimic mysql2's ResultSetHeader
+   * (`affectedRows`) in the rows slot.
    */
   private userDataQuery(s: string, p: readonly unknown[]): MysqlQueryResult | undefined {
     const ud = this.t.userData
     const cols = 'user_id, namespace, `key`, value, expires_at, updated_at'
-    const id = (u: unknown, n: unknown, k: unknown): string => JSON.stringify([String(u), String(n), String(k)])
+    const mode = this.userDataIdentifiers
+    const cmp = (v: unknown): string => (mode === 'padSpace' ? String(v).replace(/ +$/, '') : String(v))
+    const eq = (a: unknown, b: unknown): boolean => cmp(a) === cmp(b)
+    const id = (u: unknown, n: unknown, k: unknown): string => JSON.stringify([cmp(u), cmp(n), cmp(k)])
     const live = (r: Row, now: unknown): boolean => r.expires_at == null || Number(r.expires_at) > Number(now)
     const header = (affectedRows: number): MysqlQueryResult => [{ affectedRows } as unknown as Row[], []]
     const remove = (match: (r: Row) => boolean): MysqlQueryResult => {
@@ -72,8 +94,12 @@ export class FakePool implements PoolLike {
       }
       return header(n)
     }
+    // mysql2 hands VARBINARY columns back as Buffers.
+    const out = (r: Row): Row => (mode === 'binary'
+      ? { ...r, user_id: Buffer.from(String(r.user_id)), namespace: Buffer.from(String(r.namespace)), key: Buffer.from(String(r.key)) }
+      : { ...r })
     const select = (match: (r: Row) => boolean): MysqlQueryResult =>
-      [[...this.table(ud).values()].filter(match).map((r) => ({ ...r })), []]
+      [[...this.table(ud).values()].filter(match).map(out), []]
 
     if (
       s ===
@@ -81,30 +107,32 @@ export class FakePool implements PoolLike {
         'ON DUPLICATE KEY UPDATE value = VALUES(value), expires_at = VALUES(expires_at), updated_at = VALUES(updated_at)'
     ) {
       const [userId, namespace, key, value, expiresAt, updatedAt] = p
-      const existed = this.table(ud).has(id(userId, namespace, key))
+      const existing = this.table(ud).get(id(userId, namespace, key))
+      // ON DUPLICATE KEY UPDATE rewrites only the listed columns: under PAD
+      // SPACE the row keeps the identifiers of whichever write created it.
       this.table(ud).set(id(userId, namespace, key), {
-        user_id: userId, namespace, key, value: String(value),
-        expires_at: expiresAt == null ? null : Number(expiresAt), updated_at: Number(updatedAt),
+        user_id: existing?.user_id ?? userId, namespace: existing?.namespace ?? namespace, key: existing?.key ?? key,
+        value: String(value), expires_at: expiresAt == null ? null : Number(expiresAt), updated_at: Number(updatedAt),
       })
-      return header(existed ? 2 : 1)
+      return header(existing ? 2 : 1)
     }
     if (s === `SELECT ${cols} FROM \`${ud}\` WHERE user_id = ? AND namespace = ? AND \`key\` = ? AND (expires_at IS NULL OR expires_at > ?)`) {
-      return select((r) => r.user_id === p[0] && r.namespace === p[1] && r.key === p[2] && live(r, p[3]))
+      return select((r) => eq(r.user_id, p[0]) && eq(r.namespace, p[1]) && eq(r.key, p[2]) && live(r, p[3]))
     }
     if (s === `SELECT ${cols} FROM \`${ud}\` WHERE user_id = ? AND (expires_at IS NULL OR expires_at > ?)`) {
-      return select((r) => r.user_id === p[0] && live(r, p[1]))
+      return select((r) => eq(r.user_id, p[0]) && live(r, p[1]))
     }
     if (s === `SELECT ${cols} FROM \`${ud}\` WHERE user_id = ? AND namespace = ? AND (expires_at IS NULL OR expires_at > ?)`) {
-      return select((r) => r.user_id === p[0] && r.namespace === p[1] && live(r, p[2]))
+      return select((r) => eq(r.user_id, p[0]) && eq(r.namespace, p[1]) && live(r, p[2]))
     }
     if (s === `DELETE FROM \`${ud}\` WHERE user_id = ? AND namespace = ? AND \`key\` = ?`) {
-      return remove((r) => r.user_id === p[0] && r.namespace === p[1] && r.key === p[2])
+      return remove((r) => eq(r.user_id, p[0]) && eq(r.namespace, p[1]) && eq(r.key, p[2]))
     }
     if (s === `DELETE FROM \`${ud}\` WHERE user_id = ? AND namespace = ?`) {
-      return remove((r) => r.user_id === p[0] && r.namespace === p[1])
+      return remove((r) => eq(r.user_id, p[0]) && eq(r.namespace, p[1]))
     }
     if (s === `DELETE FROM \`${ud}\` WHERE user_id = ?`) {
-      return remove((r) => r.user_id === p[0])
+      return remove((r) => eq(r.user_id, p[0]))
     }
     if (s === `DELETE FROM \`${ud}\` WHERE expires_at IS NOT NULL AND expires_at <= ?`) {
       return remove((r) => r.expires_at != null && Number(r.expires_at) <= Number(p[0]))
@@ -138,6 +166,7 @@ export class FakePool implements PoolLike {
       const m = /^CREATE TABLE IF NOT EXISTS `([^`]+)`/.exec(s)
       if (m == null) throw new Error(`FakePool: unrecognized CREATE: ${s}`)
       this.table(m[1]) // create empty table
+      if (m[1] === this.t.userData) this.classifyUserDataDdl(s)
       return [[], []]
     }
 

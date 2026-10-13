@@ -10,7 +10,7 @@ export type UserDataErrorCode =
   | 'INVALID_NAMESPACE'
   /** Value that cannot be stored as JSON (BigInt, function, symbol, circular structure). */
   | 'INVALID_VALUE'
-  /** TTL that is not a positive, finite duration (`'30m'`, `'7d'`, milliseconds). */
+  /** TTL that is not a positive, finite duration (`'30m'`, `'7d'`, milliseconds), or so large the expiry would exceed `Number.MAX_SAFE_INTEGER`. */
   | 'INVALID_TTL'
   /** Empty or non-string subject id. */
   | 'INVALID_USER'

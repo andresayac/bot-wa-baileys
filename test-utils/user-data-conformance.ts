@@ -171,6 +171,45 @@ export function runUserDataConformance(name: string, h: UserDataConformanceHarne
       expect(await ud.listUserData('juan')).toEqual([entry('juan', 'game', 'name', 2)])
     })
 
+    it('treats leading and trailing whitespace in ids, namespaces and keys as significant', async () => {
+      // MySQL's utf8mb4_bin is a PAD SPACE collation: `'name '` and `'name'`
+      // would share one row there. Keys may come from user input
+      // (`ctx.user.ns('answers').set(text, …)`), so every store must keep them apart.
+      await ud.setUserData(entry('u1', 'default', 'name ', 'a'))
+      await ud.setUserData(entry('u1', 'default', 'name', 'b'))
+      await ud.setUserData(entry('u1', 'default', ' name', 'c'))
+      await ud.setUserData(entry('u1 ', 'default', 'name', 'd'))
+      await ud.setUserData(entry('u1', 'default ', 'name', 'e'))
+      expect(await ud.getUserData('u1', 'default', 'name ')).toEqual(entry('u1', 'default', 'name ', 'a'))
+      expect((await ud.getUserData('u1', 'default', 'name'))?.value).toBe('b')
+      expect((await ud.getUserData('u1', 'default', ' name'))?.value).toBe('c')
+      expect(await ud.getUserData('u1 ', 'default', 'name')).toEqual(entry('u1 ', 'default', 'name', 'd'))
+      expect(await ud.getUserData('u1', 'default ', 'name')).toEqual(entry('u1', 'default ', 'name', 'e'))
+      expect(await ud.getUserData('u1', 'default', 'name  ')).toBeUndefined()
+
+      const shape = (entries: UserDataEntry[]): string[] =>
+        entries.map((e) => JSON.stringify([e.userId, e.namespace, e.key, e.value])).sort()
+      expect(shape(await ud.listUserData('u1'))).toEqual(shape([
+        entry('u1', 'default', 'name ', 'a'),
+        entry('u1', 'default', 'name', 'b'),
+        entry('u1', 'default', ' name', 'c'),
+        entry('u1', 'default ', 'name', 'e'),
+      ]))
+      expect(shape(await ud.listUserData('u1', 'default'))).toEqual(shape([
+        entry('u1', 'default', 'name ', 'a'),
+        entry('u1', 'default', 'name', 'b'),
+        entry('u1', 'default', ' name', 'c'),
+      ]))
+      expect(await ud.listUserData('u1 ')).toEqual([entry('u1 ', 'default', 'name', 'd')])
+
+      await ud.deleteUserData('u1', 'default', 'name')
+      expect((await ud.getUserData('u1', 'default', 'name '))?.value).toBe('a')
+      await ud.deleteUserData('u1', 'default')
+      expect(await ud.listUserData('u1')).toEqual([entry('u1', 'default ', 'name', 'e')])
+      await ud.deleteUserData('u1')
+      expect(await ud.listUserData('u1 ')).toEqual([entry('u1 ', 'default', 'name', 'd')])
+    })
+
     it('lists every namespace of a user, or just one namespace', async () => {
       await ud.setUserData(entry('u1', 'default', 'name', 'Juan'))
       await ud.setUserData(entry('u1', 'default', 'lang', 'es'))

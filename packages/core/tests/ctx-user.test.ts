@@ -75,6 +75,31 @@ class SlowStore extends MemoryStore {
   }
 }
 
+/**
+ * MemoryStore whose setUserData takes 30 ms, and which can fail one key's read
+ * or write immediately — so a batch has a sibling write still in flight when
+ * one of its store calls rejects.
+ */
+class SlowSetStore extends MemoryStore {
+  failKey: string | undefined
+  failReadKey: string | undefined
+  inFlight = 0
+  override async getUserData(userId: string, namespace: string, key: string): Promise<UserDataEntry | undefined> {
+    if (key === this.failReadKey) throw new Error('store read failed')
+    return super.getUserData(userId, namespace, key)
+  }
+  override async setUserData(entry: UserDataEntry): Promise<void> {
+    if (entry.key === this.failKey) throw new Error('store write failed')
+    this.inFlight++
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 30))
+      await super.setUserData(entry)
+    } finally {
+      this.inFlight--
+    }
+  }
+}
+
 describe('ctx.user — handlers', () => {
   it('persists values per sender across messages', async () => {
     const { bot, provider } = await createTestBot()
@@ -231,6 +256,14 @@ describe('ctx.user — API semantics', () => {
     expect(await user.all()).toEqual({})
   })
 
+  it('update() checks array indexes against the stored values before writing any key', async () => {
+    const user = bot.user('u1')
+    await user.set('items', [])
+    await expect(user.update({ name: 'Juan', 'items.5': 1 })).rejects.toMatchObject({ code: 'INVALID_PATH' })
+    await expect(user.update({ 'items.0': 'a', 'items.2': 'c' })).rejects.toMatchObject({ code: 'INVALID_PATH' })
+    expect(await user.all()).toEqual({ items: [] })
+  })
+
   it('delete() removes a key or a nested path; set(path, undefined) deletes too', async () => {
     const user = bot.user('u1')
     await user.set('address', { city: 'Lima', zip: '1' })
@@ -352,6 +385,27 @@ describe('ctx.user — TTL', () => {
     await bot.stop()
   })
 
+  it('rounds a fractional ttl up to whole milliseconds (BIGINT / Redis PX need integers)', async () => {
+    const store = new MemoryStore()
+    const service = new UserDataService(store)
+    await service.for('u1').set('a', 1, { ttl: 1_500.5 })
+    await service.for('u1').update({ b: 2 }, { ttl: 0.25 })
+    await service.for('u1').set('c', 3, { ttl: '1.0005s' }) // parseDuration already rounds strings
+    const expiries = (await store.listUserData('u1')).map((e): [string, number | undefined] => [e.key, e.expiresAt])
+    expect(expiries.sort()).toEqual([['a', T0 + 1_501], ['b', T0 + 1], ['c', T0 + 1_001]])
+  })
+
+  it('rejects a ttl whose expiry would not be a safe integer epoch', async () => {
+    const service = new UserDataService(new MemoryStore())
+    const user = service.for('u1')
+    for (const ttl of [1e20, Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER - T0 + 1, '99999999999999999w']) {
+      await expect(user.set('k', 1, { ttl })).rejects.toMatchObject({ name: 'UserDataError', code: 'INVALID_TTL' })
+    }
+    expect(await user.all()).toEqual({})
+    await user.set('k', 1, { ttl: Number.MAX_SAFE_INTEGER - T0 }) // the largest accepted ttl
+    expect(await user.get('k')).toBe(1)
+  })
+
   it('purges expired entries opportunistically on writes, at most once per interval', async () => {
     const store = new MemoryStore()
     const purge = vi.spyOn(store, 'purgeExpiredUserData')
@@ -419,6 +473,43 @@ describe('ctx.user — concurrency', () => {
     await write
     expect(await erased).toBe(1)
     expect(await service.for('u1').all()).toEqual({})
+  })
+
+  it('a batch rejected by path validation writes nothing, so erasure cannot be undone', async () => {
+    const store = new SlowSetStore()
+    const service = new UserDataService(store, { purgeInterval: false })
+    await service.for('u1').set('items', [])
+    const update = service.for('u1').update({ profile: { secret: 1 }, 'items.5': 1 })
+    const erased = service.erase('u1')
+    await expect(update).rejects.toMatchObject({ code: 'INVALID_PATH' })
+    await erased
+    await new Promise((resolve) => setTimeout(resolve, 60))
+    expect(await store.listUserData('u1')).toEqual([])
+  })
+
+  it('a failing store write keeps the lock until every sibling write settled', async () => {
+    const store = new SlowSetStore()
+    store.failKey = 'boom'
+    const service = new UserDataService(store, { purgeInterval: false })
+    const update = service.for('u1').update({ profile: { secret: 1 }, boom: 1 })
+    const erased = service.erase('u1')
+    await expect(update).rejects.toThrow('store write failed')
+    expect(store.inFlight).toBe(0) // rejected only after the sibling write settled
+    await erased
+    await new Promise((resolve) => setTimeout(resolve, 60))
+    expect(await store.listUserData('u1')).toEqual([]) // nothing resurrected after erasure
+  })
+
+  it('a failing store read keeps the lock until every sibling call settled', async () => {
+    const store = new SlowSetStore()
+    store.failReadKey = 'boom'
+    const service = new UserDataService(store, { purgeInterval: false })
+    const update = service.for('u1').update({ profile: { secret: 1 }, 'boom.x': 1 })
+    const erased = service.erase('u1')
+    await expect(update).rejects.toThrow('store read failed')
+    await erased
+    await new Promise((resolve) => setTimeout(resolve, 60))
+    expect(await store.listUserData('u1')).toEqual([])
   })
 })
 

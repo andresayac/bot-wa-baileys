@@ -1,17 +1,25 @@
 /**
  * `ctx.user` storage for {@link MysqlStore} (internal).
  *
- *   `{prefix}user_data` (user_id VARCHAR(255), namespace VARCHAR(128),
- *     `key` VARCHAR(255), value MEDIUMTEXT, expires_at BIGINT NULL,
+ *   `{prefix}user_data` (user_id VARBINARY(1020), namespace VARBINARY(512),
+ *     `key` VARBINARY(1020), value MEDIUMTEXT, expires_at BIGINT NULL,
  *     updated_at BIGINT, PRIMARY KEY (user_id, namespace, `key`),
- *     INDEX (expires_at)) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin
+ *     INDEX (expires_at)) DEFAULT CHARSET=utf8mb4
  *
- * `utf8mb4_bin` makes ids, namespaces and keys compare EXACTLY (the server's
- * default utf8mb4 collations are case- and accent-insensitive, which would
- * merge `Name` and `name`). The value is JSON text in MEDIUMTEXT (16 MiB). The
- * expiry index is declared inline because MySQL has no
- * `CREATE INDEX IF NOT EXISTS`. Expiry is enforced in the WHERE clause of every
- * read and purged physically by `purge()`, which reports mysql2's `affectedRows`.
+ * Ids, namespaces and keys are VARBINARY holding their UTF-8 bytes, so they
+ * compare EXACTLY on every supported server (MySQL 5.7/8.x, MariaDB 10.x). A
+ * VARCHAR would not: the default utf8mb4 collations are case- and
+ * accent-insensitive (`Name` = `name`), and even `utf8mb4_bin` is PAD SPACE —
+ * it ignores trailing spaces in comparisons and in primary-key uniqueness, so
+ * `'name '` and `'name'` would share one row. The NO PAD binary collations
+ * (`utf8mb4_0900_bin`, `utf8mb4_nopad_bin`) are not portable across MySQL and
+ * MariaDB. The byte lengths hold the core's limits in 4-byte UTF-8 (255-char
+ * ids and keys, 128-char namespaces) and keep the primary key under InnoDB's
+ * 3072-byte index limit. mysql2 returns VARBINARY as Buffers; `text()` decodes
+ * them. The value is JSON text in MEDIUMTEXT (16 MiB). The expiry index is
+ * declared inline because MySQL has no `CREATE INDEX IF NOT EXISTS`. Expiry is
+ * enforced in the WHERE clause of every read and purged physically by
+ * `purge()`, which reports mysql2's `affectedRows`.
  */
 
 import type { UserDataEntry, UserId } from '@bot-wa/core'
@@ -22,8 +30,13 @@ type Query = (sql: string, params?: readonly unknown[]) => Promise<MysqlQueryRes
 const COLUMNS = 'user_id, namespace, `key`, value, expires_at, updated_at'
 const LIVE = '(expires_at IS NULL OR expires_at > ?)'
 
+const utf8 = new TextDecoder()
+
+/** A VARBINARY column arrives as a Buffer (mysql2); decode its UTF-8 bytes. */
 function text(value: unknown): string {
-  return typeof value === 'string' ? value : String(value)
+  if (typeof value === 'string') return value
+  if (value instanceof Uint8Array) return utf8.decode(value)
+  return String(value)
 }
 
 function toEntry(row: Record<string, unknown>): UserDataEntry {
@@ -51,10 +64,10 @@ export class MysqlUserData {
   async migrate(): Promise<void> {
     const t = this.table
     await this.query(
-      `CREATE TABLE IF NOT EXISTS \`${t}\` (user_id VARCHAR(255) NOT NULL, namespace VARCHAR(128) NOT NULL, ` +
-        '`key` VARCHAR(255) NOT NULL, value MEDIUMTEXT NOT NULL, expires_at BIGINT NULL, updated_at BIGINT NOT NULL, ' +
+      `CREATE TABLE IF NOT EXISTS \`${t}\` (user_id VARBINARY(1020) NOT NULL, namespace VARBINARY(512) NOT NULL, ` +
+        '`key` VARBINARY(1020) NOT NULL, value MEDIUMTEXT NOT NULL, expires_at BIGINT NULL, updated_at BIGINT NOT NULL, ' +
         `PRIMARY KEY (user_id, namespace, \`key\`), INDEX \`${t}_expires_idx\` (expires_at)) ` +
-        'DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin',
+        'DEFAULT CHARSET=utf8mb4',
     )
   }
 

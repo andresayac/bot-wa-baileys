@@ -21,12 +21,49 @@ describe('MysqlStore — user data', () => {
 
   const ddl = () => fake.queries.map((q) => q.sql).find((s) => s.startsWith('CREATE TABLE IF NOT EXISTS `user_data`'))
 
-  it('provisions user_data with a composite key, binary collation and an expiry index', () => {
+  it('provisions user_data with a composite key, byte-exact identifiers and an expiry index', () => {
     expect(ddl()).toBeDefined()
     expect(ddl()).toContain('PRIMARY KEY (user_id, namespace, `key`)')
     expect(ddl()).toContain('INDEX `user_data_expires_idx` (expires_at)')
-    expect(ddl()).toContain('COLLATE=utf8mb4_bin') // ids/keys compare exactly, not case-insensitively
+    // VARBINARY compares bytes: case, accents AND trailing spaces are significant.
+    // utf8mb4_bin is PAD SPACE, so 'name ' and 'name' would share one row.
+    expect(ddl()).toContain('user_id VARBINARY(1020) NOT NULL')
+    expect(ddl()).toContain('namespace VARBINARY(512) NOT NULL')
+    expect(ddl()).toContain('`key` VARBINARY(1020) NOT NULL')
+    expect(ddl()).not.toMatch(/VARCHAR/)
+    expect(ddl()).toContain('DEFAULT CHARSET=utf8mb4') // the JSON value keeps emoji
     expect(ddl()).toContain('value MEDIUMTEXT NOT NULL') // > 64 KiB values fit
+    expect(fake.userDataIdentifiers).toBe('binary')
+  })
+
+  it('decodes VARBINARY identifiers that mysql2 returns as Buffers', async () => {
+    await store.setUserData({ userId: 'jüan 🎲 ', namespace: 'jüego ', key: 'ñame ', value: 1, updatedAt: 1 })
+    const [rows] = await fake.query(
+      'SELECT user_id, namespace, `key`, value, expires_at, updated_at FROM `user_data` WHERE user_id = ? AND (expires_at IS NULL OR expires_at > ?)',
+      ['jüan 🎲 ', 0],
+    )
+    expect(Buffer.isBuffer(rows[0]?.user_id)).toBe(true) // the fake models mysql2
+    expect(await store.listUserData('jüan 🎲 ')).toEqual([
+      { userId: 'jüan 🎲 ', namespace: 'jüego ', key: 'ñame ', value: 1, updatedAt: 1 },
+    ])
+    expect(await store.getUserData('jüan 🎲 ', 'jüego ', 'ñame ')).toMatchObject({ userId: 'jüan 🎲 ', key: 'ñame ' })
+  })
+
+  it('the fake models PAD SPACE, so the old utf8mb4_bin schema would merge trailing-space keys', async () => {
+    const padded = new FakePool()
+    await padded.query(
+      'CREATE TABLE IF NOT EXISTS `user_data` (user_id VARCHAR(255) NOT NULL, namespace VARCHAR(128) NOT NULL, ' +
+        '`key` VARCHAR(255) NOT NULL, value MEDIUMTEXT NOT NULL, expires_at BIGINT NULL, updated_at BIGINT NOT NULL, ' +
+        'PRIMARY KEY (user_id, namespace, `key`)) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin',
+    )
+    expect(padded.userDataIdentifiers).toBe('padSpace')
+    const insert = 'INSERT INTO `user_data` (user_id, namespace, `key`, value, expires_at, updated_at) VALUES (?, ?, ?, ?, ?, ?) ' +
+      'ON DUPLICATE KEY UPDATE value = VALUES(value), expires_at = VALUES(expires_at), updated_at = VALUES(updated_at)'
+    await padded.query(insert, ['u1', 'default', 'name ', '"a"', null, 1])
+    await padded.query(insert, ['u1', 'default', 'name', '"b"', null, 2])
+    expect([...(padded.tables.get('user_data')?.values() ?? [])]).toEqual([
+      { user_id: 'u1', namespace: 'default', key: 'name ', value: '"b"', expires_at: null, updated_at: 2 },
+    ])
   })
 
   it('honors tablePrefix', async () => {

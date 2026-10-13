@@ -76,7 +76,72 @@ function resolveTtl(ttl: string | number | undefined): number | undefined {
   if (typeof ms !== 'number' || !Number.isFinite(ms) || ms <= 0) {
     throw new UserDataError('INVALID_TTL', `Invalid user data ttl ${String(ttl)}: it must be a positive, finite duration`)
   }
+  // Stores persist the expiry as an integer epoch (BIGINT columns, Redis PX):
+  // round sub-millisecond ttls up, and refuse ones whose expiry would not be a
+  // safe integer (~285,000 years — omit `ttl` for a permanent key instead).
+  ms = Math.ceil(ms)
+  if (ms > Number.MAX_SAFE_INTEGER - Date.now()) {
+    throw new UserDataError('INVALID_TTL', `Invalid user data ttl ${String(ttl)}: too large (omit ttl for a permanent key)`)
+  }
   return ms
+}
+
+/**
+ * `Promise.all` that waits for EVERY promise to settle before rejecting with
+ * the first failure, so no store call is still running once the caller — and
+ * the user's lock — moves on.
+ */
+async function settleAll<T>(promises: ReadonlyArray<Promise<T>>): Promise<T[]> {
+  const results = await Promise.allSettled(promises)
+  const failure = results.find((result): result is PromiseRejectedResult => result.status === 'rejected')
+  if (failure) throw failure.reason
+  return results.map((result) => (result as PromiseFulfilledResult<T>).value)
+}
+
+/** The single store call that persists one top-level key of a batch. */
+type KeyWrite = { kind: 'set'; entry: UserDataEntry } | { kind: 'delete'; key: string }
+
+/**
+ * Fold every write targeting ONE top-level key over its `current` entry, in
+ * memory. Returns the store call that persists the result, or `undefined` when
+ * nothing changes. Throws `UserDataError('INVALID_PATH')` for an array index
+ * that would leave a hole — before the batch writes anything.
+ */
+function planKey(
+  userId: UserId,
+  namespace: string,
+  key: string,
+  writes: readonly PathWrite[],
+  current: UserDataEntry | undefined,
+  ttlMs: number | undefined,
+  now: number,
+): KeyWrite | undefined {
+  let exists = current !== undefined
+  let value = current?.value
+  let replaced = false
+  let changed = false
+  for (const write of writes) {
+    if (write.rest.length === 0) {
+      replaced = true
+      changed = true
+      exists = write.value !== undefined
+      value = write.value
+    } else if (write.value === undefined) {
+      if (exists && unsetAt(value, write.rest)) changed = true
+    } else {
+      value = setAt(exists ? value : undefined, write.rest, write.value)
+      exists = true
+      changed = true
+    }
+  }
+  if (!changed) return undefined
+  if (!exists) return { kind: 'delete', key }
+  const expiresAt = ttlMs !== undefined
+    ? Math.min(now + ttlMs, Number.MAX_SAFE_INTEGER) // resolveTtl checked the bound a few ms earlier
+    : replaced ? undefined : current?.expiresAt
+  const entry: UserDataEntry = { userId, namespace, key, value, updatedAt: now }
+  if (expiresAt !== undefined) entry.expiresAt = expiresAt
+  return { kind: 'set', entry }
 }
 
 export class UserDataService {
@@ -215,59 +280,34 @@ export class UserDataService {
     return this.store
   }
 
-  /** Run the grouped writes under the user's lock, then maybe purge. */
+  /**
+   * Run a batch under the user's lock, then maybe purge. Three phases, so an
+   * invalid path writes nothing and a failing store call never releases the
+   * lock while sibling calls are still running (which would let a queued
+   * write or erasure overlap them):
+   *  1. read the current entry of every key with a nested write (a pure
+   *     top-level write needs no read, so it stays one atomic upsert/delete);
+   *  2. fold the writes of every key in memory — path errors throw here,
+   *     before anything is written;
+   *  3. persist one store call per changed key, and settle ALL of them before
+   *     rejecting with the first failure (keys are independent writes, so a
+   *     store error can leave the batch partially applied).
+   */
   private async write(userId: UserId, namespace: string, groups: Map<string, PathWrite[]>, ttlMs: number | undefined): Promise<void> {
     const store = this.requireStore(userId)
     await this.locks.run(userId, async () => {
-      await Promise.all([...groups].map(([key, writes]) => this.applyKey(store, userId, namespace, key, writes, ttlMs)))
+      const keys = [...groups]
+      const current = await settleAll(keys.map(async ([key, writes]) =>
+        writes.some((write) => write.rest.length > 0) ? store.getUserData(userId, namespace, key) : undefined,
+      ))
+      const now = Date.now()
+      const planned = keys.map(([key, writes], i) => planKey(userId, namespace, key, writes, current[i], ttlMs, now))
+      await settleAll(planned.map(async (op) => {
+        if (op?.kind === 'set') await store.setUserData(op.entry)
+        else if (op?.kind === 'delete') await store.deleteUserData(userId, namespace, op.key)
+      }))
     })
     await this.maybePurge()
-  }
-
-  /**
-   * Apply every write targeting ONE top-level key and persist the result with a
-   * single store call. A pure top-level write needs no read, so it is one
-   * atomic upsert/delete; nested writes read the current entry first.
-   */
-  private async applyKey(
-    store: UserDataStore,
-    userId: UserId,
-    namespace: string,
-    key: string,
-    writes: PathWrite[],
-    ttlMs: number | undefined,
-  ): Promise<void> {
-    const current = writes.some((w) => w.rest.length > 0)
-      ? await store.getUserData(userId, namespace, key)
-      : undefined
-    let exists = current !== undefined
-    let value = current?.value
-    let replaced = false
-    let changed = false
-    for (const write of writes) {
-      if (write.rest.length === 0) {
-        replaced = true
-        changed = true
-        exists = write.value !== undefined
-        value = write.value
-      } else if (write.value === undefined) {
-        if (exists && unsetAt(value, write.rest)) changed = true
-      } else {
-        value = setAt(exists ? value : undefined, write.rest, write.value)
-        exists = true
-        changed = true
-      }
-    }
-    if (!changed) return
-    if (!exists) {
-      await store.deleteUserData(userId, namespace, key)
-      return
-    }
-    const now = Date.now()
-    const expiresAt = ttlMs !== undefined ? now + ttlMs : replaced ? undefined : current?.expiresAt
-    const entry: UserDataEntry = { userId, namespace, key, value, updatedAt: now }
-    if (expiresAt !== undefined) entry.expiresAt = expiresAt
-    await store.setUserData(entry)
   }
 
   private async maybePurge(): Promise<void> {

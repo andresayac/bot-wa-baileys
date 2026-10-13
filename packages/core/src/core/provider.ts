@@ -657,7 +657,9 @@ export interface FlowCheckpoint {
  * The atomic unit is a TOP-LEVEL key inside a namespace: `ctx.user.set('address.city', …)`
  * reads and rewrites the whole `address` entry, while two different top-level
  * keys never touch each other. `value` is JSON-compatible data (stores persist
- * it as JSON and hand back a fresh copy on every read).
+ * it as JSON and hand back a fresh copy on every read). `userId`, `namespace`
+ * and `key` are compared as EXACT strings: case, accents and leading or
+ * trailing whitespace all make a different entry.
  */
 export interface UserDataEntry {
   /** Canonical subject id (the provider-resolved `senderId`). Opaque. */
@@ -668,9 +670,13 @@ export interface UserDataEntry {
   key: string
   /** JSON-compatible value. */
   value: unknown
-  /** Epoch ms after which the entry counts as absent. `undefined` = never expires. */
+  /**
+   * Epoch ms after which the entry counts as absent. `undefined` = never
+   * expires. Always a safe integer when written by `ctx.user` (BIGINT columns
+   * and Redis `PX` reject fractions).
+   */
   expiresAt?: number
-  /** Epoch ms of the last write. */
+  /** Epoch ms of the last write (integer). */
   updatedAt: number
 }
 
