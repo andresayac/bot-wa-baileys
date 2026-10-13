@@ -464,6 +464,22 @@ describe('bot.onIdle() — per-chat inactivity', () => {
     await bot.stop()
   })
 
+  it('a chat in handoff is not re-armed by its messages until a "resume" event', async () => {
+    const { bot, provider } = await startBot()
+    const fired: string[] = []
+    bot.onIdle(1000, (_ctx, e) => { fired.push(e.chatId) })
+    bot.emit('handoff', { chatId: 'chat-a' })
+    provider.incoming('hablo con el agente', { from: 'chat-a' }); await settle()
+    provider.incoming('hola', { from: 'chat-b' }); await settle()   // other chats unaffected
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(fired).toEqual(['chat-b'])
+    bot.emit('resume', { chatId: 'chat-a' })
+    provider.incoming('volví con el bot', { from: 'chat-a' }); await settle()
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(fired).toEqual(['chat-b', 'chat-a'])
+    await bot.stop()
+  })
+
   it('messages dropped by a before("message") hook do not re-arm it', async () => {
     const { bot, provider } = await startBot()
     const fired = vi.fn()

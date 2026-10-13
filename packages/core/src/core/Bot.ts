@@ -610,8 +610,9 @@ export class Bot extends EventEmitter {
    * last processed inbound message. Every new inbound message from that chat reschedules it,
    * and re-arms it after it fired. `ctx` is that last message's context, so
    * `ctx.reply('¿Sigues ahí?')` answers in the right chat. Handler errors go to the bot
-   * `'error'` event. Pending timers are cancelled by {@link clearIdle}, by a `'handoff'` event
-   * carrying `{ chatId }`, by the returned unsubscribe and by `stop()`.
+   * `'error'` event. Pending timers are cancelled by {@link clearIdle}, by the returned
+   * unsubscribe and by `stop()`. A `'handoff'` event carrying `{ chatId }` cancels that chat's
+   * timers and keeps its messages from re-arming them until a `'resume'` event for that chat.
    *
    * @example
    * ```ts

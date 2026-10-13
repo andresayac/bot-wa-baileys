@@ -8,10 +8,12 @@
  * pipeline finishes (a `before('message')` hook that aborts, group-mode filtering) do not
  * count as activity.
  *
- * Timers are cancelled by `clearIdle()`, by a `'handoff'` bot event carrying `{ chatId }`
- * (the human-handoff convention from FEATURES #5), by the registration's unsubscribe, and on
- * `bot.stop()` — none survive a restart. Handler errors (sync or async) are routed to the
- * bot `'error'` event with the chat's last context, never left as unhandled rejections.
+ * Timers are cancelled by `clearIdle()`, by the registration's unsubscribe, and on
+ * `bot.stop()` — none survive a restart. Human handoff (FEATURES #5): a `'handoff'` bot event
+ * carrying `{ chatId }` cancels that chat's timers and suspends it — its messages (which a
+ * human agent is answering) do not re-arm them — until a `'resume'` event for the same chat.
+ * Handler errors (sync or async) are routed to the bot `'error'` event with the chat's last
+ * context, never left as unhandled rejections.
  */
 
 import type { EventEmitter } from 'events'
@@ -37,7 +39,7 @@ export type IdleHandler = (ctx: MessageContext, event: IdleEvent) => unknown | P
 
 /** Collaborators injected by the Bot. */
 export interface ChatIdleDeps {
-  /** The bot's event emitter — source of `'message'`, `'stopped'` and `'handoff'`. */
+  /** The bot's event emitter — source of `'message'`, `'stopped'`, `'handoff'` and `'resume'`. */
   events: Pick<EventEmitter, 'on' | 'off'>
   /** Schedule a one-shot task (the bot's `Scheduler`). */
   delay(ms: number, fn: () => Promise<void>): ScheduledTask
@@ -56,6 +58,8 @@ interface Watch {
 /** Registry of the `onIdle` watchers of one Bot. Internal. */
 export class ChatIdleWatchers {
   private watches = new Set<Watch>()
+  /** Chats in human handoff: their messages do not re-arm idle timers until `'resume'`. */
+  private suspended = new Set<ChatId>()
   private unsubscribe?: () => void
 
   constructor(private deps: ChatIdleDeps) {}
@@ -84,6 +88,7 @@ export class ChatIdleWatchers {
   private touch(ctx: MessageContext): void {
     if (!this.deps.isActive()) return
     const chatId = ctx.from
+    if (this.suspended.has(chatId)) return
     const lastActivityAt = Date.now()
     for (const watch of this.watches) {
       watch.timers.get(chatId)?.cancel()
@@ -107,23 +112,38 @@ export class ChatIdleWatchers {
     const onMessage = (ctx: MessageContext) => this.touch(ctx)
     const onStopped = () => this.clear()
     const onHandoff = (payload: unknown) => {
-      const chatId = (payload as { chatId?: unknown } | undefined)?.chatId
-      if (typeof chatId === 'string') this.clear(chatId)
+      const chatId = chatIdOf(payload)
+      if (chatId === undefined) return
+      this.suspended.add(chatId)
+      this.clear(chatId)
+    }
+    const onResume = (payload: unknown) => {
+      const chatId = chatIdOf(payload)
+      if (chatId !== undefined) this.suspended.delete(chatId)
     }
     events.on('message', onMessage)
     events.on('stopped', onStopped)
     events.on('handoff', onHandoff)
+    events.on('resume', onResume)
     this.unsubscribe = () => {
       events.off('message', onMessage)
       events.off('stopped', onStopped)
       events.off('handoff', onHandoff)
+      events.off('resume', onResume)
     }
   }
 
   private unsubscribeAll(): void {
     this.unsubscribe?.()
     this.unsubscribe = undefined
+    this.suspended.clear()          // no longer listening for 'resume': don't keep stale state
   }
+}
+
+/** `chatId` of a `'handoff'` / `'resume'` event payload, if it carries one. */
+function chatIdOf(payload: unknown): ChatId | undefined {
+  const chatId = (payload as { chatId?: unknown } | null | undefined)?.chatId
+  return typeof chatId === 'string' ? chatId : undefined
 }
 
 function cancelTimers(watch: Watch, chatId?: ChatId): void {
