@@ -173,5 +173,5 @@ export class InstagramProvider implements IProvider<unknown> {
   }
 
   /** IG quick replies carry no ack deadline — nothing to do. */
-  async acknowledgeInteraction(): Promise<void> {}
+  async acknowledgeInteraction(_interactionId: string, _opts?: { text?: string; defer?: boolean }): Promise<void> {}
 }

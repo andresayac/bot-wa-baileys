@@ -242,9 +242,15 @@ export class DiscordProvider implements IProvider<unknown> {
   /* Capability-gated actions -------------------------------------------------- */
 
   /** Discord has no read-receipt primitive — intentional no-op. */
-  async markRead(): Promise<void> {}
+  async markRead(_refs: MessageRef[]): Promise<void> {}
 
-  async typing(chatId: ChatId): Promise<void> {
+  /**
+   * POST /channels/{id}/typing. Discord shows one indicator for both 'typing'
+   * and 'recording'; it has no stop-typing primitive (the indicator expires on
+   * its own or when a message is sent), so 'paused' is a no-op.
+   */
+  async typing(chatId: ChatId, state?: 'typing' | 'recording' | 'paused'): Promise<void> {
+    if (state === 'paused') return
     await this.rest.triggerTyping(chatId)
   }
 

@@ -2,7 +2,6 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { createHmac } from 'node:crypto'
 import { createServer } from 'node:http'
 import { ProviderError, RateLimitedError, UnsupportedContentError } from '@bot-wa/core'
-import type { IProvider } from '@bot-wa/core'
 import { MessengerProvider } from '../src/MessengerProvider.js'
 
 interface Call { url: string; init?: RequestInit }
@@ -129,10 +128,8 @@ describe('MessengerProvider', () => {
   })
 
   it('acknowledgeInteraction is a safe no-op', async () => {
-    // Call through the IProvider contract (the concrete no-op takes no args).
-    const p: IProvider = new MessengerProvider(baseCfg)
-    expect(p.acknowledgeInteraction).toBeTypeOf('function')
-    await expect(p.acknowledgeInteraction?.('i-1')).resolves.toBeUndefined()
+    const p = new MessengerProvider(baseCfg)
+    await expect(p.acknowledgeInteraction('i-1')).resolves.toBeUndefined()
   })
 
   it('downloadMedia fetches the attachment URL into a Buffer', async () => {

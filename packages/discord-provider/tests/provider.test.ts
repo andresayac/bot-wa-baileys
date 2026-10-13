@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import type { InboundEvent, InboundInteraction, IProvider } from '@bot-wa/core'
+import type { InboundEvent, InboundInteraction } from '@bot-wa/core'
 import { ProviderError } from '@bot-wa/core'
 import { DiscordProvider } from '../src/DiscordProvider.js'
 import { fakeSocketFactory, wait } from './_fakeSocket.js'
@@ -222,10 +222,8 @@ describe('DiscordProvider — REST outbound', () => {
 
   it('markRead is a no-op (Discord has no read receipts)', async () => {
     const calls = mockFetch()
-    // Call through the IProvider contract (the concrete no-op takes no args).
-    const p: IProvider = provider()
-    expect(p.markRead).toBeTypeOf('function')
-    await p.markRead?.([{ id: 'M1', chatId: 'C1' }])
+    const p = provider()
+    await p.markRead([{ id: 'M1', chatId: 'C1' }])
     expect(calls).toHaveLength(0)
   })
 })

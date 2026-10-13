@@ -210,5 +210,5 @@ export class MessengerProvider implements IProvider<unknown> {
   }
 
   /** Messenger postbacks/quick replies need no acknowledgement — no-op. */
-  async acknowledgeInteraction(): Promise<void> {}
+  async acknowledgeInteraction(_interactionId: string, _opts?: { text?: string; defer?: boolean }): Promise<void> {}
 }
