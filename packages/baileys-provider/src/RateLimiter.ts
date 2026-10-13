@@ -25,7 +25,7 @@
  * ```
  */
 
-import { parseDuration } from '@bot-wa/core'
+import { parseDuration, ProviderError, RateLimitedError } from '@bot-wa/core'
 
 export interface RateLimitBucketConfig {
   /** Maximum tokens (messages) allowed in the window. */
@@ -82,10 +82,24 @@ const DEFAULT_GLOBAL: RateLimitBucketConfig = { max: 50, window: '60s' }
 const DEFAULT_MAX_WAIT = '30s'
 const DEFAULT_MAX_CHATS = 5000
 
-/** Thrown when a queued send waits longer than the configured `maxWait`. */
-export class RateLimiterTimeout extends Error {
-  constructor(public readonly chatId: string, public readonly waitedMs: number) {
-    super(`RateLimiter: send to ${chatId} exceeded maxWait after ${waitedMs}ms`)
+/** Retry hint used when the caller builds a timeout without a bucket to measure. */
+const DEFAULT_RETRY_AFTER_MS = 1000
+
+/**
+ * Thrown when a queued send waits longer than the configured `maxWait`.
+ *
+ * A {@link RateLimitedError} (so a {@link ProviderError}), as the IProvider send
+ * contract requires: callers can `catch (e instanceof RateLimitedError)` the same
+ * way for this local limiter and for a server-side 429. `retryAfterMs` is the
+ * time until the blocking bucket refills one token.
+ */
+export class RateLimiterTimeout extends RateLimitedError {
+  constructor(
+    public readonly chatId: string,
+    public readonly waitedMs: number,
+    retryAfterMs: number = DEFAULT_RETRY_AFTER_MS,
+  ) {
+    super(retryAfterMs, `RateLimiter: send to ${chatId} exceeded maxWait after ${waitedMs}ms`)
     this.name = 'RateLimiterTimeout'
   }
 }
@@ -142,7 +156,8 @@ export class RateLimiter {
   /**
    * Acquire permission to send a message to `chatId`. Resolves when the send is
    * allowed (may wait if rate-limited). Rejects with {@link RateLimiterTimeout}
-   * if it waits past `maxWait`, or a generic error if the limiter is reset.
+   * if it waits past `maxWait`, or a `ProviderError('RateLimiter reset')` if the
+   * limiter is reset (e.g. the provider stops) while the send is queued.
    */
   async acquire(chatId: string): Promise<void> {
     if (!this.enabled) return
@@ -182,7 +197,7 @@ export class RateLimiter {
           const waited = now - it.enqueuedAt
           if (waited >= this.maxWaitMs) {
             this.queue.splice(i, 1)
-            it.reject(new RateLimiterTimeout(it.chatId, waited))
+            it.reject(new RateLimiterTimeout(it.chatId, waited, this.retryAfterFor(it.chatId, now)))
           }
         }
         if (this.queue.length === 0) break
@@ -246,11 +261,17 @@ export class RateLimiter {
     bucket.lastRefill = now
   }
 
+  /** Time (ms) until both buckets gating `chatId` hold a token again (>= 1). */
+  private retryAfterFor(chatId: string, now: number): number {
+    this.refillBucket(this.globalBucket, now)
+    const chatBucket = this.perChatBuckets.get(chatId)
+    if (chatBucket) this.refillBucket(chatBucket, now)
+    const wait = Math.max(timeToOneToken(this.globalBucket), chatBucket ? timeToOneToken(chatBucket) : 0)
+    return Math.max(1, Math.ceil(wait))
+  }
+
   /** Time (ms) until the soonest queued send could proceed — used instead of busy-polling. */
   private nextRefillDelay(now: number): number {
-    const timeToOneToken = (b: TokenBucket) =>
-      b.tokens >= 1 ? 0 : (1 - b.tokens) * (b.windowMs / b.max)
-
     let wait = Infinity
     // If the global bucket is the blocker, that gates everything.
     wait = Math.min(wait, timeToOneToken(this.globalBucket))
@@ -298,13 +319,17 @@ export class RateLimiter {
     this.perChatBuckets.clear()
     this.globalBucket.tokens = this.globalBucket.max
     this.globalBucket.lastRefill = Date.now()
-    // Reject all queued sends
+    // Reject all queued sends (typed: send() must only reject with ProviderError).
     for (const item of this.queue) {
-      item.reject(new Error('RateLimiter reset'))
+      item.reject(new ProviderError('RateLimiter reset'))
     }
     this.queue = []
     this.processing = false
   }
+}
+
+function timeToOneToken(b: TokenBucket): number {
+  return b.tokens >= 1 ? 0 : (1 - b.tokens) * (b.windowMs / b.max)
 }
 
 function assertPositive(field: string, value: number): void {

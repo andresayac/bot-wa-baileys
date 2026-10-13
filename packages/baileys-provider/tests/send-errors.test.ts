@@ -3,9 +3,10 @@
  * like the other transports — not leak a raw Boom/Baileys internal. mapSendError
  * is the pure classifier used on the send() catch path.
  */
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { Boom } from '@hapi/boom'
-import { mapSendError } from '../src/BaileysProvider.js'
+import { BaileysProvider, mapSendError } from '../src/BaileysProvider.js'
+import { RateLimiterTimeout, type RateLimitConfig } from '../src/RateLimiter.js'
 import {
   ProviderError,
   RateLimitedError,
@@ -52,5 +53,40 @@ describe('mapSendError', () => {
   it('passes an already-typed ProviderError through unchanged', () => {
     const typed = new RateLimitedError(2000)
     expect(mapSendError(typed, 'c')).toBe(typed)
+  })
+})
+
+describe('BaileysProvider.send rejects only with ProviderError subclasses', () => {
+  type Internals = { sock: unknown }
+  const CHAT = '573001112233@s.whatsapp.net'
+
+  function provider(rateLimit: RateLimitConfig) {
+    const p = new BaileysProvider({ session: 'send-errors', rateLimit })
+    const sock = { sendMessage: vi.fn(async (jid: string) => ({ key: { id: 'OUT', remoteJid: jid } })) }
+    ;(p as unknown as Internals).sock = sock
+    return { p, sock }
+  }
+
+  it('a rate-limiter maxWait timeout rejects as RateLimiterTimeout, a RateLimitedError', async () => {
+    const { p, sock } = provider({ perChat: { max: 1, window: '1000s' }, maxWait: 50 })
+    await p.send(CHAT, { kind: 'text', text: 'one' })
+
+    const err = await p.send(CHAT, { kind: 'text', text: 'two' }).then(() => null, (e: unknown) => e)
+
+    expect(err).toBeInstanceOf(RateLimiterTimeout)
+    expect(err).toBeInstanceOf(RateLimitedError)
+    expect((err as RateLimiterTimeout).chatId).toBe(CHAT)
+    expect(sock.sendMessage).toHaveBeenCalledTimes(1)
+  })
+
+  it('a send still queued when stop() runs rejects with a ProviderError', async () => {
+    const { p } = provider({ perChat: { max: 1, window: '1000s' } })
+    await p.send(CHAT, { kind: 'text', text: 'one' })
+    const queued = p.send(CHAT, { kind: 'text', text: 'two' })
+    await new Promise((r) => setTimeout(r, 10))
+
+    await p.stop()
+
+    await expect(queued).rejects.toBeInstanceOf(ProviderError)
   })
 })

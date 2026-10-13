@@ -11,12 +11,13 @@ import { EventEmitter } from 'events'
 import { Boom } from '@hapi/boom'
 import NodeCache from '@cacheable/node-cache'
 import makeWASocket, {
-  type proto,
+  type BaileysEventMap,
+  type GroupParticipant,
   type WAMessage,
   type WAMessageKey,
   fetchLatestBaileysVersion,
-  getAggregateVotesInPollMessage,
   makeCacheableSignalKeyStore,
+  toNumber,
   useMultiFileAuthState,
   downloadMediaMessage,
 } from '@whiskeysockets/baileys'
@@ -45,8 +46,9 @@ import {
 import { classifyDisconnect, backoffDelay, MAX_RECONNECT_ATTEMPTS } from './reconnect.js'
 import { putBounded } from './boundedMap.js'
 import { resolveBrowser, type BrowserConfig } from './browser.js'
-import { IdentityStore } from './identity.js'
-import { normalize } from './jid.js'
+import { IdentityStore, canonicalKey, type IdentityKey } from './identity.js'
+import { normalize, isLidUser, isPnUser } from './jid.js'
+import { PollTracker, POLL_CACHE_MAX, decryptVote, pollUpdateOf, recordVote, tally, type TrackedPoll } from './polls.js'
 import { toInbound } from './toInbound.js'
 import { toOutbound } from './toOutbound.js'
 import { RateLimiter, type RateLimitConfig } from './RateLimiter.js'
@@ -150,6 +152,8 @@ export class BaileysProvider implements IProvider<WAMessage> {
   private pairingCodeRequested = false
   private lidCache = new Map<string, string>()
   private msgCache = new Map<string, WAMessage>()
+  /** Polls seen by this process (sent or received), so their votes can be decrypted. */
+  private polls = new PollTracker(POLL_CACHE_MAX)
   private identity = new IdentityStore()
   private rateLimiter: RateLimiter
   private listeners = new Set<(e: InboundEvent<WAMessage>) => void | Promise<void>>()
@@ -241,13 +245,18 @@ export class BaileysProvider implements IProvider<WAMessage> {
 
   async send(chatId: ChatId, content: OutboundContent, options?: SendOptions): Promise<SendResult<WAMessage>> {
     if (!this.sock) throw new ProviderError('Provider not connected')
-    const waContent = await toOutbound(content)
-    const waOptions: Record<string, unknown> = {}
-    if (options?.quoted?.native) waOptions.quoted = options.quoted.native
-    const resolvedJid = await this.resolveJid(chatId)
-    await this.rateLimiter.acquire(chatId)
+    // Everything below rejects through mapSendError, so send() only ever rejects
+    // with ProviderError subclasses (rate-limiter timeouts and resets included).
     try {
+      const waContent = await toOutbound(content)
+      const waOptions: Record<string, unknown> = {}
+      if (options?.quoted?.native) waOptions.quoted = options.quoted.native
+      const resolvedJid = await this.resolveJid(chatId)
+      await this.rateLimiter.acquire(chatId)
+      if (!this.sock) throw new ProviderError('Provider not connected')
       const sent = (await this.sock.sendMessage(resolvedJid, waContent, waOptions)) as WAMessage
+      // Serve retry requests (getMessage) and decrypt votes on polls we send.
+      if (sent?.key) { this.rememberMessage(sent); this.polls.remember(sent) }
       return { ref: { id: sent.key.id ?? '', chatId, native: sent }, raw: sent }
     } catch (err) {
       throw mapSendError(err, chatId)
@@ -342,89 +351,208 @@ export class BaileysProvider implements IProvider<WAMessage> {
       getMessage: async (key: WAMessageKey) => this.msgCache.get(cacheKey(key))?.message ?? undefined,
     }) as ReturnType<typeof makeWASocket>
 
-    this.sock.ev.process(async (events) => {
-      if (events['connection.update']) await this.onConnectionUpdate(events['connection.update'])
-      if (events['creds.update']) await this.authState!.saveCreds()
+    this.sock.ev.process(async (events) => this.handleEvents(events))
+  }
 
-      if (events['messages.upsert']) {
-        const { messages, type } = events['messages.upsert']
-        if (type === 'notify') {
-          for (const message of messages) {
-            this.rememberMessage(message)
-            if (message.key?.fromMe) continue
-            const jid = (message.key as { remoteJidAlt?: string })?.remoteJidAlt ?? message.key?.remoteJid ?? ''
-            if (jid === 'status@broadcast') continue
-            if ((this.config.ignoreBroadcasts ?? true) && jid.endsWith('@broadcast')) continue
-            if ((this.config.ignoreNewsletters ?? true) && jid.endsWith('@newsletter')) continue
-            // Seed identity from the authoritative mapping for bare-LID keys.
-            await this.seedIdentity(message.key as WAMessageKey)
-            this.fan({ kind: 'message', message: toInbound(message, this.identity) })
-          }
-        }
-      }
+  /**
+   * Translate one batch of Baileys events. Every user/chat id emitted here goes
+   * through the same LID/PN canonicalisation as messages ({@link canonicalKey} /
+   * {@link IdentityStore.resolve}), whatever the event kind.
+   */
+  private async handleEvents(events: Partial<BaileysEventMap>): Promise<void> {
+    if (events['connection.update']) await this.onConnectionUpdate(events['connection.update'])
+    if (events['creds.update']) await this.authState!.saveCreds()
+    // Learn new LID↔PN pairs first so the rest of the batch canonicalises with them.
+    if (events['lid-mapping.update']) this.cacheLidMapping(events['lid-mapping.update'])
 
-      if (events['messages.update']) {
-        for (const update of events['messages.update']) {
-          if (update.update.pollUpdates) {
-            const creation = this.msgCache.get(cacheKey(update.key))
-            if (creation) {
-              const votes = getAggregateVotesInPollMessage({ message: creation.message ?? undefined as unknown as proto.IMessage, pollUpdates: update.update.pollUpdates })
-              this.fan({
-                kind: 'poll-vote',
-                vote: {
-                  ref: { id: update.key.id ?? '', chatId: update.key.remoteJid ?? '', native: creation },
-                  senderId: update.key.participant ?? update.key.remoteJid ?? '',
-                  options: votes.map((v) => ({ name: v.name, votes: v.voters.length, voters: v.voters })),
-                },
-              })
-            }
-          }
-        }
-      }
+    if (events['messages.upsert']) await this.onMessagesUpsert(events['messages.upsert'])
+    // Baileys 7 never fills `messages.update[].update.pollUpdates` (its vote
+    // decryption is commented out); votes are decrypted from the upsert instead.
+    if (events['messages.reaction']) await this.onReactions(events['messages.reaction'])
+    if (events['call']) await this.onCalls(events['call'])
+    if (events['group-participants.update']) await this.onGroupParticipants(events['group-participants.update'])
+    if (events['presence.update']) await this.onPresence(events['presence.update'])
+  }
 
-      if (events['messages.reaction']) {
-        for (const { key, reaction } of events['messages.reaction'] as Array<{ key: WAMessageKey; reaction: { text?: string; senderTimestampMs?: number } }>) {
-          this.fan({
-            kind: 'reaction',
-            reaction: {
-              ref: { id: key.id ?? '', chatId: key.remoteJid ?? '', native: key },
-              emoji: reaction.text ?? '',
-              senderId: key.participant ?? key.remoteJid ?? '',
-              removed: !reaction.text,
-            },
-          })
-        }
-      }
+  private acceptsChat(jid: string): boolean {
+    if (jid === 'status@broadcast') return false
+    if ((this.config.ignoreBroadcasts ?? true) && jid.endsWith('@broadcast')) return false
+    if ((this.config.ignoreNewsletters ?? true) && jid.endsWith('@newsletter')) return false
+    return true
+  }
 
-      if (events['call']) {
-        for (const call of events['call']) {
-          this.fan({ kind: 'call', event: { id: call.id, from: call.from, status: String(call.status) } })
-        }
-      }
+  private async onMessagesUpsert({ messages, type }: BaileysEventMap['messages.upsert']): Promise<void> {
+    for (const message of messages) {
+      // Cache every upsert, `append` included: Baileys emits the bot's own sends
+      // (and offline deliveries) as `append`, and getMessage() retries plus poll
+      // vote decryption both need them.
+      this.rememberMessage(message)
+      this.polls.remember(message)
+      const jid = message.key?.remoteJidAlt ?? message.key?.remoteJid ?? ''
+      if (!this.acceptsChat(jid)) continue
+      // An encrypted vote is a poll-vote event, never a message.
+      if (pollUpdateOf(message)) { await this.onPollVote(message); continue }
+      if (type !== 'notify' || message.key?.fromMe) continue
+      // Seed identity from the authoritative mapping for bare-LID keys.
+      await this.seedIdentity(message.key)
+      this.fan({ kind: 'message', message: toInbound(message, this.identity) })
+    }
+  }
 
-      if (events['group-participants.update']) {
-        const e = events['group-participants.update']
-        this.fan({
-          kind: 'group',
-          event: { chatId: e.id, action: e.action as 'add' | 'remove' | 'promote' | 'demote', participants: (e.participants ?? []) as unknown as string[], actor: (e as { author?: string }).author },
-        })
-      }
+  private async onPollVote(message: WAMessage): Promise<void> {
+    const update = pollUpdateOf(message)
+    const creationKey = update?.pollCreationMessageKey
+    const pollId = creationKey?.id ?? undefined
+    const poll = pollId ? this.polls.get(pollId) : undefined
+    if (!update || !poll) {
+      // Typically a poll sent before a restart, or evicted from the bounded cache.
+      this.logger.debug({ pollId }, 'poll vote for a poll this process has not seen; cannot decrypt it')
+      return
+    }
 
-      if (events['presence.update']) {
-        const p = events['presence.update']
-        this.fan({ kind: 'presence', event: { chatId: p.id, presences: p.presences as Record<string, { lastKnownPresence?: string; lastSeen?: number }> } })
-      }
+    const key = message.key
+    await this.seedIdentity(key)
+    const self = this.self()
+    const { chatId, senderId, isGroup, rawParticipant } = canonicalKey(key, this.identity, message.participant)
+    const voters = key.fromMe
+      ? self.jids
+      : isGroup
+        ? this.jidCandidates(rawParticipant, key.participantAlt)
+        : this.jidCandidates(key.remoteJid, key.remoteJidAlt)
 
-      if (events['lid-mapping.update']) this.cacheLidMapping(events['lid-mapping.update'])
+    const decrypted = decryptVote(update.vote, poll, this.creatorCandidates(poll, creationKey), voters)
+    if (!decrypted) {
+      this.logger.warn({ pollId }, 'failed to decrypt poll vote')
+      return
+    }
+
+    const voterId = key.fromMe ? self.id : senderId
+    const at = toNumber(update.senderTimestampMs) || toNumber(message.messageTimestamp) * 1000 || Date.now()
+    if (!recordVote(poll, voterId, decrypted.hashes, at, (id) => this.identity.canonical(id))) return
+    this.polls.touch(poll)
+    this.fan({
+      kind: 'poll-vote',
+      vote: { ref: { id: poll.id, chatId, native: poll.message }, senderId: voterId, options: tally(poll) },
     })
   }
 
-  private async seedIdentity(key: WAMessageKey): Promise<void> {
+  private async onReactions(reactions: BaileysEventMap['messages.reaction']): Promise<void> {
+    for (const { key, reaction } of reactions) {
+      // `key` is the REACTED-TO message; `reaction.key` is the reactor's own key.
+      const reactorKey = reaction.key ?? undefined
+      if (reactorKey) await this.seedIdentity(reactorKey)
+      const { chatId, senderId } = canonicalKey(reactorKey ?? { remoteJid: key.remoteJid }, this.identity)
+      this.fan({
+        kind: 'reaction',
+        reaction: {
+          ref: { id: key.id ?? '', chatId, native: key },
+          emoji: reaction.text ?? '',
+          senderId: reactorKey?.fromMe ? this.self().id : senderId,
+          removed: !reaction.text,
+        },
+      })
+    }
+  }
+
+  private async onCalls(calls: BaileysEventMap['call']): Promise<void> {
+    for (const call of calls) {
+      const from = await this.canonicalId(call.from, call.callerPn)
+      this.fan({ kind: 'call', event: { id: call.id, from, status: String(call.status) } })
+    }
+  }
+
+  private async onGroupParticipants(e: BaileysEventMap['group-participants.update']): Promise<void> {
+    const participants: UserId[] = []
+    // Baileys 7 sends participant objects ({ id, phoneNumber?, lid? }); accept bare JIDs too.
+    for (const p of (e.participants ?? []) as Array<GroupParticipant | string>) {
+      const id = typeof p === 'string'
+        ? await this.canonicalId(p)
+        : await this.canonicalId(p?.id, p?.phoneNumber ?? p?.lid)
+      if (id) participants.push(id)
+    }
+    const actor = e.author || e.authorPn ? await this.canonicalId(e.author, e.authorPn) : ''
+    this.fan({
+      kind: 'group',
+      event: {
+        chatId: await this.canonicalId(e.id),
+        action: e.action === 'modify' ? 'update' : e.action,
+        participants,
+        actor: actor || undefined,
+      },
+    })
+  }
+
+  private async onPresence(p: BaileysEventMap['presence.update']): Promise<void> {
+    const presences: Record<UserId, { lastKnownPresence?: string; lastSeen?: number }> = {}
+    for (const [jid, presence] of Object.entries(p.presences ?? {})) {
+      presences[await this.canonicalId(jid)] = presence
+    }
+    this.fan({ kind: 'presence', event: { chatId: await this.canonicalId(p.id), presences } })
+  }
+
+  /* Identity helpers for events ------------------------------------------ */
+
+  private async seedIdentity(key: IdentityKey): Promise<void> {
     const candidates = [key.remoteJid, key.participant]
     for (const jid of candidates) {
       if (!jid || !jid.endsWith('@lid') || this.identity.knowsPnFor(jid)) continue
       await this.getPNForLID(jid).catch(() => undefined)
     }
+  }
+
+  /**
+   * Canonical id for a bare JID from a non-message event. `alt` is the twin the
+   * event carries (PN or LID); without a PN twin, a LID is first looked up in
+   * the signal mapping store, as for message keys.
+   */
+  private async canonicalId(jid?: string | null, alt?: string | null): Promise<string> {
+    const lid = jid ? normalize(jid) : ''
+    if (isLidUser(lid) && !(alt && isPnUser(alt)) && !this.identity.knowsPnFor(lid)) {
+      await this.getPNForLID(lid).catch(() => undefined)
+    }
+    return this.identity.resolve(jid, alt)
+  }
+
+  /** The bot's own canonical id and the JID forms (LID, PN) it signs with. */
+  private self(): { id: UserId; jids: string[] } {
+    const me = this.authState?.state?.creds?.me
+    const pn = me?.id ? normalize(me.id) : ''
+    const lid = me?.lid ? normalize(me.lid) : ''
+    if (pn && lid) this.identity.observe(lid, pn)
+    return { id: pn || lid, jids: [lid, pn].filter(Boolean) }
+  }
+
+  /** Normalised JIDs plus their learned twins, deduplicated, in order. */
+  private jidCandidates(...jids: Array<string | null | undefined>): string[] {
+    const out = new Set<string>()
+    for (const jid of jids) {
+      const n = jid ? normalize(jid) : ''
+      if (!n) continue
+      out.add(n)
+      const twin = this.identity.alias(n)
+      if (twin) out.add(twin)
+    }
+    return [...out]
+  }
+
+  /**
+   * Who may have signed the poll: the bot (both forms) for its own polls,
+   * otherwise the creation's sender and twins. The vote's
+   * `pollCreationMessageKey` is a second, less reliable source (Baileys rewrites
+   * it to our perspective), so it only adds candidates.
+   */
+  private creatorCandidates(poll: TrackedPoll, creationKey?: IdentityKey | null): string[] {
+    const out = new Set<string>()
+    for (const key of [poll.message.key as IdentityKey, creationKey]) {
+      if (!key) continue
+      const found = key.fromMe
+        ? this.self().jids
+        : (key.remoteJid ?? '').endsWith('@g.us')
+          ? this.jidCandidates(key.participant, key.participantAlt)
+          : this.jidCandidates(key.remoteJid, key.remoteJidAlt)
+      for (const jid of found) out.add(jid)
+    }
+    return [...out]
   }
 
   private mapReason(statusCode?: number): DisconnectReason {

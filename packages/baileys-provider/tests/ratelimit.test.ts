@@ -2,6 +2,7 @@
  * RateLimiter — unit tests for the token bucket rate limiter.
  */
 import { describe, it, expect, beforeEach } from 'vitest'
+import { ProviderError, RateLimitedError } from '@bot-wa/core'
 import { RateLimiter, RateLimiterTimeout } from '../src/RateLimiter.js'
 
 describe('RateLimiter', () => {
@@ -137,6 +138,45 @@ describe('RateLimiter', () => {
 
     const queued = strict.acquire('chat@s.whatsapp.net') // can't refill in time
     await expect(queued).rejects.toBeInstanceOf(RateLimiterTimeout)
+  })
+
+  it('RateLimiterTimeout is a typed RateLimitedError that keeps its name and fields', async () => {
+    const strict = new RateLimiter({
+      perChat: { max: 1, window: '1000s' },
+      global: { max: 100, window: '1s' },
+      maxWait: 50,
+    })
+    await strict.acquire('chat@s.whatsapp.net')
+
+    const err = await strict.acquire('chat@s.whatsapp.net').then(() => null, (e: unknown) => e)
+    expect(err).toBeInstanceOf(RateLimiterTimeout)
+    expect(err).toBeInstanceOf(RateLimitedError)
+    expect(err).toBeInstanceOf(ProviderError)
+    const timeout = err as RateLimiterTimeout
+    expect(timeout.name).toBe('RateLimiterTimeout')
+    expect(timeout.chatId).toBe('chat@s.whatsapp.net')
+    expect(timeout.waitedMs).toBeGreaterThanOrEqual(50)
+    expect(timeout.message).toMatch(/exceeded maxWait/)
+    // Retry hint: time until the blocking bucket refills one token (~1000s / 1 here).
+    expect(timeout.retryAfterMs).toBeGreaterThan(900_000)
+    expect(timeout.retryAfterMs).toBeLessThanOrEqual(1_000_000)
+  })
+
+  it('keeps the public RateLimiterTimeout constructor (chatId, waitedMs)', () => {
+    const e = new RateLimiterTimeout('c@s.whatsapp.net', 1234)
+    expect(e).toBeInstanceOf(RateLimitedError)
+    expect([e.name, e.chatId, e.waitedMs]).toEqual(['RateLimiterTimeout', 'c@s.whatsapp.net', 1234])
+    expect(e.retryAfterMs).toBeGreaterThan(0)
+  })
+
+  it('reset() rejects queued sends with a ProviderError', async () => {
+    await limiter.acquire('chat@s.whatsapp.net')
+    await limiter.acquire('chat@s.whatsapp.net')
+    await limiter.acquire('chat@s.whatsapp.net')
+    const queued = limiter.acquire('chat@s.whatsapp.net')
+    limiter.reset()
+    await expect(queued).rejects.toBeInstanceOf(ProviderError)
+    await expect(queued).rejects.toThrow('RateLimiter reset')
   })
 
   it('bounds the number of per-chat buckets (no unbounded growth)', async () => {

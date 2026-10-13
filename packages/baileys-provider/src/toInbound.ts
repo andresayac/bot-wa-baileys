@@ -7,31 +7,17 @@
 
 import type { WAMessage, WAMessageKey } from '@whiskeysockets/baileys'
 import type { ChatInfo, ChatKind, InboundMessage, MediaRef, MessageType, SenderInfo } from '@bot-wa/core'
-import { normalize, normalizeInboundKey, isPnUser, isLidUser } from './jid.js'
-import type { IdentityStore } from './identity.js'
+import { isPnUser, isLidUser } from './jid.js'
+import { canonicalKey, type IdentityStore } from './identity.js'
 
 const MEDIA_KINDS = new Set<MessageType>(['image', 'video', 'audio', 'voice', 'document', 'sticker'])
 
 export function toInbound(message: WAMessage, identity: IdentityStore): InboundMessage<WAMessage> {
   const key = (message.key ?? { remoteJid: '', fromMe: false }) as WAMessageKey
-  const isGroupRaw = (key.remoteJid ?? '').endsWith('@g.us')
-  const rawParticipant = message.participant ?? key.participant ?? null
 
   // Learn LID↔PN pairings this key exposes, then canonicalize to stable PN ids.
-  identity.observe(key.remoteJid, key.remoteJidAlt)
-  identity.observe(rawParticipant, key.participantAlt)
-  const { chat: rawChat, sender: rawSender } = normalizeInboundKey(
-    {
-      remoteJid: key.remoteJid,
-      remoteJidAlt: key.remoteJidAlt,
-      participant: rawParticipant,
-      participantAlt: key.participantAlt,
-      fromMe: key.fromMe,
-    },
-    isGroupRaw,
-  )
-  const from = normalize(identity.canonical(rawChat) ?? rawChat)
-  const sender = normalize(identity.canonical(rawSender) ?? rawSender)
+  const { chatId: from, senderId: sender, isGroup: isGroupRaw, rawParticipant } =
+    canonicalKey(key, identity, message.participant)
 
   const isGroup = from.endsWith('@g.us')
   const isBroadcast = from === 'status@broadcast' || from.endsWith('@broadcast')
@@ -62,7 +48,14 @@ export function toInbound(message: WAMessage, identity: IdentityStore): InboundM
   else if (m.documentMessage) { type = 'document'; body = m.documentMessage.caption ?? '' }
   else if (m.locationMessage) { type = 'location' }
   else if (m.contactMessage) { type = 'contact' }
-  else if (m.pollCreationMessage || m.pollUpdateMessage) { type = 'poll' }
+  else if (m.pollCreationMessage || m.pollCreationMessageV2 || m.pollCreationMessageV3) {
+    // V3 is the single-select poll, V2 the community-announcement one.
+    type = 'poll'
+    body = (m.pollCreationMessage ?? m.pollCreationMessageV2 ?? m.pollCreationMessageV3)?.name ?? ''
+  }
+  // An encrypted vote. BaileysProvider decrypts these into `poll-vote` events and
+  // never routes them here; kept for direct callers of this low-level mapper.
+  else if (m.pollUpdateMessage) { type = 'poll' }
   else if (m.buttonsResponseMessage) { type = 'buttons'; body = m.buttonsResponseMessage.selectedDisplayText ?? '' }
   else if (m.listResponseMessage) { type = 'list'; body = m.listResponseMessage.title ?? '' }
 

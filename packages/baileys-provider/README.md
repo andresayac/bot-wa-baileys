@@ -4,7 +4,7 @@ Transporte **WhatsApp vía [Baileys 7](https://github.com/WhiskeySockets/Baileys
 
 > **Cliente no oficial.** Baileys implementa el protocolo de WhatsApp Web por ingeniería inversa; ni WhatsApp ni Meta lo respaldan. Automatizar una cuenta puede infringir los [Términos de servicio de WhatsApp](https://www.whatsapp.com/legal/terms-of-service) y acabar en **bloqueo del número**. Usa un número dedicado, escribe solo a quien te lo pidió (opt-in), no hagas envíos masivos y deja el rate limiter activado. Si necesitas una vía oficial y sin riesgo de baneo, usa [`@bot-wa/meta`](../meta-provider) (WhatsApp Cloud API).
 
-- **Ingress:** socket propio con reconexión y backoff; los eventos de Baileys se traducen a `InboundEvent` neutros.
+- **Ingress:** socket propio con reconexión y backoff; los eventos de Baileys se traducen a `InboundEvent` neutros: mensajes, reacciones, votos de encuestas (descifrados por el provider), cambios de grupo, llamadas y presencia.
 - **Outbound:** texto, imagen, video, audio, nota de voz (transcodifica a Opus), documento, sticker (conversión con `sharp`), ubicación, contacto, **encuestas nativas** y reacciones. Botones, listas y tarjetas se degradan a texto numerado.
 - **Acciones:** confirmaciones de lectura, typing/recording, borrar mensajes y descarga de media entrante.
 - **Identidad estable:** el provider resuelve la dualidad LID/PN de WhatsApp antes de emitir cada evento, así que el core siempre ve el mismo `senderId` para la misma persona.
@@ -115,7 +115,7 @@ new BaileysProvider({
     perChat: { max: 5, window: '10s' },   // por defecto
     global: { max: 50, window: '60s' },   // por defecto
     jitter: { min: 500, max: 1500 },      // pausa "humana" entre envíos (desactivada por defecto)
-    maxWait: '30s',                       // pasado este tiempo en cola, el envío falla con RateLimiterTimeout
+    maxWait: '30s',                       // pasado este tiempo en cola, el envío falla con RateLimiterTimeout (un RateLimitedError)
     // enabled: false                     // desactivarlo del todo (no recomendado)
   },
 })
@@ -146,6 +146,9 @@ El provider lo resuelve con un `IdentityStore` **antes** de emitir cada evento:
 - Canonicaliza: si conoce el PN de un LID, `chatId` y `senderId` usan el **PN**. Si no, usan el **LID**. Siempre normalizados, sin sufijo de dispositivo (`:12`).
 - En grupos, `chatId` es el grupo (`…@g.us`) y `senderId` el participante canonicalizado.
 - `ctx.senderInfo.platformData` lleva `{ phoneNumber?, lid? }`: el PN si se conoce y el LID crudo tal como llegó.
+- Los demás eventos pasan por la **misma** canonicalización, así que una persona tiene el mismo id en todos: el autor de una reacción o de un voto, los participantes y el autor (`actor`) de un cambio de grupo, quien llama (`call.from`) y el chat y las claves de `presences`. El provider aprovecha el PN que Baileys trae en cada evento (`participantAlt`, `authorPn`, `callerPn`, `phoneNumber` del participante) y, si no lo trae, consulta el almacén de mapeos.
+- En una reacción, `senderId` es **quien reacciona** y `ref.id` el mensaje reaccionado (antes se informaba, por error, el autor de ese mensaje).
+- En `group`, la acción `modify` de Baileys (cambio de número) llega como `action: 'update'`.
 - Al enviar a un LID, el provider usa el PN si lo conoce y, si no, envía directamente al LID.
 
 Para casos avanzados se exportan `IdentityStore`, `provider.getPNForLID(lid)` y los helpers de JID (`isPn`, `isLid`, `normalizeJid`, `sameUser`…).
@@ -158,6 +161,35 @@ Con los nombres de usuario de WhatsApp, algunos contactos **nunca** exponen su n
 
 - Pon `.timeout()` en los flows (o `timeout` en `c.ask`/`c.waitText`) para que una conversación huérfana se cierre sola. El usuario la reinicia con el disparador o con un comando como `/reset`.
 - Si guardas datos por persona (CRM, preferencias), guarda también `platformData.phoneNumber` y `platformData.lid` para poder reconciliar los dos registros.
+
+## Encuestas y votos
+
+`ctx.poll(pregunta, opciones, multiSelect?)` envía una encuesta nativa. Los votos llegan al bot como evento `poll`, ya descifrados y con el recuento completo:
+
+```ts
+await ctx.poll('¿Pizza o sushi?', ['Pizza', 'Sushi'])
+
+bot.on('poll', (vote) => {
+  // vote.ref.id      → id de la encuesta (vote.ref.native es el mensaje de la encuesta)
+  // vote.ref.chatId  → chat donde se votó, el mismo chatId que usan sus mensajes
+  // vote.senderId    → quien acaba de votar, con la identidad canónica de sus mensajes
+  // vote.options     → recuento actual: [{ name, votes, voters }]
+  const elegidas = vote.options.filter((o) => o.voters?.includes(vote.senderId)).map((o) => o.name)
+  console.log(elegidas.length ? `Eligió: ${elegidas.join(', ')}` : 'Retiró su voto')
+})
+```
+
+WhatsApp cifra cada voto de extremo a extremo con una clave derivada del secreto de la encuesta (`messageSecret`), su id y los JID del creador y del votante. Baileys 7 trae ese descifrado comentado, así que el provider lo hace por su cuenta:
+
+- **Recuerda las encuestas que ve:** las que envía el bot (el resultado de `send()` y el eco `append` que emite Baileys) y las que crean otros en los chats del bot. Guarda en memoria las **500** más recientes; una encuesta que recibe votos se mantiene entre las recientes.
+- **Descifra probando las formas LID y PN** del creador y del votante. En un grupo direccionado por LID el voto se firma con los LID; en un chat por PN, con los números. Un par incorrecto no pasa la autenticación de AES-GCM, así que probarlos no produce falsos positivos.
+- **Guarda el último voto de cada persona:** un voto nuevo reemplaza al anterior, una selección vacía lo retira y un voto más antiguo que el guardado se descarta. Una persona cuenta una sola vez aunque vote primero como LID y luego aparezca con su PN.
+- El voto cifrado ya **no** llega como mensaje de tipo `poll`. `bot.onPoll` se dispara solo con las encuestas que crea otra persona, con la pregunta en `body`.
+
+Limitaciones:
+
+- Solo se descifran los votos de encuestas que **este proceso** vio. Tras un reinicio la memoria empieza vacía, así que los votos de encuestas anteriores (o desalojadas de la caché) se descartan con un log de nivel `debug`. Un voto que no se descifra deja un `warn` con el id de la encuesta, sin JID ni contenido.
+- **El bot no puede votar.** Baileys 7 no tiene API para construir un voto cifrado (ni contenido de voto en `sendMessage` ni un equivalente de `decryptPollVote` para cifrar); habría que reimplementar el cifrado y enviarlo con `relayMessage`. Por eso no hay `ctx.vote()`.
 
 ## Seguridad de la sesión
 
@@ -175,8 +207,8 @@ La carpeta de la sesión (`creds.json` y las claves Signal) **es** la cuenta: qu
 | --- | --- | --- |
 | `buttons` | ❌ | se degradan a texto numerado |
 | `lists` | ❌ | se degradan a texto numerado |
-| `polls` | ✅ | envío de encuestas nativas; los votos todavía no se leen (ver [Limitaciones](#limitaciones)) |
-| `reactions` | ✅ | enviar y recibir |
+| `polls` | ✅ | envío de encuestas nativas y lectura de votos con el evento `poll` (ver [Encuestas y votos](#encuestas-y-votos)) |
+| `reactions` | ✅ | enviar y recibir; `senderId` es quien reacciona |
 | `edit` | ❌ | |
 | `typing` | ✅ | `composing` / `recording` / `paused` |
 | `presence` | ✅ | eventos `presence` |
@@ -188,23 +220,25 @@ La carpeta de la sesión (`creds.json` y las claves Signal) **es** la cuenta: qu
 
 ## Mapeo de errores
 
-Los fallos de `sock.sendMessage` se convierten en errores tipados de `@bot-wa/core`:
+`send()` solo rechaza con subclases de `ProviderError` de `@bot-wa/core`. Los fallos de `sock.sendMessage`, del rate limiter y de la preparación del contenido se convierten así:
 
-| Error de Baileys | Se convierte en |
+| Causa | Se convierte en |
 | --- | --- |
-| 429 | `RateLimitedError` (`retryAfterMs` sale de `retry-after`, por defecto 1 s) |
+| 429 de Baileys | `RateLimitedError` (`retryAfterMs` sale de `retry-after`, por defecto 1 s) |
 | 413 o *too large* | `PayloadTooLargeError` |
 | 401 / 403, *forbidden*, *not-authorized*, *blocked* | `RecipientUnreachableError` |
 | `kind: 'template'` o `'native'` | `UnsupportedContentError` |
+| espera en la cola del rate limiter mayor que `maxWait` | `RateLimiterTimeout`, subclase de `RateLimitedError` |
+| `stop()` con envíos todavía en cola | `ProviderError('RateLimiter reset')` |
 | sin socket conectado | `ProviderError('Provider not connected')` |
 | cualquier otro | `ProviderError`, con el error original en `cause` |
 
-Si un envío espera en la cola del rate limiter más de `maxWait`, falla con `RateLimiterTimeout`.
+`RateLimiterTimeout` conserva su `name` y sus campos `chatId` y `waitedMs`, así que el código que ya lo capturaba sigue funcionando. Como es un `RateLimitedError`, también lo atrapa un `catch (e instanceof RateLimitedError)` portable entre transportes; su `retryAfterMs` es el tiempo que falta para que el bucket que lo bloquea recupere un token.
 
 ## Limitaciones
 
 - **Sin botones ni listas nativos.** WhatsApp Web dejó de soportarlos para clientes no oficiales. Usa menús numerados con `choose()` (en el DSL `flow().choose(...)` o en conversaciones `c.choose(...)`) o una encuesta nativa con `ctx.poll(pregunta, opciones)`. `ctx.buttons(...)` y el contenido `list` siguen funcionando, pero llegan como texto numerado.
-- **Los votos de las encuestas todavía no se leen.** Baileys 7 ya no descifra los votos, así que el evento `bot.on('poll', ...)` no se dispara con este transporte. Cada voto llega como un mensaje de tipo `poll` (`bot.onPoll`) sin el contenido del voto. Si el bot necesita la respuesta, usa `choose()`. `ctx.poll()` sirve para encuestas que lee una persona.
+- **Votos de encuestas:** solo se leen los de encuestas que el proceso vio desde que arrancó, y el bot no puede votar (ver [Encuestas y votos](#encuestas-y-votos)). Si la respuesta tiene que sobrevivir a un reinicio, usa `choose()`.
 - Sin plantillas ni ventana de 24 h: eso es de la Cloud API.
 - No se pueden editar mensajes enviados (`edit: false`).
 
