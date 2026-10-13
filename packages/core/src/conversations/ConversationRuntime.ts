@@ -68,6 +68,18 @@ interface ActiveConversation extends ConversationHandle {
 
 const INBOX_CAP = 10
 
+/** Read-only view of a live conversation (diagnostics / dev tooling). */
+export interface ConversationSnapshot {
+  /** Conversation key (`keyFor`): the chat id, or `${chatId}:${senderId}` per group participant. */
+  key: string
+  /** Shallow copy of the conversation's `c.state` (captured `ask` answers, ...). */
+  state: Record<string, unknown>
+  /** True while the conversation is blocked waiting for the user's next message. */
+  waiting: boolean
+  /** Messages buffered for the conversation that it has not consumed yet. */
+  queued: number
+}
+
 export class ConversationRuntime {
   private registry = new Map<string, ConversationFn>()
   private active = new Map<string, ActiveConversation>()
@@ -158,6 +170,13 @@ export class ConversationRuntime {
   }
 
   hasActive(key: string): boolean { return this.active.has(key) }
+
+  /** Snapshot of the live conversation on `key`, or `undefined` when none is active. Never mutates it. */
+  inspect(key: string): ConversationSnapshot | undefined {
+    const entry = this.active.get(key)
+    if (!entry) return undefined
+    return { key, state: { ...entry.state }, waiting: entry.pending !== undefined, queued: entry.inbox.length }
+  }
 
   async enter(nameOrFn: string | ConversationFn, ctx: RuntimeMessage): Promise<void> {
     const fn = typeof nameOrFn === 'string' ? this.registry.get(nameOrFn) : nameOrFn

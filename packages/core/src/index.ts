@@ -153,3 +153,11 @@ export { Scheduler } from './scheduler/Scheduler.js'
 
 // Testing helpers live under the "./testing" subpath export
 // (import from '@bot-wa/core/testing') — not re-exported here to keep the entry lean.
+
+// dev-simulator
+// Bot factory pattern shared by `npm start` and the `bot-wa dev` terminal simulator.
+// The simulator itself (DevSession, DevProvider, runCli, ...) lives under the
+// "./dev" subpath export (import from '@bot-wa/core/dev').
+export { defineBot, isBotFactory, isMainModule } from './dev/defineBot.js'
+export type { BotFactory } from './dev/defineBot.js'
+export type { ConversationSnapshot } from './conversations/ConversationRuntime.js'

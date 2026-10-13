@@ -51,7 +51,8 @@ function packageJson(name: string, deps: Record<string, string>): string {
     engines: { node: '>=22' },
     scripts: {
       start: 'node --env-file=.env src/bot.js',
-      dev: 'node --env-file=.env --watch src/bot.js',
+      // Terminal chat simulator with hot reload (ships with @bot-wa/core).
+      dev: 'bot-wa dev src/bot.js --env-file .env',
     },
     dependencies: deps,
   }
@@ -72,6 +73,43 @@ const HANDLERS = [
   ')',
 ]
 
+/**
+ * Assemble `src/bot.js` in the defineBot factory pattern:
+ *  - `createBot` (the default export) builds the bot around ANY provider —
+ *    `npm run dev` (`bot-wa dev`) calls it with the terminal simulator;
+ *  - the `isMainModule(import.meta)` block runs only on `npm start` and
+ *    connects the real provider.
+ * `setup` (plugins, before the shared HANDLERS) and `main` lines are written at
+ * column 0 and indented into place here.
+ */
+function botModule(parts: { imports: string[]; setup?: string[]; main: string[] }): string {
+  const indent = (lines: string[]) => lines.map((line) => (line ? '  ' + line : line))
+  return [
+    "import { Bot, defineBot, flow, isMainModule } from '@bot-wa/core'",
+    ...parts.imports,
+    '',
+    '// Your bot as a factory: give it a transport provider, get the configured Bot back.',
+    '// `npm start` passes the real provider (bottom of this file); `npm run dev` passes the',
+    '// bot-wa dev terminal simulator, so you can try flows with no phone and no ban risk.',
+    'const createBot = defineBot((provider) => {',
+    '  const bot = new Bot({ provider })',
+    '',
+    ...indent([...(parts.setup ?? []), ...HANDLERS]),
+    '',
+    '  return bot',
+    '})',
+    '',
+    'export default createBot',
+    '',
+    '// `npm start` runs this file directly: connect the real provider.',
+    '// (`bot-wa dev` only imports the factory above, so this block is skipped there.)',
+    'if (isMainModule(import.meta)) {',
+    ...indent(parts.main),
+    '}',
+    '',
+  ].join('\n')
+}
+
 function readme(name: string, label: string, description: string, notes: string[]): string {
   const fence = '```'
   return [
@@ -86,14 +124,21 @@ function readme(name: string, label: string, description: string, notes: string[
     fence + 'bash',
     'npm install          # or: pnpm install',
     'cp .env.example .env # then fill in your credentials',
-    'npm start            # or: npm run dev (auto-reload)',
+    'npm run dev          # chat with your bot in the terminal (no phone, hot reload)',
+    'npm start            # connect the real provider',
     fence,
     '',
     ...notes,
     '',
+    '## Try it in the terminal',
+    '',
+    '`npm run dev` starts the **bot-wa dev** simulator: you type as a user, the bot answers right there, and',
+    'saving a file reloads it. Nothing is sent to a real chat, so there is no ban risk. Type `:help` inside for',
+    'commands (`:as <user>`, `:group <id>`, `:media image ./cat.png`, `:click <n>`, `:state`, `:reset`, `:quit`).',
+    '',
     '## Structure',
     '',
-    '- `src/bot.js` — your bot: provider + handlers + flows.',
+    '- `src/bot.js` — your bot: a `defineBot` factory (handlers + flows) and the block that connects the real provider on `npm start`.',
     '- `.env.example` — the env vars this bot reads (copy to `.env`, never commit `.env`).',
     '- `sessions/` — auth artifacts (gitignored).',
     '',
@@ -120,25 +165,17 @@ const baileys: ProjectTemplate = {
     },
     {
       path: 'src/bot.js',
-      contents:
-        [
-          "import { Bot, flow } from '@bot-wa/core'",
-          "import { BaileysProvider } from '@bot-wa/baileys'",
-          '',
+      contents: botModule({
+        imports: ["import { BaileysProvider } from '@bot-wa/baileys'"],
+        main: [
           '// Secrets/config come from .env (loaded via `node --env-file=.env`).',
           "// The session name just picks which sessions/<name> auth folder to use.",
-          'const bot = new Bot({',
-          "  provider: new BaileysProvider({ session: process.env.BOT_SESSION ?? 'my-bot' }),",
-          '})',
-          '',
+          "const bot = await createBot(new BaileysProvider({ session: process.env.BOT_SESSION ?? 'my-bot' }))",
           "bot.on('qr', (qr) => bot.logger.info('Scan the QR to link WhatsApp: ' + qr))",
           "bot.on('ready', () => bot.logger.info('✅ Bot connected — send it \"hola\"'))",
-          '',
-          ...HANDLERS,
-          '',
           'await bot.start()',
-          '',
-        ].join('\n'),
+        ],
+      }),
     },
     {
       path: '.env.example',
@@ -172,12 +209,9 @@ const meta: ProjectTemplate = {
     },
     {
       path: 'src/bot.js',
-      contents:
-        [
-          "import { createServer } from 'node:http'",
-          "import { Bot, flow } from '@bot-wa/core'",
-          "import { CloudAPIProvider } from '@bot-wa/meta'",
-          '',
+      contents: botModule({
+        imports: ["import { createServer } from 'node:http'", "import { CloudAPIProvider } from '@bot-wa/meta'"],
+        main: [
           '// Secrets come from .env (loaded via `node --env-file=.env`).',
           '// META_TOKEN / META_PHONE_ID: Meta developer portal → WhatsApp → API setup.',
           'const provider = new CloudAPIProvider({',
@@ -186,12 +220,8 @@ const meta: ProjectTemplate = {
           '  verifyToken: process.env.META_VERIFY_TOKEN, // must match the webhook config',
           '  appSecret: process.env.META_APP_SECRET, // required: verifies X-Hub-Signature-256',
           '})',
-          '',
-          'const bot = new Bot({ provider })',
-          '',
+          'const bot = await createBot(provider)',
           "bot.on('ready', () => bot.logger.info('✅ Bot ready — wire the /webhook URL in the Meta portal'))",
-          '',
-          ...HANDLERS,
           '',
           '// Tiny zero-dep webhook host (node:http). GET = Meta handshake, POST = inbound events.',
           'const server = createServer((req, res) => {',
@@ -238,8 +268,8 @@ const meta: ProjectTemplate = {
           'const PORT = Number(process.env.PORT ?? 3000)',
           'await bot.start()',
           "server.listen(PORT, () => bot.logger.info('Webhook listening on http://localhost:' + PORT + '/webhook'))",
-          '',
-        ].join('\n'),
+        ],
+      }),
     },
     {
       path: '.env.example',
@@ -285,23 +315,15 @@ const telegram: ProjectTemplate = {
     },
     {
       path: 'src/bot.js',
-      contents:
-        [
-          "import { Bot, flow } from '@bot-wa/core'",
-          "import { TelegramProvider } from '@bot-wa/telegram'",
-          '',
+      contents: botModule({
+        imports: ["import { TelegramProvider } from '@bot-wa/telegram'"],
+        main: [
           '// TELEGRAM_TOKEN: create a bot with @BotFather and paste the token in .env.',
-          'const bot = new Bot({',
-          '  provider: new TelegramProvider({ token: process.env.TELEGRAM_TOKEN }),',
-          '})',
-          '',
+          'const bot = await createBot(new TelegramProvider({ token: process.env.TELEGRAM_TOKEN }))',
           "bot.on('ready', () => bot.logger.info('✅ Telegram bot polling — send it \"hola\"'))",
-          '',
-          ...HANDLERS,
-          '',
           'await bot.start()',
-          '',
-        ].join('\n'),
+        ],
+      }),
     },
     {
       path: '.env.example',
@@ -337,17 +359,9 @@ const ai: ProjectTemplate = {
     },
     {
       path: 'src/bot.js',
-      contents:
-        [
-          "import { Bot, flow } from '@bot-wa/core'",
-          "import { BaileysProvider } from '@bot-wa/baileys'",
-          "import { aiPlugin } from '@bot-wa/ai'",
-          '',
-          '// Secrets come from .env (loaded via `node --env-file=.env`).',
-          'const bot = new Bot({',
-          "  provider: new BaileysProvider({ session: process.env.BOT_SESSION ?? 'my-ai-bot' }),",
-          '})',
-          '',
+      contents: botModule({
+        imports: ["import { BaileysProvider } from '@bot-wa/baileys'", "import { aiPlugin } from '@bot-wa/ai'"],
+        setup: [
           '// AI autoresponder: answers any text message with Claude (Anthropic).',
           "// Also adds ctx.tools.ai and a /reset command to clear a chat's context.",
           'bot.plug(',
@@ -358,14 +372,15 @@ const ai: ProjectTemplate = {
           '  }),',
           ')',
           '',
+        ],
+        main: [
+          '// Secrets come from .env (loaded via `node --env-file=.env`; `npm run dev` loads it too).',
+          "const bot = await createBot(new BaileysProvider({ session: process.env.BOT_SESSION ?? 'my-ai-bot' }))",
           "bot.on('qr', (qr) => bot.logger.info('Scan the QR to link WhatsApp: ' + qr))",
           "bot.on('ready', () => bot.logger.info('✅ Bot connected — any message now gets an AI reply'))",
-          '',
-          ...HANDLERS,
-          '',
           'await bot.start()',
-          '',
-        ].join('\n'),
+        ],
+      }),
     },
     {
       path: '.env.example',

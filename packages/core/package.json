@@ -13,7 +13,14 @@
     "./testing": {
       "types": "./lib/testing/index.d.ts",
       "default": "./lib/testing/index.js"
+    },
+    "./dev": {
+      "types": "./lib/dev/index.d.ts",
+      "default": "./lib/dev/index.js"
     }
+  },
+  "bin": {
+    "bot-wa": "lib/dev/bin.js"
   },
   "engines": {
     "node": ">=22"

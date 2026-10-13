@@ -67,6 +67,7 @@ import type { IStore } from '../store/IStore.js'
 import { Dispatcher, type DispatchContext } from './Dispatcher.js'
 import { buildMessageContext } from './context.js'
 import { ConversationRuntime, type CheckpointStore, type ConversationFn } from '../conversations/ConversationRuntime.js'
+import type { ConversationSnapshot } from '../conversations/ConversationRuntime.js'
 import { createControls, type ConversationControls } from '../conversations/controls.js'
 import { FlowBuilder, isCompiledFlow, type CompiledFlow } from '../flows/FlowBuilder.js'
 import { Scheduler } from '../scheduler/Scheduler.js'
@@ -481,6 +482,15 @@ export class Bot extends EventEmitter {
   abortConversation(target: string | { from: string; sender: string; isGroup: boolean }): boolean {
     if (typeof target !== 'string') return this.runtime.abort(this.runtime.keyFor(target))
     return this.runtime.abort(target)
+  }
+
+  /**
+   * Read-only snapshot of the live conversation for a chat (and participant, in
+   * groups): captured `c.state`, whether it waits for a reply. `undefined` when
+   * none is active. Diagnostics only — e.g. `bot-wa dev`'s `:state` command.
+   */
+  inspectConversation(target: { from: ChatId; sender: UserId; isGroup: boolean }): ConversationSnapshot | undefined {
+    return this.runtime.inspect(this.runtime.keyFor(target))
   }
 
   /* =========================================================================
