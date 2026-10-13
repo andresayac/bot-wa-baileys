@@ -87,13 +87,14 @@ bot.conversation('akinator', async (c, ctx) => {
 // O explícito:
 bot.conversation('juego', async (c, ctx) => {
   await ctx.reply('Escribí una letra')
-  const letra = await c.waitText()
-  if (letra.length > 1) {
-    await ctx.reply('Solo una letra')
-    c.retry()  // vuelve a esperar
+  let letra = await c.waitText()
+  while (letra.length > 1) {
+    letra = await c.retry('Solo una letra')  // vuelve a esperar y devuelve la nueva respuesta
   }
 })
 ```
+
+> `c.retry()` siempre se espera (`await`) o se retorna: la conversación tiene un único hueco de espera, así que un `c.retry()` sin `await` seguido de otra espera falla con `ConcurrentWaitError`.
 
 **Requiere:** Método `retry()` en `ConversationControls` que resetee el contador de `loopWait` y vuelva a entrar al `wait()`.
 

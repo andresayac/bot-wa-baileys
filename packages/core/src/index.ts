@@ -125,6 +125,7 @@ export {
   ConversationEnded,
   ConversationGoto,
   RetriesExceeded,
+  ConcurrentWaitError,
 } from './conversations/errors.js'
 
 // Hooks & plugins

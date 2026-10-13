@@ -1,5 +1,5 @@
 import {
-  ConversationCancelled, ConversationEnded, ConversationGoto,
+  ConcurrentWaitError, ConversationCancelled, ConversationEnded, ConversationGoto,
   ConversationTimeout, RetriesExceeded,
 } from './errors.js'
 import type { CompiledFlow } from '../flows/FlowBuilder.js'
@@ -256,12 +256,17 @@ export class ConversationRuntime {
     return n
   }
 
-  /** Usado por controls. */
+  /**
+   * Wait for the conversation's next inbound message (used by controls). A conversation has a
+   * single pending-wait slot: a wait started while another is pending (an un-awaited `c.ask()`
+   * or `c.retry()`…) is refused with {@link ConcurrentWaitError} — the pending wait keeps it.
+   */
   wait(handle: ConversationHandle, opts: ResolvedWaitOptions = {}): Promise<RuntimeMessage> {
     const entry = handle as ActiveConversation
     if (this.active.get(entry.key) !== entry || entry.cancelled) {
       return Promise.reject(entry.cancelled ?? new ConversationCancelled(true))
     }
+    if (entry.pending) return Promise.reject(new ConcurrentWaitError())
     const interrupted = takeInterrupt(entry)
     if (interrupted) return Promise.reject(interrupted)
     // A buffered message that already satisfies the filter must be consumed —
@@ -279,15 +284,19 @@ export class ConversationRuntime {
 
     return new Promise<RuntimeMessage>((resolve, reject) => {
       const timeoutMs = opts.timeoutMs ?? this.cfg.defaultTimeoutMs ?? 300_000
-      const timer = timeoutMs > 0
-        ? setTimeout(() => { entry.pending = undefined; reject(new ConversationTimeout()) }, timeoutMs)
-        : undefined
-      entry.pending = {
-        filter: opts.filter,
-        resolve: (ctx) => { if (timer) clearTimeout(timer); entry.pending = undefined; resolve(ctx) },
-        reject: (err) => { if (timer) clearTimeout(timer); entry.pending = undefined; reject(err) },
-        timer,
+      // Settling (answer, timeout, abort, interrupt) frees the slot only while it still holds
+      // THIS wait, so a stale timer can never clear a newer wait.
+      const release = () => {
+        if (pending.timer) clearTimeout(pending.timer)
+        if (entry.pending === pending) entry.pending = undefined
       }
+      const pending: PendingWait = {
+        filter: opts.filter,
+        resolve: (ctx) => { release(); resolve(ctx) },
+        reject: (err) => { release(); reject(err) },
+      }
+      if (timeoutMs > 0) pending.timer = setTimeout(() => pending.reject(new ConversationTimeout()), timeoutMs)
+      entry.pending = pending
     })
   }
 

@@ -156,6 +156,7 @@ export class Bot extends EventEmitter {
     events: this,
     delay: (ms, fn) => this.scheduler.delay(ms, fn),
     isActive: () => this.acceptingInbound,
+    isSuspended: (chatId) => this.isChatHandedOff(chatId),
     onError: (error, ctx) => this.emitError({ error, ctx }),
   })
   private tools: Record<string, unknown> = {}
@@ -606,13 +607,16 @@ export class Bot extends EventEmitter {
    * ====================================================================== */
 
   /**
-   * Run `handler` once when a chat stays quiet for `duration` (`'10m'`, `'1h'`, ms…) after its
-   * last processed inbound message. Every new inbound message from that chat reschedules it,
+   * Run `handler` once when a chat stays quiet for `duration` (`'10m'`, `'1h'`, `'1d'`, ms…) after
+   * its last processed inbound message. Every new inbound message from that chat reschedules it,
    * and re-arms it after it fired. `ctx` is that last message's context, so
    * `ctx.reply('¿Sigues ahí?')` answers in the right chat. Handler errors go to the bot
    * `'error'` event. Pending timers are cancelled by {@link clearIdle}, by the returned
-   * unsubscribe and by `stop()`. A `'handoff'` event carrying `{ chatId }` cancels that chat's
-   * timers and keeps its messages from re-arming them until a `'resume'` event for that chat.
+   * unsubscribe and by `stop()`. The handler never runs for a chat in human handoff: a
+   * `'handoff'` event carrying `{ chatId }` cancels that chat's timers, and its messages do not
+   * re-arm them until a `'resume'` event for that chat (the bot's own `isHandedOff()` state is
+   * honoured too, when present). `duration` must be positive and at most 2^31 − 1 ms (about
+   * 24.8 days, the longest a Node timer can wait); otherwise it throws `RangeError`.
    *
    * @example
    * ```ts
@@ -711,6 +715,17 @@ export class Bot extends EventEmitter {
    * ====================================================================== */
 
   private asMessage(ctx: DispatchContext): MessageContext { return ctx as unknown as MessageContext }
+
+  /**
+   * The bot's own handoff state for {@link onIdle}: `isHandedOff(chatId)` when this bot has
+   * human-handoff support (it is authoritative — it also knows handoffs restored from the store
+   * at `start()`, which emit no `'handoff'` event); `false` otherwise. Looked up dynamically so
+   * the idle watchers follow whichever handoff implementation (or subclass override) is present.
+   */
+  private isChatHandedOff(chatId: ChatId): boolean {
+    const isHandedOff = (this as unknown as { isHandedOff?: (chatId: ChatId) => unknown }).isHandedOff
+    return typeof isHandedOff === 'function' && isHandedOff.call(this, chatId) === true
+  }
 
   private emitError(payload: { error: unknown; ctx?: MessageContext }): void {
     if (this.listenerCount('error') > 0) this.emit('error', payload)

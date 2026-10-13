@@ -13,14 +13,31 @@
  *   {@link ConversationRetry} signal; the interpreter replays the flow from the step that
  *   owns that wait, so the `.do()` runs again on the fresh answer.
  *
+ * - **Out of band** (a `c.idle()` callback, which runs outside the conversation's call stack):
+ *   `c.retry(message?)` only re-prompts the wait the conversation is parked on — the
+ *   conversation still receives the answer. If no wait is pending (the conversation is busy
+ *   between waits, or has not waited yet) it does nothing. It never starts a wait or rewinds.
+ *
  * Manual retries share the wait's `retries` budget with `validate` failures.
+ *
+ * A conversation has a single pending-wait slot, so its waits must run one at a time: a wait
+ * (or in-place retry) started while another one of the same conversation is still in progress —
+ * an un-awaited `c.retry()` / `c.ask()` — and any wait started from a `c.idle()` callback are
+ * refused with {@link ConcurrentWaitError} instead of silently racing the pending one.
  */
 
+import { AsyncLocalStorage } from 'node:async_hooks'
 import type { CompiledFlow } from '../flows/FlowBuilder.js'
-import { ConversationError, RetriesExceeded } from './errors.js'
+import { ConcurrentWaitError, ConversationError, RetriesExceeded } from './errors.js'
 
 /** Default invalid-answer budget of a wait (`WaitOptions.retries`). */
 export const DEFAULT_RETRIES = 3
+
+/** Tracker whose out-of-band callback (`c.idle()`) owns the current async context, if any. */
+const outOfBand = new AsyncLocalStorage<WaitTracker>()
+
+const BUSY_MESSAGE = 'a wait of this conversation is still pending — await c.ask()/c.waitText()/c.waitMedia()/c.choose()/c.waitAny()/c.retry() before starting the next one'
+const OUT_OF_BAND_MESSAGE = 'a c.idle() callback cannot start a wait (c.ask/waitText/waitMedia/choose/waitAny) — reply with c.say() and use c.retry() to re-prompt the pending question'
 
 /**
  * Control signal thrown by `c.retry()` inside a flow step (`flow().do()`, a `.choose()`
@@ -93,8 +110,22 @@ export class WaitTracker {
   private phase = 0
   private rewind?: Rewind
   private frames: CompiledFlow[] = []
+  /** The conversation's own wait / in-place retry in progress (prompt included), if any. */
+  private busy?: Promise<unknown>
 
   constructor(private deps: WaitTrackerDeps) {}
+
+  /**
+   * Run `fn` as an out-of-band callback of this conversation (a `c.idle()` callback). Within it
+   * — across its awaits — `c.retry()` only re-prompts the pending wait and new waits are refused.
+   */
+  runOutOfBand<T>(fn: () => T): T {
+    return outOfBand.run(this, fn)
+  }
+
+  private get inOutOfBand(): boolean {
+    return outOfBand.getStore() === this
+  }
 
   /** Interpreter hook: a flow step (or a new phase of it, e.g. a choose's `then`) starts. */
   mark(flow: CompiledFlow, index: number): void {
@@ -120,9 +151,16 @@ export class WaitTracker {
   /**
    * Run one tracked wait: send its prompt (or a carried rewind's message instead), then loop
    * `next()` until a message is accepted. Rejections count against `retries`; each rejection
-   * message is sent before waiting again.
+   * message is sent before waiting again. Refused with {@link ConcurrentWaitError} while
+   * another wait of the conversation is in progress, or from an out-of-band callback.
    */
-  async wait<T>(retries: number, promptFor: (message?: string) => string | undefined, next: () => Promise<WaitVerdict<T>>): Promise<T> {
+  wait<T>(retries: number, promptFor: (message?: string) => string | undefined, next: () => Promise<WaitVerdict<T>>): Promise<T> {
+    if (this.inOutOfBand) return Promise.reject(new ConcurrentWaitError(OUT_OF_BAND_MESSAGE))
+    if (this.busy) return Promise.reject(new ConcurrentWaitError(BUSY_MESSAGE))
+    return this.track(this.startWait(retries, promptFor, next))
+  }
+
+  private async startWait<T>(retries: number, promptFor: (message?: string) => string | undefined, next: () => Promise<WaitVerdict<T>>): Promise<T> {
     this.deps.assertAlive()
     const rewind = this.takeRewind()
     const text = promptFor(rewind?.prompt)
@@ -146,22 +184,56 @@ export class WaitTracker {
     return this.run(rec) as Promise<T>
   }
 
-  /** `c.retry()` — see the module docs for the in-place vs rewind semantics. */
+  /** `c.retry()` — see the module docs for the in-place / rewind / out-of-band semantics. */
   retry<T>(message: string | undefined): Promise<T> {
+    if (this.inOutOfBand) return this.reprompt(message) as Promise<T>
     // Rewind: a SYNCHRONOUS throw, so `c.retry()` works un-awaited inside a step body.
     if (this.shouldRewind()) throw this.rewindSignal(message)
     const rec = this.last
+    const p = this.busy
+      ? Promise.reject(new ConcurrentWaitError(BUSY_MESSAGE))
+      : this.track((async () => {
+        if (!rec) throw new RetryUnavailableError()
+        this.deps.assertAlive()
+        rec.attempts++
+        if (rec.attempts >= rec.retries) throw new RetriesExceeded()
+        const text = rec.promptFor(message)
+        if (text) await this.deps.reply(text)
+        return this.run(rec)
+      })())
+    // An un-awaited retry must not crash the process; the misuse surfaces at the conversation's
+    // next wait instead (ConcurrentWaitError).
+    p.catch(() => {})
+    return p as Promise<T>
+  }
+
+  /**
+   * Out-of-band `c.retry()` (a `c.idle()` callback): re-prompt the wait the conversation is
+   * parked on — counting one attempt of its budget — and resolve with the answer the
+   * conversation receives, or `undefined` if that wait ends any other way (its outcome is the
+   * conversation's to handle, never re-injected from here). With no pending wait it does nothing.
+   */
+  private reprompt(message: string | undefined): Promise<unknown> {
+    const rec = this.last
+    const pending = rec?.inFlight
     const p = (async () => {
-      if (!rec) throw new RetryUnavailableError()
+      if (!rec || !pending) return undefined
       this.deps.assertAlive()
       rec.attempts++
       if (rec.attempts >= rec.retries) throw new RetriesExceeded()
       const text = rec.promptFor(message)
       if (text) await this.deps.reply(text)
-      // Still pending (e.g. called from an idle callback): the re-prompt joins that wait.
-      return rec.inFlight ?? this.run(rec)
-    })() as Promise<T>
-    p.catch(() => {})   // never an unhandled rejection when the caller forgets to await
+      return pending.then((value) => value, () => undefined)
+    })()
+    p.catch(() => {})
+    return p
+  }
+
+  /** Mark `p` as the conversation's wait in progress until it settles. */
+  private track<T>(p: Promise<T>): Promise<T> {
+    this.busy = p
+    const done = () => { if (this.busy === p) this.busy = undefined }
+    p.then(done, done)
     return p
   }
 
@@ -184,8 +256,8 @@ export class WaitTracker {
   private shouldRewind(): boolean {
     const cur = this.current
     if (!cur) return false                    // async conversation: no steps → in place
+    if (this.busy) return false               // a wait is still in progress → ConcurrentWaitError
     const rec = this.last
-    if (rec?.inFlight) return false           // a wait is pending (idle callback) → join it
     return !rec?.step || rec.step.phase !== cur.phase
   }
 

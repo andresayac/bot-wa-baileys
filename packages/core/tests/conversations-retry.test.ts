@@ -1,7 +1,7 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { ConversationRuntime, type RuntimeConfig, type RuntimeMessage } from '../src/conversations/ConversationRuntime.js'
 import { createControls, type ConversationControls } from '../src/conversations/controls.js'
-import { ConversationError, RetriesExceeded } from '../src/conversations/errors.js'
+import { ConcurrentWaitError, ConversationError, RetriesExceeded } from '../src/conversations/errors.js'
 import { ConversationRetry, RetryUnavailableError } from '../src/conversations/retry.js'
 import { createTestBot } from '../src/testing/createTestBot.js'
 import { flow } from '../src/flows/FlowBuilder.js'
@@ -270,6 +270,88 @@ describe('c.retry() — async conversations (in place)', () => {
     await chat.expectReply('❌ Solo una letra')
     await chat.send('q')
     await chat.expectReply('✅ q')
+  })
+})
+
+describe('c.retry() — concurrent waits (un-awaited retry)', () => {
+  /** Let queued promise jobs run under fake timers. */
+  async function settle(): Promise<void> {
+    for (let i = 0; i < 10; i++) await vi.advanceTimersByTimeAsync(0)
+  }
+  let rejections: unknown[] = []
+  const onRejection = (e: unknown) => { rejections.push(e) }
+  beforeEach(() => {
+    vi.useFakeTimers()
+    rejections = []
+    process.on('unhandledRejection', onRejection)
+  })
+  afterEach(() => {
+    process.off('unhandledRejection', onRejection)
+    vi.useRealTimers()
+  })
+
+  it('an un-awaited c.retry() followed by another wait fails fast (error path) instead of hanging', async () => {
+    const onError = vi.fn()
+    const rt = makeRt({ onError, errorMessage: 'error interno', timeoutMessage: 'expiró' })
+    const start = makeMsg('start')
+    let second: string | undefined
+    const entry = enter(rt, async (c) => {
+      const letra = await c.ask('Letra?', { timeout: '1m' })
+      if (letra.length !== 1) {
+        await c.say('Solo una letra')
+        void c.retry()                                       // forgot to await it
+      }
+      second = await c.ask('Otra?', { timeout: '10m' })
+    }, start)
+    await settle()
+    rt.deliver(makeMsg('ab'))
+    await settle()
+    await entry                                              // ends now — no 10-minute hang
+    expect(second).toBeUndefined()
+    expect(onError).toHaveBeenCalledOnce()
+    expect(onError.mock.calls[0][0]).toBeInstanceOf(ConcurrentWaitError)
+    expect(start.reply.mock.calls.map((x) => x[0])).toEqual(['Letra?', 'Solo una letra', 'Letra?', 'error interno'])
+    expect(rt.hasActive(rt.keyFor(start))).toBe(false)
+    expect(vi.getTimerCount()).toBe(0)                       // the retry's 1m wait timer did not outlive it
+    await vi.advanceTimersByTimeAsync(15 * 60_000)
+    expect(start.reply).not.toHaveBeenCalledWith('expiró')
+    expect(rejections).toHaveLength(0)
+  })
+
+  it('the runtime refuses a second concurrent wait instead of overwriting the pending one', async () => {
+    const rt = new ConversationRuntime()                     // base controls: waitAny is the raw rt.wait
+    const start = makeMsg('start')
+    let first: RuntimeMessage | undefined
+    let refused: unknown
+    const entry = rt.enter(async (c) => {
+      const pending = c.waitAny({ timeoutMs: 1000 })
+      try { await c.waitAny({ timeoutMs: 0 }) } catch (e) { refused = e }
+      first = await pending
+    }, start)
+    await settle()
+    expect(refused).toBeInstanceOf(ConcurrentWaitError)
+    rt.deliver(makeMsg('hola'))                              // still reaches the first wait
+    await entry
+    expect(first?.body).toBe('hola')
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('a wait\'s timeout only ever clears its own pending slot', async () => {
+    const rt = new ConversationRuntime({ timeoutMessage: 'expiró' })
+    const start = makeMsg('start')
+    const got: string[] = []
+    const entry = rt.enter(async (c) => {
+      got.push((await c.waitAny({ timeoutMs: 1000 })).body)
+      got.push((await c.waitAny({ timeoutMs: 0 })).body)
+    }, start)
+    await settle()
+    rt.deliver(makeMsg('uno'))
+    await settle()
+    await vi.advanceTimersByTimeAsync(5000)                  // the first wait's timer is long gone
+    rt.deliver(makeMsg('dos'))
+    await entry
+    expect(got).toEqual(['uno', 'dos'])
+    expect(start.reply).not.toHaveBeenCalledWith('expiró')
   })
 })
 

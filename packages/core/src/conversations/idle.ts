@@ -10,18 +10,24 @@
  * The callback runs OUTSIDE the conversation's call stack, so control calls are routed back
  * into it: `c.end(farewell)`, `c.goto(name)` (and any other conversation control error) end or
  * redirect the conversation at its pending wait — or at its next wait/`say` if it is busy.
- * `c.retry()` re-prompts the pending wait. Any other error is reported through the runtime's
- * `onError` (the bot `'error'` event) and the conversation keeps going.
+ * `c.retry()` only re-prompts the wait the conversation is parked on (a no-op when none is
+ * pending); the callback cannot start waits of its own (`ConcurrentWaitError`). Any other error
+ * is reported through the runtime's `onError` (the bot `'error'` event) and the conversation
+ * keeps going.
+ *
+ * Durations are parsed like `bot.onIdle()` (`'90s'`, `'2m'`, `'10 minutes'`, `'1d'`, ms) and
+ * must fit a Node timer (at most 2^31 − 1 ms ≈ 24.8 days).
  */
 
 import type { ConversationHandle, ConversationRuntime, RuntimeMessage } from './ConversationRuntime.js'
 import { ConversationCancelled, ConversationError } from './errors.js'
-import { parseDuration } from '../utils/duration.js'
+import { parseIdlePeriod } from '../utils/timers.js'
 
 /**
  * Callback of `c.idle()`. Runs on a timer, outside the conversation's flow; it may reply,
  * call `c.end(farewell)` / `c.goto(name)` to finish the conversation, or `c.retry()` to
- * re-prompt the pending question. Thrown errors are reported, never unhandled.
+ * re-prompt the pending question. It cannot start waits (`c.ask()`…). Thrown errors are
+ * reported, never unhandled.
  */
 export type IdleCallback = () => unknown | Promise<unknown>
 
@@ -31,8 +37,17 @@ export interface IdleControls {
   idleClear(): void
 }
 
-/** Build the idle controls for one live conversation. Internal — used by `createControls`. */
-export function createIdleControls(rt: ConversationRuntime, handle: ConversationHandle, ctx: RuntimeMessage): IdleControls {
+/**
+ * Build the idle controls for one live conversation. Internal — used by `createControls`.
+ * `runCallback` runs each callback invocation (the controls mark it as out-of-band so
+ * `c.retry()` inside it only re-prompts — see retry.ts).
+ */
+export function createIdleControls(
+  rt: ConversationRuntime,
+  handle: ConversationHandle,
+  ctx: RuntimeMessage,
+  runCallback: (callback: IdleCallback) => unknown = (callback) => callback(),
+): IdleControls {
   let disarm: (() => void) | undefined
 
   const idleClear = (): void => {
@@ -42,10 +57,7 @@ export function createIdleControls(rt: ConversationRuntime, handle: Conversation
   }
 
   const idle = (duration: string | number, callback: IdleCallback): void => {
-    const ms = parseDuration(duration)
-    if (!Number.isFinite(ms) || ms <= 0) {
-      throw new RangeError(`c.idle() needs a positive, finite duration — got ${JSON.stringify(duration)}`)
-    }
+    const ms = parseIdlePeriod(duration, 'c.idle()')
     rt.assertAlive(handle)                    // never arm a timer for a conversation that is gone
     idleClear()
 
@@ -54,7 +66,7 @@ export function createIdleControls(rt: ConversationRuntime, handle: Conversation
 
     const run = async (): Promise<void> => {
       try {
-        await callback()
+        await runCallback(callback)
       } catch (error) {
         if (error instanceof ConversationCancelled) return          // the conversation already ended
         if (error instanceof ConversationError) { rt.interrupt(handle, error); return }   // end/goto/retry…

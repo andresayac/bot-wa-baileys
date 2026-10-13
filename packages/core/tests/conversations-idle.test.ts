@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { ConversationRuntime, type RuntimeConfig, type RuntimeMessage } from '../src/conversations/ConversationRuntime.js'
 import { createControls, type ConversationControls } from '../src/conversations/controls.js'
-import { ConversationCancelled } from '../src/conversations/errors.js'
+import { ConcurrentWaitError, ConversationCancelled, ConversationTimeout } from '../src/conversations/errors.js'
 import { Bot } from '../src/core/Bot.js'
 import { MockProvider } from '../src/testing/MockProvider.js'
 import { flow } from '../src/flows/FlowBuilder.js'
@@ -304,6 +304,153 @@ describe('c.idle() / c.idleClear() — conversation inactivity', () => {
     expect(vi.getTimerCount()).toBe(0)
   })
 
+  it('rejects idle periods a timer cannot hold (> 2^31-1 ms) instead of firing at once', async () => {
+    const rt = makeRt()
+    const start = makeMsg('start')
+    const errors: unknown[] = []
+    await enter(rt, async (c) => {
+      for (const d of ['600h', 2_147_483_648, '30d']) {
+        try { c.idle(d, () => {}) } catch (e) { errors.push(e) }
+      }
+    }, start)
+    expect(errors).toHaveLength(3)
+    for (const e of errors) expect(e).toBeInstanceOf(RangeError)
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('parses durations exactly like bot.onIdle() (days, long unit names)', async () => {
+    const rt = makeRt()
+    const start = makeMsg('start')
+    const fired = vi.fn()
+    const entry = enter(rt, async (c) => {
+      c.idle('1d', () => {})
+      c.idle('10 minutes', fired)                            // replaces the 1d watchdog
+      await c.waitText({ timeout: 0 })
+    }, start)
+    await settle()
+    await vi.advanceTimersByTimeAsync(10 * 60_000 - 1)
+    expect(fired).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(1)
+    expect(fired).toHaveBeenCalledOnce()
+    rt.deliver(makeMsg('fin'))
+    await entry
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('callback c.retry() while the conversation is busy between waits does nothing (no stale re-prompt, no orphan wait)', async () => {
+    const rt = makeRt()
+    const start = makeMsg('start')
+    let q1 = ''
+    let q2 = ''
+    const entry = enter(rt, async (c) => {
+      c.idle(1000, () => c.retry())
+      q1 = await c.ask('Q1', { timeout: 0 })
+      await new Promise((r) => setTimeout(r, 3000))           // e.g. an API call
+      q2 = await c.ask('Q2', { timeout: 0 })
+    }, start)
+    await settle()
+    rt.deliver(makeMsg('a1'))                                  // Q1 answered at once; idle re-armed
+    await settle()
+    await vi.advanceTimersByTimeAsync(1500)                    // idle fires during the work
+    rt.deliver(makeMsg('a2'))                                  // early answer to Q2: buffered for it
+    await vi.advanceTimersByTimeAsync(1500)                    // idle fires again, work ends → Q2
+    await entry
+    expect(q1).toBe('a1')
+    expect(q2).toBe('a2')
+    expect(start.reply.mock.calls.map((x) => x[0])).toEqual(['Q1', 'Q2'])
+    expect(vi.getTimerCount()).toBe(0)
+    expect(rejections).toHaveLength(0)
+  })
+
+  it('callback c.retry() before the first wait is a no-op — the conversation is not killed', async () => {
+    const onError = vi.fn()
+    const rt = makeRt({ onError, errorMessage: 'boom' })
+    const start = makeMsg('start')
+    let name = ''
+    const entry = enter(rt, async (c) => {
+      c.idle(1000, () => c.retry())
+      await new Promise((r) => setTimeout(r, 3000))           // slow setup before the first question
+      name = await c.ask('¿Nombre?', { timeout: 0 })
+    }, start)
+    await settle()
+    await vi.advanceTimersByTimeAsync(3000)
+    expect(start.reply.mock.calls.map((x) => x[0])).toEqual(['¿Nombre?'])
+    rt.deliver(makeMsg('Ana'))
+    await entry
+    expect(name).toBe('Ana')
+    expect(onError).not.toHaveBeenCalled()
+    expect(rejections).toHaveLength(0)
+  })
+
+  it('a callback awaiting c.retry() never re-injects the wait\'s own outcome into the conversation', async () => {
+    const onError = vi.fn()
+    const rt = makeRt({ onError })
+    const start = makeMsg('start')
+    let second = ''
+    const entry = enter(rt, async (c) => {
+      c.idle(1000, async () => { await c.retry() })
+      try {
+        await c.ask('Q1', { timeout: 1500, retries: 5 })
+      } catch (e) {
+        if (!(e instanceof ConversationTimeout)) throw e      // handled: carry on with Q2
+      }
+      c.idleClear()
+      second = await c.ask('Q2', { timeout: 0 })
+    }, start)
+    await settle()
+    await vi.advanceTimersByTimeAsync(1000)                    // idle → re-prompts Q1, callback parks on it
+    await vi.advanceTimersByTimeAsync(500)                     // Q1 times out → conversation asks Q2
+    await settle()
+    rt.deliver(makeMsg('b'))
+    await entry
+    expect(second).toBe('b')
+    expect(start.reply.mock.calls.map((x) => x[0])).toEqual(['Q1', 'Q1', 'Q2'])
+    expect(onError).not.toHaveBeenCalled()
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('a wait started inside a callback is refused and reported; the conversation keeps its own wait', async () => {
+    const onError = vi.fn()
+    const rt = makeRt({ onError })
+    const start = makeMsg('start')
+    let answer = ''
+    const entry = enter(rt, async (c) => {
+      c.idle(1000, async () => { await c.ask('¿Sigues ahí?', { timeout: 0 }) })
+      answer = await c.waitText({ timeout: 0 })
+    }, start)
+    await settle()
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(onError).toHaveBeenCalledOnce()
+    expect(onError.mock.calls[0][0]).toBeInstanceOf(ConcurrentWaitError)
+    expect(start.reply).not.toHaveBeenCalledWith('¿Sigues ahí?')
+    rt.deliver(makeMsg('aquí'))
+    await entry
+    expect(answer).toBe('aquí')
+    expect(rejections).toHaveLength(0)
+  })
+
+  it('in a flow, callback c.retry() during a busy .do() step does not rewind to the previous ask', async () => {
+    const provider = new MockProvider()
+    const bot = new Bot({ provider })
+    await bot.start()
+    bot.use(flow('pedido')
+      .do(async (_ctx, c) => { c.idle(1000, () => c.retry()) })
+      .ask('¿Producto?', 'producto', { timeout: '1h' })
+      .do(async () => { await new Promise((r) => setTimeout(r, 3000)) })
+      .ask('¿Cantidad?', 'cantidad', { timeout: '1h' })
+      .say((_ctx, c) => `ok ${String(c.state.producto)} x${String(c.state.cantidad)}`))
+    const texts = () => provider.outbox.map((m) => (m.content.kind === 'text' ? m.content.text : ''))
+    provider.incoming('pedido'); await settle()
+    provider.incoming('pan'); await settle()
+    await vi.advanceTimersByTimeAsync(3000)                    // idle fires inside the slow .do()
+    await settle()
+    expect(texts()).toEqual(['¿Producto?', '¿Cantidad?'])
+    provider.incoming('2'); await settle()
+    expect(texts()).toEqual(['¿Producto?', '¿Cantidad?', 'ok pan x2'])
+    await bot.stop()
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
   it('works from flow .do() steps and survives step boundaries', async () => {
     const provider = new MockProvider()
     const bot = new Bot({ provider })
@@ -480,6 +627,57 @@ describe('bot.onIdle() — per-chat inactivity', () => {
     await bot.stop()
   })
 
+  it('knows about handoffs that started before the first onIdle() registration', async () => {
+    const { bot, provider } = await startBot()
+    bot.emit('handoff', { chatId: 'chat-a' })
+    const fired = vi.fn()
+    bot.onIdle(1000, fired)
+    provider.incoming('hola agente', { from: 'chat-a' }); await settle()
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(fired).not.toHaveBeenCalled()
+    await bot.stop()
+  })
+
+  it('keeps the handoff state when the last watcher unsubscribes and a new one registers', async () => {
+    const { bot, provider } = await startBot()
+    const off = bot.onIdle(1000, () => {})
+    bot.emit('handoff', { chatId: 'chat-a' })
+    off()
+    const fired = vi.fn()
+    bot.onIdle(1000, fired)
+    provider.incoming('hola agente', { from: 'chat-a' }); await settle()
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(fired).not.toHaveBeenCalled()
+    bot.emit('resume', { chatId: 'chat-a' })
+    provider.incoming('volví', { from: 'chat-a' }); await settle()
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(fired).toHaveBeenCalledOnce()
+    await bot.stop()
+  })
+
+  it('consults the bot\'s own handoff state (isHandedOff) — also for handoffs restored without an event', async () => {
+    const handedOff = new Set<string>()
+    class HandoffBot extends Bot {
+      isHandedOff(chatId: string): boolean { return handedOff.has(chatId) }
+    }
+    const provider = new MockProvider()
+    const bot = new HandoffBot({ provider })
+    await bot.start()
+    const fired: string[] = []
+    bot.onIdle(1000, (_ctx, e) => { fired.push(e.chatId) })
+    handedOff.add('chat-a')                                    // e.g. restored from the store: no 'handoff' event
+    provider.incoming('sigo con el agente', { from: 'chat-a' }); await settle()
+    provider.incoming('hola', { from: 'chat-b' }); await settle()
+    handedOff.add('chat-b')                                    // handed off AFTER its timer was armed
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(fired).toEqual([])
+    handedOff.clear()
+    provider.incoming('de vuelta', { from: 'chat-a' }); await settle()
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(fired).toEqual(['chat-a'])
+    await bot.stop()
+  })
+
   it('messages dropped by a before("message") hook do not re-arm it', async () => {
     const { bot, provider } = await startBot()
     const fired = vi.fn()
@@ -528,6 +726,20 @@ describe('bot.onIdle() — per-chat inactivity', () => {
     expect(() => bot.onIdle(-1, () => {})).toThrow(RangeError)
     expect(() => bot.onIdle(Number.POSITIVE_INFINITY, () => {})).toThrow(RangeError)
     expect(() => bot.onIdle('nunca', () => {})).toThrow()
+    await bot.stop()
+  })
+
+  it('rejects idle periods a timer cannot hold (> 2^31-1 ms) instead of firing at once', async () => {
+    const { bot, provider } = await startBot()
+    expect(() => bot.onIdle('30d', () => {})).toThrow(RangeError)
+    expect(() => bot.onIdle(2_147_483_648, () => {})).toThrow(RangeError)
+    const fired = vi.fn()
+    bot.onIdle('24d', fired)                                   // 2_073_600_000 ms still fits
+    provider.incoming('hola', { from: 'chat-a' }); await settle()
+    await vi.advanceTimersByTimeAsync(60 * 60_000)
+    expect(fired).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(24 * 86_400_000 - 60 * 60_000)
+    expect(fired).toHaveBeenCalledOnce()
     await bot.stop()
   })
 })

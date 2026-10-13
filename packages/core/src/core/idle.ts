@@ -9,17 +9,24 @@
  * count as activity.
  *
  * Timers are cancelled by `clearIdle()`, by the registration's unsubscribe, and on
- * `bot.stop()` — none survive a restart. Human handoff (FEATURES #5): a `'handoff'` bot event
- * carrying `{ chatId }` cancels that chat's timers and suspends it — its messages (which a
- * human agent is answering) do not re-arm them — until a `'resume'` event for the same chat.
- * Handler errors (sync or async) are routed to the bot `'error'` event with the chat's last
- * context, never left as unhandled rejections.
+ * `bot.stop()` — none survive a restart. Human handoff (FEATURES #5): a chat in handoff never
+ * gets an idle handler — its messages (which a human agent is answering) do not arm timers, and
+ * a timer that comes due while the chat is handed off is dropped. Handoff is known from two
+ * sources: the bot's own handoff state (`ChatIdleDeps.isSuspended` — authoritative, it also
+ * covers handoffs restored from the store, which emit no event) and the `'handoff'` /
+ * `'resume'` bot events carrying `{ chatId }`, tracked for the bot's whole lifetime — not only
+ * while an `onIdle()` watcher is registered. A `'handoff'` event also cancels that chat's
+ * pending timers. Handler errors (sync or async) are routed to the bot `'error'` event with
+ * the chat's last context, never left as unhandled rejections.
+ *
+ * The period must fit a Node timer (at most 2^31 − 1 ms ≈ 24.8 days, see `parseIdlePeriod`);
+ * longer values are rejected instead of firing after 1 ms.
  */
 
 import type { EventEmitter } from 'events'
 import type { ChatId, MessageContext } from './provider.js'
 import type { ScheduledTask } from './types.js'
-import { parseDuration } from '../utils/timers.js'
+import { parseIdlePeriod } from '../utils/timers.js'
 
 /** What an idle handler learns about the quiet chat. */
 export interface IdleEvent {
@@ -45,6 +52,12 @@ export interface ChatIdleDeps {
   delay(ms: number, fn: () => Promise<void>): ScheduledTask
   /** Whether the bot is accepting inbound traffic (false while stopping/stopped). */
   isActive(): boolean
+  /**
+   * The bot's authoritative "is this chat handed off to a human?" check. Consulted before a
+   * message arms a timer and again when the timer fires. Optional: `'handoff'` / `'resume'`
+   * events are tracked as well either way.
+   */
+  isSuspended?(chatId: ChatId): boolean
   /** Route a handler error to the bot `'error'` event. */
   onError(error: unknown, ctx: MessageContext): void
 }
@@ -58,18 +71,30 @@ interface Watch {
 /** Registry of the `onIdle` watchers of one Bot. Internal. */
 export class ChatIdleWatchers {
   private watches = new Set<Watch>()
-  /** Chats in human handoff: their messages do not re-arm idle timers until `'resume'`. */
-  private suspended = new Set<ChatId>()
+  /**
+   * Chats put in handoff by a `'handoff'` event and not yet `'resume'`d. Tracked from
+   * construction for the bot's whole lifetime, so it never misses a handoff that happened
+   * before the first `onIdle()` or while no watcher was registered.
+   */
+  private handedOff = new Set<ChatId>()
   private unsubscribe?: () => void
 
-  constructor(private deps: ChatIdleDeps) {}
+  constructor(private deps: ChatIdleDeps) {
+    deps.events.on('handoff', (payload: unknown) => {
+      const chatId = chatIdOf(payload)
+      if (chatId === undefined) return
+      this.handedOff.add(chatId)
+      this.clear(chatId)
+    })
+    deps.events.on('resume', (payload: unknown) => {
+      const chatId = chatIdOf(payload)
+      if (chatId !== undefined) this.handedOff.delete(chatId)
+    })
+  }
 
   /** Register a watcher; returns its unsubscribe (also cancels its pending timers). */
   add(duration: string | number, handler: IdleHandler): () => void {
-    const idleMs = parseDuration(duration)
-    if (!Number.isFinite(idleMs) || idleMs <= 0) {
-      throw new RangeError(`onIdle() needs a positive, finite duration — got ${JSON.stringify(duration)}`)
-    }
+    const idleMs = parseIdlePeriod(duration, 'onIdle()')
     const watch: Watch = { idleMs, handler, timers: new Map() }
     this.watches.add(watch)
     this.subscribe()
@@ -85,17 +110,26 @@ export class ChatIdleWatchers {
     for (const watch of this.watches) cancelTimers(watch, chatId)
   }
 
+  /** Is `chatId` with a human agent (no idle handler may run there)? */
+  private isSuspended(chatId: ChatId): boolean {
+    return this.handedOff.has(chatId) || this.deps.isSuspended?.(chatId) === true
+  }
+
   private touch(ctx: MessageContext): void {
     if (!this.deps.isActive()) return
     const chatId = ctx.from
-    if (this.suspended.has(chatId)) return
+    if (this.isSuspended(chatId)) {
+      this.clear(chatId)
+      return
+    }
     const lastActivityAt = Date.now()
     for (const watch of this.watches) {
       watch.timers.get(chatId)?.cancel()
       const task = this.deps.delay(watch.idleMs, async () => {
         if (watch.timers.get(chatId) !== task) return
         watch.timers.delete(chatId)
-        if (!this.deps.isActive()) return
+        // Re-checked at fire time: the chat may have been handed off since its last message.
+        if (!this.deps.isActive() || this.isSuspended(chatId)) return
         try {
           await watch.handler(ctx, { chatId, idleMs: watch.idleMs, lastActivityAt })
         } catch (error) {
@@ -111,32 +145,18 @@ export class ChatIdleWatchers {
     const { events } = this.deps
     const onMessage = (ctx: MessageContext) => this.touch(ctx)
     const onStopped = () => this.clear()
-    const onHandoff = (payload: unknown) => {
-      const chatId = chatIdOf(payload)
-      if (chatId === undefined) return
-      this.suspended.add(chatId)
-      this.clear(chatId)
-    }
-    const onResume = (payload: unknown) => {
-      const chatId = chatIdOf(payload)
-      if (chatId !== undefined) this.suspended.delete(chatId)
-    }
     events.on('message', onMessage)
     events.on('stopped', onStopped)
-    events.on('handoff', onHandoff)
-    events.on('resume', onResume)
     this.unsubscribe = () => {
       events.off('message', onMessage)
       events.off('stopped', onStopped)
-      events.off('handoff', onHandoff)
-      events.off('resume', onResume)
     }
   }
 
+  /** Stop listening for activity. The handoff tracking (constructor) deliberately stays. */
   private unsubscribeAll(): void {
     this.unsubscribe?.()
     this.unsubscribe = undefined
-    this.suspended.clear()          // no longer listening for 'resume': don't keep stale state
   }
 }
 

@@ -40,9 +40,16 @@ export interface ConversationControls extends ConversationControlsBase {
    * conversation ends with `retriesMessage`). A new wait starts a fresh budget. Use
    * `retries: Infinity` on the wait for unlimited retries.
    *
-   * Called from an idle callback while the wait is still pending, it re-sends the prompt and
-   * keeps that same wait going (the conversation receives the answer). With no previous wait it
-   * rejects with `RetryUnavailableError`. Always `await` (or `return`) it.
+   * **From a `c.idle()` callback** (outside the conversation's flow) it only re-prompts the
+   * wait the conversation is parked on — the conversation still receives the answer — and
+   * resolves with that answer (`undefined` if the wait ends another way). If no wait is pending
+   * (the conversation is busy between waits, or has not waited yet) it does nothing and
+   * resolves `undefined`; it never re-asks an answered question or rewinds a flow.
+   *
+   * With no previous wait (in the conversation itself) it rejects with `RetryUnavailableError`.
+   * Always `await` (or `return`) it: the conversation has one pending-wait slot, so a wait
+   * started while an un-awaited retry is still waiting is refused with `ConcurrentWaitError`
+   * (the conversation ends through the error path).
    */
   retry<T = string>(message?: string): Promise<T>
   /**
@@ -50,7 +57,9 @@ export interface ConversationControls extends ConversationControlsBase {
    * passes without an inbound message from this conversation's user; each inbound message
    * reschedules it and re-arms it after it fired. The callback may reply, `c.end(farewell)` /
    * `c.goto(name)` to finish the conversation (applied at the pending wait), or `c.retry()` to
-   * re-prompt. Other errors go to the bot `'error'` event. Calling it again replaces the
+   * re-prompt the pending wait (it cannot start new waits). Other errors go to the bot
+   * `'error'` event. `duration` accepts the same formats as `bot.onIdle()` (`'1d'`,
+   * `'10 minutes'`…) up to 2^31 − 1 ms (about 24.8 days). Calling it again replaces the
    * previous watchdog; it is disarmed automatically when the conversation ends or is aborted.
    * Independent from the wait `timeout` (which ends the conversation with `timeoutMessage`).
    */
@@ -84,7 +93,7 @@ export function createControls(rt: ConversationRuntime, handle: ConversationHand
       : { ok: false, message: typeof v === 'string' ? v : '❌ Entrada inválida, intenta de nuevo.' }
   }
 
-  const idle = createIdleControls(rt, handle, ctx)
+  const idle = createIdleControls(rt, handle, ctx, (callback) => tracker.runOutOfBand(callback))
 
   const controls: ConversationControls = {
     say: async (text) => { rt.assertAlive(handle); await ctx.reply(text) },
