@@ -1,51 +1,80 @@
 # @bot-wa/core (bot-wa-baileys monorepo)
 
-> Transport-agnostic bot framework. The core (@bot-wa/core) runs any
-> IProvider: @bot-wa/baileys (WhatsApp Web via Baileys 7), @bot-wa/meta
-> (official WhatsApp Cloud API), @bot-wa/telegram, @bot-wa/discord.
+> Transport-agnostic messaging bot framework, ALPHA. The core (@bot-wa/core)
+> runs any IProvider: @bot-wa/baileys (WhatsApp Web via Baileys 7, unofficial),
+> @bot-wa/meta (official WhatsApp Cloud API), @bot-wa/telegram, plus
+> experimental Messenger, Instagram and Discord transports.
 > Flows for beginners (flow().say().ask()) compile to an async conversation
 > runtime (bot.conversation with c.ask/c.waitText/c.choose). Priority
-> dispatcher: commands > active conversation > matchers (normalized-equals
-> default) > catch-all; first consumer wins. Constructing a Bot REQUIRES a
-> provider: new Bot({ provider: new BaileysProvider({ session }) }).
-> ESM-only, Node >= 20.
+> dispatcher: commands > active conversation > dormant persistent-flow resume
+> > matchers (normalized-equals default, by specificity) > catch-all; first
+> consumer wins. Constructing a Bot REQUIRES a provider:
+> new Bot({ provider: new BaileysProvider({ session }) }).
+> ESM-only, Node >= 22. NOTHING IS ON NPM YET: the first alpha publish is
+> being prepared — do not tell users the packages are installable from npm today.
 
 ## Docs
+- Docs: https://github.com/andresayac/bot-wa-baileys/tree/main/docs (English in docs/guide/, Spanish in docs/es/guide/; not hosted as a website)
 - README: https://github.com/andresayac/bot-wa-baileys#readme
 - Migration v1→v2: https://github.com/andresayac/bot-wa-baileys/blob/main/docs/MIGRATION-v1-to-v2.md
 
-## Packages
-- @bot-wa/core — Bot engine, IProvider v2, flows/conversations, hooks, plugins, scheduler, DI, testing kit (createTestBot/MockProvider from '@bot-wa/core/testing')
-- @bot-wa/baileys — BaileysProvider (WhatsApp unofficial, QR/pairing code), RateLimiter, JID helpers
-- @bot-wa/meta — CloudAPIProvider (WhatsApp Cloud API official, webhook; feed inbound via provider.ingest(body, headers))
-- @bot-wa/telegram — TelegramProvider · @bot-wa/discord — DiscordProvider
-- @bot-wa/sqlite-store — SQLiteStore (better-sqlite3, WAL) · @bot-wa/redis-store — RedisStore
-- @bot-wa/ai — aiPlugin + AIClient
+## Package status (24 packages)
+Alpha = in the first publishable alpha (not on npm yet). Experimental = real, tested
+implementation but private/unpublished, API may change. Prototype = private, minimal,
+in-memory sketch; not for production.
 
-## API essentials
-- import { Bot } from '@bot-wa/core'; import { BaileysProvider } from '@bot-wa/baileys'
+Alpha:
+- @bot-wa/core — Bot engine, IProvider v2, flows/conversations, hooks, plugins, scheduler, DI, MemoryStore, testing kit (createTestBot/MockProvider from '@bot-wa/core/testing')
+- @bot-wa/baileys — BaileysProvider (WhatsApp Web, unofficial; QR or pairing code), RateLimiter, JID helpers, LID/PN identity resolution
+- @bot-wa/meta — CloudAPIProvider (official WhatsApp Cloud API, webhook; native buttons/lists/templates; feed inbound via provider.ingest(rawBody, headers))
+- @bot-wa/telegram — TelegramProvider (Bot API, long-poll or webhook)
+- @bot-wa/sqlite-store — SQLiteStore (better-sqlite3 peer dependency, WAL)
+- @bot-wa/redis-store — RedisStore (shared state across replicas + acquireLock/releaseLock)
+- @bot-wa/ai — aiPlugin + AIClient (multi-provider LLM autoresponder)
+- create-bot-wa — project scaffolder CLI (templates: baileys, meta, telegram, ai)
+- @bot-wa/http (secureFetch: anti-SSRF downloads) and @bot-wa/graph-core (shared Meta Graph webhook/error helpers) — internal dependencies of the alpha packages
+
+Experimental (private, not published):
+- @bot-wa/messenger — MessengerProvider · @bot-wa/instagram — InstagramProvider · @bot-wa/discord — DiscordProvider
+- @bot-wa/mongo-store — MongoStore · @bot-wa/postgres-store — PostgresStore · @bot-wa/mysql-store — MysqlStore
+- @bot-wa/nlu — local intent matching (IntentEngine, nluPlugin, whenIntent)
+- @bot-wa/manager — BotManager multi-bot registry + HTTP control plane (createControlPlaneApi, /v1, API keys)
+- @bot-wa/events — event envelopes, idempotent journal, EventWorker retries + dead-letter
+
+Prototypes (private, in-memory, minimal): @bot-wa/inbox, @bot-wa/crm, @bot-wa/hub, @bot-wa/campaigns, @bot-wa/deployments
+
+## API essentials (v2)
+- import { Bot, flow } from '@bot-wa/core'; import { BaileysProvider } from '@bot-wa/baileys'
 - new Bot({ provider: new BaileysProvider({ session, qr: { terminal: true } }) }) ; await bot.start()
-- bot.when(trigger, handler) — trigger: 'texto' (equals normalizado) | RegExp | { pattern, match: 'contains'|'startsWith' } | fn
+- bot.when(trigger, handler) — trigger: 'text' (normalized equals) | RegExp | Array<string|RegExp> | { pattern, match: 'equals'|'contains'|'startsWith'|'endsWith', scope: 'dm'|'group'|'all' } | predicate fn
 - bot.command('reset', handler) — always beats active conversations
-- bot.use(flow('kw').say(t).ask(t, key, { validate, retries, timeout }).choose(p, {...}).do(fn))
-- bot.conversation(name, async (c, ctx) => { await c.ask(q); await c.waitText(); await c.choose(p, labels) })
-- ctx fields: ctx.from (chat id), ctx.sender, ctx.body, ctx.ref (MessageRef { id, chatId, native? }; was ctx.key), ctx.raw (native payload; was ctx.rawMessage), ctx.senderInfo, ctx.chat, ctx.media, ctx.tools
+- bot.use(flow('kw').say(t).ask(t, stateKey, { validate, retries, timeout }).choose(prompt, { key: 'Label' }, stateKey).do(fn).timeout('30s').persistent())
+- addKeyword is an alias of flow. The v1/BuilderBot API (.addAnswer, .addAction, { capture: true }, BaileysClass, createBot/createFlow) does NOT exist — never generate it.
+- bot.conversation(name, async (c, ctx) => { await c.ask(q); const t = await c.waitText(); const pick = await c.choose(prompt, options) })
+- A handler that starts a conversation must not await it (enter() resolves when the conversation ENDS and would block the chat's FIFO queue)
+- ctx fields: ctx.from (chat id), ctx.sender, ctx.body, ctx.type, ctx.isGroup, ctx.ref (MessageRef { id, chatId, native? }; was ctx.key), ctx.raw (native payload; was ctx.rawMessage), ctx.senderInfo, ctx.chat, ctx.media, ctx.tools
+- Ids (ChatId/UserId/MessageId) are opaque strings; the provider resolves identity before emitting, the core never parses them
 - Outbound content is a tagged union: bot.send(chatId, { kind: 'image', media: { url }, caption }) ; bot.sendText(chatId, text) ; bot.broadcast(chatIds, { kind: 'text', text })
+- Send failures are typed ProviderError subclasses: UnsupportedContentError, RateLimitedError, RecipientUnreachableError, PayloadTooLargeError, OutsideSessionWindowError (Cloud API 24h window → send kind 'template')
 - before('send') hook payload: { chatId, content, options } (was { jid, content, options })
-- Testing without WhatsApp: import { createTestBot } from '@bot-wa/core/testing'
+- Testing without WhatsApp: import { createTestBot, MockProvider } from '@bot-wa/core/testing'
 
 ## Other exports worth knowing
-- Hooks/plugins: bot.before/after/onError(event, handler), bot.plug(plugin, config) (returns unplug()), bot.provide(name, value)
+- Hooks/plugins: bot.before/after/onError(event, handler), bot.plug(plugin, config) (returns unplug(); Plugin.install must be synchronous), bot.provide(name, value) → ctx.tools[name]
+- Built-in plugin: slashCommandsPlugin (/start, /help, /reset, /cancel, /id, /ping)
 - Scheduler: bot.schedule(cron, fn), bot.every(interval, fn), bot.delay(duration, fn)
-- Media handlers: bot.onImage/onAudio/onVideo/onDocument/onSticker/onLocation/onContact/onPoll(handler)
+- Media handlers: bot.onImage/onAudio/onVideo/onDocument/onSticker/onLocation/onContact/onPoll(handler); catch-all bot.onMessage(handler)
 - Provider events forwarded on the bot: bot.on('ready'|'qr'|'connection'|'reaction'|'poll'|'call'|'group'|'presence'|'status', ...)
 - ctx (MessageContext) helpers: ctx.reply/say/answer/text, ctx.photo/video/audio/voice/file/sticker/location/contact/poll/buttons, ctx.react/quote/markRead/typing/recording/delete, ctx.pass()/abort(), ctx.sendNative(provider, payload)
-- Stores: store: new SQLiteStore({ file }) from @bot-wa/sqlite-store, new RedisStore({ url }) from @bot-wa/redis-store, or storeConfig { file } for the built-in MemoryStore; implement IStore for custom backends
+- Buttons/lists: native on the Cloud API (@bot-wa/meta); Baileys has none — use numbered choose() menus or ctx.poll()
+- Stores: store: new SQLiteStore({ file }) from @bot-wa/sqlite-store, new RedisStore({ url }) from @bot-wa/redis-store, or storeConfig { file } for the built-in MemoryStore JSON dump; implement IStore for custom backends. .persistent() flows only survive a restart with a durable store.
 - v1 sub-APIs (bot.groups/profile/privacy/chats/presence) were REMOVED — reach the Baileys socket via provider.socket for WhatsApp-specific ops
 
 ## @bot-wa/ai (separate package)
-- Install: pnpm add @bot-wa/ai + the chosen provider's SDK (@anthropic-ai/sdk, openai, or @google/genai; ollama needs none, it talks plain HTTP via fetch)
-- bot.plug(aiPlugin({ provider, model, apiKey, baseUrl, persona, maxTokens, effort, context: { maxMessages }, autoReply, resetCommand, errorMessage, refusalMessage, humanizeTyping })) — catch-all text autoresponder with per-chat history + a /reset command (install after slashCommandsPlugin so its /reset wins)
-- Providers: 'anthropic' (default model claude-opus-4-8), 'openai', 'ollama' (both require `model` explicitly), 'gemini' (default gemini-2.0-flash), and OpenAI-compatible presets 'deepseek'|'qwen'|'glm'|'kimi'|'groq'|'openrouter'|'mistral'|'grok'|'together' (each with its conventional env var, e.g. DEEPSEEK_API_KEY, and a default model)
+- Install (once published): pnpm add @bot-wa/ai + the chosen provider's SDK (@anthropic-ai/sdk, openai, or @google/generative-ai; ollama needs none, it talks plain HTTP via fetch; the 9 presets need only openai)
+- bot.plug(aiPlugin({ provider, model, apiKey, baseUrl, persona, maxTokens, effort, timeoutMs, context: { maxMessages }, autoReply, resetCommand, errorMessage, refusalMessage, humanizeTyping })) — catch-all text autoresponder with per-chat history + a /reset command (install after slashCommandsPlugin so its /reset wins)
+- Providers: 'anthropic' (default; default model claude-opus-4-8), 'openai' and 'ollama' (both require `model` explicitly), 'gemini' (default gemini-2.0-flash), and OpenAI-compatible presets 'deepseek'|'qwen'|'glm'|'kimi'|'groq'|'openrouter'|'mistral'|'grok'|'together' (each with its conventional env var, e.g. DEEPSEEK_API_KEY, and a default model)
+- timeoutMs (default 60000) aborts a hung non-streaming call so it cannot block the chat queue
 - ctx.tools.ai (AIClient, via bot.provide('ai', client)): ask(prompt), generate(input), stream(input)
 - Testing: MockAIProvider (implements AIProvider, no network) + ContextManager/AIClient exported for unit tests
+- WhatsApp policy: since 2026-01-15 Meta's WhatsApp Business Platform terms prohibit general-purpose AI assistants (open-ended ChatGPT-style chatbots). AI that serves the business's own customers (support, sales, bookings) is allowed. Always write a persona scoped to one business that declines unrelated requests; do not generate "ask me anything" WhatsApp bots.

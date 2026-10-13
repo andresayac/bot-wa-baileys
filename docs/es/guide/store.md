@@ -11,6 +11,14 @@ Los stores implementan el `IStore` genérico y neutral de transporte de `@bot-wa
 | `MemoryStore` *(default)* | `@bot-wa/core` | En memoria (dump JSON opcional) | Desarrollo, tests, bots de vida corta |
 | `SQLiteStore` | `@bot-wa/sqlite-store` | Archivo SQLite (modo WAL) | **Producción** — single-bot, cero config |
 | `RedisStore` | `@bot-wa/redis-store` | Servidor Redis | Estado distribuido, varias instancias, TTL |
+| `MongoStore` · `PostgresStore` · `MysqlStore` | `@bot-wa/mongo-store` · `@bot-wa/postgres-store` · `@bot-wa/mysql-store` | MongoDB / PostgreSQL / MySQL | **Experimental** — implementaciones reales y con tests, aún sin publicar |
+
+`MemoryStore` viene con el core. `SQLiteStore` y `RedisStore` forman parte de
+la primera alpha (todavía no están en npm; la primera publicación se está
+preparando). Los stores de MongoDB, PostgreSQL y MySQL pasan la misma suite de
+conformidad de `IStore`, pero de momento siguen siendo privados (sin
+publicar); mira sus READMEs en el
+[repositorio](https://github.com/andresayac/bot-wa-baileys/tree/main/packages).
 
 ## MemoryStore (default)
 
@@ -34,7 +42,7 @@ const bot = new Bot({
 
 ## SQLiteStore (recomendado para producción)
 
-Una base de datos real con [better-sqlite3](https://github.com/WiseLibs/better-sqlite3) — síncrona, cero config, un solo archivo. Perfecta para una sola instancia de bot en un VPS o contenedor Docker. Es un **paquete separado** con `better-sqlite3` como peer dependency opcional (carga perezosa):
+Una base de datos real con [better-sqlite3](https://github.com/WiseLibs/better-sqlite3) — síncrona, cero config, un solo archivo. Perfecta para una sola instancia de bot en un VPS o contenedor Docker. Es un **paquete separado**; `better-sqlite3` es una peer dependency que instalas a su lado (se carga al construir el store, así que si falta obtienes un error claro):
 
 ```bash
 pnpm add @bot-wa/sqlite-store better-sqlite3
@@ -57,6 +65,7 @@ const bot = new Bot({
 |---|---|---|---|
 | `file` | `string` | `'./bot.db'` | Ruta al archivo de base de datos SQLite |
 | `wal` | `boolean` | `true` | Activar modo WAL (mejores lecturas concurrentes) |
+| `maxMessagesPerChat` | `number` | — (sin límite) | Conserva solo los N mensajes más recientes por chat; los más viejos se podan al guardar |
 | `logger` | `object` | — | Logger para errores (`{ error: fn }`) |
 
 ### Qué almacena
@@ -66,13 +75,13 @@ const bot = new Bot({
 | `messages` | Cada mensaje entrante/saliente (indexado por chat + timestamp) |
 | `chats` | Metadatos de chats (nombre, kind, etc.) |
 | `contacts` | Info de contactos (display name, username, etc.) |
-| `flow_states` | Estado de flujo por usuario (`c.state`) |
-| `checkpoints` | Checkpoints de flujos `persistent()` — sobreviven reinicios |
+| `checkpoints` | Checkpoints de flujos `persistent()`, incluido el `c.state` del flujo — sobreviven reinicios |
 | `conversations` | Historial de conversaciones AI (`@bot-wa/ai`) |
+| `cursors` | Cursores de entrega (p. ej. el `update_id` de Telegram) |
 
-### Migraciones de schema
+### Schema
 
-El store ejecuta **migraciones automáticas** al arrancar. Nunca necesitas crear tablas manualmente — solo apúntalo a un archivo y él se encarga del resto.
+El store crea sus tablas al construirse (`CREATE TABLE IF NOT EXISTS`). Nunca necesitas crearlas a mano — solo apúntalo a un archivo y él se encarga del resto.
 
 ### Flujos persistentes + SQLiteStore
 
@@ -120,12 +129,12 @@ const bot = new Bot({
 
 ## Stores personalizados
 
-Implementa la interfaz `IStore` para conectar Postgres, Mongo o lo que quieras:
+Implementa la interfaz `IStore` para conectar cualquier otro backend (MongoDB, PostgreSQL y MySQL ya tienen stores experimentales en el monorepo):
 
 ```ts
 import type { IStore } from '@bot-wa/core'
 
-class PostgresStore implements IStore {
+class MiStore implements IStore {
   async saveMessage(msg) { /* ... */ }
   async getMessage(ref) { /* ... */ }
   // ... implementa cada método
@@ -133,11 +142,11 @@ class PostgresStore implements IStore {
 
 const bot = new Bot({
   provider: new BaileysProvider({ session: 'mi-bot' }),
-  store: new PostgresStore({ /* ... */ }),
+  store: new MiStore({ /* ... */ }),
 })
 ```
 
-La interfaz completa está documentada en la [referencia de API](/api/interfaces/IStore.html).
+La interfaz completa está documentada en la [referencia de API](/api/interfaces/IStore.html). `MemoryStore` es la implementación de referencia del contrato; dentro del monorepo, todos los stores corren la suite de conformidad compartida (`test-utils/store-conformance.ts`).
 
 ## Docker + SQLiteStore
 

@@ -108,5 +108,5 @@ docker rm -f botwa-it-postgres
 
 - Use `127.0.0.1` rather than `localhost` on Windows: `localhost` resolves to `::1` first and Docker Desktop's IPv6 port forward can hang until the connection timeout.
 - Each run creates its tables under a random prefix (`it<hex>_<n>_…`, one per store) and drops them in `afterAll`, so reruns and parallel CI jobs can share one database. The user in the URL needs `CREATE` on the current schema.
-- In CI, point the same variable at a `postgres` service container (standard port 5432).
+- CI does not run this suite; run it locally with Docker before changing the store.
 

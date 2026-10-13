@@ -6,7 +6,10 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/). Versionado po
 
 ### Repositorio
 - **Reorganizado a monorepo pnpm transporte-agnóstico.** El core dejó de ser específico de WhatsApp: `@bot-wa/bot-wa-baileys` pasó a **`@bot-wa/core`** (motor con `IProvider v2`, cero concepto de transporte). WhatsApp/Baileys vive ahora en `@bot-wa/baileys`.
-- **17 paquetes**: core; transportes (`baileys`, `meta`, `messenger`, `instagram`, `telegram`, `discord`); stores (`sqlite-store`, `redis-store`, `mongo-store`, `postgres-store`, `mysql-store`); helpers compartidos (`graph-core`); tooling (`ai`, `nlu`, `manager`, `create-bot-wa`).
+- **24 paquetes**: core; transportes (`baileys`, `meta`, `telegram`, `messenger`, `instagram`, `discord`); stores (`sqlite-store`, `redis-store`, `mongo-store`, `postgres-store`, `mysql-store`); infra compartida (`http`, `graph-core`); plugins (`ai`, `nlu`, `manager`, `events`); producto/operación (`inbox`, `crm`, `hub`, `campaigns`, `deployments`); tooling (`create-bot-wa`).
+  - **Primera alpha** (publicables, aún sin publicar en npm): `core`, `baileys`, `meta`, `telegram`, `sqlite-store`, `redis-store`, `ai`, `create-bot-wa`, más sus dependencias `http` y `graph-core`.
+  - **Experimentales** (`private`, implementación real, sin publicar): `discord`, `messenger`, `instagram`, `mongo-store`, `postgres-store`, `mysql-store`, `nlu`, `manager`, `events`.
+  - **Prototipos** (`private`, mínimos y en memoria): `inbox`, `crm`, `hub`, `campaigns`, `deployments`.
 - **`@bot-wa/graph-core`**: helpers Meta Graph compartidos (verificación de webhook, mapeo de errores, guard de ingest) usados por meta/messenger/instagram — elimina la triplicación previa.
 - CI en GitHub Actions: `build` + `test` en Node 22 y 24 por PR.
 - Docs VitePress + TypeDoc desde la raíz (`pnpm docs`). Paquetes compilados con TypeScript 7 (native port); TypeDoc corre con TS 5.9 en la raíz.
@@ -43,7 +46,7 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/). Versionado po
 Rewrite del core, ahora transporte-agnóstico (ver [guía de migración](docs/MIGRATION-v1-to-v2.md)).
 
 **Añadido**
-- `Bot` con dispatcher por prioridad (comandos → conversación activa → matchers por especificidad → catch-all), consumo-por-defecto con `ctx.pass()`, cola FIFO por chat.
+- `Bot` con dispatcher por prioridad (comandos → conversación activa → reanudación de checkpoint dormido → matchers por especificidad → catch-all), consumo-por-defecto con `ctx.pass()`, cola FIFO por chat.
 - Runtime de conversaciones async (`bot.conversation`, `c.ask/waitText/waitMedia/choose`) + DSL `flow()` que compila a él (`say/ask/do/choose/media/timeout/persistent`).
 - Contrato `IProvider v2` transporte-agnóstico: identidad opaca, errores tipados de dominio (`RateLimitedError`, `OutsideSessionWindowError`, …), media lazy, `ingest()` para transportes push (webhook).
 - Persistencia de flows `.persistent()` vía checkpoints en el store. `IStore` genérico + `MemoryStore` (con dump/load a JSON, mensajes no persistidos).

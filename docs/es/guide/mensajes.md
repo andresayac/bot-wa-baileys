@@ -74,6 +74,7 @@ aterriza depende del provider:
   `c.choose()` en una conversación — ver [Flujos](./flujos)) o una encuesta
   real suele leerse mejor.
 - **`@bot-wa/meta`** (Cloud API) — botones/listas/templates nativos.
+- **`@bot-wa/telegram`** — teclados inline nativos.
 
 ```ts
 await ctx.buttons('Choose one', [
@@ -81,7 +82,8 @@ await ctx.buttons('Choose one', [
   { id: 'b', title: 'Option B' },
 ])
 
-// Las encuestas funcionan nativamente en WhatsApp de todas formas:
+// Las encuestas son nativas en Baileys y Telegram. La Cloud API no tiene
+// encuestas: ahí ctx.poll() rechaza con UnsupportedContentError — usa botones.
 await ctx.poll('What do you prefer?', ['Option A', 'Option B'])
 
 // Selección múltiple

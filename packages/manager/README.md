@@ -1,5 +1,7 @@
 # @bot-wa/manager
 
+> **Experimental — aún no publicado en npm** (experimental, not yet published to npm). A real, tested implementation, but the package is `private`: it is not part of the first alpha and its API may change. Use it from this monorepo (`workspace:*`).
+
 Multi-bot orchestrator for [`@bot-wa/core`](../core) — manage many `Bot`
 instances behind one registry: add/remove by id, track running state,
 start/stop individually or all at once, and (optionally) expose everything
@@ -25,8 +27,8 @@ const id = manager.add(bot, { id: 'acme', meta: { tenant: 'Acme Corp' } })
 await manager.start(id)
 console.log(manager.list()) // [{ id: 'acme', running: true, meta: { tenant: 'Acme Corp' } }]
 
-// Control plane over HTTP (optional)
-createServer(createManagerApi(manager, { prefix: '/api' })).listen(3000)
+// Control plane over HTTP (optional). Always set a token: without `auth` the API is unauthenticated.
+createServer(createManagerApi(manager, { prefix: '/api', auth: { token: process.env.MANAGER_TOKEN! } })).listen(3000)
 ```
 
 ## BotManager
@@ -84,7 +86,7 @@ is installed so an unobserved failure can never crash the process through
 
 ## HTTP API
 
-También está disponible `createControlPlaneApi(manager, { tenantId, apiKeys })`, un API `/v1` sin modo anónimo. Cada API key tiene scopes, toda respuesta incluye `x-request-id`, y las operaciones lifecycle pueden usar `Idempotency-Key`.
+Two HTTP surfaces are available. **New deployments should use `createControlPlaneApi(manager, { tenantId, apiKeys })`**: a versioned `/v1` API with no anonymous mode. Every API key carries scopes, every response includes `x-request-id`, and lifecycle operations accept an `Idempotency-Key`.
 
 ```ts
 createServer(createControlPlaneApi(manager, {
@@ -93,11 +95,15 @@ createServer(createControlPlaneApi(manager, {
 })).listen(3000)
 ```
 
-Rutas iniciales: `GET /v1/health`, `GET /v1/bots`, `POST /v1/bots/:id/start`, `POST /v1/bots/:id/stop` y `GET /v1/audit`.
+Initial routes: `GET /v1/health`, `GET /v1/bots`, `POST /v1/bots/:id/start`, `POST /v1/bots/:id/stop` and `GET /v1/audit`. See the [control plane guide](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/guide/control-plane.md).
 
-`createManagerApi(manager, opts?: { prefix? })` returns a plain Node
+The compact legacy API, `createManagerApi(manager, opts?: { prefix?, auth?: { token, header? } })`, returns a plain Node
 `(req, res) => void` handler (uses `node:http` only — mount it on
 `http.createServer` or call it from any framework). Every response is JSON.
+With `auth`, every request must present the token (`Authorization: Bearer <token>`
+by default, or the header named by `auth.header`; timing-safe compare) or it gets
+`401`. **Without `auth` the API is unauthenticated** — anyone who can reach the socket
+can list, start and stop bots — and a one-time warning is logged.
 
 | Route | Success | Errors |
 | --- | --- | --- |
@@ -110,10 +116,11 @@ Any other route/method → `404 { "error": "not found" }`. Ids in URLs may be
 percent-encoded.
 
 ```bash
-curl localhost:3000/api/bots                 # list
-curl localhost:3000/api/bots/acme            # status
-curl -X POST localhost:3000/api/bots/acme/start
-curl -X POST localhost:3000/api/bots/acme/stop
+H="Authorization: Bearer $MANAGER_TOKEN"
+curl -H "$H" localhost:3000/api/bots                 # list
+curl -H "$H" localhost:3000/api/bots/acme            # status
+curl -H "$H" -X POST localhost:3000/api/bots/acme/start
+curl -H "$H" -X POST localhost:3000/api/bots/acme/stop
 ```
 
 ## Logging

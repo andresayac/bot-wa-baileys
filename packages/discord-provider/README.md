@@ -1,5 +1,7 @@
 # @bot-wa/discord
 
+> **Experimental — aún no publicado en npm.** Implementación real y con tests, pero el paquete es `private`: no forma parte de la primera alpha y su API puede cambiar. Úsalo desde este monorepo (`workspace:*`); el `pnpm add` de abajo funcionará cuando se publique.
+
 Transporte **Discord** para [`@bot-wa/core`](../core): **Gateway websocket**
 para eventos entrantes (mensajes, botones, menús y slash commands) y **REST**
 para enviar. El provider es dueño del socket (`pushIngress: false`) — no hay

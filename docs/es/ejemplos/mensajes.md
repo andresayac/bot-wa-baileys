@@ -104,9 +104,11 @@ bot.when('who', async (ctx) => {
 
 ## Sin botones nativos — usa una encuesta
 
-WhatsApp Web eliminó los botones nativos, así que un sí/no rápido se resuelve
-mejor con una encuesta real (ver [Enviar media](./media) para más opciones de
-encuestas):
+WhatsApp Web eliminó los botones nativos, así que en Baileys un sí/no rápido
+se resuelve mejor con una encuesta real (ver [Enviar media](./media) para más
+opciones de encuestas). En la Cloud API oficial (`@bot-wa/meta`) es al revés:
+los botones nativos funcionan y las encuestas no, así que ahí usa
+`ctx.buttons()`.
 
 ```ts
 bot.when('confirm', async (ctx) => {

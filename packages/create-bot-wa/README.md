@@ -38,7 +38,7 @@ customers — support, sales, bookings — is allowed. The `ai` template therefo
 business (`BUSINESS_NAME` in `.env`, `PERSONA` in `src/bot.js`) that declines unrelated requests; keep it that way,
 especially if you move the bot to the official Cloud API (`@bot-wa/meta`). See the
 [current terms](https://www.whatsapp.com/legal/business-solution-terms) and the
-[AI plugin guide](https://andresayac.github.io/bot-wa-baileys/guide/ai).
+[AI plugin guide](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/guide/ai.md).
 
 ## What gets generated
 

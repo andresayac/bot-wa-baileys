@@ -14,7 +14,7 @@ CommonJS. Asegúrate de que el `package.json` de producción tenga
 ### 1. Preparar el servidor
 
 ```bash
-curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
 sudo apt install -y nodejs
 npm install -g pnpm
 

@@ -21,6 +21,14 @@ also `require()` them via Node's experimental `require(esm)` support, but
 the examples below use plain `import`.
 :::
 
+::: warning Alpha — first npm publish pending
+bot-wa is in **alpha** and **no `@bot-wa/*` package is on npm yet**: the
+first publish is being prepared. The `pnpm add` commands on this site are the
+ones that will work once it ships. Until then, clone
+[the repository](https://github.com/andresayac/bot-wa-baileys) and use the
+packages from the pnpm workspace (`workspace:*`).
+:::
+
 ## Step 1 — Install the framework
 
 The engine (`@bot-wa/core`) is transport-agnostic: you pair it with a
@@ -35,12 +43,18 @@ pnpm add @bot-wa/core @bot-wa/baileys
 
 Other transports behind the same `IProvider` contract:
 
-| Transport | Package | Notes |
-|---|---|---|
-| WhatsApp (Baileys 7) | `@bot-wa/baileys` | Unofficial, QR login — what this guide uses |
-| WhatsApp Cloud API | `@bot-wa/meta` | Official Meta API, webhook-based, no ban risk |
-| Telegram | `@bot-wa/telegram` | Bot API, long-poll or webhook |
-| Discord | `@bot-wa/discord` | Gateway websocket + REST |
+| Transport | Package | Status | Notes |
+|---|---|---|---|
+| WhatsApp (Baileys 7) | `@bot-wa/baileys` | Alpha | Unofficial, QR login — what this guide uses |
+| WhatsApp Cloud API | `@bot-wa/meta` | Alpha | Official Meta API, webhook-based, no ban risk |
+| Telegram | `@bot-wa/telegram` | Alpha | Bot API, long-poll or webhook |
+| Facebook Messenger | `@bot-wa/messenger` | Experimental | Meta Graph Send API, webhook-based |
+| Instagram DM | `@bot-wa/instagram` | Experimental | Meta Graph, webhook-based |
+| Discord | `@bot-wa/discord` | Experimental | Gateway websocket + REST |
+
+**Alpha** packages are part of the first publishable alpha. **Experimental**
+ones are real, tested implementations that stay private (unpublished) for now
+and may change.
 
 Then add `"type": "module"` to the generated `package.json` so Node treats
 your files as ESM:
@@ -110,15 +124,19 @@ const bot = new Bot({
     accessToken: process.env.META_ACCESS_TOKEN,
     phoneNumberId: process.env.META_PHONE_NUMBER_ID,
     verifyToken: process.env.META_VERIFY_TOKEN,
+    appSecret: process.env.META_APP_SECRET, // required: verifies X-Hub-Signature-256
   }),
 })
 ```
 
-(The Cloud API is webhook-based: POST inbound payloads to
-`provider.ingest(body, headers)` from your HTTP server.) See
+(The Cloud API is webhook-based: pass the **raw** request body of each
+inbound POST to `provider.ingest(rawBody, headers)` from your HTTP server —
+the signature is computed over the exact bytes Meta sent. Without
+`appSecret` the constructor throws; `allowUnsignedWebhooks: true` exists only
+for isolated local development.) See
 [`@bot-wa/telegram`](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/telegram-provider)
 and [`@bot-wa/discord`](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/discord-provider)
-for the other transports.
+(experimental) for the other transports.
 
 ## Next steps
 

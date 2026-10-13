@@ -146,4 +146,4 @@ En PowerShell: `$env:BOTWA_TEST_REDIS_URL = 'redis://127.0.0.1:56379'; pnpm --fi
 
 - **Aislamiento:** todas las claves de una ejecución viven bajo `botwa-it:<pid>-<uuid>:…`, con un prefijo distinto por store, y un `afterAll` borra lo que quede de esa ejecución. No se usa `FLUSHDB`: se puede apuntar a un Redis compartido sin pisar datos ni chocar con otra ejecución en paralelo. La URL admite usuario, contraseña y número de base (`redis://user:pass@host:6379/2`).
 - **Windows + Docker Desktop:** usa `127.0.0.1` en lugar de `localhost`. `localhost` resuelve primero a `::1` y el reenvío IPv6 de Docker Desktop acepta la conexión TCP pero la corta (`ECONNRESET`), así que los hooks expiran.
-- **CI:** el job `store-integration` levanta `redis:7` como servicio y define `BOTWA_TEST_REDIS_URL=redis://localhost:6379`.
+- **CI:** esta suite no corre en CI; ejecútala en local con Docker antes de tocar el store.

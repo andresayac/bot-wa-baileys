@@ -1,10 +1,38 @@
 # @bot-wa/ai
 
-Plugin de IA multi-proveedor (Anthropic / OpenAI / Ollama) para
+Plugin de IA multi-proveedor (Anthropic / OpenAI / Ollama / Gemini + 9 presets
+compatibles con OpenAI) para
 [`@bot-wa/core`](https://github.com/andresayac/bot-wa-baileys). Un
 `bot.plug(aiPlugin(...))` te da un autoresponder catch-all con memoria de
 conversación por chat; `ctx.tools.ai` te da el cliente completo para usarlo
 donde quieras (flows, conversaciones, comandos).
+
+> **Alpha — primera publicación en npm pendiente.** `@bot-wa/ai` forma parte de
+> la primera alpha, pero todavía **no está en npm**: hasta entonces, úsalo
+> desde este monorepo (`workspace:*`). Los comandos `pnpm add` de abajo son los
+> que funcionarán cuando se publique.
+
+## Política de IA de WhatsApp (desde el 15-01-2026)
+
+Desde el **15 de enero de 2026**, los términos de Meta para la **WhatsApp
+Business Platform** (sección *AI Providers*) **prohíben los asistentes de IA de
+propósito general**: chatbots abiertos estilo ChatGPT cuya funcionalidad
+principal es la propia IA. Sigue estando **permitido** usar IA al servicio del
+propio negocio: atención al cliente, ventas, reservas, seguimiento de pedidos.
+
+En la práctica, con `aiPlugin`:
+
+- Escribe una `persona` **acotada a tu negocio** (qué vendes, horarios,
+  políticas) que rechace con amabilidad lo que no tenga que ver con él. Mira el
+  [Quickstart](#quickstart-modo-principiante).
+- Ofrece una salida hacia una persona y no presentes el bot como un asistente
+  "para todo".
+- La regla viene de los términos de la Cloud API oficial (`@bot-wa/meta`). Baileys es un cliente
+  no oficial de WhatsApp Web y también está sujeto a los términos de WhatsApp.
+
+Es una guía práctica, no asesoría legal: revisa los
+[términos vigentes](https://www.whatsapp.com/legal/business-solution-terms)
+antes de salir a producción.
 
 ## Instalación
 
@@ -29,14 +57,23 @@ Requiere **Node >= 22** y `@bot-wa/core` ya instalado en tu proyecto.
 
 ```ts
 import { Bot } from '@bot-wa/core'
+import { BaileysProvider } from '@bot-wa/baileys'
 import { aiPlugin } from '@bot-wa/ai'
 
-const bot = new Bot({ session: 'mi-bot' })
+const bot = new Bot({ provider: new BaileysProvider({ session: 'mi-bot' }) })
+
+// Persona acotada al negocio (ver "Política de IA de WhatsApp" arriba).
+const persona = [
+  'Eres el asistente de atención al cliente de Panadería La Espiga.',
+  'Solo respondes sobre sus productos, precios, horarios (lun-sáb 7:00-20:00), pedidos y encargos.',
+  'Si te piden algo ajeno a la panadería, di con amabilidad que solo puedes ayudar con eso',
+  'y ofrece pasar la conversación a una persona. Responde breve y en español; no inventes datos.',
+].join(' ')
 
 bot.plug(aiPlugin({
   provider: 'anthropic',
   apiKey: process.env.ANTHROPIC_API_KEY,
-  persona: 'Eres un asistente de soporte, responde breve y en español.',
+  persona,
 }))
 
 await bot.start()
@@ -63,11 +100,13 @@ bot.plug(aiPlugin({
   autoReply: false,
 }))
 
-bot.conversation('resumen', async (c, ctx) => {
-  await ctx.reply('📋 Pega el texto a resumir:')
+bot.conversation('reclamo', async (c, ctx) => {
+  await ctx.reply('📝 Cuéntanos qué pasó con tu pedido:')
   const texto = await c.waitText()
-  const resumen = await ctx.tools.ai.ask(`Resume en 3 líneas: ${texto}`)
-  await ctx.reply(resumen)
+  const resumen = await ctx.tools.ai.ask(
+    `Resume en 3 líneas este reclamo de un cliente para el equipo de soporte: ${texto}`,
+  )
+  await ctx.reply(`✅ Registramos tu reclamo:\n${resumen}`)
 })
 ```
 
@@ -80,6 +119,22 @@ bot.conversation('resumen', async (c, ctx) => {
   control total: mensajes explícitos y overrides puntuales.
 - `stream(input): AsyncIterable<string>` — igual que `generate` pero
   entregando el texto en fragmentos (`for await (const delta of ...)`).
+
+**Tipado (TypeScript).** Importar `@bot-wa/ai` amplía la interfaz
+`DefaultTools` de `@bot-wa/core` (*module augmentation*), así que
+`ctx.tools.ai` ya es un `AIClient` en los handlers de `when()`, `onMessage()`
+y `command()` (y en `bot.injectTools.ai`), sin casts:
+
+```ts
+bot.when('resumen', async (ctx) => {
+  const texto = await ctx.tools.ai.ask(`Resume en una línea: ${ctx.body}`) // string
+  await ctx.reply(texto)
+})
+```
+
+El tipo no comprueba que el plugin esté instalado: sin
+`bot.plug(aiPlugin(...))` (o después de `unplug()`), `ctx.tools.ai` es
+`undefined` en tiempo de ejecución.
 
 ## Proveedores
 
@@ -180,6 +235,7 @@ configurado en vez de tumbar el bot.
 | `persona` | `string` | — | system prompt |
 | `maxTokens` | `number` | `4096` (anthropic) / `1024` (openai) | límite de tokens de salida (anthropic/openai; ollama lo ignora hoy) |
 | `effort` | `'low' \| 'medium' \| 'high' \| 'xhigh' \| 'max'` | — | esfuerzo de razonamiento (solo lo usa Anthropic) |
+| `timeoutMs` | `number` | `60000` | timeout por llamada no-streaming; al vencer aborta la petición y rechaza, para que un proveedor colgado no bloquee la cola del chat (`0` lo desactiva, no recomendado) |
 | `context.maxMessages` | `number` | `20` | ventana de historial guardada por chat |
 | `autoReply` | `boolean` | `true` | registra el autoresponder catch-all |
 | `resetCommand` | `boolean` | `true` | registra `/reset` |
@@ -235,7 +291,7 @@ No-objetivos de esta primera versión, ya contemplados en el diseño de
 
 ## Más documentación
 
-- [Guía en el sitio (EN)](https://andresayac.github.io/bot-wa-baileys/guide/ai) ·
-  [Guía en el sitio (ES)](https://andresayac.github.io/bot-wa-baileys/es/guide/ai)
-- [`@bot-wa/core`](../../README.md) — el framework base (plugins,
+- [Guía en el sitio (EN)](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/guide/ai.md) ·
+  [Guía en el sitio (ES)](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/es/guide/ai.md)
+- [`@bot-wa/core`](../core/README.md) — el framework base (plugins,
   DI, conversaciones)

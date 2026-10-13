@@ -119,7 +119,7 @@ ALTER TABLE `{p}cursors` MODIFY `key` VARBINARY(1024) NOT NULL;
 - `start()` creates a pool only when none was injected (and is safe to call again); `stop()` closes only a self-created pool. An injected pool is caller-managed and keeps serving after `stop()`.
 - MySQL's `JSON` type rejects unpaired UTF-16 surrogates (e.g. a string cut in the middle of an emoji). The store writes them as U+FFFD (`�`) instead of failing the write — the same value the UTF-8 based stores end up with. Well-formed text (emoji, CJK, RTL, combining marks) round-trips unchanged.
 - `upsertChat`/`upsertContact` merge shallowly with a read-then-write; two concurrent partial upserts of the *same* record can lose one side's fields (same as `@bot-wa/postgres-store`).
-- Works against MySQL 5.7+/8.x and MariaDB 10.x (`VALUES(col)` upsert syntax). The integration suite runs on MySQL 8.4 in CI and has also been run against 8.0.
+- Works against MySQL 5.7+/8.x and MariaDB 10.x (`VALUES(col)` upsert syntax). The integration suite has been run against MySQL 8.4 and 8.0.
 - The database named in the URI/config must exist — the store creates tables, not databases.
 
 ## Tests de integración
@@ -148,4 +148,4 @@ En PowerShell: `$env:BOTWA_TEST_MYSQL_URL = 'mysql://root:root@127.0.0.1:53306/b
 - **Aislamiento:** cada store del test usa su propio `tablePrefix` (`it<run>_<n>_`); cada test borra sus tablas al terminar y un `afterAll` elimina lo que quede de esa ejecución. Se puede apuntar a una base compartida sin pisar datos ni chocar con otra ejecución en paralelo.
 - **Usuario:** necesita permisos de `CREATE`, `DROP`, `INDEX`, `SELECT`, `INSERT`, `UPDATE` y `DELETE` sobre la base, y lectura de `information_schema`.
 - **Windows + Docker Desktop:** usa `127.0.0.1` en lugar de `localhost`. `localhost` resuelve primero a `::1` y el reenvío IPv6 de Docker Desktop acepta la conexión TCP pero no entrega el handshake de MySQL, así que `mysql2` acaba en `ETIMEDOUT`.
-- **CI:** el job `store-integration` levanta `mysql:8.4` como servicio y define `BOTWA_TEST_MYSQL_URL=mysql://root:root@localhost:3306/botwa`.
+- **CI:** esta suite no corre en CI; ejecútala en local con Docker antes de tocar el store.

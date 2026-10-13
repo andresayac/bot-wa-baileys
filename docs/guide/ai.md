@@ -10,7 +10,38 @@ Unlike `slashCommandsPlugin` (bundled with the core), `@bot-wa/ai` ships as
 its own package so the core stays free of AI dependencies.
 :::
 
+## WhatsApp AI policy (since 2026-01-15)
+
+::: warning General-purpose AI assistants are not allowed on the WhatsApp Business Platform
+Since **January 15, 2026**, Meta's terms for the WhatsApp Business Platform
+(the *AI Providers* section) **prohibit general-purpose AI assistants**:
+open-ended, ChatGPT-style chatbots whose main purpose is the AI itself.
+Using AI **in service of the business** (customer support, sales, bookings,
+order tracking) is still allowed.
+:::
+
+What that means for `aiPlugin`:
+
+- Write a `persona` **scoped to your business** (what you sell, opening
+  hours, policies) that politely declines anything unrelated — see the
+  [quickstart](#quickstart-autoresponder) below.
+- Offer a way to reach a human and don't market the bot as an
+  "ask me anything" assistant.
+- The rule comes from the official Cloud API terms (`@bot-wa/meta`). Baileys
+  is an unofficial WhatsApp Web client and is also subject to WhatsApp's
+  terms.
+
+This is practical guidance, not legal advice — check the
+[current terms](https://www.whatsapp.com/legal/business-solution-terms)
+before going live.
+
 ## Install
+
+::: warning Alpha — first npm publish pending
+`@bot-wa/ai` is part of the first alpha, which is **not on npm yet**. Until
+it is published, use it from the monorepo (`workspace:*`); the commands
+below are the ones that will work once it is.
+:::
 
 ```bash
 pnpm add @bot-wa/ai @anthropic-ai/sdk
@@ -35,10 +66,18 @@ import { aiPlugin } from '@bot-wa/ai'
 
 const bot = new Bot({ provider: new BaileysProvider({ session: 'my-bot' }) })
 
+// Business-scoped persona (see "WhatsApp AI policy" above).
+const persona = [
+  'You are the customer-support assistant of La Espiga Bakery.',
+  'You only answer about its products, prices, opening hours (Mon-Sat 7:00-20:00), orders and pre-orders.',
+  'If asked about anything unrelated to the bakery, politely say you can only help with that',
+  'and offer to hand the chat over to a person. Answer briefly; never make up facts.',
+].join(' ')
+
 bot.plug(aiPlugin({
   provider: 'anthropic',
   apiKey: process.env.ANTHROPIC_API_KEY,
-  persona: 'You are a support assistant, answer briefly.',
+  persona,
 }))
 
 await bot.start()
@@ -65,11 +104,13 @@ bot.plug(aiPlugin({
   autoReply: false,
 }))
 
-bot.conversation('summary', async (c, ctx) => {
-  await ctx.reply('📋 Paste the text to summarize:')
+bot.conversation('complaint', async (c, ctx) => {
+  await ctx.reply('📝 Tell us what went wrong with your order:')
   const text = await c.waitText()
-  const summary = await ctx.tools.ai.ask(`Summarize in 3 lines: ${text}`)
-  await ctx.reply(summary)
+  const summary = await ctx.tools.ai.ask(
+    `Summarize this customer complaint in 3 lines for the support team: ${text}`,
+  )
+  await ctx.reply(`✅ We logged your complaint:\n${summary}`)
 })
 ```
 
@@ -189,6 +230,7 @@ down.
 | `persona` | `string` | — | system prompt |
 | `maxTokens` | `number` | `4096` (anthropic) / `1024` (openai-compatible) | output token limit |
 | `effort` | `'low' \| 'medium' \| 'high' \| 'xhigh' \| 'max'` | — | reasoning effort (Anthropic only) |
+| `timeoutMs` | `number` | `60000` | per-call timeout for non-streaming calls; on expiry the request is aborted and rejects, so a hung provider can't block the chat's queue (`0` disables it — not recommended) |
 | `context.maxMessages` | `number` | `20` | history window kept per chat |
 | `autoReply` | `boolean` | `true` | registers the catch-all autoresponder |
 | `resetCommand` | `boolean` | `true` | registers `/reset` |

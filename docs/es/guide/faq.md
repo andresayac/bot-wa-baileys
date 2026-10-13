@@ -58,9 +58,12 @@ bot.when({ pattern: 'hi', match: 'contains' }, handler)
 
 ## ¿Puedo enviar botones?
 
-No — los botones/listas interactivos nativos están muertos en el protocolo
-actual de WhatsApp Web. Usa un menú numerado (`.choose()` en un flow,
-`c.choose()` en una conversación) o una encuesta real:
+Depende del transporte. Con la Cloud API oficial (`@bot-wa/meta`) y con
+Telegram, `ctx.buttons(texto, botones)` envía botones **nativos** (ver
+[Mensajes y media](./mensajes)). En Baileys, no: los botones/listas
+interactivos nativos están muertos en el protocolo actual de WhatsApp Web.
+Usa un menú numerado (`.choose()` en un flow, `c.choose()` en una
+conversación) o una encuesta real:
 
 ```ts
 await ctx.poll('Confirm your order?', ['Yes', 'No'])
@@ -118,6 +121,15 @@ Baileys y un bot con `CloudAPIProvider` en el mismo proceso).
 
 Sí. El bot funciona tanto con cuentas personales como con cuentas de
 WhatsApp Business.
+
+## ¿Puedo montar un asistente de IA estilo ChatGPT en WhatsApp?
+
+No en la WhatsApp Business Platform. Desde el **15-01-2026** los términos de
+Meta **prohíben los asistentes de IA de propósito general** (chatbots
+abiertos cuya funcionalidad principal es la propia IA). La IA al servicio de
+tu negocio — atención al cliente, ventas, reservas — sí está permitida. Con
+`@bot-wa/ai`, escribe una persona acotada a tu negocio; mira la
+[guía del plugin de IA](./ai#politica-de-ia-de-whatsapp-desde-el-15-01-2026).
 
 ## ¿Pueden banear mi cuenta?
 

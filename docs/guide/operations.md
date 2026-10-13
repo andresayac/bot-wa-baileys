@@ -1,5 +1,13 @@
 # Operations: events, inbox and delivery
 
+::: warning Experimental and prototype packages — none is published
+`@bot-wa/events` is **experimental**: a real, tested implementation that is
+still private (not on npm). `@bot-wa/inbox`, `@bot-wa/crm`, `@bot-wa/hub`,
+`@bot-wa/campaigns` and `@bot-wa/deployments` are **prototypes**: minimal
+in-memory sketches to explore the design. They don't persist anything, don't
+scale beyond one process and are not meant for production.
+:::
+
 The operational packages are transport-neutral and scoped by tenant.
 
 ## Event processing

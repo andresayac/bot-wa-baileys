@@ -1,5 +1,11 @@
 # Control plane
 
+::: warning Experimental — not published yet
+`@bot-wa/manager` is **experimental**: a real, tested implementation that is
+still private (not on npm, not part of the first alpha) and whose API may
+change. Use it from the monorepo (`workspace:*`).
+:::
+
 `@bot-wa/manager` has two HTTP surfaces. `createManagerApi` preserves the compact legacy API. New deployments should use `createControlPlaneApi`, which is versioned under `/v1` and never has an unauthenticated mode.
 
 ```ts

@@ -15,7 +15,9 @@ flowchart TD
     C -->|Yes| D[Command handler]
     C -->|No| E{Active conversation<br/>for this participant?}
     E -->|Yes| F[Conversation / flow step continues]
-    E -->|No| G{Matches when/onType,<br/>by specificity?}
+    E -->|No| R{Dormant persistent-flow<br/>checkpoint?}
+    R -->|Yes| F
+    R -->|No| G{Matches when/onType,<br/>by specificity?}
     G -->|Yes| H[Handler runs]
     G -->|"No match / ctx.pass()"| I[onMessage catch-all]
     D --> J["after('message') hooks"]
@@ -29,10 +31,12 @@ flowchart TD
    conversation. That's what lets `/reset` escape a stuck flow.
 2. **Active conversation** — if this participant already started a `flow`
    or `bot.conversation` that's waiting for a reply, the message goes there.
-3. **Matchers** registered with `bot.when(...)`, tried by specificity
+3. **Dormant resume** — if a `.persistent()` flow was checkpointed in the
+   store (e.g. before a restart), the flow resumes at the saved step.
+4. **Matchers** registered with `bot.when(...)`, tried by specificity
    (an exact string/`equals` match beats a broad regex or a media-type
    handler like `onImage`).
-4. **`bot.onMessage()`** — the catch-all, runs **only** if nothing above
+5. **`bot.onMessage()`** — the catch-all, runs **only** if nothing above
    consumed the message.
 
 Handlers **consume by default**: once one runs, the pipeline stops there.
@@ -64,8 +68,9 @@ await bot.start()
 The `Bot` (from `@bot-wa/core`) is the transport-agnostic engine: it runs
 the Dispatcher, hooks, flows, conversations and the scheduler. The
 **provider** is the transport boundary — `@bot-wa/baileys` connects to
-WhatsApp; `@bot-wa/meta` (official Cloud API), `@bot-wa/telegram` and
-`@bot-wa/discord` plug into the same engine. All transports feed the bot
+WhatsApp; `@bot-wa/meta` (official Cloud API), `@bot-wa/telegram` and the
+experimental Messenger, Instagram and Discord transports plug into the same
+engine. All transports feed the bot
 the same normalized events.
 
 ### 2. when — simple responses

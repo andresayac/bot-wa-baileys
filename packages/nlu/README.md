@@ -1,5 +1,7 @@
 # @bot-wa/nlu
 
+> **Experimental — aún no publicado en npm** (experimental, not yet published to npm). A real, tested implementation, but the package is `private`: it is not part of the first alpha and its API may change. Use it from this monorepo (`workspace:*`); the `pnpm add` below will work once it is published.
+
 Lightweight, **fully-local** intent matching for [`@bot-wa/core`](../core). Define intents
 with training phrases (utterances) and match incoming message text against them — no
 network calls, no ML models, no external services. Zero runtime dependencies beyond

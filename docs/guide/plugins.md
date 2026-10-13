@@ -25,7 +25,9 @@ every handler/hook the plugin registered.
 
 ### Built-in: slashCommands
 
-Config: `{ greeting?: string; prefix?: string }`.
+Config: `{ greeting?: string; unknownMessage?: string }`. The command
+prefix itself is a bot option (`new Bot({ commandPrefix })`), not a plugin
+option.
 
 | Command | What it does |
 |---|---|
@@ -36,7 +38,8 @@ Config: `{ greeting?: string; prefix?: string }`.
 | `/id` | Shows the chat ID |
 | `/ping` | Health check (responds "pong") |
 
-Unknown `/commands` get an automatic "unknown command" reply.
+Unknown `/commands` get an automatic "unknown command" reply
+(`unknownMessage`).
 
 ## Create a plugin
 
@@ -118,6 +121,14 @@ definePlugin({
   },
 })
 ```
+
+::: warning `install()` must be synchronous
+`bot.plug()` does not `await` `install()`. An `async install` that rejects
+becomes an unhandled rejection that can take the process down. If your
+plugin needs async setup (open a connection, load an SDK), keep `install`
+synchronous and resolve lazily on first use, reporting configuration errors
+without crashing. That's how `@bot-wa/ai` loads its provider SDKs.
+:::
 
 ## Next steps
 

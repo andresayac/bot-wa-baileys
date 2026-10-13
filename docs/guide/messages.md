@@ -73,6 +73,7 @@ depends on the provider:
   menu**. A numbered menu (`.choose()` in a flow, or `c.choose()` in a
   conversation — see [Flows](./flows)) or a real poll usually reads better.
 - **`@bot-wa/meta`** (Cloud API) — native interactive buttons/lists/templates.
+- **`@bot-wa/telegram`** — native inline keyboards.
 
 ```ts
 await ctx.buttons('Choose one', [
@@ -80,7 +81,8 @@ await ctx.buttons('Choose one', [
   { id: 'b', title: 'Option B' },
 ])
 
-// Polls work natively on WhatsApp either way:
+// Polls are native on Baileys and Telegram. The Cloud API has no polls:
+// there, ctx.poll() rejects with UnsupportedContentError — use buttons.
 await ctx.poll('What do you prefer?', ['Option A', 'Option B'])
 
 // Multi select

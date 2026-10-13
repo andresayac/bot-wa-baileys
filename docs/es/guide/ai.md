@@ -11,7 +11,38 @@ distribuye como un paquete propio para que el core se mantenga libre de
 dependencias de IA.
 :::
 
+## Política de IA de WhatsApp (desde el 15-01-2026)
+
+::: warning Los asistentes de IA de propósito general no están permitidos en la WhatsApp Business Platform
+Desde el **15 de enero de 2026**, los términos de Meta para la WhatsApp
+Business Platform (sección *AI Providers*) **prohíben los asistentes de IA de
+propósito general**: chatbots abiertos estilo ChatGPT cuya funcionalidad
+principal es la propia IA. Sigue estando **permitido** usar IA **al servicio
+del negocio** (atención al cliente, ventas, reservas, seguimiento de pedidos).
+:::
+
+Qué significa para `aiPlugin`:
+
+- Escribe una `persona` **acotada a tu negocio** (qué vendes, horarios,
+  políticas) que rechace con amabilidad lo que no tenga que ver con él — mira
+  el [quickstart](#quickstart-autoresponder) de abajo.
+- Ofrece una salida hacia una persona y no presentes el bot como un asistente
+  "para todo".
+- La regla viene de los términos de la Cloud API oficial (`@bot-wa/meta`).
+  Baileys es un cliente no oficial de WhatsApp Web y también está sujeto a los
+  términos de WhatsApp.
+
+Es una guía práctica, no asesoría legal: revisa los
+[términos vigentes](https://www.whatsapp.com/legal/business-solution-terms)
+antes de salir a producción.
+
 ## Instalación
+
+::: warning Alpha — primera publicación en npm pendiente
+`@bot-wa/ai` forma parte de la primera alpha, que **todavía no está en npm**.
+Hasta que se publique, úsalo desde el monorepo (`workspace:*`); los comandos
+de abajo son los que funcionarán cuando se publique.
+:::
 
 ```bash
 pnpm add @bot-wa/ai @anthropic-ai/sdk
@@ -23,7 +54,7 @@ El segundo paquete es el SDK del proveedor que vayas a usar:
 |---|---|
 | `anthropic` (default) | `@anthropic-ai/sdk` |
 | `openai` | `openai` |
-| `gemini` | `@google/genai` |
+| `gemini` | `@google/generative-ai` |
 | `ollama` | ninguno — habla HTTP directo (`fetch`) contra un servidor Ollama local o remoto |
 | `deepseek`, `qwen`, `glm`, `kimi`, `groq`, `openrouter`, `mistral`, `grok`, `together` | `openai` — son presets OpenAI-compatibles que se alcanzan vía el SDK `openai` con un `baseURL` propio |
 
@@ -36,10 +67,18 @@ import { aiPlugin } from '@bot-wa/ai'
 
 const bot = new Bot({ provider: new BaileysProvider({ session: 'mi-bot' }) })
 
+// Persona acotada al negocio (ver "Política de IA de WhatsApp" arriba).
+const persona = [
+  'Eres el asistente de atención al cliente de Panadería La Espiga.',
+  'Solo respondes sobre sus productos, precios, horarios (lun-sáb 7:00-20:00), pedidos y encargos.',
+  'Si te piden algo ajeno a la panadería, di con amabilidad que solo puedes ayudar con eso',
+  'y ofrece pasar la conversación a una persona. Responde breve y en español; no inventes datos.',
+].join(' ')
+
 bot.plug(aiPlugin({
   provider: 'anthropic',
   apiKey: process.env.ANTHROPIC_API_KEY,
-  persona: 'Eres un asistente de soporte, responde breve y en español.',
+  persona,
 }))
 
 await bot.start()
@@ -66,11 +105,13 @@ bot.plug(aiPlugin({
   autoReply: false,
 }))
 
-bot.conversation('resumen', async (c, ctx) => {
-  await ctx.reply('📋 Pega el texto a resumir:')
+bot.conversation('reclamo', async (c, ctx) => {
+  await ctx.reply('📝 Cuéntanos qué pasó con tu pedido:')
   const texto = await c.waitText()
-  const resumen = await ctx.tools.ai.ask(`Resume en 3 líneas: ${texto}`)
-  await ctx.reply(resumen)
+  const resumen = await ctx.tools.ai.ask(
+    `Resume en 3 líneas este reclamo de un cliente para el equipo de soporte: ${texto}`,
+  )
+  await ctx.reply(`✅ Registramos tu reclamo:\n${resumen}`)
 })
 ```
 
@@ -110,6 +151,10 @@ bot.plug(aiPlugin({
 `baseUrl` es opcional (endpoints compatibles con la API de OpenAI).
 
 ### Gemini
+
+Requiere `@google/generative-ai` (peer opcional, carga lazy). Nota: Google
+publicó después un SDK nuevo (`@google/genai`); este provider sigue usando
+`@google/generative-ai` — la migración se sigue por separado.
 
 ```ts
 bot.plug(aiPlugin({
@@ -187,6 +232,7 @@ el `errorMessage` configurado en vez de tumbar el bot.
 | `persona` | `string` | — | system prompt |
 | `maxTokens` | `number` | `4096` (anthropic) / `1024` (compatibles OpenAI) | límite de tokens de salida |
 | `effort` | `'low' \| 'medium' \| 'high' \| 'xhigh' \| 'max'` | — | esfuerzo de razonamiento (solo Anthropic) |
+| `timeoutMs` | `number` | `60000` | timeout por llamada no-streaming; al vencer aborta la petición y rechaza, para que un proveedor colgado no bloquee la cola del chat (`0` lo desactiva, no recomendado) |
 | `context.maxMessages` | `number` | `20` | ventana de historial guardada por chat |
 | `autoReply` | `boolean` | `true` | registra el autoresponder catch-all |
 | `resetCommand` | `boolean` | `true` | registra `/reset` |

@@ -1,5 +1,7 @@
 # @bot-wa/messenger
 
+> **Experimental — aún no publicado en npm.** Implementación real y con tests, pero el paquete es `private`: no forma parte de la primera alpha y su API puede cambiar. Úsalo desde este monorepo (`workspace:*`); el `pnpm add` de abajo funcionará cuando se publique.
+
 Transporte **Facebook Messenger (Send API oficial de Meta)** para [`@bot-wa/core`](../core). Hermano de `@bot-wa/meta` (WhatsApp Cloud API): misma familia Graph — **webhook con handshake `hub.challenge` + firma `X-Hub-Signature-256`** y una **Send API HTTP** (`POST /{page-id}/messages`). No abre socket.
 
 ## Instalación

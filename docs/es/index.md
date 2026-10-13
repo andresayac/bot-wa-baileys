@@ -4,7 +4,7 @@ layout: home
 hero:
   name: bot-wa-baileys
   text: Framework de bots agnóstico de transporte
-  tagline: Flujos, hooks, plugins y sub-APIs detrás de un mismo IProvider — WhatsApp (Baileys / Cloud API), Telegram, Discord. Simple, declarativo, en TypeScript.
+  tagline: Flujos, hooks, plugins y conversaciones detrás de un mismo IProvider — WhatsApp (Baileys / Cloud API) y Telegram, más Messenger, Instagram y Discord experimentales. Simple, declarativo, en TypeScript. En alpha, aún sin publicar en npm.
   actions:
     - theme: brand
       text: Empezar
@@ -21,7 +21,8 @@ features:
     details: |
       Un motor, muchos transportes. @bot-wa/core corre cualquier IProvider:
       @bot-wa/baileys (WhatsApp Web), @bot-wa/meta (Cloud API oficial de
-      WhatsApp), @bot-wa/telegram, @bot-wa/discord.
+      WhatsApp), @bot-wa/telegram — más providers experimentales de
+      Messenger, Instagram y Discord.
     icon: 🚆
   - title: Declarativo
     details: |

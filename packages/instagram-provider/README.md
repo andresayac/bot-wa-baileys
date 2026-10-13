@@ -1,5 +1,7 @@
 # @bot-wa/instagram
 
+> **Experimental — aún no publicado en npm.** Implementación real y con tests, pero el paquete es `private`: no forma parte de la primera alpha y su API puede cambiar. Úsalo desde este monorepo (`workspace:*`); el `pnpm add` de abajo funcionará cuando se publique.
+
 Transporte **Instagram DM (Messenger API for Instagram, oficial de Meta)** para [`@bot-wa/core`](../core). Es webhook-based (no abre socket): los mensajes llegan al webhook de objeto `page` de la Página de Facebook conectada y el envío usa el Send API de Graph (`me/messages`).
 
 ## Instalación

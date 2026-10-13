@@ -56,9 +56,11 @@ bot.when({ pattern: 'hi', match: 'contains' }, handler)
 
 ## Can I send buttons?
 
-No — native interactive buttons/lists are dead in the current WhatsApp Web
-protocol. Use a numbered menu (`.choose()` in a flow, `c.choose()` in a
-conversation) or a real poll:
+It depends on the transport. With the official Cloud API (`@bot-wa/meta`)
+and Telegram, `ctx.buttons(text, buttons)` sends **native** buttons (see
+[Messages & media](./messages)). On Baileys, no — native interactive
+buttons/lists are dead in the current WhatsApp Web protocol. Use a numbered
+menu (`.choose()` in a flow, `c.choose()` in a conversation) or a real poll:
 
 ```ts
 await ctx.poll('Confirm your order?', ['Yes', 'No'])
@@ -114,6 +116,14 @@ You can even mix transports — one `Bot` per provider
 ## Does it work with WhatsApp Business?
 
 Yes. The bot works with both personal and WhatsApp Business accounts.
+
+## Can I build a ChatGPT-style AI assistant on WhatsApp?
+
+Not on the WhatsApp Business Platform. Since **2026-01-15** Meta's terms
+prohibit **general-purpose AI assistants** (open-ended chatbots whose main
+purpose is the AI itself). AI that serves your business — customer support,
+sales, bookings — is allowed. With `@bot-wa/ai`, write a persona scoped to
+your business; see the [AI plugin guide](./ai#whatsapp-ai-policy-since-2026-01-15).
 
 ## Can my account get banned?
 

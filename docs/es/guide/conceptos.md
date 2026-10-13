@@ -15,7 +15,9 @@ flowchart TD
     C -->|Sí| D[Handler del comando]
     C -->|No| E{¿Hay una conversación activa<br/>para este participante?}
     E -->|Sí| F[Continúa el paso de la conversación / flujo]
-    E -->|No| G{¿Coincide con when/onType,<br/>por especificidad?}
+    E -->|No| R{¿Checkpoint dormido de un<br/>flujo persistente?}
+    R -->|Sí| F
+    R -->|No| G{¿Coincide con when/onType,<br/>por especificidad?}
     G -->|Sí| H[Se ejecuta el handler]
     G -->|"Sin match / ctx.pass()"| I[onMessage catch-all]
     D --> J["hooks after('message')"]
@@ -30,10 +32,13 @@ flowchart TD
    un flujo atascado.
 2. **Conversación activa** — si este participante ya inició un `flow` o un
    `bot.conversation` que está esperando una respuesta, el mensaje va ahí.
-3. **Matchers** registrados con `bot.when(...)`, probados por especificidad
+3. **Reanudación dormida** — si un flujo `.persistent()` quedó guardado como
+   checkpoint en el store (p. ej. antes de un reinicio), el flujo se reanuda
+   en el paso guardado.
+4. **Matchers** registrados con `bot.when(...)`, probados por especificidad
    (una coincidencia exacta de string/`equals` gana sobre un regex amplio o
    un handler de tipo de media como `onImage`).
-4. **`bot.onMessage()`** — el catch-all, se ejecuta **solo** si nada de lo
+5. **`bot.onMessage()`** — el catch-all, se ejecuta **solo** si nada de lo
    anterior consumió el mensaje.
 
 Los handlers **consumen por defecto**: una vez que uno se ejecuta, el
@@ -67,7 +72,8 @@ El `Bot` (de `@bot-wa/core`) es el motor agnóstico de transporte: ejecuta
 el Dispatcher, los hooks, los flujos, las conversaciones y el scheduler.
 El **provider** es la frontera del transporte — `@bot-wa/baileys` se
 conecta a WhatsApp; `@bot-wa/meta` (Cloud API oficial), `@bot-wa/telegram`
-y `@bot-wa/discord` se enchufan al mismo motor. Todos los transportes
+y los transportes experimentales de Messenger, Instagram y Discord se
+enchufan al mismo motor. Todos los transportes
 alimentan al bot con los mismos eventos normalizados.
 
 ### 2. when — respuestas simples

@@ -104,8 +104,10 @@ bot.when('who', async (ctx) => {
 
 ## No native buttons — use a poll
 
-WhatsApp Web killed native buttons, so a quick yes/no is best done with a
-real poll (see [Send media](./media) for more poll options):
+WhatsApp Web killed native buttons, so on Baileys a quick yes/no is best
+done with a real poll (see [Send media](./media) for more poll options). On
+the official Cloud API (`@bot-wa/meta`) it's the other way round: native
+buttons work and polls don't, so use `ctx.buttons()` there.
 
 ```ts
 bot.when('confirm', async (ctx) => {

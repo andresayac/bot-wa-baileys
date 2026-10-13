@@ -1,6 +1,6 @@
 # @bot-wa/core
 
-[![Docs](https://img.shields.io/badge/docs-TypeDoc-blue?logo=typescript&logoColor=white)](https://andresayac.github.io/bot-wa-baileys/)
+[![Docs](https://img.shields.io/badge/docs-guides-blue)](https://github.com/andresayac/bot-wa-baileys/tree/main/docs)
 [![npm](https://img.shields.io/npm/v/@bot-wa/core)](https://www.npmjs.com/package/@bot-wa/core)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](https://github.com/andresayac/bot-wa-baileys/blob/main/LICENSE.md)
 
@@ -100,7 +100,7 @@ const bot = new Bot({
 ## Documentación
 
 - [Guía de migración v1 → v2](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/MIGRATION-v1-to-v2.md)
-- [API (TypeDoc)](https://andresayac.github.io/bot-wa-baileys/)
+- API (TypeDoc): generate it locally with `pnpm docs:api` (output in `docs/api/`)
 
 ## Acknowledgements
 

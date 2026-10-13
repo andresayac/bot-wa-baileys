@@ -25,7 +25,9 @@ cada handler/hook que el plugin registró.
 
 ### Incluido: slashCommands
 
-Config: `{ greeting?: string; prefix?: string }`.
+Config: `{ greeting?: string; unknownMessage?: string }`. El prefijo de
+comandos es una opción del bot (`new Bot({ commandPrefix })`), no del
+plugin.
 
 | Comando | Qué hace |
 |---|---|
@@ -37,7 +39,7 @@ Config: `{ greeting?: string; prefix?: string }`.
 | `/ping` | Health check (responde "pong") |
 
 Los `/comandos` desconocidos reciben automáticamente una respuesta de
-"comando desconocido".
+"comando desconocido" (`unknownMessage`).
 
 ## Crear un plugin
 
@@ -119,6 +121,15 @@ definePlugin({
   },
 })
 ```
+
+::: warning `install()` debe ser síncrono
+`bot.plug()` no hace `await` de `install()`. Un `install` async que rechace
+se convierte en un unhandled rejection que puede tumbar el proceso. Si tu
+plugin necesita inicialización async (abrir una conexión, cargar un SDK),
+mantén `install` síncrono y resuelve de forma perezosa en el primer uso,
+reportando los errores de configuración sin tumbar el bot. Así carga
+`@bot-wa/ai` los SDKs de sus proveedores.
+:::
 
 ## Siguientes pasos
 

@@ -1,11 +1,24 @@
+import { createRequire } from 'node:module'
 import { defineConfig } from 'vitepress'
+
+/**
+ * pnpm's strict node_modules does not expose `vue` at the workspace root (it is
+ * only a dependency of vitepress), yet the SSR bundle compiled from docs/*.md
+ * imports `vue` and `vue/server-renderer`. Resolve bare `vue` imports through
+ * vitepress so the build does not depend on hoisting. Harmless once the root
+ * package.json lists `vue` itself.
+ */
+const vitepressEntry = createRequire(import.meta.url).resolve('vitepress')
+
+/** Public base path of the site (served from the root). */
+const base = '/'
 
 // https://vitepress.dev/reference/site-config
 export default defineConfig({
   title: 'bot-wa-baileys',
   description: 'A modern, transport-agnostic bot framework — WhatsApp (Baileys 7 / Cloud API), Telegram and Discord behind one IProvider',
 
-  // Output to docs/dist/ — served by GitHub Pages
+  // Output to docs/dist/ (local preview only; the site is not hosted)
   srcDir: '.',
   outDir: 'dist',
   cleanUrls: true,
@@ -18,9 +31,39 @@ export default defineConfig({
   // Ignore dead links pointing to it.
   ignoreDeadLinks: [/\/api\//],
 
-  // GitHub Pages base path — empty when serving from root domain
-  // If using https://user.github.io/repo/, set base: '/repo/'
-  base: '/',
+  base,
+
+  vite: {
+    plugins: [
+      {
+        name: 'bot-wa:resolve-vue-through-vitepress',
+        enforce: 'pre',
+        resolveId(source, importer, options) {
+          if (!/^vue(\/|$)/.test(source) || importer === vitepressEntry) return null
+          return this.resolve(source, vitepressEntry, { ...options, skipSelf: true })
+        },
+      },
+    ],
+  },
+
+  markdown: {
+    // Links into the TypeDoc reference (/api/...) leave the VitePress app. Give
+    // them target="_self" so the SPA router does a full load instead of
+    // rendering its 404 page. VitePress skips links that already carry a
+    // target, so the base prefix is added here.
+    config(md) {
+      const next = md.renderer.rules.link_open
+      md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
+        const token = tokens[idx]
+        const href = token.attrGet('href')
+        if (href?.startsWith('/api/') && token.attrIndex('target') < 0) {
+          token.attrSet('href', `${base}${href.slice(1)}`)
+          token.attrSet('target', '_self')
+        }
+        return next ? next(tokens, idx, options, env, self) : self.renderToken(tokens, idx, options)
+      }
+    },
+  },
 
   locales: {
     // English is the root locale (no /en/ prefix)
@@ -31,7 +74,8 @@ export default defineConfig({
         nav: [
           { text: 'Guide', link: '/guide/getting-started' },
           { text: 'Examples', link: '/examples/messages' },
-          { text: 'API', link: '/api/' },
+          // TypeDoc output is plain HTML, not a VitePress page: bypass the SPA router.
+          { text: 'API', link: '/api/', target: '_self' },
         ],
         sidebar: {
           '/guide/': [
@@ -99,7 +143,7 @@ export default defineConfig({
         nav: [
           { text: 'Guía', link: '/es/guide/inicio' },
           { text: 'Ejemplos', link: '/es/ejemplos/mensajes' },
-          { text: 'API', link: '/api/' },
+          { text: 'API', link: '/api/', target: '_self' },
         ],
         sidebar: {
           '/es/guide/': [
@@ -161,7 +205,8 @@ export default defineConfig({
           text: 'Última actualización',
         },
         editLink: {
-          pattern: 'https://github.com/andresayac/bot-wa-baileys/edit/main/docs/es/:path',
+          // :path is relative to srcDir and already starts with es/
+          pattern: 'https://github.com/andresayac/bot-wa-baileys/edit/main/docs/:path',
           text: 'Editar esta página en GitHub',
         },
         search: {

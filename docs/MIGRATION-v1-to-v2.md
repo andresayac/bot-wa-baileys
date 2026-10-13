@@ -186,9 +186,11 @@ La v2 separó el motor de los transportes. El paquete `@bot-wa/bot-wa-baileys` d
 | `@bot-wa/bot-wa-baileys` (todo junto) | `@bot-wa/core` — el motor (`Bot`, `flow`, hooks, plugins, scheduler, `IProvider v2`, testing kit) |
 | Conexión WhatsApp embebida | `@bot-wa/baileys` — `BaileysProvider` (WhatsApp Web vía Baileys 7, QR) |
 | — | `@bot-wa/meta` — `CloudAPIProvider` (WhatsApp Cloud API oficial, webhook) |
-| — | `@bot-wa/telegram` — `TelegramProvider` · `@bot-wa/discord` — `DiscordProvider` |
+| — | `@bot-wa/telegram` — `TelegramProvider` (Telegram Bot API) |
+| — | **Experimentales, sin publicar:** `@bot-wa/messenger` — `MessengerProvider` · `@bot-wa/instagram` — `InstagramProvider` · `@bot-wa/discord` — `DiscordProvider` |
 | `SQLiteStore` incluido | `@bot-wa/sqlite-store` — `SQLiteStore` (peer dep `better-sqlite3`) |
 | — | `@bot-wa/redis-store` — `RedisStore` (estado distribuido) |
+| — | **Experimentales, sin publicar:** `@bot-wa/mongo-store`, `@bot-wa/postgres-store`, `@bot-wa/mysql-store` |
 | `@bot-wa/ai` (anthropic/openai/ollama) | `@bot-wa/ai` + `gemini` + 9 presets OpenAI-compatible: `deepseek`, `qwen`, `glm`, `kimi`, `groq`, `openrouter`, `mistral`, `grok`, `together` |
 
 Reglas prácticas:
@@ -196,7 +198,7 @@ Reglas prácticas:
 - **Todo lo que sea sesión/auth/QR/conexión se movió al provider.** `BotConfig` solo acepta opciones agnósticas (`conversation`, `conversationScope`, `groupMode`, `commandPrefix`, `store`, `debug`, ...).
 - **`ctx.key` → `ctx.ref`** (`MessageRef` con `{ id, chatId, native? }`) y **`ctx.rawMessage` → `ctx.raw`** en handlers, hooks y flujos.
 - **El contenido de `bot.send` es un tagged union neutral**: `{ kind: 'image', media, caption }` en lugar del objeto estilo Baileys `{ image: { url }, caption }`.
-- **Instalación típica**: `pnpm add @bot-wa/core @bot-wa/baileys` (+ `@bot-wa/sqlite-store better-sqlite3` si quieres persistencia, + `@bot-wa/ai` y el SDK del proveedor de IA que uses).
+- **Instalación típica** (cuando salga la primera alpha; hoy **ningún paquete `@bot-wa/*` está en npm** y se usan desde el monorepo): `pnpm add @bot-wa/core @bot-wa/baileys` (+ `@bot-wa/sqlite-store better-sqlite3` si quieres persistencia, + `@bot-wa/ai` y el SDK del proveedor de IA que uses).
 
 ## Desviaciones respecto a la API v1 / BuilderBot
 
