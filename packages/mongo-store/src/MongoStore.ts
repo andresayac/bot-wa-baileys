@@ -12,6 +12,12 @@
  * connection pool — never need a live MongoDB. When no client is injected,
  * `start()` creates and connects one, and `stop()` closes it.
  *
+ * BSON vs. the IStore contract (MemoryStore is the reference): writes drop
+ * `undefined` values instead of persisting BSON `null` (top-level `undefined`
+ * in `upsertChat`/`upsertContact` clears the field, like an object spread),
+ * and reads promote BSON `Binary` back to Node `Buffer`s, so no driver type
+ * leaks out of the store. Documents are capped at MongoDB's 16 MB BSON limit.
+ *
  * @example
  * ```ts
  * import { Bot } from '@bot-wa/core'
@@ -59,13 +65,18 @@ export interface MongoLikeCursor<T extends { _id: string }> {
  */
 export interface MongoLikeCollection<T extends { _id: string }> {
   insertOne(doc: T): Promise<{ insertedId: unknown }>
+  /**
+   * `$unset` lists top-level fields to remove (value `''`). `ignoreUndefined`
+   * asks the driver to drop `undefined` values instead of storing BSON null.
+   */
   updateOne(
     filter: { _id: string },
-    update: { $set: Partial<Omit<T, '_id'>> },
-    options?: { upsert?: boolean },
+    update: { $set: Partial<Omit<T, '_id'>>; $unset?: Record<string, ''> },
+    options?: { upsert?: boolean; ignoreUndefined?: boolean },
   ): Promise<{ matchedCount: number; upsertedCount: number }>
-  findOne(filter: { _id: string }): Promise<T | null>
-  find(filter?: Record<string, unknown>): MongoLikeCursor<T>
+  /** `promoteBuffers` asks the driver to return BSON Binary as Node Buffers. */
+  findOne(filter: { _id: string }, options?: { promoteBuffers?: boolean }): Promise<T | null>
+  find(filter?: Record<string, unknown>, options?: { promoteBuffers?: boolean }): MongoLikeCursor<T>
   deleteOne(filter: { _id: string }): Promise<{ deletedCount: number }>
   deleteMany(filter: Record<string, unknown>): Promise<{ deletedCount: number }>
   createIndex(spec: Record<string, 1 | -1>): Promise<string>
@@ -133,6 +144,33 @@ interface CursorDoc {
   value: string
 }
 
+/**
+ * Write options. By default the driver serializes `undefined` as BSON `null`,
+ * which would surface as `null` in fields typed `T | undefined` (e.g. a
+ * StoredMessage saved with `body: undefined`). Dropping it matches the JSON
+ * semantics of the other stores.
+ */
+const UPSERT = { upsert: true, ignoreUndefined: true } as const
+/** Read options: return BSON Binary as Node Buffers, not the driver's `Binary` class. */
+const READ = { promoteBuffers: true } as const
+
+/**
+ * Shallow-merge update with object-spread semantics (`{ ...existing, ...patch }`,
+ * as in MemoryStore): defined fields are `$set`; fields explicitly present as
+ * `undefined` are `$unset` (cleared) rather than stored as BSON null.
+ */
+function shallowMerge<T extends object>(patch: T): { $set: Partial<T>; $unset?: Record<string, ''> } {
+  const $set: Record<string, unknown> = {}
+  const $unset: Record<string, ''> = {}
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === undefined) $unset[key] = ''
+    else $set[key] = value
+  }
+  const update: { $set: Partial<T>; $unset?: Record<string, ''> } = { $set: $set as Partial<T> }
+  if (Object.keys($unset).length > 0) update.$unset = $unset
+  return update
+}
+
 export class MongoStore implements IStore {
   private readonly client: MongoLikeClient
   private readonly ownsClient: boolean
@@ -175,7 +213,7 @@ export class MongoStore implements IStore {
     await this.messages.updateOne(
       { _id: messageKey(msg.ref) },
       { $set: { chatId: msg.chatId, timestamp: msg.timestamp, msg } },
-      { upsert: true },
+      UPSERT,
     )
     await this.trimChat(msg.chatId)
   }
@@ -193,14 +231,17 @@ export class MongoStore implements IStore {
   }
 
   async getMessage(ref: MessageRef): Promise<StoredMessage | undefined> {
-    const doc = await this.messages.findOne({ _id: messageKey(ref) })
+    const doc = await this.messages.findOne({ _id: messageKey(ref) }, READ)
     return doc?.msg
   }
 
   async getMessagesByChat(chatId: string, limit = 50): Promise<StoredMessage[]> {
+    // MongoDB reads limit(0) as "no limit" and limit(-n) as n; the contract
+    // (MemoryStore) returns nothing for a non-positive limit.
+    if (limit <= 0) return []
     // Latest `limit` messages, newest first, then flipped to oldest -> newest.
     const docs = await this.messages
-      .find({ chatId })
+      .find({ chatId }, READ)
       .sort({ timestamp: -1 })
       .limit(limit)
       .toArray()
@@ -214,16 +255,16 @@ export class MongoStore implements IStore {
   /* Chats ----------------------------------------------------------------- */
 
   async upsertChat(chat: StoredChat): Promise<void> {
-    await this.chats.updateOne({ _id: chat.id }, { $set: chat }, { upsert: true })
+    await this.chats.updateOne({ _id: chat.id }, shallowMerge(chat), UPSERT)
   }
   async getChat(chatId: string): Promise<StoredChat | undefined> {
-    const doc = await this.chats.findOne({ _id: chatId })
+    const doc = await this.chats.findOne({ _id: chatId }, READ)
     if (!doc) return undefined
     const { _id, ...chat } = doc
     return chat
   }
   async listChats(): Promise<StoredChat[]> {
-    const docs = await this.chats.find({}).toArray()
+    const docs = await this.chats.find({}, READ).toArray()
     return docs.map(({ _id, ...chat }) => chat)
   }
   /** Removes the chat document AND purges its message log (consistent with MemoryStore). */
@@ -235,16 +276,16 @@ export class MongoStore implements IStore {
   /* Contacts -------------------------------------------------------------- */
 
   async upsertContact(contact: StoredContact): Promise<void> {
-    await this.contacts.updateOne({ _id: contact.id }, { $set: contact }, { upsert: true })
+    await this.contacts.updateOne({ _id: contact.id }, shallowMerge(contact), UPSERT)
   }
   async getContact(userId: string): Promise<StoredContact | undefined> {
-    const doc = await this.contacts.findOne({ _id: userId })
+    const doc = await this.contacts.findOne({ _id: userId }, READ)
     if (!doc) return undefined
     const { _id, ...contact } = doc
     return contact
   }
   async listContacts(): Promise<StoredContact[]> {
-    const docs = await this.contacts.find({}).toArray()
+    const docs = await this.contacts.find({}, READ).toArray()
     return docs.map(({ _id, ...contact }) => contact)
   }
 
@@ -258,32 +299,32 @@ export class MongoStore implements IStore {
     return (await this.cursors.findOne({ _id: key }))?.value
   }
   async setCursor(key: string, value: string): Promise<void> {
-    await this.cursors.updateOne({ _id: key }, { $set: { value } }, { upsert: true })
+    await this.cursors.updateOne({ _id: key }, { $set: { value } }, UPSERT)
   }
 
   /* Flow checkpoints ------------------------------------------------------ */
 
   async getCheckpoint(key: string): Promise<FlowCheckpoint | undefined> {
-    return (await this.checkpoints.findOne({ _id: key }))?.cp
+    return (await this.checkpoints.findOne({ _id: key }, READ))?.cp
   }
   async setCheckpoint(key: string, cp: FlowCheckpoint): Promise<void> {
-    await this.checkpoints.updateOne({ _id: key }, { $set: { cp } }, { upsert: true })
+    await this.checkpoints.updateOne({ _id: key }, { $set: { cp } }, UPSERT)
   }
   async clearCheckpoint(key: string): Promise<void> {
     await this.checkpoints.deleteOne({ _id: key })
   }
   async listCheckpoints(): Promise<Array<[string, FlowCheckpoint]>> {
-    const docs = await this.checkpoints.find({}).toArray()
+    const docs = await this.checkpoints.find({}, READ).toArray()
     return docs.map((d) => [d._id, d.cp])
   }
 
   /* AI conversation history ----------------------------------------------- */
 
   async getConversation(key: string): Promise<AIMessage[] | undefined> {
-    return (await this.conversations.findOne({ _id: key }))?.messages
+    return (await this.conversations.findOne({ _id: key }, READ))?.messages
   }
   async setConversation(key: string, messages: AIMessage[]): Promise<void> {
-    await this.conversations.updateOne({ _id: key }, { $set: { messages } }, { upsert: true })
+    await this.conversations.updateOne({ _id: key }, { $set: { messages } }, UPSERT)
   }
   async clearConversation(key: string): Promise<void> {
     await this.conversations.deleteOne({ _id: key })
