@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import type { MessageContext, RuntimeMessage } from '@bot-wa/core'
 import { createTestBot } from '@bot-wa/core/testing'
 import { MockAIProvider } from '../src/MockAIProvider.js'
 import { LazyProvider } from '../src/providers/LazyProvider.js'
@@ -14,16 +15,16 @@ async function botWithAI(cfg: AIPluginConfig = {}, mock: AIProvider = new MockAI
 }
 
 /**
- * `bot.conversation` types its ctx as the transport-neutral `RuntimeMessage`
- * (no `tools`), although at runtime it is the full MessageContext. Narrow it at
- * runtime to the AIClient the plugin injected as `ctx.tools.ai`.
+ * Conversation contexts only. `when`/`onMessage`/`command` handlers get a typed
+ * `ctx.tools.ai` from the DefaultTools augmentation, but `bot.conversation` still
+ * types its ctx as `RuntimeMessage` (no `tools`) although at runtime it is the
+ * full MessageContext. Drop this once core types the conversation ctx as
+ * MessageContext.
  */
-function aiToolOf(ctx: object): AIClient {
-  const tools: unknown = 'tools' in ctx ? ctx.tools : undefined
-  expect(tools, 'ctx.tools').toBeTypeOf('object')
-  const ai: unknown = typeof tools === 'object' && tools !== null && 'ai' in tools ? tools.ai : undefined
+function aiToolOf(ctx: RuntimeMessage): AIClient {
+  const ai = (ctx as Partial<MessageContext>).tools?.ai
   expect(ai, 'ctx.tools.ai').toBeInstanceOf(AIClient)
-  if (!(ai instanceof AIClient)) throw new Error('ctx.tools.ai is not an AIClient')
+  if (!ai) throw new Error('ctx.tools.ai is missing')
   return ai
 }
 
@@ -70,9 +71,11 @@ describe('aiPlugin', () => {
     await chat.send('hola')
     await chat.expectReply('sin servicio')
   })
-  it('unplug removes the catch-all and /reset', async () => {
-    const { chat, unplug } = await botWithAI()
+  it('unplug removes the catch-all, /reset and ctx.tools.ai', async () => {
+    const { bot, chat, unplug } = await botWithAI()
+    expect(bot.injectTools.ai).toBeInstanceOf(AIClient)
     unplug()
+    expect('ai' in bot.injectTools).toBe(false)
     await chat.send('x')
     await chat.send('/reset')
     await new Promise((r) => setTimeout(r, 30))
@@ -84,8 +87,8 @@ describe('aiPlugin', () => {
     await chat.send('x')
     await new Promise((r) => setTimeout(r, 30))
     expect(chat.replies().filter((r) => r.includes('IA responde'))).toHaveLength(0)
-    bot.conversation('q', async (c, ctx) => {
-      const a = await aiToolOf(ctx).ask('algo')
+    bot.when('q', async (ctx) => {
+      const a = await ctx.tools.ai.ask('algo')
       await ctx.reply(`ai dijo: ${a}`)
     })
     await chat.send('q')
