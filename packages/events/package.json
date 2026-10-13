@@ -1,6 +1,7 @@
 {
   "name": "@bot-wa/events",
   "version": "0.1.0",
+  "private": true,
   "type": "module",
   "description": "Versioned event envelopes, idempotent journals and retry/DLQ primitives for BotWA.",
   "main": "lib/index.js",

@@ -1,6 +1,7 @@
 {
   "name": "@bot-wa/discord",
   "version": "0.1.0",
+  "private": true,
   "type": "module",
   "description": "Discord transport for @bot-wa/core — gateway websocket events + REST sending, slash commands & components.",
   "main": "lib/index.js",

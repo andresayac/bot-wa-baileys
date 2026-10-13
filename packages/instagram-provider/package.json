@@ -1,6 +1,7 @@
 {
   "name": "@bot-wa/instagram",
   "version": "0.1.0",
+  "private": true,
   "type": "module",
   "description": "Instagram (Meta Graph messaging) transport for @bot-wa/core — DM webhooks + Send API.",
   "main": "lib/index.js", "types": "lib/index.d.ts",

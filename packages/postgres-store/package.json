@@ -1,6 +1,7 @@
 {
   "name": "@bot-wa/postgres-store",
   "version": "0.1.0",
+  "private": true,
   "type": "module",
   "description": "PostgreSQL IStore for @bot-wa/core (node-postgres).",
   "main": "lib/index.js",

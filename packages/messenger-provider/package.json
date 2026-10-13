@@ -1,6 +1,7 @@
 {
   "name": "@bot-wa/messenger",
   "version": "0.1.0",
+  "private": true,
   "type": "module",
   "description": "Facebook Messenger transport for @bot-wa/core — Meta Graph Send API + webhooks, quick replies, templates, typing.",
   "main": "lib/index.js", "types": "lib/index.d.ts",

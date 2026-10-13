@@ -1,6 +1,7 @@
 {
   "name": "@bot-wa/mongo-store",
   "version": "0.1.0",
+  "private": true,
   "type": "module",
   "description": "MongoDB IStore for @bot-wa/core.",
   "main": "lib/index.js", "types": "lib/index.d.ts",

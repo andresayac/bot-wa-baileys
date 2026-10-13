@@ -1,6 +1,7 @@
 {
   "name": "@bot-wa/nlu",
   "version": "0.1.0",
+  "private": true,
   "type": "module",
   "description": "Lightweight local intent/NLU for @bot-wa/core — define intents with utterances, match incoming text, no external services.",
   "main": "lib/index.js", "types": "lib/index.d.ts",

@@ -1,6 +1,7 @@
 {
   "name": "@bot-wa/manager",
   "version": "0.1.0",
+  "private": true,
   "type": "module",
   "description": "Multi-bot orchestrator for @bot-wa/core — manage many Bot instances (registry, lifecycle, status) + optional zero-dep HTTP API.",
   "main": "lib/index.js", "types": "lib/index.d.ts",

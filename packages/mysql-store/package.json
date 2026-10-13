@@ -1,6 +1,7 @@
 {
   "name": "@bot-wa/mysql-store",
   "version": "0.1.0",
+  "private": true,
   "type": "module",
   "description": "MySQL IStore for @bot-wa/core (mysql2).",
   "main": "lib/index.js", "types": "lib/index.d.ts",
