@@ -1,8 +1,8 @@
 /**
  * MongoStore — persistent {@link IStore} backed by MongoDB (official driver v6).
  *
- * All state lives in six collections (`messages`, `chats`, `contacts`,
- * `checkpoints`, `conversations`, `cursors` — each optionally prefixed) inside
+ * All state lives in seven collections (`messages`, `chats`, `contacts`,
+ * `checkpoints`, `conversations`, `cursors`, `user_data` — each optionally prefixed) inside
  * one configurable database, so any number of bot replicas can share one
  * MongoDB deployment. `getMessagesByChat(limit)` is served by a compound
  * `{chatId: 1, timestamp: 1}` index: the latest `limit` messages come back
@@ -36,8 +36,11 @@ import type {
   StoredChat,
   StoredContact,
   StoredMessage,
+  UserDataEntry,
+  UserId,
 } from '@bot-wa/core'
 import { messageKey } from '@bot-wa/core'
+import { MongoUserData, type UserDataDoc } from './userData.js'
 
 /** The native mongodb v6 client type (accepted through {@link MongoStoreOptions.client}). */
 export type NativeMongoClient = MongoClient
@@ -110,6 +113,8 @@ export interface MongoStoreOptions {
  *   checkpoints   { _id: key, cp }
  *   conversations { _id: key, messages }
  *   cursors       { _id: key, value }
+ *   user_data     { _id: [userId,namespace,key] JSON, userId, namespace, key,
+ *                   value (JSON text), expiresAt | null, updatedAt }  — ctx.user
  * -------------------------------------------------------------------------- */
 
 interface MessageDoc {
@@ -147,6 +152,7 @@ export class MongoStore implements IStore {
   private readonly checkpoints: MongoLikeCollection<CheckpointDoc>
   private readonly conversations: MongoLikeCollection<ConversationDoc>
   private readonly cursors: MongoLikeCollection<CursorDoc>
+  private readonly userData: MongoUserData
 
   constructor(opts: MongoStoreOptions = {}) {
     this.dbName = opts.dbName ?? 'botwa'
@@ -167,6 +173,7 @@ export class MongoStore implements IStore {
     this.checkpoints = db.collection<CheckpointDoc>(`${p}checkpoints`)
     this.conversations = db.collection<ConversationDoc>(`${p}conversations`)
     this.cursors = db.collection<CursorDoc>(`${p}cursors`)
+    this.userData = new MongoUserData(db.collection<UserDataDoc>(`${p}user_data`))
   }
 
   /* Messages -------------------------------------------------------------- */
@@ -289,6 +296,25 @@ export class MongoStore implements IStore {
     await this.conversations.deleteOne({ _id: key })
   }
 
+  /* User data (ctx.user) — collection `user_data`, lazy expiry + purge ---- */
+
+  async getUserData(userId: UserId, namespace: string, key: string): Promise<UserDataEntry | undefined> {
+    return this.userData.get(userId, namespace, key, Date.now())
+  }
+  async setUserData(entry: UserDataEntry): Promise<void> {
+    await this.userData.set(entry)
+  }
+  async deleteUserData(userId: UserId, namespace?: string, key?: string): Promise<void> {
+    await this.userData.delete(userId, namespace, key)
+  }
+  async listUserData(userId: UserId, namespace?: string): Promise<UserDataEntry[]> {
+    return this.userData.list(userId, namespace, Date.now())
+  }
+  /** Delete every expired user-data document (all users); resolves with the count. */
+  async purgeExpiredUserData(now: number = Date.now()): Promise<number> {
+    return this.userData.purge(now)
+  }
+
   /* Lifecycle -------------------------------------------------------------- */
 
   async start(): Promise<void> {
@@ -296,6 +322,7 @@ export class MongoStore implements IStore {
     if (this.ownsClient && !this.started) await this.client.connect()
     // Backs the per-chat time-ordered read in getMessagesByChat.
     await this.messages.createIndex({ chatId: 1, timestamp: 1 })
+    await this.userData.ensureIndexes()
     this.started = true
   }
   async stop(): Promise<void> {

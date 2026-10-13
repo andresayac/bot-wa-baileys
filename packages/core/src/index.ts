@@ -153,3 +153,11 @@ export { Scheduler } from './scheduler/Scheduler.js'
 
 // Testing helpers live under the "./testing" subpath export
 // (import from '@bot-wa/core/testing') — not re-exported here to keep the entry lean.
+
+// ctx-user
+export { UserDataService, userOf, supportsUserData, DEFAULT_USER_NAMESPACE } from './user/UserDataService.js'
+export type { UserDataServiceOptions } from './user/UserDataService.js'
+export { UserDataError } from './user/errors.js'
+export type { UserDataErrorCode } from './user/errors.js'
+export type { UserData, UserSetOptions } from './user/types.js'
+export type { UserDataEntry } from './core/provider.js'

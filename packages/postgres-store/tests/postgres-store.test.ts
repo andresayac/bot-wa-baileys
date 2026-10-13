@@ -186,10 +186,11 @@ describe('PostgresStore — lifecycle', () => {
       await store.start()
       const createTables = () =>
         querySpy.mock.calls.filter(([t]) => String(t).startsWith('CREATE TABLE IF NOT EXISTS'))
-      expect(createTables()).toHaveLength(6)
+      // Six state tables + user_data (ctx.user).
+      expect(createTables()).toHaveLength(7)
       // start() is idempotent while started — schema statements are not repeated.
       await store.start()
-      expect(createTables()).toHaveLength(6)
+      expect(createTables()).toHaveLength(7)
       await store.stop()
       expect(endSpy).toHaveBeenCalledTimes(1)
     } finally {

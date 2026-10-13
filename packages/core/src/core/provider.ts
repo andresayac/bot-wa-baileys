@@ -11,6 +11,8 @@
  *  - ESM, zero runtime deps in core (only structural / type-only references).
  */
 
+import type { UserData } from '../user/types.js'
+
 /* ============================================================================
  * 1. IDENTITY PRIMITIVES  (opaque — no shape grammar)
  * ========================================================================== */
@@ -542,6 +544,12 @@ export interface MessageContext<TTools extends object = DefaultTools, TRaw = unk
   abort(): void
   next?(): Promise<void>
 
+  /**
+   * Persistent profile of the sender (`ctx.sender`), shared across chats — see
+   * {@link UserData}. `ctx.user.ns('game')` scopes it to a namespace.
+   */
+  user: UserData
+
   tools: TTools
 }
 
@@ -576,6 +584,8 @@ export interface BuildContextDeps<TRaw = unknown> {
   downloadMedia?(ref: MediaRef): Promise<Buffer | NodeJS.ReadableStream>
   /** Set when this context projects an interaction (button/slash/callback). */
   interaction?: { id: string; data: string; respondBy?: number }
+  /** Sender profile exposed as `ctx.user`; when omitted every `ctx.user` call rejects with `UserDataError('UNAVAILABLE')`. */
+  user?: UserData
 }
 
 /* ============================================================================
@@ -641,6 +651,29 @@ export interface FlowCheckpoint {
   updatedAt: number
 }
 
+/**
+ * One persisted per-user profile entry — the storage unit behind `ctx.user`.
+ *
+ * The atomic unit is a TOP-LEVEL key inside a namespace: `ctx.user.set('address.city', …)`
+ * reads and rewrites the whole `address` entry, while two different top-level
+ * keys never touch each other. `value` is JSON-compatible data (stores persist
+ * it as JSON and hand back a fresh copy on every read).
+ */
+export interface UserDataEntry {
+  /** Canonical subject id (the provider-resolved `senderId`). Opaque. */
+  userId: UserId
+  /** Namespace that groups keys (`'default'` for `ctx.user`). */
+  namespace: string
+  /** Top-level key inside the namespace (first segment of a dot path). */
+  key: string
+  /** JSON-compatible value. */
+  value: unknown
+  /** Epoch ms after which the entry counts as absent. `undefined` = never expires. */
+  expiresAt?: number
+  /** Epoch ms of the last write. */
+  updatedAt: number
+}
+
 export interface IStore {
   saveMessage(msg: StoredMessage): Promise<void>
   getMessage(ref: MessageRef): Promise<StoredMessage | undefined>
@@ -670,6 +703,39 @@ export interface IStore {
   setCheckpoint(key: string, cp: FlowCheckpoint): Promise<void>
   clearCheckpoint(key: string): Promise<void>
   listCheckpoints(): Promise<Array<[string, FlowCheckpoint]>>
+
+  /* Per-user profile data (`ctx.user`) — see {@link UserDataEntry}.
+   * Optional so custom stores keep compiling; a store supports `ctx.user`
+   * only when it implements get/set/delete/list (purge is optional). All six
+   * built-in stores implement the full set and pass the shared
+   * `test-utils/user-data-conformance.ts` suite. */
+
+  /**
+   * Read one entry. MUST return `undefined` when the entry is missing OR its
+   * `expiresAt` is `<= Date.now()` (lazy expiry — expired rows may still exist
+   * physically until purged).
+   */
+  getUserData?(userId: UserId, namespace: string, key: string): Promise<UserDataEntry | undefined>
+  /**
+   * Upsert one entry as a SINGLE atomic write that replaces both `value` and
+   * `expiresAt` (no read-modify-write inside the store). An entry whose
+   * `expiresAt` is already in the past may be dropped instead of written.
+   */
+  setUserData?(entry: UserDataEntry): Promise<void>
+  /**
+   * Delete one key (`namespace` + `key`), one whole namespace (`key` omitted)
+   * or every namespace of the user (`namespace` omitted; `key` is then ignored).
+   * Deleting missing data is a no-op.
+   */
+  deleteUserData?(userId: UserId, namespace?: string, key?: string): Promise<void>
+  /** Live (non-expired) entries of a user — all namespaces, or just `namespace`. Order unspecified. */
+  listUserData?(userId: UserId, namespace?: string): Promise<UserDataEntry[]>
+  /**
+   * Physically remove entries whose `expiresAt <= now` (default `Date.now()`)
+   * across the whole store; resolves with how many were removed. Stores with
+   * native expiry (Redis) resolve `0`.
+   */
+  purgeExpiredUserData?(now?: number): Promise<number>
 
   start(): Promise<void>
   stop(): Promise<void>

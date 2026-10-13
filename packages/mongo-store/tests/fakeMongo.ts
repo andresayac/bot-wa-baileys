@@ -4,8 +4,9 @@
  *
  * Hermetic: no network, no real MongoDB. Documents are JSON-round-tripped on
  * the way in and out (like the driver's BSON serialization), so tests never
- * observe shared object references. Filters are plain equality matches —
- * exactly the shapes MongoStore sends (`{ _id }`, `{ chatId }`, `{}`).
+ * observe shared object references. Filters are plain top-level equality
+ * matches plus the `$lte` operator — exactly the shapes MongoStore sends
+ * (`{ _id }`, `{ chatId }`, `{ userId, namespace }`, `{ expiresAt: { $lte } }`, `{}`).
  */
 import type {
   MongoLikeClient,
@@ -20,9 +21,34 @@ function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T
 }
 
-/** Every filter entry must equal the document's value at that path (top-level only). */
+/** An operator object such as `{ $lte: 5 }` (every key starts with `$`). */
+function isOperatorObject(value: unknown): value is Record<string, unknown> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
+  const keys = Object.keys(value)
+  return keys.length > 0 && keys.every((k) => k.startsWith('$'))
+}
+
+/** The comparison operators MongoStore sends (user-data purge: `{ expiresAt: { $lte: now } }`). */
+function applyOperator(op: string, actual: unknown, operand: unknown): boolean {
+  switch (op) {
+    case '$lte':
+      // Like MongoDB's type bracketing: a number bound never matches null/missing.
+      return typeof actual === 'number' && typeof operand === 'number' && actual <= operand
+    default:
+      throw new Error(`FakeMongo: unsupported query operator ${op}`)
+  }
+}
+
+/**
+ * Every filter entry must match the document's top-level value: plain
+ * equality, or an operator object (`{ $lte: n }`) evaluated per operator.
+ */
 function matches(doc: Doc, filter: Record<string, unknown>): boolean {
-  return Object.entries(filter).every(([key, value]) => doc[key] === value)
+  return Object.entries(filter).every(([key, value]) =>
+    isOperatorObject(value)
+      ? Object.entries(value).every(([op, operand]) => applyOperator(op, doc[key], operand))
+      : doc[key] === value,
+  )
 }
 
 export class FakeCursor<T extends Doc> implements MongoLikeCursor<T> {

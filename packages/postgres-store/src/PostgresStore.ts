@@ -2,8 +2,9 @@
  * PostgresStore — persistent / distributed {@link IStore} backed by PostgreSQL
  * (node-postgres, `pg`).
  *
- * All state lives in six tables (names optionally namespaced by `tablePrefix`):
- * messages, chats, contacts, checkpoints, conversations and cursors. Documents
+ * All state lives in seven tables (names optionally namespaced by `tablePrefix`):
+ * messages, chats, contacts, checkpoints, conversations, cursors and user_data
+ * (`ctx.user`). Documents
  * are stored as **JSONB**; per-chat message logs are ordered by a dedicated
  * `timestamp BIGINT` column, which makes "last N messages" a plain
  * `ORDER BY timestamp DESC LIMIT n` + reverse. Any number of bot replicas can
@@ -42,8 +43,11 @@ import type {
   StoredChat,
   StoredContact,
   StoredMessage,
+  UserDataEntry,
+  UserId,
 } from '@bot-wa/core'
 import { messageKey } from '@bot-wa/core'
+import { PostgresUserData } from './userData.js'
 
 /** The slice of a `pg` `QueryResult` this store consumes. */
 export interface PostgresQueryResult {
@@ -103,6 +107,7 @@ export class PostgresStore implements IStore {
   private readonly logger?: { error?: (...args: unknown[]) => void }
   private pool?: PostgresPoolLike
   private started = false
+  private readonly userData: PostgresUserData
 
   constructor(opts: PostgresStoreOptions = {}) {
     this.connectionString = opts.connectionString ?? 'postgres://localhost:5432/botwa'
@@ -117,6 +122,11 @@ export class PostgresStore implements IStore {
     this.injectedPool = opts.pool as PostgresPoolLike | undefined
     this.pool = this.injectedPool
     this.logger = opts.logger
+    this.userData = new PostgresUserData(
+      <T>(text: string, values?: unknown[]) =>
+        this.query<T>(text, values) as Promise<{ rows: T[]; rowCount?: number | null }>,
+      `${this.prefix}user_data`,
+    )
   }
 
   /* Schema ------------------------------------------------------------------ *
@@ -126,6 +136,8 @@ export class PostgresStore implements IStore {
    *   {prefix}checkpoints   key TEXT PK, cp JSONB
    *   {prefix}conversations key TEXT PK, messages JSONB
    *   {prefix}cursors       key TEXT PK, value TEXT
+   *   {prefix}user_data     (user_id, namespace, key) PK, value TEXT (JSON),
+   *                         expires_at BIGINT NULL (indexed), updated_at BIGINT  — ctx.user
    * -------------------------------------------------------------------------- */
 
   private table(name: 'messages' | 'chats' | 'contacts' | 'checkpoints' | 'conversations' | 'cursors'): string {
@@ -141,6 +153,7 @@ export class PostgresStore implements IStore {
       `CREATE TABLE IF NOT EXISTS ${this.table('checkpoints')} (key TEXT PRIMARY KEY, cp JSONB NOT NULL)`,
       `CREATE TABLE IF NOT EXISTS ${this.table('conversations')} (key TEXT PRIMARY KEY, messages JSONB NOT NULL)`,
       `CREATE TABLE IF NOT EXISTS ${this.table('cursors')} (key TEXT PRIMARY KEY, value TEXT NOT NULL)`,
+      ...this.userData.schemaStatements(),
     ]
   }
 
@@ -321,6 +334,25 @@ export class PostgresStore implements IStore {
   }
   async clearConversation(key: string): Promise<void> {
     await this.query(`DELETE FROM ${this.table('conversations')} WHERE key = $1`, [key])
+  }
+
+  /* User data (ctx.user) — table {prefix}user_data, lazy expiry + purge ---- */
+
+  async getUserData(userId: UserId, namespace: string, key: string): Promise<UserDataEntry | undefined> {
+    return this.userData.get(userId, namespace, key, Date.now())
+  }
+  async setUserData(entry: UserDataEntry): Promise<void> {
+    await this.userData.set(entry)
+  }
+  async deleteUserData(userId: UserId, namespace?: string, key?: string): Promise<void> {
+    await this.userData.delete(userId, namespace, key)
+  }
+  async listUserData(userId: UserId, namespace?: string): Promise<UserDataEntry[]> {
+    return this.userData.list(userId, namespace, Date.now())
+  }
+  /** Delete every expired user-data row (all users); resolves with the count. */
+  async purgeExpiredUserData(now: number = Date.now()): Promise<number> {
+    return this.userData.purge(now)
   }
 
   /* Lifecycle ------------------------------------------------------------------- */

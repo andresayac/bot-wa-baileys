@@ -6,10 +6,13 @@ import type { CompiledFlow } from '../flows/FlowBuilder.js'
 import { flowToConversation, runSteps } from './interpreter.js'
 import type { ConversationControls } from './controls.js'
 import type { FlowCheckpoint } from '../store/IStore.js'
+import type { UserData } from '../user/types.js'
 
 export interface RuntimeMessage {
   from: string; sender: string; body: string; type: string; isGroup: boolean
   reply(text: string): Promise<unknown>
+  /** Sender profile when the message came through a Bot (`userOf(ctx)` gives a non-optional handle). */
+  user?: UserData
 }
 
 export interface ResolvedWaitOptions {

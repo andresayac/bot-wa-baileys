@@ -35,7 +35,7 @@ export class FakePool implements PoolLike {
   ended = false
 
   private readonly jsonAsString: boolean
-  private readonly t: Record<'messages' | 'chats' | 'contacts' | 'checkpoints' | 'conversations' | 'cursors', string>
+  private readonly t: Record<'messages' | 'chats' | 'contacts' | 'checkpoints' | 'conversations' | 'cursors' | 'userData', string>
 
   constructor(opts: FakePoolOptions = {}) {
     this.jsonAsString = opts.jsonAsString === true
@@ -47,7 +47,69 @@ export class FakePool implements PoolLike {
       checkpoints: `${p}checkpoints`,
       conversations: `${p}conversations`,
       cursors: `${p}cursors`,
+      userData: `${p}user_data`,
     }
+  }
+
+  /**
+   * user_data (ctx.user) statements. Rows are keyed by (user_id, namespace, key)
+   * with exact string comparison (the real table uses utf8mb4_bin). DML replies
+   * mimic mysql2's ResultSetHeader (`affectedRows`) in the rows slot.
+   */
+  private userDataQuery(s: string, p: readonly unknown[]): MysqlQueryResult | undefined {
+    const ud = this.t.userData
+    const cols = 'user_id, namespace, `key`, value, expires_at, updated_at'
+    const id = (u: unknown, n: unknown, k: unknown): string => JSON.stringify([String(u), String(n), String(k)])
+    const live = (r: Row, now: unknown): boolean => r.expires_at == null || Number(r.expires_at) > Number(now)
+    const header = (affectedRows: number): MysqlQueryResult => [{ affectedRows } as unknown as Row[], []]
+    const remove = (match: (r: Row) => boolean): MysqlQueryResult => {
+      let n = 0
+      for (const [k, r] of this.table(ud)) {
+        if (match(r)) {
+          this.table(ud).delete(k)
+          n++
+        }
+      }
+      return header(n)
+    }
+    const select = (match: (r: Row) => boolean): MysqlQueryResult =>
+      [[...this.table(ud).values()].filter(match).map((r) => ({ ...r })), []]
+
+    if (
+      s ===
+      `INSERT INTO \`${ud}\` (${cols}) VALUES (?, ?, ?, ?, ?, ?) ` +
+        'ON DUPLICATE KEY UPDATE value = VALUES(value), expires_at = VALUES(expires_at), updated_at = VALUES(updated_at)'
+    ) {
+      const [userId, namespace, key, value, expiresAt, updatedAt] = p
+      const existed = this.table(ud).has(id(userId, namespace, key))
+      this.table(ud).set(id(userId, namespace, key), {
+        user_id: userId, namespace, key, value: String(value),
+        expires_at: expiresAt == null ? null : Number(expiresAt), updated_at: Number(updatedAt),
+      })
+      return header(existed ? 2 : 1)
+    }
+    if (s === `SELECT ${cols} FROM \`${ud}\` WHERE user_id = ? AND namespace = ? AND \`key\` = ? AND (expires_at IS NULL OR expires_at > ?)`) {
+      return select((r) => r.user_id === p[0] && r.namespace === p[1] && r.key === p[2] && live(r, p[3]))
+    }
+    if (s === `SELECT ${cols} FROM \`${ud}\` WHERE user_id = ? AND (expires_at IS NULL OR expires_at > ?)`) {
+      return select((r) => r.user_id === p[0] && live(r, p[1]))
+    }
+    if (s === `SELECT ${cols} FROM \`${ud}\` WHERE user_id = ? AND namespace = ? AND (expires_at IS NULL OR expires_at > ?)`) {
+      return select((r) => r.user_id === p[0] && r.namespace === p[1] && live(r, p[2]))
+    }
+    if (s === `DELETE FROM \`${ud}\` WHERE user_id = ? AND namespace = ? AND \`key\` = ?`) {
+      return remove((r) => r.user_id === p[0] && r.namespace === p[1] && r.key === p[2])
+    }
+    if (s === `DELETE FROM \`${ud}\` WHERE user_id = ? AND namespace = ?`) {
+      return remove((r) => r.user_id === p[0] && r.namespace === p[1])
+    }
+    if (s === `DELETE FROM \`${ud}\` WHERE user_id = ?`) {
+      return remove((r) => r.user_id === p[0])
+    }
+    if (s === `DELETE FROM \`${ud}\` WHERE expires_at IS NOT NULL AND expires_at <= ?`) {
+      return remove((r) => r.expires_at != null && Number(r.expires_at) <= Number(p[0]))
+    }
+    return undefined
   }
 
   /** JSON column read: parsed object by default, raw string under `jsonAsString`. */
@@ -186,6 +248,9 @@ export class FakePool implements PoolLike {
       const row = this.table(cursors).get(String(p[0]))
       return [row ? [{ value: row.value }] : [], []]
     }
+
+    const userData = this.userDataQuery(s, p)
+    if (userData) return userData
 
     throw new Error(`FakePool: statement not implemented: ${s}`)
   }

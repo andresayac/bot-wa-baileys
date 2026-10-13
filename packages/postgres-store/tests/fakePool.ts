@@ -12,21 +12,78 @@ import type { PostgresPoolLike, PostgresQueryResult } from '../src/PostgresStore
 interface TableDef {
   /** column name -> SQL type (TEXT / BIGINT / JSONB / ...) */
   columns: Map<string, string>
-  pk: string
-  /** pk value -> row */
+  /** Primary-key column(s): a column-level PRIMARY KEY or a table-level `PRIMARY KEY (a, b)`. */
+  pk: string[]
+  /** pk value(s) -> row */
   rows: Map<string, Record<string, unknown>>
 }
+
+type Row = Record<string, unknown>
+type Predicate = (row: Row, values: unknown[]) => boolean
 
 const RE = {
   createTable: /^CREATE TABLE IF NOT EXISTS (\S+) \((.+)\)$/,
   createIndex: /^CREATE INDEX IF NOT EXISTS .+$/,
   insert:
-    /^INSERT INTO (\S+) \(([^)]+)\) VALUES \(([^)]+)\) ON CONFLICT \((\w+)\) DO UPDATE SET (.+)$/,
+    /^INSERT INTO (\S+) \(([^)]+)\) VALUES \(([^)]+)\) ON CONFLICT \(([\w, ]+)\) DO UPDATE SET (.+)$/,
   selectOrderLimit: /^SELECT (.+) FROM (\S+) WHERE (\w+) = \$1 ORDER BY (\w+) (ASC|DESC) LIMIT \$2$/,
   selectWhere: /^SELECT (.+) FROM (\S+) WHERE (\w+) = \$1$/,
   selectAll: /^SELECT (.+) FROM (\S+)$/,
   deleteWhere: /^DELETE FROM (\S+) WHERE (\w+) = \$1$/,
   deleteTrim: /^DELETE FROM (\S+) WHERE (\w+) = \$1 AND id NOT IN \(SELECT id FROM \S+ WHERE \w+ = \$1 ORDER BY (\w+) DESC, id DESC LIMIT \$2\)$/,
+  /** Multi-predicate WHERE (user_data statements) — see {@link parseWhere}. */
+  selectWhereAnd: /^SELECT (.+?) FROM (\S+) WHERE (.+)$/,
+  deleteWhereAnd: /^DELETE FROM (\S+) WHERE (.+)$/,
+}
+
+/** Split on `sep` only at parenthesis depth 0. */
+function splitTopLevel(text: string, sep: string): string[] {
+  const parts: string[] = []
+  let depth = 0
+  let start = 0
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i]
+    if (ch === '(') depth++
+    else if (ch === ')') depth--
+    else if (depth === 0 && text.startsWith(sep, i)) {
+      parts.push(text.slice(start, i))
+      start = i + sep.length
+      i += sep.length - 1
+    }
+  }
+  parts.push(text.slice(start))
+  return parts.map((p) => p.trim())
+}
+
+/**
+ * Parse a conjunction of the predicate shapes PostgresStore's user-data SQL
+ * uses: `col = $n`, `(col IS NULL OR col > $n)`, `col IS NOT NULL`, `col <= $n`.
+ * Anything else throws, so drift to new SQL fails loudly.
+ */
+function parseWhere(where: string): Predicate[] {
+  return splitTopLevel(where, ' AND ').map((clause): Predicate => {
+    let m = /^(\w+) = \$(\d+)$/.exec(clause)
+    if (m) {
+      const [, col, n] = m
+      return (row, values) => row[col!] != null && String(row[col!]) === String(values[Number(n) - 1])
+    }
+    m = /^\((\w+) IS NULL OR (\w+) > \$(\d+)\)$/.exec(clause)
+    if (m && m[1] === m[2]) {
+      const [, col, , n] = m
+      return (row, values) => row[col!] == null || Number(row[col!]) > Number(values[Number(n) - 1])
+    }
+    m = /^(\w+) IS NOT NULL$/.exec(clause)
+    if (m) {
+      const [, col] = m
+      return (row) => row[col!] != null
+    }
+    m = /^(\w+) <= \$(\d+)$/.exec(clause)
+    if (m) {
+      const [, col, n] = m
+      return (row, values) => row[col!] != null && Number(row[col!]) <= Number(values[Number(n) - 1])
+    }
+    throw new Error(`FakePool: unsupported WHERE clause: ${clause}`)
+  })
 }
 
 export class FakePool implements PostgresPoolLike {
@@ -63,6 +120,12 @@ export class FakePool implements PostgresPoolLike {
     m = RE.deleteWhere.exec(stmt)
     if (m) return this.deleteWhere(m[1], m[2], values)
 
+    m = RE.selectWhereAnd.exec(stmt)
+    if (m) return this.selectWhereAnd(m[1], m[2], m[3], values)
+
+    m = RE.deleteWhereAnd.exec(stmt)
+    if (m) return this.deleteWhereAnd(m[1], m[2], values)
+
     throw new Error(`FakePool: unsupported statement: ${stmt}`)
   }
 
@@ -75,31 +138,62 @@ export class FakePool implements PostgresPoolLike {
   private createTable(name: string, body: string): PostgresQueryResult {
     if (!this.tables.has(name)) {
       const columns = new Map<string, string>()
-      let pk = ''
-      for (const raw of body.split(',')) {
-        const def = raw.trim()
+      let pk: string[] = []
+      for (const def of splitTopLevel(body, ',')) {
+        const tableKey = /^PRIMARY KEY \(([^)]+)\)$/.exec(def)
+        if (tableKey) {
+          pk = tableKey[1].split(',').map((c) => c.trim())
+          continue
+        }
         const cm = /^(\w+)\s+(\w+)/.exec(def)
         if (!cm) continue
         columns.set(cm[1], cm[2].toUpperCase())
-        if (/\bPRIMARY KEY\b/.test(def)) pk = cm[1]
+        if (/\bPRIMARY KEY\b/.test(def)) pk = [cm[1]]
       }
-      if (!pk) throw new Error(`FakePool: table ${name} has no PRIMARY KEY column`)
+      if (!pk.length) throw new Error(`FakePool: table ${name} has no PRIMARY KEY`)
+      for (const col of pk) {
+        if (!columns.has(col)) throw new Error(`FakePool: PRIMARY KEY column ${col} is not defined in ${name}`)
+      }
       this.tables.set(name, { columns, pk, rows: new Map() })
     }
     return { rows: [], rowCount: 0 }
   }
 
-  /** INSERT ... ON CONFLICT (pk) DO UPDATE SET ... → full-row upsert. */
-  private upsert(table: string, colsCsv: string, _pk: string, values: unknown[]): PostgresQueryResult {
+  /** INSERT ... ON CONFLICT (pk[, ...]) DO UPDATE SET ... → full-row upsert. */
+  private upsert(table: string, colsCsv: string, conflictCsv: string, values: unknown[]): PostgresQueryResult {
     const def = this.table(table)
+    const conflict = conflictCsv.split(',').map((c) => c.trim())
+    if (conflict.join(',') !== def.pk.join(',')) {
+      throw new Error(`FakePool: ON CONFLICT (${conflict.join(', ')}) does not match the primary key of ${table}`)
+    }
     const cols = colsCsv.split(',').map((c) => c.trim())
     const row: Record<string, unknown> = {}
     cols.forEach((col, i) => {
       row[col] = this.convert(def.columns.get(col), values[i])
     })
-    const key = String(row[def.pk])
-    def.rows.set(key, row)
+    def.rows.set(this.rowKey(def, row), row)
     return { rows: [], rowCount: 1 }
+  }
+
+  /** SELECT cols FROM t WHERE <conjunction> (user_data reads). */
+  private selectWhereAnd(colsCsv: string, table: string, where: string, values: unknown[]): PostgresQueryResult {
+    const predicates = parseWhere(where)
+    const rows = [...this.table(table).rows.values()].filter((row) => predicates.every((p) => p(row, values)))
+    return this.project(colsCsv, rows)
+  }
+
+  /** DELETE FROM t WHERE <conjunction> (user_data deletes + purge). */
+  private deleteWhereAnd(table: string, where: string, values: unknown[]): PostgresQueryResult {
+    const def = this.table(table)
+    const predicates = parseWhere(where)
+    let removed = 0
+    for (const [key, row] of def.rows) {
+      if (predicates.every((p) => p(row, values))) {
+        def.rows.delete(key)
+        removed++
+      }
+    }
+    return { rows: [], rowCount: removed }
   }
 
   private selectWhere(colsCsv: string, table: string, col: string, values: unknown[]): PostgresQueryResult {
@@ -167,6 +261,11 @@ export class FakePool implements PostgresPoolLike {
     const def = this.tables.get(name)
     if (!def) throw new Error(`FakePool: relation "${name}" does not exist`)
     return def
+  }
+
+  /** Map key for a row: its primary-key value(s), unambiguously joined. */
+  private rowKey(def: TableDef, row: Row): string {
+    return def.pk.length === 1 ? String(row[def.pk[0]]) : JSON.stringify(def.pk.map((c) => String(row[c])))
   }
 
   /** Mimic node-postgres: JSONB stored parsed, returned parsed; BIGINT as number. */

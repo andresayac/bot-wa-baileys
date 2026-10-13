@@ -33,10 +33,10 @@ describe('MysqlStore', () => {
   })
   afterEach(async () => { await store.stop() })
 
-  it('provisions the six tables on start (CREATE TABLE IF NOT EXISTS)', async () => {
+  it('provisions the six state tables + user_data on start (CREATE TABLE IF NOT EXISTS)', async () => {
     const created = fake.queries.map((q) => q.sql).filter((s) => s.startsWith('CREATE TABLE IF NOT EXISTS'))
-    expect(created).toHaveLength(6)
-    for (const name of ['messages', 'chats', 'contacts', 'checkpoints', 'conversations', 'cursors']) {
+    expect(created).toHaveLength(7)
+    for (const name of ['messages', 'chats', 'contacts', 'checkpoints', 'conversations', 'cursors', 'user_data']) {
       expect(fake.tables.has(name)).toBe(true)
     }
   })

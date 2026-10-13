@@ -1,8 +1,8 @@
 /**
  * MysqlStore — persistent {@link IStore} backed by MySQL/MariaDB (mysql2).
  *
- * All state lives in six small tables (names configurable via `tablePrefix`,
- * so apps/bots can share one database). Message bodies, chats, contacts,
+ * All state lives in seven small tables (names configurable via `tablePrefix`,
+ * so apps/bots can share one database; `user_data` backs `ctx.user`). Message bodies, chats, contacts,
  * checkpoints and conversations are stored as JSON documents; `timestamp` is
  * a plain BIGINT so `getMessagesByChat(limit)` is an indexed
  * `ORDER BY timestamp DESC LIMIT ?` window, returned oldest→newest.
@@ -37,8 +37,11 @@ import type {
   StoredChat,
   StoredContact,
   StoredMessage,
+  UserDataEntry,
+  UserId,
 } from '@bot-wa/core'
 import { messageKey } from '@bot-wa/core'
+import { MysqlUserData } from './userData.js'
 
 /** The native mysql2/promise pool type produced by `createPool`. */
 export type NativeMysqlPool = NativePool
@@ -114,6 +117,7 @@ export class MysqlStore implements IStore {
   }
   private readonly maxMessagesPerChat?: number
   private readonly logger?: { error?: (...args: unknown[]) => void }
+  private readonly userData: MysqlUserData
 
   constructor(opts: MysqlStoreOptions = {}) {
     // mysql2's pool typings are a wide generic union; the `query(sql, params)`
@@ -139,6 +143,7 @@ export class MysqlStore implements IStore {
       conversations: `${p}conversations`,
       cursors: `${p}cursors`,
     }
+    this.userData = new MysqlUserData((sql, params) => this.query(sql, params), `${p}user_data`)
   }
 
   /** All DB access funnels through here — SQL stays small, fixed and parameterized. */
@@ -296,6 +301,25 @@ export class MysqlStore implements IStore {
     await this.query(`DELETE FROM \`${this.t.conversations}\` WHERE \`key\` = ?`, [key])
   }
 
+  /* User data (ctx.user) — table {prefix}user_data, lazy expiry + purge ---- */
+
+  async getUserData(userId: UserId, namespace: string, key: string): Promise<UserDataEntry | undefined> {
+    return this.userData.get(userId, namespace, key, Date.now())
+  }
+  async setUserData(entry: UserDataEntry): Promise<void> {
+    await this.userData.set(entry)
+  }
+  async deleteUserData(userId: UserId, namespace?: string, key?: string): Promise<void> {
+    await this.userData.delete(userId, namespace, key)
+  }
+  async listUserData(userId: UserId, namespace?: string): Promise<UserDataEntry[]> {
+    return this.userData.list(userId, namespace, Date.now())
+  }
+  /** Delete every expired user-data row (all users); resolves with the count. */
+  async purgeExpiredUserData(now: number = Date.now()): Promise<number> {
+    return this.userData.purge(now)
+  }
+
   /* Lifecycle -------------------------------------------------------------- */
 
   async start(): Promise<void> {
@@ -320,7 +344,7 @@ export class MysqlStore implements IStore {
     }
   }
 
-  /** CREATE TABLE IF NOT EXISTS for the six state tables (idempotent). */
+  /** CREATE TABLE IF NOT EXISTS for the six state tables + user_data (idempotent). */
   private async migrate(): Promise<void> {
     await this.query(
       `CREATE TABLE IF NOT EXISTS \`${this.t.messages}\` (id VARCHAR(255) PRIMARY KEY, chat_id VARCHAR(255), timestamp BIGINT, msg JSON)`,
@@ -330,5 +354,6 @@ export class MysqlStore implements IStore {
     await this.query(`CREATE TABLE IF NOT EXISTS \`${this.t.checkpoints}\` (\`key\` VARCHAR(255) PRIMARY KEY, cp JSON)`)
     await this.query(`CREATE TABLE IF NOT EXISTS \`${this.t.conversations}\` (\`key\` VARCHAR(255) PRIMARY KEY, messages JSON)`)
     await this.query(`CREATE TABLE IF NOT EXISTS \`${this.t.cursors}\` (\`key\` VARCHAR(255) PRIMARY KEY, value TEXT)`)
+    await this.userData.migrate()
   }
 }

@@ -73,6 +73,9 @@ import { Scheduler } from '../scheduler/Scheduler.js'
 import { parseDuration } from '../utils/duration.js'
 import { randomId } from '../utils/timers.js'
 import { validateConfig } from '../utils/validateConfig.js'
+import { UserDataService } from '../user/UserDataService.js'
+import type { UserData } from '../user/types.js'
+import type { UserDataEntry } from './provider.js'
 
 /** A user message handler — receives the full inbound {@link MessageContext}. */
 export type MessageHandler = (ctx: MessageContext) => unknown | Promise<unknown>
@@ -127,6 +130,8 @@ export interface SubjectDataExport {
   messages: StoredMessage[]
   conversation?: AIMessage[]
   checkpoints: Array<[string, FlowCheckpoint]>
+  /** Live `ctx.user` profile entries (every namespace), sorted by namespace then key. */
+  userData: UserDataEntry[]
   exportedAt: number
 }
 
@@ -136,6 +141,8 @@ export interface SubjectDeletionResult {
   messages: number
   conversations: number
   checkpoints: number
+  /** Live `ctx.user` profile entries erased (every namespace). */
+  userData: number
 }
 
 export class Bot extends EventEmitter {
@@ -146,6 +153,8 @@ export class Bot extends EventEmitter {
   private store: IStore
   private provider: IProvider
   private namespace: StoreNamespace
+  /** `ctx.user` profiles — one service so writes of a user serialise across chats. */
+  private users: UserDataService
   private runtime: ConversationRuntime
   private dispatcher: Dispatcher
   private scheduler = new Scheduler()
@@ -205,6 +214,7 @@ export class Bot extends EventEmitter {
     } else {
       this.store = new NamespacedStore(baseStore, this.namespace)
     }
+    this.users = new UserDataService(this.store, { logger: this.logger.child({ module: 'user-data' }) })
 
     const conv = this.config.conversation ?? {}
     this.runtime = new ConversationRuntime({
@@ -586,6 +596,26 @@ export class Bot extends EventEmitter {
   getNamespace(): Readonly<StoreNamespace> { return this.namespace }
   getSessionName() { return this.config.session ?? 'default' }
 
+  /**
+   * Persistent profile of any subject — the same data a handler sees as
+   * `ctx.user` when that subject writes (scheduled jobs, webhooks, admin code).
+   * Requires a store implementing the user-data contract (every built-in one).
+   *
+   * @example
+   * ```ts
+   * await bot.user('5491122334455').ns('billing').set('plan', 'pro')
+   * ```
+   */
+  user(userId: UserId): UserData { return this.users.for(userId) }
+
+  /**
+   * Physically remove expired `ctx.user` entries store-wide and resolve with
+   * how many were removed (`0` with native-TTL stores such as Redis). Writes
+   * already trigger this at most once a minute; schedule it for idle bots:
+   * `bot.every('1h', () => bot.purgeExpiredUserData())`.
+   */
+  purgeExpiredUserData(): Promise<number> { return this.users.purgeExpired() }
+
   /** Export normalized data associated with one subject in this bot namespace. */
   async exportSubject(userId: UserId): Promise<SubjectDataExport> {
     const contact = await this.store.getContact(userId)
@@ -605,6 +635,7 @@ export class Bot extends EventEmitter {
       messages,
       conversation: await this.store.getConversation(userId),
       checkpoints,
+      userData: await this.users.list(userId),
       exportedAt: Date.now(),
     }
   }
@@ -617,6 +648,7 @@ export class Bot extends EventEmitter {
       messages: 0,
       conversations: 0,
       checkpoints: 0,
+      userData: 0,
     }
     if (await this.store.getContact(userId)) {
       await this.store.deleteContact(userId)
@@ -646,6 +678,7 @@ export class Bot extends EventEmitter {
       await this.store.clearCheckpoint(key)
       result.checkpoints++
     }
+    result.userData = await this.users.erase(userId)
     return result
   }
 
@@ -850,6 +883,7 @@ export class Bot extends EventEmitter {
         ? (id, text) => this.provider.acknowledgeInteraction!(id, { text })
         : undefined,
       interaction,
+      user: this.users.for(inbound.senderId),
     })
 
     // Group mode filter.
