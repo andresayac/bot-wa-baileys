@@ -8,16 +8,24 @@
  * `pollUpdates`: a vote only arrives as an encrypted `pollUpdateMessage` upsert.
  *
  * {@link PollTracker} remembers the polls this process sees (with their secret
- * and option hashes), {@link decryptVote} tries the creator/voter JID forms a
- * client may have used (LID and PN differ per addressing mode; AES-GCM rejects a
- * wrong pair, so trying them is safe), and {@link recordVote}/{@link tally} keep
- * the latest selection per voter and aggregate it into per-option counts.
+ * and option hashes) and the vote messages already counted, {@link decryptVote}
+ * tries the creator/voter JID forms a client may have used (LID and PN differ
+ * per addressing mode; AES-GCM rejects a wrong pair, so trying them is safe), and
+ * {@link recordVote}/{@link tally} keep the latest selection per voter and
+ * aggregate it into per-option counts.
+ *
+ * The key derivation does not cover the chat, and every member of a chat knows
+ * its polls' ids and secrets, so a decryptable vote is not proof that it belongs
+ * to the poll it names: the caller must also bind the vote to the poll's chat and
+ * creator (see BaileysProvider.onPollVote).
  */
 import { createHash } from 'node:crypto'
 import { decryptPollVote, normalizeMessageContent, type proto, type WAMessage } from '@whiskeysockets/baileys'
 
 /** Default number of polls remembered; the oldest idle poll is evicted first. */
 export const POLL_CACHE_MAX = 500
+/** Default number of counted vote message ids remembered to drop redeliveries. */
+export const VOTE_IDS_MAX = 5000
 
 export interface PollOption {
   name: string
@@ -60,15 +68,22 @@ const optionHash = (name: string): string => createHash('sha256').update(Buffer.
 /** Bounded, insertion-ordered cache of the polls whose votes can be decrypted. */
 export class PollTracker {
   private readonly polls = new Map<string, TrackedPoll>()
+  /** `<pollId> <voteMessageId>` of the votes already counted, oldest first. */
+  private readonly votesSeen = new Set<string>()
 
-  constructor(private readonly max: number = POLL_CACHE_MAX) {}
+  constructor(
+    private readonly max: number = POLL_CACHE_MAX,
+    private readonly maxVoteIds: number = VOTE_IDS_MAX,
+  ) {}
 
   get size(): number { return this.polls.size }
 
   /**
    * Remember `message` if it is a poll creation carrying its messageSecret.
    * Returns whether it is tracked. Seeing the same poll again (the `send()`
-   * result, then Baileys' `append` echo) keeps the tallies collected so far.
+   * result, then Baileys' `append` echo) keeps the tallies collected so far. A
+   * different poll reusing a tracked id (ids are chosen by the sending client)
+   * never replaces it; its votes fail the caller's creator check.
    */
   remember(message: WAMessage): boolean {
     const id = message.key?.id
@@ -96,6 +111,25 @@ export class PollTracker {
   /** Mark a poll as recently used so active polls outlive idle ones. */
   touch(poll: TrackedPoll): void {
     if (this.polls.delete(poll.id)) this.polls.set(poll.id, poll)
+  }
+
+  /**
+   * Whether the vote message `voteId` was already counted for `poll`. Baileys
+   * re-emits offline deliveries as `append` upserts, so the same vote message
+   * can arrive twice.
+   */
+  hasVote(poll: TrackedPoll, voteId: string): boolean {
+    return this.votesSeen.has(`${poll.id} ${voteId}`)
+  }
+
+  /** Record that `voteId` was counted for `poll`; the oldest ids are forgotten first. */
+  markVote(poll: TrackedPoll, voteId: string): void {
+    this.votesSeen.add(`${poll.id} ${voteId}`)
+    while (this.votesSeen.size > this.maxVoteIds) {
+      const oldest = this.votesSeen.values().next()
+      if (oldest.done) break
+      this.votesSeen.delete(oldest.value)
+    }
   }
 }
 
@@ -129,7 +163,9 @@ export function decryptVote(
  * Store `voterId`'s latest selection. Earlier entries whose voter has since been
  * canonicalised to another id (a bare LID whose PN was learned) are merged first,
  * so one person is counted once. Returns `false`, changing nothing, for a vote
- * older than the one already stored.
+ * older than the one already stored. A vote with the same timestamp replaces it:
+ * it is another vote message sent in the same millisecond, because redeliveries
+ * of an already counted message are dropped earlier ({@link PollTracker.hasVote}).
  */
 export function recordVote(
   poll: TrackedPoll,

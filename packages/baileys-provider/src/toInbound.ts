@@ -7,7 +7,7 @@
 
 import type { WAMessage, WAMessageKey } from '@whiskeysockets/baileys'
 import type { ChatInfo, ChatKind, InboundMessage, MediaRef, MessageType, SenderInfo } from '@bot-wa/core'
-import { isPnUser, isLidUser } from './jid.js'
+import { isPnUser, isLidUser, normalize } from './jid.js'
 import { canonicalKey, type IdentityStore } from './identity.js'
 
 const MEDIA_KINDS = new Set<MessageType>(['image', 'video', 'audio', 'voice', 'document', 'sticker'])
@@ -75,7 +75,9 @@ export function toInbound(message: WAMessage, identity: IdentityStore): InboundM
         senderId: (qc.participant as string | undefined) ?? undefined,
       }
     : undefined
-  const mentions = (qc?.mentionedJid ?? []) as string[]
+  // Canonical like every other user id: a LID-addressed group mentions LIDs, so
+  // a known LID (the bot's own included) maps to its PN and matches selfId.
+  const mentions = ((qc?.mentionedJid ?? []) as string[]).map((jid) => identity.canonical(normalize(jid) || jid))
 
   return {
     ref: { id: key.id ?? '', chatId: from, native: message },

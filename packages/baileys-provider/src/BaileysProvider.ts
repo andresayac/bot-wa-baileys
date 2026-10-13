@@ -48,7 +48,7 @@ import { putBounded } from './boundedMap.js'
 import { resolveBrowser, type BrowserConfig } from './browser.js'
 import { IdentityStore, canonicalKey, type IdentityKey } from './identity.js'
 import { normalize, isLidUser, isPnUser } from './jid.js'
-import { PollTracker, POLL_CACHE_MAX, decryptVote, pollUpdateOf, recordVote, tally, type TrackedPoll } from './polls.js'
+import { PollTracker, POLL_CACHE_MAX, decryptVote, pollUpdateOf, recordVote, tally } from './polls.js'
 import { toInbound } from './toInbound.js'
 import { toOutbound } from './toOutbound.js'
 import { RateLimiter, type RateLimitConfig } from './RateLimiter.js'
@@ -175,8 +175,13 @@ export class BaileysProvider implements IProvider<WAMessage> {
   }
 
   get connection(): unknown | null { return this.sock }
+  /**
+   * The bot's canonical id: its normalised PN (`creds.me.id` without the device
+   * suffix), the same id its own reactions and votes carry. Core matches
+   * `groupMode: 'mentions'` against it, and mentions are canonical too.
+   */
   get selfId(): UserId | null {
-    return (this.authState?.state?.creds?.me?.id as string | undefined) ?? null
+    return this.self().id || null
   }
   get socket(): ReturnType<typeof makeWASocket> | null { return this.sock }
   get auth() {
@@ -382,14 +387,19 @@ export class BaileysProvider implements IProvider<WAMessage> {
   }
 
   private async onMessagesUpsert({ messages, type }: BaileysEventMap['messages.upsert']): Promise<void> {
+    // Learn the bot's own LID↔PN pair so mentions of its LID canonicalise to selfId.
+    this.self()
     for (const message of messages) {
       // Cache every upsert, `append` included: Baileys emits the bot's own sends
       // (and offline deliveries) as `append`, and getMessage() retries plus poll
       // vote decryption both need them.
       this.rememberMessage(message)
-      this.polls.remember(message)
       const jid = message.key?.remoteJidAlt ?? message.key?.remoteJid ?? ''
-      if (!this.acceptsChat(jid)) continue
+      const accepted = this.acceptsChat(jid)
+      // Only polls whose votes can reach the bot take a slot in the bounded poll
+      // cache: those from chats it listens to, plus its own wherever they are.
+      if (accepted || message.key?.fromMe) this.polls.remember(message)
+      if (!accepted) continue
       // An encrypted vote is a poll-vote event, never a message.
       if (pollUpdateOf(message)) { await this.onPollVote(message); continue }
       if (type !== 'notify' || message.key?.fromMe) continue
@@ -404,23 +414,45 @@ export class BaileysProvider implements IProvider<WAMessage> {
     const creationKey = update?.pollCreationMessageKey
     const pollId = creationKey?.id ?? undefined
     const poll = pollId ? this.polls.get(pollId) : undefined
-    if (!update || !poll) {
+    if (!update || !creationKey || !poll) {
       // Typically a poll sent before a restart, or evicted from the bounded cache.
       this.logger.debug({ pollId }, 'poll vote for a poll this process has not seen; cannot decrypt it')
       return
     }
 
     const key = message.key
-    await this.seedIdentity(key)
+    const pollKey = poll.message.key as IdentityKey
+    for (const k of [key, pollKey, creationKey]) await this.seedIdentity(k)
     const self = this.self()
     const { chatId, senderId, isGroup, rawParticipant } = canonicalKey(key, this.identity, message.participant)
+
+    // The vote names its poll by id only, its key derivation does not cover the
+    // chat, and every member knows a poll's id and secret. Bind it to the
+    // tracked poll's own key: Baileys rewrites the creation key's remoteJid to
+    // the vote's chat, so that key cannot vouch for the chat.
+    if (!this.overlaps(this.jidCandidates(pollKey.remoteJid, pollKey.remoteJidAlt), this.jidCandidates(key.remoteJid, key.remoteJidAlt))) {
+      this.logger.debug({ pollId }, 'poll vote from another chat than its poll; dropped')
+      return
+    }
+    const creators = this.creatorForms(pollKey)
+    const claimed = this.creatorForms(creationKey)
+    if (!this.overlaps(creators, claimed)) {
+      // Another poll reusing the id (ids are chosen by the sending client).
+      this.logger.debug({ pollId }, 'poll vote names another creator than its poll; dropped')
+      return
+    }
+    if (key.id && this.polls.hasVote(poll, key.id)) {
+      this.logger.debug({ pollId }, 'poll vote already counted (redelivered); dropped')
+      return
+    }
+
     const voters = key.fromMe
       ? self.jids
       : isGroup
         ? this.jidCandidates(rawParticipant, key.participantAlt)
         : this.jidCandidates(key.remoteJid, key.remoteJidAlt)
-
-    const decrypted = decryptVote(update.vote, poll, this.creatorCandidates(poll, creationKey), voters)
+    // Same person, so the creation key's forms are safe extra candidates.
+    const decrypted = decryptVote(update.vote, poll, [...new Set([...creators, ...claimed])], voters)
     if (!decrypted) {
       this.logger.warn({ pollId }, 'failed to decrypt poll vote')
       return
@@ -429,6 +461,7 @@ export class BaileysProvider implements IProvider<WAMessage> {
     const voterId = key.fromMe ? self.id : senderId
     const at = toNumber(update.senderTimestampMs) || toNumber(message.messageTimestamp) * 1000 || Date.now()
     if (!recordVote(poll, voterId, decrypted.hashes, at, (id) => this.identity.canonical(id))) return
+    if (key.id) this.polls.markVote(poll, key.id)
     this.polls.touch(poll)
     this.fan({
       kind: 'poll-vote',
@@ -536,23 +569,22 @@ export class BaileysProvider implements IProvider<WAMessage> {
   }
 
   /**
-   * Who may have signed the poll: the bot (both forms) for its own polls,
-   * otherwise the creation's sender and twins. The vote's
-   * `pollCreationMessageKey` is a second, less reliable source (Baileys rewrites
-   * it to our perspective), so it only adds candidates.
+   * The JID forms of a poll's creator per a message key: the bot (both forms)
+   * for its own polls, otherwise the group participant or the DM partner, with
+   * learned twins. Works for the poll's own key and for a vote's
+   * `pollCreationMessageKey` (which Baileys rewrites to our perspective:
+   * `fromMe` when the bot created it, the voter as participant when unset).
    */
-  private creatorCandidates(poll: TrackedPoll, creationKey?: IdentityKey | null): string[] {
-    const out = new Set<string>()
-    for (const key of [poll.message.key as IdentityKey, creationKey]) {
-      if (!key) continue
-      const found = key.fromMe
-        ? this.self().jids
-        : (key.remoteJid ?? '').endsWith('@g.us')
-          ? this.jidCandidates(key.participant, key.participantAlt)
-          : this.jidCandidates(key.remoteJid, key.remoteJidAlt)
-      for (const jid of found) out.add(jid)
-    }
-    return [...out]
+  private creatorForms(key: IdentityKey): string[] {
+    if (key.fromMe) return this.self().jids
+    return (key.remoteJid ?? '').endsWith('@g.us')
+      ? this.jidCandidates(key.participant, key.participantAlt)
+      : this.jidCandidates(key.remoteJid, key.remoteJidAlt)
+  }
+
+  /** Whether two JID-form lists name the same user or chat. */
+  private overlaps(a: string[], b: string[]): boolean {
+    return a.some((jid) => b.includes(jid))
   }
 
   private mapReason(statusCode?: number): DisconnectReason {

@@ -23,9 +23,11 @@ vi.mock('@whiskeysockets/baileys', async (importOriginal) => {
 
 const B = await import('@whiskeysockets/baileys')
 const { BaileysProvider } = await import('../src/BaileysProvider.js')
-const { PollTracker } = await import('../src/polls.js')
+const { PollTracker, POLL_CACHE_MAX } = await import('../src/polls.js')
 const { connect, ME_LID, ME_PN } = await import('./support/harness.js')
 type Harness = Awaited<ReturnType<typeof connect>>
+type Tracker = InstanceType<typeof PollTracker>
+const trackerOf = (h: Harness) => (h.provider as unknown as { polls: Tracker }).polls
 
 const GROUP = '120363000000000000@g.us'
 const VOTER_LID = '200000000000001@lid'
@@ -76,6 +78,23 @@ function voteMessage(
 }
 
 const upsert = (messages: WAMessage[], type: 'notify' | 'append' = 'notify') => ({ 'messages.upsert': { type, messages } })
+
+/** A cheap poll creation (no option hashing), for filling the poll cache. */
+const rawPoll = (key: Partial<WAMessageKey> & { remoteJid: string; id: string }): WAMessage => ({
+  key: { fromMe: false, ...key },
+  message: {
+    pollCreationMessage: { name: 'q', options: [{ optionName: 'a' }, { optionName: 'b' }] },
+    messageContextInfo: { messageSecret: randomBytes(32) },
+  },
+  messageTimestamp: 1,
+} as unknown as WAMessage)
+
+/** A pino logger whose JSON lines land in `lines`. */
+function captureLogger() {
+  const lines: Array<Record<string, unknown>> = []
+  const logger = pino({ level: 'debug' }, { write: (s: string) => { lines.push(JSON.parse(s)) } })
+  return { lines, logger }
+}
 
 describe('poll votes: decryption and poll-vote events', () => {
   it('decrypts a vote on a poll the bot sent to a LID-addressed group (LID creator + LID voter)', async () => {
@@ -257,6 +276,189 @@ describe('poll votes: decryption and poll-vote events', () => {
   })
 })
 
+/**
+ * A vote names its poll only by message id, and Baileys rewrites the vote's
+ * `pollCreationMessageKey.remoteJid` to the chat the vote arrived in. Every
+ * group member knows a poll's id and secret, so a modified client can send a
+ * validly encrypted vote that points at a poll from another chat, or at a poll
+ * by another creator. Only the tracked poll's own key is trustworthy.
+ */
+describe('poll votes: bound to the poll\'s chat and creator', () => {
+  const byVoter = { remoteJid: GROUP, participant: VOTER_LID, participantAlt: VOTER_PN }
+
+  it('drops a vote cast in a DM on a group poll id, logging at debug without JIDs, and leaves the group tally alone', async () => {
+    const { lines, logger } = captureLogger()
+    const h = await connect(BaileysProvider, { logger })
+    const poll = await sendPoll(h, GROUP, 'Lunch?', ['Pizza', 'Sushi'])
+
+    // Baileys rewrites the creation key's remoteJid to the DM the vote came from.
+    await h.emit(upsert([voteMessage(
+      { remoteJid: USER_LID, remoteJidAlt: USER_PN },
+      { remoteJid: USER_LID, fromMe: true, id: poll.key.id },
+      encryptVote(poll, ME_LID, USER_LID, ['Pizza']),
+    )]))
+
+    expect(h.events).toHaveLength(0)
+    const debug = lines.find((l) => l.pollId === poll.key.id && l.level === 20)
+    expect(debug?.msg).toMatch(/another chat/)
+    expect(JSON.stringify(debug)).not.toContain(USER_LID)
+    expect(JSON.stringify(debug)).not.toContain(USER_PN)
+
+    await h.emit(upsert([voteMessage(
+      byVoter, { remoteJid: GROUP, fromMe: true, id: poll.key.id, participant: ME_LID },
+      encryptVote(poll, ME_LID, VOTER_LID, ['Sushi']),
+    )]))
+    expect(h.ofKind('poll-vote').map((e) => e.vote.options)).toEqual([[
+      { name: 'Pizza', votes: 0, voters: [] },
+      { name: 'Sushi', votes: 1, voters: [VOTER_PN] },
+    ]])
+  })
+
+  it('drops a vote cast in a group on a DM poll id', async () => {
+    const h = await connect(BaileysProvider)
+    const poll = await sendPoll(h, USER_PN, 'Confirm?', ['Yes', 'No'])
+
+    await h.emit(upsert([voteMessage(
+      { remoteJid: GROUP, participant: USER_LID, participantAlt: USER_PN },
+      { remoteJid: GROUP, fromMe: true, id: poll.key.id, participant: ME_LID },
+      encryptVote(poll, ME_PN, USER_PN, ['Yes']),
+    )]))
+
+    expect(h.events).toHaveLength(0)
+  })
+
+  it('accepts a vote keyed by the PN of a DM the poll was sent to by LID (same chat, other form)', async () => {
+    const h = await connect(BaileysProvider)
+    const poll = await sendPoll(h, USER_LID, 'Confirm?', ['Yes', 'No']) // no PN known yet: sent to the LID
+    expect(poll.key.remoteJid).toBe(USER_LID)
+    h.sock.lidMap.set(USER_LID, '573003333333:3@s.whatsapp.net') // the mapping store learns it later
+
+    await h.emit(upsert([voteMessage(
+      { remoteJid: USER_PN },
+      { remoteJid: USER_PN, fromMe: true, id: poll.key.id },
+      encryptVote(poll, ME_PN, USER_PN, ['No']),
+    )]))
+
+    const [event] = h.ofKind('poll-vote')
+    expect(event?.vote.ref.chatId).toBe(USER_PN)
+    expect(event?.vote.senderId).toBe(USER_PN)
+    expect(event?.vote.options.map((o) => o.votes)).toEqual([0, 1])
+  })
+
+  it('a later poll reusing a cached poll\'s id (another creator, same secret) cannot feed the cached tally', async () => {
+    const h = await connect(BaileysProvider)
+    const poll = await sendPoll(h, GROUP, 'Pick', ['A', 'B'])
+    const pollKey = { remoteJid: GROUP, fromMe: true, id: poll.key.id, participant: ME_LID }
+    await h.emit(upsert([voteMessage(byVoter, pollKey, encryptVote(poll, ME_LID, VOTER_LID, ['A']), 1000)]))
+
+    // VOTER2 knows the bot poll's id and secret (every member does) and posts a
+    // look-alike poll under the same id; members voting on it sign VOTER2 as creator.
+    const rival = await generatePoll(GROUP, 'Pick (rival)', ['A', 'B'])
+    rival.key = { remoteJid: GROUP, fromMe: false, id: poll.key.id, participant: VOTER2_LID, participantAlt: VOTER2_PN } as WAMessageKey
+    rival.message!.messageContextInfo!.messageSecret = poll.message!.messageContextInfo!.messageSecret
+    await h.emit(upsert([rival]))
+    const rivalKey = { remoteJid: GROUP, fromMe: false, id: poll.key.id, participant: VOTER2_LID }
+    const by3 = { remoteJid: GROUP, participant: USER_LID, participantAlt: USER_PN }
+    await h.emit(upsert([voteMessage(by3, rivalKey, encryptVote(rival, VOTER2_LID, USER_LID, ['B']), 1001)]))
+
+    expect(h.ofKind('poll-vote')).toHaveLength(1)
+    // The cached poll is still the bot's, with its tally intact.
+    await h.emit(upsert([voteMessage(byVoter, pollKey, encryptVote(poll, ME_LID, VOTER_LID, ['A', 'B']), 1002)]))
+    const { vote } = h.ofKind('poll-vote').at(-1)!
+    expect(vote.ref.native).toBe(poll)
+    expect(vote.options).toEqual([
+      { name: 'A', votes: 1, voters: [VOTER_PN] },
+      { name: 'B', votes: 1, voters: [VOTER_PN] },
+    ])
+  })
+
+  it('a cached poll by another member rejects votes whose creation key says the bot created it', async () => {
+    // e.g. after a restart: the bot no longer knows its own poll, a member posted
+    // one under the same id and secret, and votes on the bot's poll keep arriving.
+    const h = await connect(BaileysProvider)
+    const theirs = await generatePoll(GROUP, 'Their poll', ['A', 'B'])
+    theirs.key = { remoteJid: GROUP, fromMe: false, id: theirs.key.id, participant: VOTER2_LID, participantAlt: VOTER2_PN } as WAMessageKey
+    await h.emit(upsert([theirs], 'append'))
+
+    await h.emit(upsert([voteMessage(
+      byVoter, { remoteJid: GROUP, fromMe: true, id: theirs.key.id, participant: ME_LID },
+      encryptVote(theirs, ME_LID, VOTER_LID, ['A']),
+    )]))
+
+    expect(h.ofKind('poll-vote')).toHaveLength(0)
+  })
+})
+
+describe('poll votes: redelivery', () => {
+  it('emits a vote message once even when Baileys redelivers it as `append`, yet applies a new vote with the same timestamp', async () => {
+    const h = await connect(BaileysProvider)
+    const poll = await sendPoll(h, GROUP, 'Pick', ['A', 'B'])
+    const pollKey = { remoteJid: GROUP, fromMe: true, id: poll.key.id, participant: ME_LID }
+    const by1 = { remoteJid: GROUP, participant: VOTER_LID, participantAlt: VOTER_PN }
+    const voters = () => h.ofKind('poll-vote').at(-1)!.vote.options.map((o) => o.voters)
+
+    const first = voteMessage(by1, pollKey, encryptVote(poll, ME_LID, VOTER_LID, ['A']), 5000)
+    await h.emit(upsert([first]))
+    await h.emit(upsert([first], 'append'))
+    expect(h.ofKind('poll-vote')).toHaveLength(1)
+
+    // A different vote message with the same millisecond still counts.
+    const second = voteMessage(by1, pollKey, encryptVote(poll, ME_LID, VOTER_LID, ['B']), 5000)
+    await h.emit(upsert([second]))
+    expect(h.ofKind('poll-vote')).toHaveLength(2)
+    expect(voters()).toEqual([[], [VOTER_PN]])
+
+    // Replaying both (the older one first) changes nothing and emits nothing.
+    await h.emit(upsert([first, second], 'append'))
+    expect(h.ofKind('poll-vote')).toHaveLength(2)
+    expect(trackerOf(h).get(poll.key.id!)?.votes.get(VOTER_PN)?.hashes).toHaveLength(1)
+    await h.emit(upsert([voteMessage(by1, pollKey, encryptVote(poll, ME_LID, VOTER_LID, ['A', 'B']), 5001)]))
+    expect(voters()).toEqual([[VOTER_PN], [VOTER_PN]])
+  })
+})
+
+describe('poll cache: what gets remembered', () => {
+  it('does not let polls from chats the provider ignores evict the polls it can decrypt', async () => {
+    const h = await connect(BaileysProvider)
+    const poll = await sendPoll(h, GROUP, 'Pick', ['A', 'B'])
+    const ignoredChats = ['status@broadcast', '120363111111111111@newsletter', '1700000000@broadcast']
+    const flood = Array.from({ length: POLL_CACHE_MAX }, (_, i) =>
+      rawPoll({ remoteJid: ignoredChats[i % ignoredChats.length]!, id: `IGN-${i}`, participant: VOTER2_PN }))
+    await h.emit(upsert(flood))
+    expect(trackerOf(h).size).toBe(1)
+
+    await h.emit(upsert([voteMessage(
+      { remoteJid: GROUP, participant: VOTER_LID, participantAlt: VOTER_PN },
+      { remoteJid: GROUP, fromMe: true, id: poll.key.id, participant: ME_LID },
+      encryptVote(poll, ME_LID, VOTER_LID, ['A']),
+    )]))
+    expect(h.ofKind('poll-vote')).toHaveLength(1)
+  })
+
+  it('still remembers the bot\'s own polls, whatever the chat', async () => {
+    const h = await connect(BaileysProvider)
+    await h.emit(upsert([rawPoll({ remoteJid: '1700000000@broadcast', id: 'OWN-1', fromMe: true })], 'append'))
+    expect(trackerOf(h).get('OWN-1')).toBeDefined()
+  })
+
+  it('keeps a poll that keeps receiving votes while idle polls are evicted', async () => {
+    const h = await connect(BaileysProvider)
+    const poll = await sendPoll(h, GROUP, 'Pick', ['A', 'B'])
+    const pollKey = { remoteJid: GROUP, fromMe: true, id: poll.key.id, participant: ME_LID }
+    const by1 = { remoteJid: GROUP, participant: VOTER_LID, participantAlt: VOTER_PN }
+    const idle = (from: number, n: number) =>
+      Array.from({ length: n }, (_, i) => rawPoll({ remoteJid: GROUP, id: `IDLE-${from + i}`, participant: VOTER2_LID }))
+
+    await h.emit(upsert(idle(0, POLL_CACHE_MAX - 1), 'append')) // the bot's poll is now the oldest
+    await h.emit(upsert([voteMessage(by1, pollKey, encryptVote(poll, ME_LID, VOTER_LID, ['A']), 1000)]))
+    await h.emit(upsert(idle(POLL_CACHE_MAX, 1), 'append')) // one over the cap
+
+    expect(trackerOf(h).get('IDLE-0')).toBeUndefined()
+    await h.emit(upsert([voteMessage(by1, pollKey, encryptVote(poll, ME_LID, VOTER_LID, ['B']), 1001)]))
+    expect(h.ofKind('poll-vote')).toHaveLength(2)
+  })
+})
+
 describe('PollTracker', () => {
   it('is bounded: the oldest poll is evicted first', async () => {
     const tracker = new PollTracker(2)
@@ -266,6 +468,35 @@ describe('PollTracker', () => {
     expect(tracker.size).toBe(2)
     expect(tracker.get(polls[0]!.key.id!)).toBeUndefined()
     expect(tracker.get(polls[2]!.key.id!)?.options.map((o) => o.name)).toEqual(['1', '2'])
+  })
+
+  it('touch() keeps an active poll: the idle one is evicted first', async () => {
+    const tracker = new PollTracker(2)
+    const [a, b, c] = await Promise.all(['a', 'b', 'c'].map((q) => generatePoll(GROUP, q, ['1', '2'])))
+    tracker.remember(a!)
+    tracker.remember(b!)
+    tracker.touch(tracker.get(a!.key.id!)!) // a receives a vote: it becomes the most recent
+    tracker.remember(c!)
+
+    expect(tracker.get(a!.key.id!)).toBeDefined()
+    expect(tracker.get(b!.key.id!)).toBeUndefined()
+    expect(tracker.get(c!.key.id!)).toBeDefined()
+  })
+
+  it('remembers counted vote ids per poll, bounded, oldest forgotten first', async () => {
+    const tracker = new PollTracker(10, 2)
+    const [poll, other] = await Promise.all(['q', 'r'].map((q) => generatePoll(GROUP, q, ['1', '2'])))
+    tracker.remember(poll!)
+    tracker.remember(other!)
+    const tracked = tracker.get(poll!.key.id!)!
+    expect(tracker.hasVote(tracked, 'V1')).toBe(false)
+    tracker.markVote(tracked, 'V1')
+    tracker.markVote(tracked, 'V2')
+    expect(tracker.hasVote(tracked, 'V1')).toBe(true)
+    expect(tracker.hasVote(tracker.get(other!.key.id!)!, 'V1')).toBe(false)
+    tracker.markVote(tracked, 'V3')
+    expect(tracker.hasVote(tracked, 'V1')).toBe(false)
+    expect(tracker.hasVote(tracked, 'V3')).toBe(true)
   })
 
   it('ignores messages that are not poll creations or lack a messageSecret', () => {

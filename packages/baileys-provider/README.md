@@ -148,7 +148,9 @@ El provider lo resuelve con un `IdentityStore` **antes** de emitir cada evento:
 - `ctx.senderInfo.platformData` lleva `{ phoneNumber?, lid? }`: el PN si se conoce y el LID crudo tal como llegó.
 - Los demás eventos pasan por la **misma** canonicalización, así que una persona tiene el mismo id en todos: el autor de una reacción o de un voto, los participantes y el autor (`actor`) de un cambio de grupo, quien llama (`call.from`) y el chat y las claves de `presences`. El provider aprovecha el PN que Baileys trae en cada evento (`participantAlt`, `authorPn`, `callerPn`, `phoneNumber` del participante) y, si no lo trae, consulta el almacén de mapeos.
 - En una reacción, `senderId` es **quien reacciona** y `ref.id` el mensaje reaccionado (antes se informaba, por error, el autor de ese mensaje).
-- En `group`, la acción `modify` de Baileys (cambio de número) llega como `action: 'update'`.
+- Las menciones (`mentions`) también son canónicas: en un grupo direccionado por LID, WhatsApp menciona LIDs, y el provider los cambia por el PN si lo conoce.
+- `provider.selfId` es el PN normalizado del bot (`573000000000@s.whatsapp.net`, sin el sufijo de dispositivo `:12` que guarda `creds.me.id`), el mismo id que llevan sus propias reacciones y votos. Con `groupMode: 'mentions'`, el core compara las menciones con `selfId`, así que el bot responde tanto si lo mencionan por su número como por su LID.
+- En `group`, el provider traduce la acción `modify` de Baileys (cambio de número) a `action: 'update'`, pero la rc14 no llega a emitirla: al procesar el cambio de número, Baileys intenta `JSON.parse` sobre los JID crudos del aviso y lanza antes de emitir el evento. En la práctica, con la rc14 un cambio de número no produce ningún evento `group`.
 - Al enviar a un LID, el provider usa el PN si lo conoce y, si no, envía directamente al LID.
 
 Para casos avanzados se exportan `IdentityStore`, `provider.getPNForLID(lid)` y los helpers de JID (`isPn`, `isLid`, `normalizeJid`, `sameUser`…).
@@ -181,9 +183,11 @@ bot.on('poll', (vote) => {
 
 WhatsApp cifra cada voto de extremo a extremo con una clave derivada del secreto de la encuesta (`messageSecret`), su id y los JID del creador y del votante. Baileys 7 trae ese descifrado comentado, así que el provider lo hace por su cuenta:
 
-- **Recuerda las encuestas que ve:** las que envía el bot (el resultado de `send()` y el eco `append` que emite Baileys) y las que crean otros en los chats del bot. Guarda en memoria las **500** más recientes; una encuesta que recibe votos se mantiene entre las recientes.
+- **Recuerda las encuestas que ve:** las que envía el bot (el resultado de `send()` y el eco `append` que emite Baileys) y las que crean otros en los chats que el provider escucha. Las de chats ignorados (estados, listas de difusión, canales; ver `ignoreBroadcasts`/`ignoreNewsletters`) no ocupan sitio, salvo las del propio bot. Guarda en memoria las **500** más recientes; una encuesta que recibe votos se mantiene entre las recientes.
+- **Ata cada voto a su encuesta:** un voto solo nombra la encuesta por su id, y cualquier miembro de un chat conoce el id y el secreto de sus encuestas. Por eso el provider exige que el voto llegue por el **mismo chat** que la encuesta (contando las formas LID y PN de un mismo chat) y que nombre al **mismo creador**. Otra encuesta que reutilice el id (los ids los elige el cliente que envía) no puede sumar votos a la que ya está en memoria. Los votos que no cumplen se descartan con un log de nivel `debug`.
 - **Descifra probando las formas LID y PN** del creador y del votante. En un grupo direccionado por LID el voto se firma con los LID; en un chat por PN, con los números. Un par incorrecto no pasa la autenticación de AES-GCM, así que probarlos no produce falsos positivos.
 - **Guarda el último voto de cada persona:** un voto nuevo reemplaza al anterior, una selección vacía lo retira y un voto más antiguo que el guardado se descarta. Una persona cuenta una sola vez aunque vote primero como LID y luego aparezca con su PN.
+- **Cada voto se cuenta una vez:** Baileys vuelve a entregar como `append` los mensajes recibidos sin conexión, así que el provider recuerda los ids de los últimos 5000 votos contados y no vuelve a emitir uno repetido. Un voto distinto de la misma persona con la misma marca de tiempo sí actualiza el recuento.
 - El voto cifrado ya **no** llega como mensaje de tipo `poll`. `bot.onPoll` se dispara solo con las encuestas que crea otra persona, con la pregunta en `body`.
 
 Limitaciones:
