@@ -153,3 +153,10 @@ export { Scheduler } from './scheduler/Scheduler.js'
 
 // Testing helpers live under the "./testing" subpath export
 // (import from '@bot-wa/core/testing') — not re-exported here to keep the entry lean.
+
+// conversations
+export { ConversationRetry, RetryUnavailableError } from './conversations/retry.js'
+export type { ConversationHandler } from './conversations/handler.js'
+export type { IdleCallback } from './conversations/idle.js'
+export type { ConversationObserver } from './conversations/ConversationRuntime.js'
+export type { IdleHandler, IdleEvent } from './core/idle.js'

@@ -68,6 +68,8 @@ import { Dispatcher, type DispatchContext } from './Dispatcher.js'
 import { buildMessageContext } from './context.js'
 import { ConversationRuntime, type CheckpointStore, type ConversationFn } from '../conversations/ConversationRuntime.js'
 import { createControls, type ConversationControls } from '../conversations/controls.js'
+import type { ConversationHandler } from '../conversations/handler.js'
+import { ChatIdleWatchers, type IdleHandler } from './idle.js'
 import { FlowBuilder, isCompiledFlow, type CompiledFlow } from '../flows/FlowBuilder.js'
 import { Scheduler } from '../scheduler/Scheduler.js'
 import { parseDuration } from '../utils/duration.js'
@@ -149,6 +151,13 @@ export class Bot extends EventEmitter {
   private runtime: ConversationRuntime
   private dispatcher: Dispatcher
   private scheduler = new Scheduler()
+  /** Per-chat inactivity watchers ({@link onIdle}); backed by the scheduler. */
+  private idle = new ChatIdleWatchers({
+    events: this,
+    delay: (ms, fn) => this.scheduler.delay(ms, fn),
+    isActive: () => this.acceptingInbound,
+    onError: (error, ctx) => this.emitError({ error, ctx }),
+  })
   private tools: Record<string, unknown> = {}
   private disposables = new DisposableList()
   private isStarted = false
@@ -426,7 +435,23 @@ export class Bot extends EventEmitter {
     return unsub
   }
 
-  conversation(name: string, fn: ConversationFn<ConversationControls>, opts?: { trigger?: Trigger }): () => void {
+  /**
+   * Register an async conversation, entered when `opts.trigger` (default: `name`) matches.
+   * `ctx` is the full {@link MessageContext} of the triggering message (`ctx.tools`, media
+   * helpers, `react`…); `c` offers `ask`/`waitText`/`waitMedia`/`choose`, `retry()`,
+   * `idle()`/`idleClear()`, `end(farewell?)` and `goto(name)`.
+   *
+   * @example
+   * ```ts
+   * bot.conversation('ahorcado', async (c, ctx) => {
+   *   c.idle('2m', () => c.end('⏰ Te desconecté por inactividad'))
+   *   let letra = await c.ask('Escribe una letra')
+   *   while (letra.length !== 1) letra = await c.retry('❌ Solo una letra')
+   *   await ctx.react('✅')
+   * })
+   * ```
+   */
+  conversation(name: string, fn: ConversationHandler, opts?: { trigger?: Trigger }): () => void {
     this.runtime.register(name, fn as ConversationFn)
     return this.registerEnterMatcher(opts?.trigger ?? name, name)
   }
@@ -575,6 +600,37 @@ export class Bot extends EventEmitter {
   schedule(cron: string, fn: () => void | Promise<void>): ScheduledTask { return this.scheduler.cron(cron, fn) }
   every(interval: string | number, fn: () => void | Promise<void>): ScheduledTask { return this.scheduler.every(interval, fn) }
   delay(duration: string | number, fn: () => void | Promise<void>): ScheduledTask { return this.scheduler.delay(duration, fn) }
+
+  /* =========================================================================
+   * IDLE (per-chat inactivity)
+   * ====================================================================== */
+
+  /**
+   * Run `handler` once when a chat stays quiet for `duration` (`'10m'`, `'1h'`, ms…) after its
+   * last processed inbound message. Every new inbound message from that chat reschedules it,
+   * and re-arms it after it fired. `ctx` is that last message's context, so
+   * `ctx.reply('¿Sigues ahí?')` answers in the right chat. Handler errors go to the bot
+   * `'error'` event. Pending timers are cancelled by {@link clearIdle}, by a `'handoff'` event
+   * carrying `{ chatId }`, by the returned unsubscribe and by `stop()`.
+   *
+   * @example
+   * ```ts
+   * bot.onIdle('10m', async (ctx, { idleMs }) => {
+   *   await ctx.reply(`¿Sigues ahí? (${idleMs / 60_000} min sin respuesta)`)
+   * })
+   * ```
+   */
+  onIdle(duration: string | number, handler: IdleHandler): () => void {
+    return this.idle.add(duration, handler)
+  }
+
+  /**
+   * Cancel pending {@link onIdle} timers for `chatId` (every chat when omitted) — e.g. when a
+   * human agent takes the chat over. They re-arm on that chat's next processed inbound message.
+   */
+  clearIdle(chatId?: ChatId): void {
+    this.idle.clear(chatId)
+  }
 
   /* =========================================================================
    * HELPERS

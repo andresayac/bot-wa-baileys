@@ -59,11 +59,25 @@ interface PendingWait {
   timer?: NodeJS.Timeout
 }
 
+/**
+ * Lifecycle observer of ONE live conversation (see {@link ConversationRuntime.observe}).
+ * Used by `c.idle()` watchdogs; callbacks must be cheap and must not throw.
+ */
+export interface ConversationObserver {
+  /** Any inbound message routed to the conversation's key — even one its pending wait filters out. */
+  inbound?(ctx: RuntimeMessage): void
+  /** The conversation ended or was aborted/replaced. Fires at most once. */
+  end?(): void
+}
+
 interface ActiveConversation extends ConversationHandle {
   state: Record<string, unknown>
   inbox: RuntimeMessage[]
   pending?: PendingWait
   cancelled?: ConversationCancelled
+  /** Control error injected from outside the conversation's call stack; thrown at its next wait. */
+  interrupted?: Error
+  observers?: Set<ConversationObserver>
 }
 
 const INBOX_CAP = 10
@@ -204,6 +218,7 @@ export class ConversationRuntime {
   deliver(ctx: RuntimeMessage): boolean {
     const entry = this.active.get(this.keyFor(ctx))
     if (!entry) return false
+    if (entry.observers) for (const o of [...entry.observers]) { try { o.inbound?.(ctx) } catch { /* observers must not break delivery */ } }
     if (entry.pending) {
       if (entry.pending.filter && !entry.pending.filter(ctx)) return false
       entry.pending.resolve(ctx)
@@ -221,6 +236,7 @@ export class ConversationRuntime {
     entry.cancelled = cancel
     if (entry.pending) entry.pending.reject(cancel)
     this.active.delete(key)
+    this.notifyEnd(entry)
     return true
   }
 
@@ -246,6 +262,8 @@ export class ConversationRuntime {
     if (this.active.get(entry.key) !== entry || entry.cancelled) {
       return Promise.reject(entry.cancelled ?? new ConversationCancelled(true))
     }
+    const interrupted = takeInterrupt(entry)
+    if (interrupted) return Promise.reject(interrupted)
     // A buffered message that already satisfies the filter must be consumed —
     // previously a filtered wait skipped the inbox entirely and only looked at
     // FUTURE messages, silently dropping an in-flight answer. With no filter it
@@ -287,16 +305,64 @@ export class ConversationRuntime {
     if (this.active.get(entry.key) !== entry || entry.cancelled) {
       throw entry.cancelled ?? new ConversationCancelled(true)
     }
+    const interrupted = takeInterrupt(entry)
+    if (interrupted) throw interrupted
+  }
+
+  /**
+   * Observe one live conversation (inbound activity + end). Returns an unsubscribe; a
+   * handle that is no longer live gets a no-op subscription. `end` fires exactly once,
+   * on completion, error, abort or replacement — so observers never outlive the entry.
+   */
+  observe(handle: ConversationHandle, observer: ConversationObserver): () => void {
+    const entry = handle as ActiveConversation
+    if (this.active.get(entry.key) !== entry || entry.cancelled) return () => {}
+    const observers = (entry.observers ??= new Set())
+    observers.add(observer)
+    return () => { observers.delete(observer) }
+  }
+
+  /**
+   * Steer a live conversation from OUTSIDE its call stack (e.g. an idle callback calling
+   * `c.end()`/`c.goto()`): `error` rejects the pending wait, or — if the conversation is busy —
+   * is thrown at its next wait/`say`. It then unwinds through the normal ending path
+   * (farewell, goto, timeout/retries messages). Returns false if the handle is not live.
+   */
+  interrupt(handle: ConversationHandle, error: Error): boolean {
+    const entry = handle as ActiveConversation
+    if (this.active.get(entry.key) !== entry || entry.cancelled) return false
+    if (entry.pending) entry.pending.reject(error)
+    else entry.interrupted = error
+    return true
+  }
+
+  /** Report an error raised outside a conversation's own flow (idle callbacks) via `onError`. */
+  reportError(error: unknown, ctx: RuntimeMessage): void {
+    this.cfg.onError?.(error, ctx)
+    this.cfg.logger?.error?.('conversation error', error)
+  }
+
+  private notifyEnd(entry: ActiveConversation): void {
+    const observers = entry.observers
+    entry.observers = undefined
+    for (const o of observers ?? []) { try { o.end?.() } catch { /* observers must not break teardown */ } }
   }
 
   private cleanup(entry: ActiveConversation): void {
     if (entry.pending?.timer) clearTimeout(entry.pending.timer)
     if (this.active.get(entry.key) === entry) this.active.delete(entry.key)
+    this.notifyEnd(entry)
   }
 
   private async safeReply(ctx: RuntimeMessage, text: string): Promise<void> {
     try { await ctx.reply(text) } catch (e) { this.cfg.logger?.warn?.('reply failed', e) }
   }
+}
+
+function takeInterrupt(entry: ActiveConversation): Error | undefined {
+  const e = entry.interrupted
+  entry.interrupted = undefined
+  return e
 }
 
 function defaultControlsFactory(rt: ConversationRuntime, handle: ConversationHandle, ctx: RuntimeMessage): ConversationControlsBase {
