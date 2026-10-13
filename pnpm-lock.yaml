@@ -70,8 +70,8 @@ importers:
         specifier: ^10.0.1
         version: 10.0.1
       '@whiskeysockets/baileys':
-        specifier: 7.0.0-rc13
-        version: 7.0.0-rc13(sharp@0.35.3(@types/node@26.1.1))
+        specifier: 7.0.0-rc14
+        version: 7.0.0-rc14(sharp@0.35.3(@types/node@26.1.1))
       fluent-ffmpeg:
         specifier: ^2.1.3
         version: 2.1.3
@@ -1895,8 +1895,8 @@ packages:
   '@vueuse/shared@12.8.2':
     resolution: {integrity: sha512-dznP38YzxZoNloI0qpEfpkms8knDtaoQ6Y/sfS0L7Yki4zh40LFHEhur0odJC6xTHG5dxWVPiUWBXn+wCG2s5w==}
 
-  '@whiskeysockets/baileys@7.0.0-rc13':
-    resolution: {integrity: sha512-8JPc8gaaCRykkjW2jxLGQ7/RZGrc7awO7WU+QJocf58eSUI9jAdcuYLynzhAbyU4UWvJJsHImZ+5E/JaZj5ypA==}
+  '@whiskeysockets/baileys@7.0.0-rc14':
+    resolution: {integrity: sha512-WK+X8ju8TPGxvWIsP8hrY6JB6FltYuFe+vsqKfjOYX25JObij9qLf2c3ZGdl1Q+vhFwbnT+AZmWAB5pTvzmSiQ==}
     engines: {node: '>=20.0.0'}
     peerDependencies:
       audio-decode: ^2.1.3
@@ -4082,7 +4082,7 @@ snapshots:
     transitivePeerDependencies:
       - typescript
 
-  '@whiskeysockets/baileys@7.0.0-rc13(sharp@0.35.3(@types/node@26.1.1))':
+  '@whiskeysockets/baileys@7.0.0-rc14(sharp@0.35.3(@types/node@26.1.1))':
     dependencies:
       '@cacheable/node-cache': 1.7.4
       '@hapi/boom': 9.1.4
