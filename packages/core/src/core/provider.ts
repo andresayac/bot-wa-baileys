@@ -74,6 +74,11 @@ export type MessageType =
   | 'text' | 'image' | 'video' | 'audio' | 'voice' | 'document'
   | 'sticker' | 'location' | 'contact' | 'poll' | 'buttons' | 'list'
   | 'unknown'
+  /**
+   * Not a message a provider emits: the Bot projects an inbound {@link CallEvent}
+   * into a context of this type so the `CALL` trigger can handle it (see `core/triggers.ts`).
+   */
+  | 'call'
 
 /**
  * Opaque, lazy media reference on an inbound event. The bytes are NOT inline;
@@ -83,7 +88,7 @@ export type MessageType =
  *  - Discord (plain HTTPS GET).
  */
 export interface MediaRef {
-  kind: Exclude<MessageType, 'text' | 'poll' | 'buttons' | 'list' | 'unknown'>
+  kind: Exclude<MessageType, 'text' | 'poll' | 'buttons' | 'list' | 'unknown' | 'call'>
   mimetype?: string
   filename?: string
   size?: number
@@ -509,6 +514,12 @@ export interface MessageContext<TTools extends object = DefaultTools, TRaw = unk
    */
   interaction?: { id: string; data: string; respondBy?: number }
   acknowledge?(text?: string): Promise<void>
+
+  /**
+   * Present only on the context the `CALL` trigger receives (`type === 'call'`):
+   * the provider's normalized call notification.
+   */
+  call?: CallEvent
 
   /* Reply helpers — every reply targets `this.from` (unchanged surface) */
   say(text: string): Promise<SentMessage>

@@ -2,6 +2,7 @@ import type { Trigger, TriggerScope, WaitOptions } from '../core/types.js'
 import type { RuntimeMessage } from '../conversations/ConversationRuntime.js'
 import type { ConversationControls } from '../conversations/controls.js'
 import { normalizeText } from '../core/matching.js'
+import { isTypeTrigger, isWelcomeTrigger } from '../core/triggers.js'
 import { parseDuration } from '../utils/duration.js'
 
 export type DynamicText = (ctx: RuntimeMessage, c: ConversationControls) => string | Promise<string>
@@ -101,6 +102,8 @@ export class FlowBuilder {
 
 function applyScope(trigger: Trigger, scope: TriggerScope | undefined): Trigger {
   if (!scope) return trigger
+  // WELCOME / type triggers carry their own `scope` field (the constants are frozen → copy).
+  if (isTypeTrigger(trigger) || isWelcomeTrigger(trigger)) return { ...trigger, scope }
   if (typeof trigger === 'function') {
     return (ctx) => {
       if (scope === 'dm' && ctx.isGroup) return false

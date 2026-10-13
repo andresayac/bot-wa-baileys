@@ -8,8 +8,9 @@
  * Commands:
  *   /start     — show greeting + command list
  *   /help      — same as /start
- *   /reset     — abort any active conversation in this chat (group-aware)
- *   /cancel    — same as /reset
+ *   /reset     — abort any active conversation in this chat (group-aware) and
+ *                re-arm the WELCOME trigger for this user (`bot.resetWelcome`)
+ *   /cancel    — abort the active conversation only (WELCOME stays spent)
  *   /id        — print this chat's JID (useful for devs)
  *   /ping      — health check (replies 'pong 🏓')
  *
@@ -61,6 +62,13 @@ export const slashCommandsPlugin = definePlugin<SlashCommandsConfig>({
     })
     bot.command('reset', async (ctx) => {
       bot.abortConversation(ctx)
+      // A full restart: the user's next message is a first contact again (WELCOME).
+      // Same granularity as the abort: the DM, or this participant of a group.
+      try {
+        await bot.resetWelcome(ctx.from, ctx.isGroup ? ctx.sender : undefined)
+      } catch (err) {
+        pluginCtx.logger.warn({ err }, 'could not re-arm WELCOME on /reset')
+      }
       await ctx.reply('✅ Conversación reiniciada.')
     })
     bot.command('cancel', async (ctx) => {

@@ -153,3 +153,23 @@ export { Scheduler } from './scheduler/Scheduler.js'
 
 // Testing helpers live under the "./testing" subpath export
 // (import from '@bot-wa/core/testing') — not re-exported here to keep the entry lean.
+
+// triggers
+export {
+  WELCOME,
+  MEDIA,
+  IMAGE,
+  VIDEO,
+  AUDIO,
+  VOICE_NOTE,
+  DOCUMENT,
+  STICKER,
+  LOCATION,
+  CONTACT,
+  POLL,
+  CALL,
+  typeTrigger,
+  isTypeTrigger,
+  isWelcomeTrigger,
+} from './core/triggers.js'
+export type { TypeTrigger, WelcomeTrigger } from './core/triggers.js'

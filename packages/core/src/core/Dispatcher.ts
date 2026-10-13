@@ -1,5 +1,8 @@
 import type { Trigger } from './types.js'
+import type { MessageType } from './provider.js'
 import { matchTrigger, triggerSpecificity, normalizeText } from './matching.js'
+import { isTypeTrigger, isWelcomeTrigger, typeTrigger } from './triggers.js'
+import { WelcomeTracker } from './welcome.js'
 import type { ConversationRuntime, RuntimeMessage } from '../conversations/ConversationRuntime.js'
 
 export interface DispatchContext extends RuntimeMessage {
@@ -24,6 +27,12 @@ export interface DispatcherDeps {
   logger?: { debug?: (...a: unknown[]) => void; error?: (...a: unknown[]) => void }
   /** Emit an event; returns `true` when the event had listeners (mirrors `EventEmitter.emit`). */
   emit: (event: string, payload: unknown) => boolean
+  /**
+   * Decides whether a message is its subject's first contact, for `WELCOME` matchers.
+   * Called only when a WELCOME matcher is reached, inside the per-chat FIFO. The Bot
+   * wires a store-backed `WelcomeTracker`; when omitted, an in-memory one is used.
+   */
+  firstContact?: (ctx: DispatchContext) => Promise<boolean>
 }
 
 interface MatcherEntry { seq: number; trigger: Trigger; specificity: number; handler: MessageHandler }
@@ -61,8 +70,9 @@ export class Dispatcher {
     return () => { this.matchers = this.matchers.filter((m) => m !== entry) }
   }
 
+  /** Same as `matcher(typeTrigger(type), handler)` — the single-kind type-trigger tier. */
   onType(type: string, handler: MessageHandler): () => void {
-    return this.matcher((c) => (c as unknown as DispatchContext).type === type, handler, 1)
+    return this.matcher(typeTrigger(type as MessageType), handler)
   }
 
   catchAll(handler: MessageHandler): () => void {
@@ -72,9 +82,13 @@ export class Dispatcher {
 
   /** Serializa por chat-key: nunca dos mensajes del mismo chat en paralelo. */
   dispatch(ctx: DispatchContext): Promise<void> {
+    return this.enqueue(ctx, () => this.run(ctx))
+  }
+
+  private enqueue(ctx: DispatchContext, job: () => Promise<void>): Promise<void> {
     const key = this.deps.runtime.keyFor(ctx)
     const tail = this.queues.get(key) ?? Promise.resolve()
-    const next = tail.then(() => this.run(ctx)).catch(() => {})
+    const next = tail.then(job).catch(() => {})
     this.queues.set(key, next)
     void next.finally(() => { if (this.queues.get(key) === next) this.queues.delete(key) })
     return next
@@ -115,6 +129,7 @@ export class Dispatcher {
       // 4. matchers por especificidad
       for (const m of this.matchers) {
         if (!matchTrigger(m.trigger, ctx)) continue
+        if (isWelcomeTrigger(m.trigger) && !(await this.isFirstContact(ctx))) continue
         ctx._passed = false
         await m.handler(ctx)
         if (ctx._aborted) return this.finish(ctx)
@@ -138,5 +153,48 @@ export class Dispatcher {
   private async finish(ctx: DispatchContext): Promise<void> {
     await this.deps.hooks.runAfter('message', ctx)
     this.deps.emit('message', ctx)
+  }
+
+  /* -------------------------------------------------------------------------
+   * Special triggers (WELCOME / type triggers / projected events such as calls)
+   * ---------------------------------------------------------------------- */
+
+  private fallbackWelcome?: WelcomeTracker
+
+  private isFirstContact(ctx: DispatchContext): Promise<boolean> {
+    if (this.deps.firstContact) return this.deps.firstContact(ctx)
+    this.fallbackWelcome ??= new WelcomeTracker()
+    return this.fallbackWelcome.isFirstContact(ctx)
+  }
+
+  /** True when a type trigger accepting `type` is registered (e.g. `CALL` for `'call'`). */
+  hasTypeMatcher(type: string): boolean {
+    return this.matchers.some((m) => isTypeTrigger(m.trigger) && m.trigger.types.includes(type as MessageType))
+  }
+
+  /**
+   * Dispatch a projected non-message event (a call, `ctx.type === 'call'`) through the
+   * same per-chat FIFO, running ONLY the type-trigger matchers that accept `ctx.type`
+   * (by specificity; `ctx.pass()` cascades). Message hooks, commands, conversations,
+   * text/function triggers and catch-alls are skipped and `'message'` is not emitted.
+   * A handler error goes to the `error` hooks of `ctx.type` and to the `'error'` event.
+   */
+  dispatchEvent(ctx: DispatchContext): Promise<void> {
+    return this.enqueue(ctx, () => this.runEvent(ctx))
+  }
+
+  private async runEvent(ctx: DispatchContext): Promise<void> {
+    try {
+      for (const m of this.matchers) {
+        if (!isTypeTrigger(m.trigger) || !matchTrigger(m.trigger, ctx)) continue
+        ctx._passed = false
+        await m.handler(ctx)
+        if (ctx._aborted || !ctx._passed) return
+      }
+    } catch (error) {
+      this.deps.logger?.error?.('event dispatch error', error)
+      try { await this.deps.hooks.runError(ctx.type, ctx, error) } catch { /* no error hook registered */ }
+      this.deps.emit('error', { error, ctx })
+    }
   }
 }

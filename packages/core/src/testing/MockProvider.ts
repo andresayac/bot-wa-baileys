@@ -119,4 +119,15 @@ export class MockProvider implements IProvider {
       },
     })
   }
+
+  /**
+   * Simulate an inbound call notification (what `bot.on('call')` and the `CALL`
+   * trigger receive). Reuse the same `id` to emit later updates of one call.
+   */
+  call(opts: { id?: string; from?: string; status?: string } = {}): void {
+    this.emitEvent({
+      kind: 'call',
+      event: { id: opts.id ?? `call-${++counter}`, from: opts.from ?? 'user-1', status: opts.status ?? 'offer' },
+    })
+  }
 }
