@@ -10,6 +10,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { Bot } from '../src/core/Bot.js'
 import type { LoggerLike } from '../src/core/provider.js'
 import { defineBot } from '../src/dev/defineBot.js'
+import { MockProvider } from '../src/testing/MockProvider.js'
 import { parseCliArgs, runCli, CLI_USAGE, DevUsageError, type CliIO } from '../src/dev/cli.js'
 
 const silent: LoggerLike = { debug() {}, info() {}, warn() {}, error() {}, child() { return silent } }
@@ -260,6 +261,94 @@ describe('runCli', () => {
     const { io, out } = makeIO({ cwd: dir, importModule: async () => ({}) })
     expect(await runCli(['dev', 'bot.mjs', '--no-watch'], io)).toBe(1)
     expect(out.text()).toContain('defineBot')
+  })
+
+  it('waits for slow replies (e.g. AI calls) before exiting when piped input ends', async () => {
+    const dir = await makeTempDir()
+    await writeFile(join(dir, 'bot.mjs'), '\n')
+    const { io, stdin, out } = makeIO({
+      cwd: dir,
+      importModule: async () => defineBot((provider) => {
+        const bot = new Bot({ provider, logger: silent })
+        bot.when('hola', async (ctx) => {
+          await new Promise((r) => setTimeout(r, 600))
+          await ctx.reply('slow reply')
+        })
+        bot.when('chau', async (ctx) => { await ctx.reply('bye') })
+        return bot
+      }),
+    })
+    const exit = runCli(['dev', 'bot.mjs', '--no-watch'], io)
+    stdin.end('hola\nchau\n')
+    expect(await exit).toBe(0)
+    const t = out.text()
+    expect(t).toContain('bot › slow reply')
+    // The transcript stays in order: the slow reply comes before the next message.
+    expect(t.indexOf('bot › slow reply')).toBeLessThan(t.indexOf('user › chau'))
+    expect(t).toContain('bot › bye')
+  })
+
+  it('exits even in watch mode when the factory builds its own provider, closing it', async () => {
+    const dir = await makeTempDir()
+    await writeFile(join(dir, 'bot.mjs'), '\n')
+    const counters = { starts: 0, stops: 0 }
+    class RealProvider extends MockProvider {
+      override async start() { counters.starts++; await super.start() }
+      override async stop() { counters.stops++; await super.stop() }
+    }
+    let closed = false
+    let trigger: ((files: string[]) => void) | undefined
+    const { io, out } = makeIO({
+      cwd: dir,
+      importModule: async () => defineBot(async () => {
+        const bot = new Bot({ provider: new RealProvider(), logger: silent })
+        await bot.start()
+        return bot
+      }),
+      watch: (_dir, onChange) => { trigger = onChange; return { close: () => { closed = true } } },
+    })
+    expect(await runCli(['dev', 'bot.mjs'], io)).toBe(1)
+    expect(out.text()).toContain('refusing to start your bot')
+    expect(out.text()).toContain('stopping')
+    expect(closed).toBe(true)
+    expect(counters).toEqual({ starts: 1, stops: 1 })
+    trigger?.(['bot.mjs']) // a late save must not call the factory again
+    await new Promise((r) => setTimeout(r, 20))
+    expect(counters.starts).toBe(1)
+  })
+
+  it('exits when a hot reload switches the factory to its own provider', async () => {
+    const dir = await makeTempDir()
+    await writeFile(join(dir, 'bot.mjs'), '\n')
+    let foreign = false
+    let realStarts = 0
+    let realStops = 0
+    class RealProvider extends MockProvider {
+      override async start() { realStarts++; await super.start() }
+      override async stop() { realStops++; await super.stop() }
+    }
+    let trigger: ((files: string[]) => void) | undefined
+    let closed = false
+    const { io, stdin, out } = makeIO({
+      cwd: dir,
+      importModule: async () => defineBot(async (provider) => {
+        const bot = new Bot({ provider: foreign ? new RealProvider() : provider, logger: silent })
+        bot.when('hola', async (ctx) => { await ctx.reply('hola dev') })
+        if (foreign) await bot.start()
+        return bot
+      }),
+      watch: (_dir, onChange) => { trigger = onChange; return { close: () => { closed = true } } },
+    })
+    const exit = runCli(['dev', 'bot.mjs'], io)
+    stdin.write('hola\n')
+    await out.until('bot › hola dev')
+    foreign = true
+    trigger!(['bot.mjs'])
+    expect(await exit).toBe(1)
+    expect(out.text()).toContain('refusing to start your bot')
+    expect(closed).toBe(true)
+    expect(realStarts).toBe(1)
+    expect(realStops).toBe(1)
   })
 })
 

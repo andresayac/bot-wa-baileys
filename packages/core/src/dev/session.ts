@@ -31,9 +31,9 @@ import { basename, extname, resolve as resolvePath } from 'node:path'
 import { inspect } from 'node:util'
 
 import type { Bot } from '../core/Bot.js'
-import type { ChatId, MessageRef, UserId } from '../core/provider.js'
+import type { ChatId, IProvider, MessageRef, UserId } from '../core/provider.js'
 import { DEV_HELP, parseDevInput, type DevCommand } from './commands.js'
-import type { BotFactory } from './defineBot.js'
+import { isBotFactory, type BotFactory } from './defineBot.js'
 import { DevProvider, type DevMediaKind, type DevOutbound } from './DevProvider.js'
 import { DevEntryError, resolveBotFactory } from './loader.js'
 import { formatMessage, renderOutbound, type DevChoice, type DevInteractiveKind } from './render.js'
@@ -76,17 +76,34 @@ export interface DevSessionOptions {
    */
   echo?: boolean
   /**
-   * When > 0, `handleLine` resolves only after the bot has been quiet for this
-   * many ms (capped by `maxSettleMs`), so piped transcripts keep their order.
-   * Default `0` (interactive: replies print whenever they arrive).
+   * When > 0, `handleLine` resolves only after the bot has finished reacting to
+   * the input (no handler or conversation step still running, see
+   * `Bot.isBusy()`) and has then been quiet for this many ms, capped by
+   * `maxSettleMs`, so piped transcripts keep their order and slow replies
+   * (AI calls) are not skipped. Default `0` (interactive: replies print
+   * whenever they arrive).
    */
   settleMs?: number
-  /** Upper bound for one settle wait. Default 10 000 ms. */
+  /** Upper bound for one settle wait (per line, and for {@link DevSession.drain}). Default 10 000 ms. */
   maxSettleMs?: number
+  /**
+   * Called once when the session stops itself for safety (see
+   * {@link DevHaltReason}). After that it never calls the factory again; the
+   * caller should shut down (the `bot-wa` CLI exits with code 1).
+   */
+  onHalt?: (reason: DevHaltReason) => void
 }
 
 /** What the caller should do after a line: keep reading, or shut down. */
 export type DevLineResult = 'continue' | 'quit'
+
+/**
+ * Why a {@link DevSession} stopped itself.
+ * - `'foreign-provider'`: the factory built its Bot on its own provider instead
+ *   of the one it was given, so each call could open another real connection
+ *   (on every save, with hot reload). The bot and that provider were stopped.
+ */
+export type DevHaltReason = 'foreign-provider'
 
 interface LiveBot {
   bot: Bot
@@ -135,6 +152,26 @@ function describeValue(value: unknown): string {
 
 const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
 
+/**
+ * Best-effort shutdown of a bot built on a provider the simulator did not
+ * inject. Stopping the bot also stops its provider and store, but only when it
+ * was started (it then emits `'stopped'`); otherwise stop the provider directly,
+ * in case the factory started it on its own.
+ */
+async function closeForeignBot(bot: Bot, provider: IProvider): Promise<void> {
+  let botStopped = false
+  const onStopped = () => { botStopped = true }
+  bot.on('stopped', onStopped)
+  try {
+    await bot.stop()
+  } catch { /* best effort: the bot is being rejected anyway */ }
+  if (typeof bot.off === 'function') bot.off('stopped', onStopped)
+  if (botStopped) return
+  try {
+    await provider.stop()
+  } catch { /* best effort */ }
+}
+
 export class DevSession {
   private readonly options: DevSessionOptions
   private readonly color: boolean
@@ -152,6 +189,8 @@ export class DevSession {
   private reloadCount = 0
   private lastActivity = 0
   private stopped = false
+  private haltReason?: DevHaltReason
+  private warnedUnbranded = false
 
   constructor(options: DevSessionOptions) {
     this.options = options
@@ -174,6 +213,8 @@ export class DevSession {
   get reloads(): number { return this.reloadCount }
   /** True while a bot is running. */
   get running(): boolean { return this.live !== undefined }
+  /** Set once the session stopped itself for safety; it then never calls the factory again. */
+  get halted(): DevHaltReason | undefined { return this.haltReason }
 
   /** Prompt label for the current identity: `user › ` or `user @ group › `. */
   prompt(): string {
@@ -193,20 +234,34 @@ export class DevSession {
   /** Restart the bot from the current factory with fresh in-memory state. */
   reset(): Promise<boolean> { return this.enqueue(() => this.resetNow()) }
 
-  /** Process one line typed by the developer (a message or a `:command`). */
+  /**
+   * Process one line typed by the developer (a message or a `:command`).
+   * Resolves `'quit'` for `:quit`, and for any line once the session has
+   * {@link halted}.
+   */
   handleLine(line: string): Promise<DevLineResult> {
     return this.enqueue(async () => {
+      let result: DevLineResult
       try {
-        return await this.execute(parseDevInput(line))
+        result = await this.execute(parseDevInput(line))
       } catch (error) {
         this.printError('simulator error', error)
-        return 'continue'
+        result = 'continue'
       }
+      return this.haltReason ? 'quit' : result
     })
   }
 
   /** Resolves once every queued operation has finished. */
   idle(): Promise<void> { return this.enqueue(async () => undefined) }
+
+  /**
+   * Like {@link idle}, then also waits until the bot has finished reacting to
+   * what it was sent (no handler or conversation step running, quiet for
+   * `settleMs`), capped by `maxSettleMs`. Call it before {@link stop} when
+   * piped input ends, so a reply still in flight is not cut off.
+   */
+  drain(): Promise<void> { return this.enqueue(() => this.settle(this.settleMs)) }
 
   /** Stop the running bot. Later reloads are ignored. Idempotent. */
   stop(): Promise<void> {
@@ -232,7 +287,7 @@ export class DevSession {
         return 'continue'
       case 'message':
         this.sendText(command.text)
-        await this.settle()
+        await this.settleAfterInput()
         return 'continue'
       case 'as':
         this.ident = { ...this.ident, user: command.user, name: command.name ?? command.user }
@@ -248,11 +303,11 @@ export class DevSession {
         return 'continue'
       case 'media':
         await this.sendMedia(command.mediaKind, command.path, command.caption)
-        await this.settle()
+        await this.settleAfterInput()
         return 'continue'
       case 'click':
         this.click(command.target)
-        await this.settle()
+        await this.settleAfterInput()
         return 'continue'
       case 'reset':
         await this.resetNow()
@@ -275,7 +330,7 @@ export class DevSession {
   }
 
   private async loadAndBoot(mode: 'start' | 'reload', reason?: string): Promise<boolean> {
-    if (this.stopped) return false
+    if (this.stopped || this.refuseWhenHalted()) return false
     let factory: BotFactory
     try {
       factory = resolveBotFactory(await this.options.load())
@@ -283,6 +338,13 @@ export class DevSession {
       if (mode === 'reload' && this.live) this.printError('reload failed — keeping the previous version', error)
       else this.printError(mode === 'start' ? 'could not load your bot' : 'reload failed', error)
       return false
+    }
+    if (!isBotFactory(factory) && !this.warnedUnbranded) {
+      this.warnedUnbranded = true
+      this.warn(
+        'the default export is not wrapped in defineBot(), so bot-wa dev cannot tell it is a bot factory; ' +
+          'it calls it with the simulator provider anyway. Wrap it: export default defineBot((provider) => { ... })',
+      )
     }
     this.factory = factory
     await this.teardown()
@@ -295,6 +357,7 @@ export class DevSession {
   }
 
   private async resetNow(): Promise<boolean> {
+    if (this.stopped || this.refuseWhenHalted()) return false
     if (!this.factory) {
       this.problem('nothing to reset — the bot is not loaded')
       return false
@@ -326,12 +389,19 @@ export class DevSession {
       return false
     }
     const bot = candidate
-    if (typeof bot.getProvider === 'function' && bot.getProvider() !== provider) {
+    const own: IProvider | undefined = typeof bot.getProvider === 'function' ? bot.getProvider() : undefined
+    if (own && own !== provider) {
       this.currentProvider = undefined
+      // The factory may already have connected it for real. Close what it opened
+      // and never call this factory again: with hot reload, every save would
+      // open another live connection on the same session.
+      await closeForeignBot(bot, own)
       this.printError('refusing to start your bot', new DevEntryError(
         'It was built with its own provider instead of the one bot-wa dev passed to the factory, so it could ' +
-          'connect to a real transport. Build it with the given provider: defineBot((provider) => new Bot({ provider }))',
+          'connect to a real transport; it has been stopped. Build it with the given provider: ' +
+          'defineBot((provider) => new Bot({ provider })), and start the real one only in your isMainModule(import.meta) block.',
       ))
+      this.halt('foreign-provider')
       return false
     }
 
@@ -510,14 +580,45 @@ export class DevSession {
     this.printError('bot error', payload?.error ?? payload)
   }
 
-  private async settle(): Promise<void> {
-    if (this.settleMs <= 0) return
+  /** After injecting input: wait for the bot's reaction when transcripts must stay in order (piped input). */
+  private async settleAfterInput(): Promise<void> {
+    if (this.settleMs > 0) await this.settle(this.settleMs)
+  }
+
+  /**
+   * Wait until the bot is no longer busy and has produced nothing for `quietMs`,
+   * or `maxSettleMs` passed. The quiet period alone is not enough: a handler
+   * awaiting an AI call prints nothing for seconds.
+   */
+  private async settle(quietMs: number): Promise<void> {
     const started = Date.now()
+    const poll = Math.min(Math.max(quietMs, 5), 50)
     for (;;) {
-      await delay(this.settleMs)
+      await delay(poll)
       const now = Date.now()
-      if (now - this.lastActivity >= this.settleMs || now - started >= this.maxSettleMs) return
+      if (now - started >= this.maxSettleMs) return
+      if (!this.botBusy() && now - this.lastActivity >= quietMs) return
     }
+  }
+
+  /** `Bot.isBusy()` of the running bot; `false` when absent (e.g. a bot built by an older `@bot-wa/core`). */
+  private botBusy(): boolean {
+    const bot = this.live?.bot
+    return typeof bot?.isBusy === 'function' ? bot.isBusy() : false
+  }
+
+  /** Stop for safety: no further factory calls; tell the caller once. */
+  private halt(reason: DevHaltReason): void {
+    if (this.haltReason) return
+    this.haltReason = reason
+    this.options.onHalt?.(reason)
+  }
+
+  /** True (after explaining why) when a halted session is asked to build the bot again. */
+  private refuseWhenHalted(): boolean {
+    if (!this.haltReason) return false
+    this.problem('the simulator stopped because your bot factory builds its own provider — fix it and run bot-wa dev again')
+    return true
   }
 
   /* Output helpers --------------------------------------------------------- */
@@ -533,6 +634,8 @@ export class DevSession {
   private info(text: string): void { this.out(`${this.paint('dim', `• ${text}`)}\n`) }
 
   private problem(text: string): void { this.out(`${this.paint('red', `✖ ${text}`)}\n`) }
+
+  private warn(text: string): void { this.out(`${this.paint('yellow', `⚠ ${text}`)}\n`) }
 
   private printError(title: string, error: unknown): void {
     const err = error instanceof Error ? error : undefined

@@ -150,6 +150,13 @@ export function parseCliArgs(argv: readonly string[]): DevCliOptions {
   return out
 }
 
+/** With piped input, how long one line may wait for the bot's reaction (slow AI calls included). */
+const PIPED_MAX_SETTLE_MS = 30_000
+
+const HALT_NOTICE =
+  '• stopping: bot-wa dev will not call a bot factory that builds its own provider again — each call could open ' +
+  'another real connection. Exiting closes anything it left open.\n'
+
 function readVersion(): string {
   try {
     const pkg = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')) as { version?: unknown }
@@ -174,7 +181,8 @@ function errorMessage(error: unknown): string {
 /**
  * Run the `bot-wa` CLI. Resolves with the process exit code: `0` success,
  * `1` runtime failure (missing entry, unsupported TypeScript, load failure
- * without watch), `2` usage error.
+ * without watch, an entry that ran without exporting a factory, a factory that
+ * builds its own provider), `2` usage error.
  */
 export async function runCli(argv: readonly string[], io: CliIO): Promise<number> {
   let options: DevCliOptions
@@ -268,6 +276,8 @@ async function runDev(options: DevCliOptions, entryArg: string, io: CliIO): Prom
     }
   }
 
+  // Set once the line reader exists; a halt during start() is handled below.
+  let onHaltWhileRunning: (() => void) | undefined
   const session = new DevSession({
     load,
     write,
@@ -277,9 +287,12 @@ async function runDev(options: DevCliOptions, entryArg: string, io: CliIO): Prom
     cwd,
     color,
     // Piped input is not echoed by a terminal and arrives all at once: echo it
-    // and wait for replies so the transcript reads in order.
+    // and wait for each reaction (even a slow AI call) so the transcript reads
+    // in order and no reply is skipped.
     echo: !tty,
     settleMs: tty ? 0 : 200,
+    maxSettleMs: tty ? undefined : PIPED_MAX_SETTLE_MS,
+    onHalt: () => onHaltWhileRunning?.(),
   })
 
   const rel = (path: string) => relative(cwd, path) || '.'
@@ -310,8 +323,10 @@ async function runDev(options: DevCliOptions, entryArg: string, io: CliIO): Prom
   }
 
   const started = await session.start()
-  if (!started && (ranWithoutFactory || !options.watch)) {
-    if (ranWithoutFactory) {
+  if (!started && (ranWithoutFactory || session.halted || !options.watch)) {
+    if (session.halted) {
+      write(HALT_NOTICE)
+    } else if (ranWithoutFactory) {
       write(
         '• stopping: the entry ran but exports no bot factory. If it builds and starts a real provider when ' +
           'imported, that connection is open now — exiting closes it. Export defineBot((provider) => ...) and ' +
@@ -328,6 +343,12 @@ async function runDev(options: DevCliOptions, entryArg: string, io: CliIO): Prom
   rl = lineReader
   return new Promise<number>((resolveExit) => {
     let closing = false
+    // A reload (save, :reload, :reset) whose factory builds its own provider:
+    // the session refuses to call it again, so there is nothing left to run.
+    onHaltWhileRunning = () => {
+      write(HALT_NOTICE)
+      lineReader.close()
+    }
     lineReader.on('line', (line) => {
       void session.handleLine(line).then((result) => {
         if (result === 'quit') lineReader.close()
@@ -342,9 +363,12 @@ async function runDev(options: DevCliOptions, entryArg: string, io: CliIO): Prom
       closing = true
       prompting = false
       watcher?.close()
-      void session.idle()
+      // Piped input ends right after its last line; let a reply still in flight
+      // (e.g. an AI call) arrive before stopping the bot. In a terminal, quitting
+      // (:quit, Ctrl+C, Ctrl+D) is immediate.
+      void (tty ? session.idle() : session.drain())
         .then(() => session.stop())
-        .then(() => resolveExit(0), () => resolveExit(1))
+        .then(() => resolveExit(session.halted ? 1 : 0), () => resolveExit(1))
     })
     if (tty) {
       prompting = true

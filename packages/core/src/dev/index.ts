@@ -23,7 +23,7 @@ export { defineBot, isBotFactory, isMainModule } from './defineBot.js'
 export type { BotFactory } from './defineBot.js'
 
 export { DevSession, guessMimeType } from './session.js'
-export type { DevSessionOptions, DevIdentity, DevLineResult } from './session.js'
+export type { DevSessionOptions, DevIdentity, DevLineResult, DevHaltReason } from './session.js'
 
 export { DevProvider, DEV_BOT_ID } from './DevProvider.js'
 export type { DevOutbound, DevSender, DevMediaInput, DevMediaKind, DevPollVoteInput } from './DevProvider.js'

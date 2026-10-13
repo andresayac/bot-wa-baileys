@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { pathToFileURL } from 'node:url'
 
 import { Bot } from '../src/core/Bot.js'
@@ -114,6 +114,36 @@ describe('Bot.inspectConversation', () => {
     expect(snap).toMatchObject({ key: chat.jid, waiting: true, queued: 0, state: { name: 'Ana' } })
     snap!.state.name = 'mutated'
     expect(bot.inspectConversation(target)?.state.name).toBe('Ana')
+    await bot.stop()
+  })
+})
+
+describe('Bot.isBusy', () => {
+  it('is true while a handler runs or a conversation step runs, false while waiting for the user', async () => {
+    const { bot, chat } = await createTestBot({ logger: silent })
+    let releaseHandler!: () => void
+    const handlerGate = new Promise<void>((r) => { releaseHandler = r })
+    let releaseStep!: () => void
+    const stepGate = new Promise<void>((r) => { releaseStep = r })
+    bot.when('slow', async (ctx) => { await handlerGate; await ctx.reply('done') })
+    bot.use(flow('reg').ask('¿Nombre?', 'name').do(async () => { await stepGate }).say('ok'))
+    expect(bot.isBusy()).toBe(false)
+
+    await chat.send('slow')
+    expect(bot.isBusy()).toBe(true) // the event is in flight from the moment it is emitted
+    releaseHandler()
+    await chat.expectReply('done')
+    await vi.waitFor(() => expect(bot.isBusy()).toBe(false))
+
+    await chat.send('reg')
+    await chat.expectReply('¿Nombre?')
+    await vi.waitFor(() => expect(bot.isBusy()).toBe(false)) // blocked on ask(): idle
+    await chat.send('Ana')
+    await sleep(20)
+    expect(bot.isBusy()).toBe(true) // the dispatcher returned, but the .do() step is running
+    releaseStep()
+    await chat.expectReply('ok')
+    await vi.waitFor(() => expect(bot.isBusy()).toBe(false))
     await bot.stop()
   })
 })
@@ -368,6 +398,136 @@ describe('DevSession', () => {
     expect(await session.start()).toBe(false)
     await until('provider')
     expect(created!.getConnectionState()).toBe('closed')
+    await session.stop()
+  })
+
+  it('stops a bot built on its own provider and halts instead of calling that factory again', async () => {
+    const counters = { starts: 0, stops: 0, factoryCalls: 0 }
+    class RealProvider extends MockProvider {
+      override async start() { counters.starts++; await super.start() }
+      override async stop() { counters.stops++; await super.stop() }
+    }
+    // Typical mistake when wrapping existing bot code: the factory ignores the
+    // given provider, builds a real one and even starts the bot itself.
+    const factory = defineBot(async () => {
+      counters.factoryCalls++
+      const bot = new Bot({ provider: new RealProvider(), logger: silent })
+      await bot.start()
+      return bot
+    })
+    const halts: string[] = []
+    const { session, until } = harness(async () => factory, { onHalt: (reason) => { halts.push(reason) } })
+    expect(await session.start()).toBe(false)
+    await until('refusing to start your bot')
+    expect(counters.starts).toBe(1)
+    expect(counters.stops).toBeGreaterThanOrEqual(1) // the connection it opened is closed again
+    expect(session.halted).toBe('foreign-provider')
+    expect(halts).toEqual(['foreign-provider'])
+
+    // Saves, :reload and :reset must not open yet another connection.
+    expect(await session.reload('bot.js changed')).toBe(false)
+    expect(await session.handleLine(':reload')).toBe('quit')
+    expect(await session.handleLine(':reset')).toBe('quit')
+    expect(await session.reset()).toBe(false)
+    expect(counters.factoryCalls).toBe(1)
+    expect(counters.starts).toBe(1)
+    expect(halts).toEqual(['foreign-provider'])
+    await session.stop()
+  })
+
+  it('also closes a foreign provider the factory started directly', async () => {
+    let stops = 0
+    class RealProvider extends MockProvider {
+      override async stop() { stops++; await super.stop() }
+    }
+    const factory = defineBot(async () => {
+      const provider = new RealProvider()
+      await provider.start()
+      return new Bot({ provider, logger: silent })
+    })
+    const { session } = harness(async () => factory)
+    expect(await session.start()).toBe(false)
+    expect(session.halted).toBe('foreign-provider')
+    expect(stops).toBe(1)
+    await session.stop()
+  })
+
+  it('halts on a reload whose factory switched to its own provider', async () => {
+    let foreign = false
+    let realStops = 0
+    class RealProvider extends MockProvider {
+      override async stop() { realStops++; await super.stop() }
+    }
+    const factory = defineBot(async (provider) => {
+      const bot = new Bot({ provider: foreign ? new RealProvider() : provider, logger: silent })
+      if (foreign) await bot.start()
+      return bot
+    })
+    const { session, until } = harness(async () => factory)
+    expect(await session.start()).toBe(true)
+    foreign = true
+    expect(await session.reload('bot.js changed')).toBe(false)
+    await until('refusing to start your bot')
+    expect(session.halted).toBe('foreign-provider')
+    expect(session.running).toBe(false)
+    expect(realStops).toBeGreaterThanOrEqual(1)
+    await session.stop()
+  })
+
+  it('warns once when the default export is not a defineBot factory', async () => {
+    const plain = (provider: IProvider) => new Bot({ provider, logger: silent })
+    const { session, text } = harness(async () => ({ default: plain }))
+    expect(await session.start()).toBe(true)
+    expect(await session.reload('again')).toBe(true)
+    expect(text().split('not wrapped in defineBot').length - 1).toBe(1)
+    await session.stop()
+
+    const branded = harness(async () => ({ default: greeter }))
+    await branded.session.start()
+    expect(branded.text()).not.toContain('not wrapped in defineBot')
+    await branded.session.stop()
+  })
+
+  it('settle waits for slow handlers (e.g. an AI call), not just a quiet period', async () => {
+    const factory = defineBot((provider) => {
+      const bot = new Bot({ provider, logger: silent })
+      bot.when('hola', async (ctx) => { await sleep(300); await ctx.reply('slow reply') })
+      return bot
+    })
+    const { session, text } = harness(async () => factory, { echo: true, settleMs: 30 })
+    await session.start()
+    await session.handleLine('hola')
+    expect(text()).toContain('bot › slow reply')
+    await session.stop()
+  })
+
+  it('settle waits for a conversation step that runs after the answer is delivered', async () => {
+    const factory = defineBot((provider) => {
+      const bot = new Bot({ provider, logger: silent })
+      bot.use(flow('reg').ask('¿Nombre?', 'name').do(async () => { await sleep(300) }).say('listo'))
+      return bot
+    })
+    const { session, text } = harness(async () => factory, { echo: true, settleMs: 30 })
+    await session.start()
+    await session.handleLine('reg')
+    expect(text()).toContain('bot › ¿Nombre?')
+    await session.handleLine('Ana')
+    expect(text()).toContain('bot › listo')
+    await session.stop()
+  })
+
+  it('drain() gives a reply still in flight another settle window', async () => {
+    const factory = defineBot((provider) => {
+      const bot = new Bot({ provider, logger: silent })
+      bot.when('hola', async (ctx) => { await sleep(300); await ctx.reply('late reply') })
+      return bot
+    })
+    // maxSettleMs cuts the per-line wait short; drain() must still catch the reply.
+    const { session, text } = harness(async () => factory, { settleMs: 30, maxSettleMs: 200 })
+    await session.start()
+    await session.handleLine('hola')
+    await session.drain()
+    expect(text()).toContain('bot › late reply')
     await session.stop()
   })
 

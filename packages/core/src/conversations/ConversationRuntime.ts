@@ -178,6 +178,16 @@ export class ConversationRuntime {
     return { key, state: { ...entry.state }, waiting: entry.pending !== undefined, queued: entry.inbox.length }
   }
 
+  /**
+   * True while some live conversation is executing a step: it is active and NOT
+   * blocked waiting for the user's next message (every control waits through
+   * {@link wait}, which sets `pending`).
+   */
+  hasRunning(): boolean {
+    for (const entry of this.active.values()) if (!entry.pending) return true
+    return false
+  }
+
   async enter(nameOrFn: string | ConversationFn, ctx: RuntimeMessage): Promise<void> {
     const fn = typeof nameOrFn === 'string' ? this.registry.get(nameOrFn) : nameOrFn
     if (!fn) throw new Error(`Conversation "${String(nameOrFn)}" is not registered`)

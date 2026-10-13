@@ -158,6 +158,8 @@ export class Bot extends EventEmitter {
   private connState: ConnectionState = 'closed'
   /** In-flight outbound sends — tracked so `stop({ drain: true })` can wait for them. */
   private inflightSends = new Set<Promise<unknown>>()
+  /** Provider events still being handled (stored, dispatched) — see {@link isBusy}. */
+  private inflightEvents = new Set<Promise<void>>()
 
   /** Resolves when the bot reaches the `'ready'` connection state. */
   readonly ready: Promise<void>
@@ -493,6 +495,18 @@ export class Bot extends EventEmitter {
     return this.runtime.inspect(this.runtime.keyFor(target))
   }
 
+  /**
+   * True while the bot is still reacting to what it received: a provider event
+   * is being stored or dispatched to its handlers (e.g. one awaiting an AI
+   * call), or a conversation is running a step instead of waiting for the
+   * user's reply. Work a handler starts without awaiting it is not tracked.
+   * Diagnostics only — `bot-wa dev` uses it to wait for slow replies when its
+   * input is piped.
+   */
+  isBusy(): boolean {
+    return this.inflightEvents.size > 0 || this.runtime.hasRunning()
+  }
+
   /* =========================================================================
    * HOOKS
    * ====================================================================== */
@@ -681,7 +695,9 @@ export class Bot extends EventEmitter {
   /** Subscribe to the provider's normalized event stream and route each kind. */
   private wireEvents(): void {
     this.disposables.add(this.provider.onEvent((event: InboundEvent) => {
-      void this.handleProviderEvent(event).catch((error) => this.emitError({ error }))
+      const task = this.handleProviderEvent(event).catch((error) => this.emitError({ error }))
+      this.inflightEvents.add(task)
+      void task.finally(() => this.inflightEvents.delete(task))
     }))
   }
 
