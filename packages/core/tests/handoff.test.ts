@@ -32,6 +32,19 @@ async function waitForText(provider: MockProvider, text: string, chatId?: string
   await vi.waitFor(() => expect(texts(provider, chatId)).toContain(text), { timeout: 1000, interval: 5 })
 }
 
+/**
+ * Real stores merge chat records with a non-atomic read-modify-write. This one widens the
+ * window so two overlapping upserts of the same chat lose an update unless the Bot
+ * serializes its chat writes.
+ */
+class ReadModifyWriteStore extends MemoryStore {
+  override async upsertChat(chat: StoredChat): Promise<void> {
+    const existing = await this.getChat(chat.id)
+    await tick(5)
+    ;(this as unknown as { chats: Map<string, StoredChat> }).chats.set(chat.id, { ...existing, ...chat })
+  }
+}
+
 const G = 'group-1'
 const H = 'group-2'
 
@@ -392,6 +405,91 @@ describe('human handoff — conversations', () => {
     await waitForText(p2, 'fallback Ana')
     expect(texts(p2)).not.toContain('¿nombre?')
   })
+
+  it('a handoff made before start() drops the checkpoint start() loads (shared store)', async () => {
+    const store = new MemoryStore({})
+    const p1 = new MockProvider()
+    const bot1 = new Bot({ provider: p1, store })
+    registerFlow(bot1, { persistent: true })
+    await bot1.start()
+    p1.incoming('registro', { from: 'u1' })
+    await waitForText(p1, '¿nombre?')
+    await vi.waitFor(async () => expect(await bot1.getStore().listCheckpoints()).toHaveLength(1))
+    await bot1.stop()
+
+    const p2 = new MockProvider()
+    const bot2 = new Bot({ provider: p2, store })
+    registerFlow(bot2, { persistent: true })
+    bot2.onMessage(async (ctx) => { await ctx.reply(`fallback ${ctx.body}`) })
+    await bot2.handoff('u1')   // before start(): the checkpoint is not in memory yet
+    await bot2.start()
+    p2.incoming('hola', { from: 'u1' })
+    await tick()
+    expect(texts(p2)).toEqual([])
+    await vi.waitFor(async () => expect(await bot2.getStore().listCheckpoints()).toEqual([]))
+
+    await bot2.resume('u1')
+    p2.incoming('Ana', { from: 'u1' })
+    await waitForText(p2, 'fallback Ana')
+    expect(texts(p2)).not.toContain('¿nombre?')
+  })
+
+  it('a handoff made while the bot is stopped drops the checkpoint the next start() reloads', async () => {
+    const store = new MemoryStore({})
+    const provider = new MockProvider()
+    const bot = new Bot({ provider, store })
+    registerFlow(bot, { persistent: true })
+    bot.onMessage(async (ctx) => { await ctx.reply(`fallback ${ctx.body}`) })
+    await bot.start()
+    provider.incoming('registro', { from: 'u1' })
+    await waitForText(provider, '¿nombre?')
+    await vi.waitFor(async () => expect(await bot.getStore().listCheckpoints()).toHaveLength(1))
+    await bot.stop()
+
+    await bot.handoff('u1')
+    await bot.start()
+    await bot.resume('u1')
+    provider.incoming('Ana', { from: 'u1' })
+    await waitForText(provider, 'fallback Ana')
+    expect(texts(provider).filter((t) => t === '¿nombre?')).toHaveLength(1)
+    await vi.waitFor(async () => expect(await bot.getStore().listCheckpoints()).toEqual([]))
+  })
+
+  it('a checkpoint a failed clear left behind is dropped when start() restores the handoff', async () => {
+    class FlakyClearStore extends MemoryStore {
+      failClear = true
+      override async clearCheckpoint(key: string): Promise<void> {
+        if (this.failClear) throw new Error('clear failed')
+        return super.clearCheckpoint(key)
+      }
+    }
+    const store = new FlakyClearStore({})
+    const p1 = new MockProvider()
+    const bot1 = new Bot({ provider: p1, store })
+    registerFlow(bot1, { persistent: true })
+    await bot1.start()
+    p1.incoming('registro', { from: 'u1' })
+    await waitForText(p1, '¿nombre?')
+    await vi.waitFor(async () => expect(await bot1.getStore().listCheckpoints()).toHaveLength(1))
+    await bot1.handoff('u1')
+    await tick()
+    expect(await bot1.getStore().listCheckpoints()).toHaveLength(1)   // the clear failed
+    await bot1.stop()
+    store.failClear = false
+
+    const p2 = new MockProvider()
+    const bot2 = new Bot({ provider: p2, store })
+    registerFlow(bot2, { persistent: true })
+    bot2.onMessage(async (ctx) => { await ctx.reply(`fallback ${ctx.body}`) })
+    await bot2.start()
+    expect(bot2.isHandedOff('u1')).toBe(true)
+    await vi.waitFor(async () => expect(await bot2.getStore().listCheckpoints()).toEqual([]))
+
+    await bot2.resume('u1')
+    p2.incoming('Ana', { from: 'u1' })
+    await waitForText(p2, 'fallback Ana')
+    expect(texts(p2)).not.toContain('¿nombre?')
+  })
 })
 
 /* ------------------------------------------------------------------------- */
@@ -596,6 +694,8 @@ describe('human handoff — persistence', () => {
     const errors: unknown[] = []
     bot.on('error', ({ error }) => errors.push(error))
     await bot.start()
+    provider.incoming('hola', { from: 'u1' })   // the chat record exists, so resume() rewrites it
+    await vi.waitFor(async () => expect(await bot.getStore().getChat('u1')).toBeDefined())
 
     expect(await bot.handoff('u1')).toBe(true)
     expect(bot.isHandedOff('u1')).toBe(true)
@@ -606,19 +706,6 @@ describe('human handoff — persistence', () => {
     expect(bot.isHandedOff('u1')).toBe(false)
     expect(errors).toHaveLength(2)
   })
-
-  /**
-   * Real stores merge chat records with a non-atomic read-modify-write. This one widens the
-   * window so two overlapping upserts of the same chat lose an update unless the Bot
-   * serializes its chat writes.
-   */
-  class ReadModifyWriteStore extends MemoryStore {
-    override async upsertChat(chat: StoredChat): Promise<void> {
-      const existing = await this.getChat(chat.id)
-      await tick(5)
-      ;(this as unknown as { chats: Map<string, StoredChat> }).chats.set(chat.id, { ...existing, ...chat })
-    }
-  }
 
   it('a handoff write racing an inbound upsert of the same chat is not lost', async () => {
     const store = new ReadModifyWriteStore({})
@@ -636,6 +723,7 @@ describe('human handoff — persistence', () => {
     const bot2 = new Bot({ provider: new MockProvider(), store })
     await bot2.start()
     expect(bot2.isHandedOff('u1')).toBe(true)
+    expect((await bot2.getStore().getChat('u1'))?.handoff).toMatchObject({ reason: 'race' })
     await bot2.stop()
   })
 
@@ -656,6 +744,7 @@ describe('human handoff — persistence', () => {
     const bot2 = new Bot({ provider: new MockProvider(), store })
     await bot2.start()
     expect(bot2.isHandedOff('u1')).toBe(false)
+    expect((await bot2.getStore().getChat('u1'))?.handoff ?? undefined).toBeUndefined()
     await bot2.stop()
   })
 
@@ -673,6 +762,7 @@ describe('human handoff — persistence', () => {
     const bot2 = new Bot({ provider: new MockProvider(), store })
     await bot2.start()
     expect(bot2.isHandedOff('u1')).toBe(true)
+    expect(typeof (await bot2.getStore().getChat('u1'))?.handoff?.since).toBe('number')
     await bot2.stop()
   })
 
@@ -684,6 +774,216 @@ describe('human handoff — persistence', () => {
     await bot.start()
     expect(await bot.handoff('u1')).toBe(true)
     expect(errors.map((e) => (e as Error).message)).toEqual(['listener boom'])
+  })
+})
+
+/* ------------------------------------------------------------------------- */
+
+describe('human handoff — restore on start()', () => {
+  /** bot1 hands `chatId` off and stops, leaving the state in `store`. */
+  async function persistHandoff(store: MemoryStore, chatId = 'u1', reason = 'agent'): Promise<void> {
+    const bot1 = new Bot({ provider: new MockProvider(), store })
+    await bot1.start()
+    await bot1.handoff(chatId, { reason })
+    await bot1.stop()
+  }
+
+  it('restores handoffs from an index instead of scanning every chat in the store', async () => {
+    class CountingStore extends MemoryStore {
+      listChatsCalls = 0
+      override async listChats(): Promise<StoredChat[]> { this.listChatsCalls++; return super.listChats() }
+    }
+    const store = new CountingStore({})
+    await store.upsertChat({ id: 'other-bot-chat' })
+    await persistHandoff(store)
+
+    store.listChatsCalls = 0
+    const bot2 = new Bot({ provider: new MockProvider(), store })
+    await bot2.start()
+    expect(store.listChatsCalls).toBe(0)
+    expect(bot2.getHandoff('u1')).toMatchObject({ chatId: 'u1', reason: 'agent' })
+    await bot2.stop()
+  })
+
+  it('a store without cursor support falls back to scanning its chats', async () => {
+    const store = new MemoryStore({})
+    Object.assign(store, { getCursor: undefined, setCursor: undefined })
+    await persistHandoff(store)
+
+    const bot2 = new Bot({ provider: new MockProvider(), store })
+    await bot2.start()
+    expect(bot2.getHandoff('u1')).toMatchObject({ chatId: 'u1', reason: 'agent' })
+    await bot2.resume('u1')
+    await bot2.stop()
+
+    const bot3 = new Bot({ provider: new MockProvider(), store })
+    await bot3.start()
+    expect(bot3.isHandedOff('u1')).toBe(false)
+    await bot3.stop()
+  })
+
+  it('a failing restore is reported on the error event and does not fail start()', async () => {
+    class BrokenStore extends MemoryStore {
+      override async listChats(): Promise<StoredChat[]> { throw new Error('corrupt row') }
+      override async getCursor(key: string): Promise<string | undefined> {
+        if (key.includes('handoff')) throw new Error('corrupt row')
+        return super.getCursor(key)
+      }
+    }
+    const provider = new MockProvider()
+    const bot = new Bot({ provider, store: new BrokenStore({}) })
+    bot.when('hola', async (ctx) => { await ctx.reply('hi') })
+    const errors: unknown[] = []
+    bot.on('error', ({ error }) => errors.push(error))
+
+    await expect(bot.start()).resolves.toBeUndefined()
+    expect(errors.map((e) => (e as Error).message)).toEqual(['corrupt row'])
+    provider.incoming('hola', { from: 'u1' })
+    await waitForText(provider, 'hi')
+    await bot.stop()
+  })
+
+  it('a corrupt index is reported and rebuilt by the next handoff write', async () => {
+    class CorruptIndexStore extends MemoryStore {
+      corrupt = true
+      override async getCursor(key: string): Promise<string | undefined> {
+        if (this.corrupt && key.includes('handoff')) return '{not json'
+        return super.getCursor(key)
+      }
+    }
+    const store = new CorruptIndexStore({})
+    const bot1 = new Bot({ provider: new MockProvider(), store })
+    const errors: unknown[] = []
+    bot1.on('error', ({ error }) => errors.push(error))
+    await bot1.start()
+    expect(errors).toHaveLength(1)
+
+    await bot1.handoff('u2')
+    await bot1.stop()
+    store.corrupt = false
+
+    const bot2 = new Bot({ provider: new MockProvider(), store })
+    await bot2.start()
+    expect(bot2.listHandoffs().map((h) => h.chatId)).toEqual(['u2'])
+    await bot2.stop()
+  })
+
+  /**
+   * A store whose handoff-restore reads take their snapshot right away but only return it
+   * after `release()`, so the restore can see state that changed in between.
+   */
+  class SlowRestoreStore extends MemoryStore {
+    private gate: Promise<void> = Promise.resolve()
+    release: () => void = () => {}
+    block(): void { this.gate = new Promise((resolve) => { this.release = resolve }) }
+    override async listChats(): Promise<StoredChat[]> {
+      const chats = await super.listChats()
+      await this.gate
+      return chats
+    }
+    override async getCursor(key: string): Promise<string | undefined> {
+      const value = await super.getCursor(key)
+      if (key.includes('handoff')) await this.gate
+      return value
+    }
+  }
+
+  it('resume() called while start() is still restoring resumes the persisted handoff', async () => {
+    const store = new SlowRestoreStore({})
+    await persistHandoff(store)
+
+    store.block()
+    const bot2 = new Bot({ provider: new MockProvider(), store })
+    const resumes: ResumeEvent[] = []
+    bot2.on('resume', (e) => resumes.push(e))
+    const started = bot2.start()
+    await tick(5)   // the restore is in flight
+    const resumed = bot2.resume('u1', { reason: 'crm webhook' })
+    store.release()
+    await started
+    expect(await resumed).toBe(true)
+    expect(bot2.isHandedOff('u1')).toBe(false)
+    expect(resumes).toMatchObject([{ chatId: 'u1', reason: 'crm webhook', handoff: { reason: 'agent' } }])
+    await bot2.stop()
+
+    const bot3 = new Bot({ provider: new MockProvider(), store })
+    await bot3.start()
+    expect(bot3.isHandedOff('u1')).toBe(false)
+    await bot3.stop()
+  })
+
+  it('a handoff and resume made while start() is restoring are not overwritten by the stale snapshot', async () => {
+    const store = new SlowRestoreStore({})
+    await persistHandoff(store)
+
+    store.block()
+    const bot2 = new Bot({ provider: new MockProvider(), store })
+    const started = bot2.start()
+    await tick(5)   // the restore has read the old state and is in flight
+    const handedOff = bot2.handoff('u1', { reason: 'new' })
+    const resumed = bot2.resume('u1')
+    expect(bot2.isHandedOff('u1')).toBe(false)
+    store.release()
+    await started
+    expect(await handedOff).toBe(true)
+    expect(await resumed).toBe(true)
+    expect(bot2.isHandedOff('u1')).toBe(false)
+    await bot2.stop()
+
+    const bot3 = new Bot({ provider: new MockProvider(), store })
+    await bot3.start()
+    expect(bot3.isHandedOff('u1')).toBe(false)
+    await bot3.stop()
+  })
+})
+
+/* ------------------------------------------------------------------------- */
+
+describe('human handoff — deleteSubject()', () => {
+  it("drops the subject's handoff (and its meta) along with the chat", async () => {
+    const { bot, provider } = setup()
+    await bot.start()
+    provider.incoming('hola', { from: 'u1' })
+    await vi.waitFor(async () => expect(await bot.getStore().getChat('u1')).toBeDefined())
+    await bot.handoff('u1', { meta: { note: 'pii' } })
+
+    await bot.deleteSubject('u1')
+    expect(bot.isHandedOff('u1')).toBe(false)
+    expect(bot.listHandoffs()).toEqual([])
+    expect(await bot.resume('u1')).toBe(false)
+    await tick()
+    expect(await bot.getStore().getChat('u1')).toBeUndefined()
+  })
+
+  it('a handoff write still queued when deleteSubject() runs does not recreate the chat', async () => {
+    const store = new ReadModifyWriteStore({})
+    const provider = new MockProvider()
+    const bot = new Bot({ provider, store })
+    await bot.start()
+    provider.incoming('hola', { from: 'u1' })
+    await vi.waitFor(async () => expect(await bot.getStore().getMessagesByChat('u1')).toHaveLength(1))
+    await tick(10)
+
+    void bot.handoff('u1', { meta: { note: 'pii' } })
+    await bot.deleteSubject('u1')
+    await tick(40)
+    expect(await bot.getStore().getChat('u1')).toBeUndefined()
+    expect(bot.isHandedOff('u1')).toBe(false)
+  })
+
+  it('a deleted subject is not handed off again after a restart', async () => {
+    const store = new MemoryStore({})
+    const bot1 = new Bot({ provider: new MockProvider(), store })
+    await bot1.start()
+    await bot1.handoff('u1')
+    await bot1.handoff('u2')
+    await bot1.deleteSubject('u1')
+    await bot1.stop()
+
+    const bot2 = new Bot({ provider: new MockProvider(), store })
+    await bot2.start()
+    expect(bot2.listHandoffs().map((h) => h.chatId)).toEqual(['u2'])
+    await bot2.stop()
   })
 })
 

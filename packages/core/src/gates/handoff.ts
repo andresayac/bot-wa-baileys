@@ -11,13 +11,20 @@
  *
  * Starting a handoff silently cancels every active conversation in that chat (all
  * participants of a group, whatever the `conversationScope`) and drops its dormant
- * checkpoints. The state is per chat (`ctx.from` / chatId), so a handoff in a group
- * pauses the bot for every member of that group but not their DMs.
+ * checkpoints. `bot.start()` drops them again for every handed-off chat, so a
+ * checkpoint persisted before the handoff (handoff made before `start()` or while the
+ * bot was stopped, failed clear, crash) never resumes after `bot.resume()`. The state
+ * is per chat (`ctx.from` / chatId), so a handoff in a group pauses the bot for every
+ * member of that group but not their DMs.
  *
  * Persistence: the state is written to `StoredChat.handoff` (cleared to `null` on
- * resume) and reloaded by `bot.start()`, so it survives restarts with a persistent
- * store. Store write failures are reported on the bot's `'error'` event; the
- * in-memory state is authoritative for the running process either way.
+ * resume) and the handed-off chat ids to a small index under the store cursor key
+ * {@link HANDOFF_INDEX_KEY}, so `bot.start()` restores them with one read per
+ * handed-off chat instead of scanning every chat (stores without cursor support fall
+ * back to `listChats()`). It survives restarts with a persistent store. Restore and
+ * write failures are reported on the bot's `'error'` event and never fail `start()`;
+ * the in-memory state is authoritative for the running process either way.
+ * `bot.deleteSubject(userId)` also drops the handoff of the chat `userId`.
  *
  * @example
  * ```ts
@@ -55,8 +62,9 @@ export interface HandoffConfig {
    */
   allowCommands?: string[]
   /**
-   * Persist the handoff state in the store (`StoredChat.handoff`) so it survives a
-   * restart. Default `true`. With `false` the state lives in memory only.
+   * Persist the handoff state in the store (`StoredChat.handoff` + the
+   * {@link HANDOFF_INDEX_KEY} index) so it survives a restart. Default `true`. With
+   * `false` the state lives in memory only.
    */
   persist?: boolean
 }
@@ -102,6 +110,12 @@ export interface ResumeEvent {
   handoff: HandoffState
 }
 
+/**
+ * Store cursor key (namespaced per bot by the Bot's store) holding the JSON array of
+ * handed-off chat ids that `bot.start()` restores.
+ */
+export const HANDOFF_INDEX_KEY = 'handoff:index'
+
 /** Validate `BotConfig.handoff`; throws {@link ConfigValidationError}. */
 export function validateHandoffConfig(config: unknown): HandoffConfig {
   if (config === undefined || config === null) return {}
@@ -122,11 +136,22 @@ export function validateHandoffConfig(config: unknown): HandoffConfig {
 
 /** Everything the registry needs from the Bot — injected so this file stays decoupled. */
 export interface HandoffDeps {
+  store: {
+    /**
+     * Persist the chat's handoff state on its record. `null` clears it and must not
+     * recreate a chat record that does not exist (a deleted subject). The Bot runs it in
+     * order with its other writes of the same chat.
+     */
+    writeHandoff(chatId: ChatId, handoff: StoredHandoff | null): Promise<void>
+    getChat(chatId: ChatId): Promise<StoredChat | undefined>
+    /** Restore fallback when there is no {@link HandoffDeps.index}. */
+    listChats(): Promise<StoredChat[]>
+  }
   /**
-   * The bot's (namespaced) store. `upsertChat` should serialize writes per chat (the Bot
-   * passes its per-chat queue) so a handoff write cannot race an inbound upsert.
+   * Reads/writes the handed-off chat index ({@link HANDOFF_INDEX_KEY}). Omitted when the
+   * store has no cursor support; `load()` then scans `listChats()`.
    */
-  store: { upsertChat(chat: StoredChat): Promise<void>; listChats(): Promise<StoredChat[]> }
+  index?: { get(): Promise<string | undefined>; set(value: string): Promise<void> }
   config?: HandoffConfig
   commandPrefix?: string
   /** Is a `bot.command()` handler registered under this (normalized) name? */
@@ -135,7 +160,7 @@ export interface HandoffDeps {
   abortChat(chatId: ChatId): void
   emit(event: 'handoff', payload: HandoffEvent): void
   emit(event: 'resume', payload: ResumeEvent): void
-  /** Route a non-fatal error (store write, throwing listener) to the bot's error channel. */
+  /** Route a non-fatal error (store read/write, throwing listener) to the bot's error channel. */
   reportError(error: unknown): void
   logger?: { debug?: (...a: unknown[]) => void }
 }
@@ -167,6 +192,16 @@ function toStored(state: HandoffState): StoredHandoff {
   return stored
 }
 
+/** Parse the {@link HANDOFF_INDEX_KEY} value; throws on anything but an array of chat ids. */
+function parseIndex(raw: string | undefined): ChatId[] {
+  if (raw === undefined) return []
+  const ids: unknown = JSON.parse(raw)
+  if (!Array.isArray(ids) || ids.some((id) => typeof id !== 'string' || id.length === 0)) {
+    throw new Error(`corrupt handoff index (${HANDOFF_INDEX_KEY})`)
+  }
+  return ids as ChatId[]
+}
+
 /**
  * Per-chat handoff state + the Dispatcher's routing gate. Internal: the public
  * surface is `bot.handoff()` / `bot.resume()` / `bot.isHandedOff()` /
@@ -177,6 +212,10 @@ export class HandoffRegistry {
   private readonly allowed: Set<string>
   private readonly persist: boolean
   private readonly prefix: string
+  /** Store writes (chat record + index), one at a time in call order. Never rejects. */
+  private writes: Promise<void> = Promise.resolve()
+  /** The in-flight `load()` and the chats changed while it runs (their in-memory state wins). */
+  private loading?: { done: Promise<void>; touched: Set<ChatId> }
 
   constructor(private readonly deps: HandoffDeps) {
     const config = validateHandoffConfig(deps.config)
@@ -216,25 +255,44 @@ export class HandoffRegistry {
     if (this.states.has(chatId)) return Promise.resolve(false)
     const state = makeState(chatId, Date.now(), opts.reason, opts.meta)
     this.states.set(chatId, state)
+    this.loading?.touched.add(chatId)
     try { this.deps.abortChat(chatId) } catch (error) { this.deps.reportError(error) }
     this.safeEmit(() => this.deps.emit('handoff', clone(state)))
-    return this.write(chatId, toStored(state))
+    return this.sync(chatId).then(() => true)
   }
 
   /**
    * End a handoff: routing resumes immediately, the `'resume'` event fires and the
-   * persisted state is cleared. Resolves `true` if the chat was handed off.
+   * persisted state is cleared. Resolves `true` if the chat was handed off. While
+   * `load()` is restoring, a chat it has not restored yet is resumed as soon as the
+   * restore finishes (unless the chat was handed off, resumed or forgotten in between).
    * Never rejects: store failures go to the error channel.
    */
   resume(chatId: ChatId, opts: ResumeOptions = {}): Promise<boolean> {
     assertChatId(chatId, 'resume')
     const previous = this.states.get(chatId)
-    if (!previous) return Promise.resolve(false)
+    if (!previous) {
+      const loading = this.loading
+      if (!loading) return Promise.resolve(false)
+      return loading.done.then(() => (loading.touched.has(chatId) ? false : this.resume(chatId, opts)))
+    }
     this.states.delete(chatId)
+    this.loading?.touched.add(chatId)
     const event: ResumeEvent = { chatId, at: Date.now(), handoff: clone(previous) }
     if (typeof opts.reason === 'string') event.reason = opts.reason
     this.safeEmit(() => this.deps.emit('resume', event))
-    return this.write(chatId, null)
+    return this.sync(chatId).then(() => true)
+  }
+
+  /**
+   * Drop a chat's handoff without events because the chat's data is being erased
+   * (`bot.deleteSubject()`): removes it from memory and from the index and never
+   * recreates the chat record. Resolves once persisted; never rejects.
+   */
+  forget(chatId: ChatId): Promise<void> {
+    this.states.delete(chatId)
+    this.loading?.touched.add(chatId)
+    return this.sync(chatId)
   }
 
   /**
@@ -249,15 +307,38 @@ export class HandoffRegistry {
     return false
   }
 
-  /** Restore persisted handoffs (called by `bot.start()`). In-memory state wins. */
-  async load(): Promise<void> {
-    if (!this.persist) return
-    for (const chat of await this.deps.store.listChats()) {
+  /**
+   * Restore persisted handoffs (called by `bot.start()`). In-memory state wins, including
+   * a handoff, resume or forget made while the restore runs. Never rejects: a failing
+   * restore is reported on the error channel and leaves the in-memory state as it is.
+   */
+  load(): Promise<void> {
+    if (!this.persist) return Promise.resolve()
+    if (this.loading) return this.loading.done
+    const touched = new Set<ChatId>()
+    const done: Promise<void> = this.restore(touched)
+      .catch((error: unknown) => { this.deps.reportError(error) })
+      .finally(() => { if (this.loading?.done === done) this.loading = undefined })
+    this.loading = { done, touched }
+    return done
+  }
+
+  private async restore(touched: Set<ChatId>): Promise<void> {
+    for (const chat of await this.readPersisted()) {
       const stored: unknown = chat.handoff
       if (!isRecord(stored) || typeof stored.since !== 'number') continue
-      if (this.states.has(chat.id)) continue
+      if (this.states.has(chat.id) || touched.has(chat.id)) continue
       this.states.set(chat.id, makeState(chat.id, stored.since, stored.reason, stored.meta))
     }
+  }
+
+  /** The chat records that may carry a handoff: the indexed ones, or every chat without an index. */
+  private async readPersisted(): Promise<StoredChat[]> {
+    const { index, store } = this.deps
+    if (!index) return store.listChats()
+    const chats = await Promise.all(parseIndex(await index.get()).map((id) =>
+      store.getChat(id).catch((error: unknown) => { this.deps.reportError(error); return undefined })))
+    return chats.filter((chat): chat is StoredChat => chat !== undefined)
   }
 
   /** The normalized command name when `body` is an allowed escape command. */
@@ -272,11 +353,49 @@ export class HandoffRegistry {
     try { emit() } catch (error) { this.deps.reportError(error) }
   }
 
-  private write(chatId: ChatId, handoff: StoredHandoff | null): Promise<boolean> {
-    if (!this.persist) return Promise.resolve(true)
-    let write: Promise<void>
-    try { write = this.deps.store.upsertChat({ id: chatId, handoff }) }
-    catch (error) { write = Promise.reject(error) }
-    return write.then(() => true, (error: unknown) => { this.deps.reportError(error); return true })
+  /**
+   * Queue a write of the chat's CURRENT state (record + index). It writes the state as it
+   * is when the write runs, not when it was queued, so a late write can never undo a later
+   * resume/forget or bring back a deleted chat record.
+   */
+  private sync(chatId: ChatId): Promise<void> {
+    if (!this.persist) return Promise.resolve()
+    const run = this.writes.then(() => this.flush(chatId))
+    this.writes = run
+    return run
+  }
+
+  private async flush(chatId: ChatId): Promise<void> {
+    const state = this.states.get(chatId)
+    if (state) {
+      await this.attempt(() => this.deps.store.writeHandoff(chatId, toStored(state)))
+      await this.attempt(() => this.updateIndex(chatId, true))
+    } else {
+      await this.attempt(() => this.updateIndex(chatId, false))
+      await this.attempt(() => this.deps.store.writeHandoff(chatId, null))
+    }
+  }
+
+  private async updateIndex(chatId: ChatId, present: boolean): Promise<void> {
+    const index = this.deps.index
+    if (!index) return
+    // A failed read propagates: never overwrite an index that could not be read.
+    const raw = await index.get()
+    let ids: Set<ChatId>
+    try {
+      ids = new Set(parseIndex(raw))
+      if (ids.has(chatId) === present) return
+    } catch (error) {
+      // Corrupt index: report it and rebuild it from the in-memory state.
+      this.deps.reportError(error)
+      ids = new Set(this.states.keys())
+    }
+    if (present) ids.add(chatId)
+    else ids.delete(chatId)
+    await index.set(JSON.stringify([...ids]))
+  }
+
+  private async attempt(task: () => Promise<void>): Promise<void> {
+    try { await task() } catch (error) { this.deps.reportError(error) }
   }
 }

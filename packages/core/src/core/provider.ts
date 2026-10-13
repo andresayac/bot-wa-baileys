@@ -631,7 +631,10 @@ export interface StoredChat {
   lastMessageAt?: number
   updatedAt?: number
   raw?: unknown
-  /** Human-handoff state; `null` once resumed. Written by the Bot, reloaded on start. */
+  /**
+   * Human-handoff state; `null` once resumed. Written by the Bot; `bot.start()` restores
+   * the chats listed in the bot's handoff index (`HANDOFF_INDEX_KEY` store cursor).
+   */
   handoff?: StoredHandoff | null
 }
 export interface StoredContact {

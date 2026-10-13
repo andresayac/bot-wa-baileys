@@ -75,7 +75,7 @@ import { randomId } from '../utils/timers.js'
 import { validateConfig } from '../utils/validateConfig.js'
 import { AccessList, Whitelist, checkAccess, type AccessListSnapshot, type AccessListsSnapshot, type WhitelistSnapshot } from '../gates/accessList.js'
 import { KeyedQueue } from '../utils/keyedQueue.js'
-import { HandoffRegistry, type HandoffEvent, type HandoffOptions, type HandoffState, type ResumeEvent, type ResumeOptions } from '../gates/handoff.js'
+import { HANDOFF_INDEX_KEY, HandoffRegistry, type HandoffEvent, type HandoffOptions, type HandoffState, type ResumeEvent, type ResumeOptions, type StoredHandoff } from '../gates/handoff.js'
 
 /** A user message handler — receives the full inbound {@link MessageContext}. */
 export type MessageHandler = (ctx: MessageContext) => unknown | Promise<unknown>
@@ -259,8 +259,22 @@ export class Bot extends EventEmitter {
       gate: (ctx) => this.handoffs.admits(ctx),
     })
 
+    // The handoff index lives under a store cursor key; a backend without cursor support
+    // makes the registry fall back to scanning listChats() on start.
+    const backing = baseStore instanceof NamespacedStore ? baseStore.innerStore : baseStore
+    const hasCursors = typeof backing.getCursor === 'function' && typeof backing.setCursor === 'function'
     this.handoffs = new HandoffRegistry({
-      store: { upsertChat: (chat) => this.persistChat(chat), listChats: () => this.store.listChats() },
+      store: {
+        writeHandoff: (chatId, handoff) => this.writeHandoff(chatId, handoff),
+        getChat: (chatId) => this.store.getChat(chatId),
+        listChats: () => this.store.listChats(),
+      },
+      index: hasCursors
+        ? {
+            get: async () => this.store.getCursor?.(HANDOFF_INDEX_KEY),
+            set: async (value) => { await this.store.setCursor?.(HANDOFF_INDEX_KEY, value) },
+          }
+        : undefined,
       config: this.config.handoff,
       commandPrefix: this.config.commandPrefix,
       hasCommand: (name) => this.dispatcher.hasCommand(name),
@@ -315,7 +329,11 @@ export class Bot extends EventEmitter {
       storeAttempted = true
       await this.store.start()
       await this.runtime.loadDormant()
-      await this.handoffs.load()
+      await this.handoffs.load()   // never rejects: restore failures go to 'error'
+      // A handed-off chat must not resume a checkpoint loadDormant() just brought back:
+      // the handoff may predate start() (or have happened while stopped), or its clear
+      // failed / never ran before a crash.
+      for (const { chatId } of this.handoffs.list()) this.runtime.abortChat(chatId)
       providerAttempted = true
       await this.provider.start()
       this.scheduler.start(this.logger.child({ module: 'scheduler' }))
@@ -713,7 +731,7 @@ export class Bot extends EventEmitter {
     }
   }
 
-  /** Delete normalized subject data in this bot namespace. */
+  /** Delete normalized subject data in this bot namespace, including the handoff of chat `userId`. */
   async deleteSubject(userId: UserId): Promise<SubjectDeletionResult> {
     const result: SubjectDeletionResult = {
       contacts: 0,
@@ -722,6 +740,9 @@ export class Bot extends EventEmitter {
       conversations: 0,
       checkpoints: 0,
     }
+    // The subject's chat handoff (and its host meta) goes too — silently, without
+    // rewriting the chat record we are about to delete.
+    await this.handoffs.forget(userId)
     if (await this.store.getContact(userId)) {
       await this.store.deleteContact(userId)
       result.contacts++
@@ -730,7 +751,8 @@ export class Bot extends EventEmitter {
     for (const chat of chats) {
       if (chat.id === userId) {
         result.messages += (await this.store.getMessagesByChat(chat.id, 2_147_483_647)).length
-        await this.store.deleteChat(chat.id)
+        // Behind any upsert of this chat still queued, so none can recreate the record.
+        await this.chatWrites.run(chat.id, () => this.store.deleteChat(chat.id))
         result.chats++
         continue
       }
@@ -766,6 +788,17 @@ export class Bot extends EventEmitter {
    */
   private persistChat(chat: StoredChat): Promise<void> {
     return this.chatWrites.run(chat.id, () => this.store.upsertChat(chat))
+  }
+
+  /**
+   * Write a chat's handoff state in order with its other upserts. Clearing it (`null`)
+   * skips a chat that has no record, so a resume never recreates a deleted chat.
+   */
+  private writeHandoff(chatId: ChatId, handoff: StoredHandoff | null): Promise<void> {
+    return this.chatWrites.run(chatId, async () => {
+      if (handoff === null && !(await this.store.getChat(chatId))) return
+      await this.store.upsertChat({ id: chatId, handoff })
+    })
   }
 
   private emitError(payload: { error: unknown; ctx?: MessageContext }): void {

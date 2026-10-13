@@ -165,7 +165,7 @@ export type {
   AccessListsSnapshot,
   WhitelistSnapshot,
 } from './gates/accessList.js'
-export { validateHandoffConfig } from './gates/handoff.js'
+export { HANDOFF_INDEX_KEY, validateHandoffConfig } from './gates/handoff.js'
 export type {
   HandoffConfig,
   HandoffEvent,
