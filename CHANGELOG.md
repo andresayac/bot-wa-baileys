@@ -25,6 +25,11 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/). Versionado po
 - Suite de conformidad de `IStore` compartida (mismas aserciones contra los 6 stores).
 - `ConversationRuntime`: un `wait()` con filtro ahora escanea el inbox (no pierde un mensaje ya encolado que cumple el filtro).
 
+### Idempotencia inbound (2026-10-13)
+- **Core**: `BotConfig.dedupe` (activo por defecto) descarta un mensaje o una interacción reentregados (reintento de webhook, replay al reconectar), con clave `chatId` + `ref.id` / `interactionId`. El *contrato de ids inbound* de `IProvider` lo hace explícito: el id identifica **un** evento lógico y se mantiene igual al reentregarse; si el transporte no puede garantizarlo, el provider emite `''` y ese evento no se deduplica.
+- **Messenger**: los eventos `referral` y `optin` usaban como id el PSID del usuario (o `user_ref`), así que un usuario que volvía a abrir el mismo enlace m.me o anuncio, o que repetía el opt-in, se descartaba como duplicado. Ahora el id es `referral:<timestamp>` / `optin:<timestamp>`, o `''` si el evento no trae timestamp.
+- **Instagram**: un evento sin `mid` ni `timestamp` ya no recibe el id compartido `ig_0`, que hacía descartar los siguientes. Ahora el id es `''` y el evento no se deduplica.
+
 ---
 
 ## @bot-wa/ai

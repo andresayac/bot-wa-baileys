@@ -125,6 +125,18 @@ function toInteraction(
 }
 
 /**
+ * Id for an event that carries no `mid` (opt-in, referral). Core dedupes inbound
+ * events by `chatId` + id, so the id must be unique per logical event and stable
+ * across redelivery: the event kind plus its webhook `timestamp` (epoch ms,
+ * identical on a Meta retry) is both. Never a per-user constant (PSID,
+ * `user_ref`) — that would drop every later referral/opt-in of the same user as
+ * a duplicate. Without a timestamp, `''` opts the event out of deduplication.
+ */
+function eventScopedId(kind: 'optin' | 'referral', ev: MessagingEvent): string {
+  return typeof ev.timestamp === 'number' && Number.isFinite(ev.timestamp) ? `${kind}:${ev.timestamp}` : ''
+}
+
+/**
  * Parse a full `page` webhook body into a flat list of events.
  *
  * Precedence inside a `message`: reaction → quick_reply → attachment → text.
@@ -176,11 +188,11 @@ export function parseInbound(body: PageWebhookBody, selfId?: string): InboundEve
         continue
       }
       if (ev.optin) {
-        events.push(toInteraction(ev, ev.optin.user_ref ?? chatId, ev.optin.payload ?? ev.optin.ref ?? ''))
+        events.push(toInteraction(ev, eventScopedId('optin', ev), ev.optin.payload ?? ev.optin.ref ?? ''))
         continue
       }
       if (ev.referral) {
-        events.push(toInteraction(ev, chatId, ev.referral.ref ?? ''))
+        events.push(toInteraction(ev, eventScopedId('referral', ev), ev.referral.ref ?? ''))
         continue
       }
     }

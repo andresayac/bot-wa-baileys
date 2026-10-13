@@ -18,6 +18,11 @@
  * `edited_message`) is treated as new input, while an identical retry is not.
  * Messages without an id are never deduplicated.
  *
+ * This makes id uniqueness part of the provider contract (INBOUND ID CONTRACT
+ * on `IProvider`): an id must name ONE logical event and survive redelivery
+ * unchanged. A provider that reuses an id for distinct events (e.g. the sender
+ * id for every referral) gets the later ones dropped; it must emit `''` instead.
+ *
  * Memory is bounded by `size` (least-recently-seen eviction) and, optionally,
  * by `ttl`. The set lives in process memory: it protects one Bot instance; it
  * does not deduplicate across replicas or across a process restart.
