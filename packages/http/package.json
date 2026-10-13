@@ -20,7 +20,8 @@
   "scripts": {
     "build": "tsc",
     "test": "vitest run",
-    "prepublishOnly": "pnpm build"
+    "prepublishOnly": "pnpm build",
+    "typecheck": "tsc -p tsconfig.test.json"
   },
   "keywords": [
     "bot-wa",
@@ -43,5 +44,6 @@
   },
   "dependencies": {
     "undici": "^8.8.0"
-  }
+  },
+  "publishConfig": { "access": "public" }
 }

@@ -24,7 +24,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "example": "pnpm run start",
-    "prepublishOnly": "pnpm run build"
+    "prepublishOnly": "pnpm run build",
+    "typecheck": "tsc -p tsconfig.test.json"
   },
   "repository": {
     "type": "git",
@@ -56,5 +57,6 @@
     "typescript": "^7.0.2",
     "vite": "^7.3.6",
     "vitest": "^4.1.10"
-  }
+  },
+  "publishConfig": { "access": "public" }
 }

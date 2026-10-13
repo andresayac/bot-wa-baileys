@@ -36,7 +36,8 @@
   "scripts": {
     "build": "tsc",
     "test": "vitest run",
-    "prepublishOnly": "pnpm build"
+    "prepublishOnly": "pnpm build",
+    "typecheck": "tsc -p tsconfig.test.json"
   },
   "dependencies": {
     "@bot-wa/core": "workspace:*",
@@ -48,5 +49,6 @@
     "vite": "^7.3.6",
     "vitest": "^4.1.10",
     "@types/pg": "^8.11.10"
-  }
+  },
+  "publishConfig": { "access": "public" }
 }

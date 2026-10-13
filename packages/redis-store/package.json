@@ -14,7 +14,8 @@
   "homepage": "https://github.com/andresayac/bot-wa-baileys/tree/main/packages/redis-store#readme",
   "bugs": { "url": "https://github.com/andresayac/bot-wa-baileys/issues" },
   "files": ["./lib/**/*"],
-  "scripts": { "build": "tsc", "test": "vitest run", "prepublishOnly": "pnpm build" },
+  "scripts": { "build": "tsc", "test": "vitest run", "prepublishOnly": "pnpm build", "typecheck": "tsc -p tsconfig.test.json" },
   "dependencies": { "@bot-wa/core": "workspace:*", "redis": "^4.7.0" },
-  "devDependencies": { "@types/node": "^26.1.1", "typescript": "^7.0.2", "vite": "^7.3.6", "vitest": "^4.1.10" }
+  "devDependencies": { "@types/node": "^26.1.1", "typescript": "^7.0.2", "vite": "^7.3.6", "vitest": "^4.1.10" },
+  "publishConfig": { "access": "public" }
 }

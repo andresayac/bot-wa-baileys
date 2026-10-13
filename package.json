@@ -3,7 +3,9 @@
   "private": true,
   "type": "module",
   "packageManager": "pnpm@11.9.0",
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "build": "pnpm -r build",
     "test": "pnpm -r test",
@@ -11,12 +13,18 @@
     "docs": "pnpm run docs:api && vitepress build docs && node scripts/copy-api-docs.cjs",
     "docs:site": "vitepress build docs",
     "docs:dev": "vitepress dev docs",
-    "docs:serve": "vitepress serve docs"
+    "docs:serve": "vitepress serve docs",
+    "typecheck": "pnpm -r typecheck",
+    "changeset": "changeset",
+    "version-packages": "changeset version",
+    "release": "pnpm build && changeset publish"
   },
   "devDependencies": {
-    "typescript": "5.9.3",
+    "@bot-wa/core": "workspace:*",
+    "@changesets/cli": "^3.0.3",
     "typedoc": "^0.28.20",
     "typedoc-plugin-missing-exports": "^4.1.4",
+    "typescript": "5.9.3",
     "vite": "^7.3.6",
     "vitepress": "^1.6.4",
     "vitest": "^4.1.10"

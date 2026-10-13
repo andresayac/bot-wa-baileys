@@ -44,7 +44,8 @@
   "scripts": {
     "build": "tsc",
     "test": "vitest run",
-    "prepublishOnly": "pnpm build"
+    "prepublishOnly": "pnpm build",
+    "typecheck": "tsc -p tsconfig.test.json"
   },
   "dependencies": {
     "@bot-wa/core": "workspace:*"
@@ -70,5 +71,6 @@
     "@types/node": "^26.1.1",
     "openai": "^6.48.0",
     "typescript": "^7.0.2"
-  }
+  },
+  "publishConfig": { "access": "public" }
 }
