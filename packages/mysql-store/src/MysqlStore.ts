@@ -99,6 +99,24 @@ function fromJson<T>(value: unknown): T | undefined {
   return (typeof value === 'string' ? JSON.parse(value) : value) as T
 }
 
+/**
+ * JSON.stringify for MySQL JSON columns. MySQL rejects unpaired UTF-16
+ * surrogates (ER_INVALID_JSON_TEXT "The surrogate pair in string is
+ * invalid"), e.g. a body truncated in the middle of an emoji. JSON.stringify
+ * emits well-formed pairs raw and ONLY lone surrogates as `\udXXX` escapes, so
+ * every such escape is rewritten to U+FFFD — the same value UTF-8 based stores
+ * end up with. The `\\\\` alternative consumes escaped backslashes first, so
+ * literal text such as "\\ud83d" is never touched. Covers keys and values.
+ */
+function toJson(value: unknown): string {
+  return JSON.stringify(value).replace(/\\\\|\\u[dD][89a-fA-F][0-9a-fA-F]{2}/g, (m) => (m === '\\\\' ? m : '\\ufffd'))
+}
+
+/** Key columns are VARBINARY (exact, byte-wise ids), which mysql2 returns as Buffers. */
+function fromKey(value: unknown): string {
+  return value instanceof Uint8Array ? new TextDecoder().decode(value) : String(value)
+}
+
 export class MysqlStore implements IStore {
   private pool: PoolLike | null
   private ownsPool: boolean
@@ -155,7 +173,7 @@ export class MysqlStore implements IStore {
     await this.query(
       `INSERT INTO \`${this.t.messages}\` (id, chat_id, timestamp, msg) VALUES (?, ?, ?, ?) ` +
         'ON DUPLICATE KEY UPDATE chat_id = VALUES(chat_id), timestamp = VALUES(timestamp), msg = VALUES(msg)',
-      [messageKey(msg.ref), msg.chatId, msg.timestamp, JSON.stringify(msg)],
+      [messageKey(msg.ref), msg.chatId, msg.timestamp, toJson(msg)],
     )
     await this.trimChat(msg.chatId)
   }
@@ -204,7 +222,7 @@ export class MysqlStore implements IStore {
     const merged = { ...existing, ...chat }
     await this.query(
       `INSERT INTO \`${this.t.chats}\` (id, data) VALUES (?, ?) ON DUPLICATE KEY UPDATE data = VALUES(data)`,
-      [chat.id, JSON.stringify(merged)],
+      [chat.id, toJson(merged)],
     )
   }
   async getChat(chatId: string): Promise<StoredChat | undefined> {
@@ -228,7 +246,7 @@ export class MysqlStore implements IStore {
     const merged = { ...existing, ...contact }
     await this.query(
       `INSERT INTO \`${this.t.contacts}\` (id, data) VALUES (?, ?) ON DUPLICATE KEY UPDATE data = VALUES(data)`,
-      [contact.id, JSON.stringify(merged)],
+      [contact.id, toJson(merged)],
     )
   }
   async getContact(userId: string): Promise<StoredContact | undefined> {
@@ -267,7 +285,7 @@ export class MysqlStore implements IStore {
   async setCheckpoint(key: string, cp: FlowCheckpoint): Promise<void> {
     await this.query(
       `INSERT INTO \`${this.t.checkpoints}\` (\`key\`, cp) VALUES (?, ?) ON DUPLICATE KEY UPDATE cp = VALUES(cp)`,
-      [key, JSON.stringify(cp)],
+      [key, toJson(cp)],
     )
   }
   async clearCheckpoint(key: string): Promise<void> {
@@ -276,7 +294,7 @@ export class MysqlStore implements IStore {
   async listCheckpoints(): Promise<Array<[string, FlowCheckpoint]>> {
     const [rows] = await this.query(`SELECT \`key\`, cp FROM \`${this.t.checkpoints}\``)
     return rows
-      .map((r) => [String(r.key), fromJson<FlowCheckpoint>(r.cp)] as [string, FlowCheckpoint | undefined])
+      .map((r) => [fromKey(r.key), fromJson<FlowCheckpoint>(r.cp)] as [string, FlowCheckpoint | undefined])
       .filter((e): e is [string, FlowCheckpoint] => e[1] != null)
   }
 
@@ -289,7 +307,7 @@ export class MysqlStore implements IStore {
   async setConversation(key: string, messages: AIMessage[]): Promise<void> {
     await this.query(
       `INSERT INTO \`${this.t.conversations}\` (\`key\`, messages) VALUES (?, ?) ON DUPLICATE KEY UPDATE messages = VALUES(messages)`,
-      [key, JSON.stringify(messages)],
+      [key, toJson(messages)],
     )
   }
   async clearConversation(key: string): Promise<void> {
@@ -320,15 +338,35 @@ export class MysqlStore implements IStore {
     }
   }
 
-  /** CREATE TABLE IF NOT EXISTS for the six state tables (idempotent). */
+  /**
+   * CREATE TABLE IF NOT EXISTS for the six state tables (idempotent).
+   *
+   * - Id/key columns are `VARBINARY(1024)`: ids are opaque strings and must
+   *   compare byte-for-byte. A VARCHAR would inherit the server collation
+   *   (utf8mb4_0900_ai_ci on MySQL 8 — case- and accent-insensitive, so 'abc'
+   *   and 'ABC' would share one row), and the `_bin` collations are PAD SPACE
+   *   ('k' = 'k '). 1024 bytes also fits long provider ids (base64 mids,
+   *   composed keys) that overflowed the former VARCHAR(255).
+   * - The secondary index `chat_ts (chat_id, timestamp)` serves
+   *   getMessagesByChat's window, deleteChat and the maxMessagesPerChat trim.
+   * - Explicit InnoDB/utf8mb4 so servers with other defaults (latin1, MyISAM)
+   *   still get a working schema.
+   *
+   * Tables created by an older version keep their columns (IF NOT EXISTS
+   * never alters); see the README for the manual upgrade.
+   */
   private async migrate(): Promise<void> {
+    const opts = 'ENGINE=InnoDB DEFAULT CHARSET=utf8mb4'
     await this.query(
-      `CREATE TABLE IF NOT EXISTS \`${this.t.messages}\` (id VARCHAR(255) PRIMARY KEY, chat_id VARCHAR(255), timestamp BIGINT, msg JSON)`,
+      `CREATE TABLE IF NOT EXISTS \`${this.t.messages}\` (id VARBINARY(1024) NOT NULL PRIMARY KEY, ` +
+        `chat_id VARBINARY(1024) NOT NULL, timestamp BIGINT, msg JSON, KEY chat_ts (chat_id, timestamp)) ${opts}`,
     )
-    await this.query(`CREATE TABLE IF NOT EXISTS \`${this.t.chats}\` (id VARCHAR(255) PRIMARY KEY, data JSON)`)
-    await this.query(`CREATE TABLE IF NOT EXISTS \`${this.t.contacts}\` (id VARCHAR(255) PRIMARY KEY, data JSON)`)
-    await this.query(`CREATE TABLE IF NOT EXISTS \`${this.t.checkpoints}\` (\`key\` VARCHAR(255) PRIMARY KEY, cp JSON)`)
-    await this.query(`CREATE TABLE IF NOT EXISTS \`${this.t.conversations}\` (\`key\` VARCHAR(255) PRIMARY KEY, messages JSON)`)
-    await this.query(`CREATE TABLE IF NOT EXISTS \`${this.t.cursors}\` (\`key\` VARCHAR(255) PRIMARY KEY, value TEXT)`)
+    await this.query(`CREATE TABLE IF NOT EXISTS \`${this.t.chats}\` (id VARBINARY(1024) NOT NULL PRIMARY KEY, data JSON) ${opts}`)
+    await this.query(`CREATE TABLE IF NOT EXISTS \`${this.t.contacts}\` (id VARBINARY(1024) NOT NULL PRIMARY KEY, data JSON) ${opts}`)
+    await this.query(`CREATE TABLE IF NOT EXISTS \`${this.t.checkpoints}\` (\`key\` VARBINARY(1024) NOT NULL PRIMARY KEY, cp JSON) ${opts}`)
+    await this.query(
+      `CREATE TABLE IF NOT EXISTS \`${this.t.conversations}\` (\`key\` VARBINARY(1024) NOT NULL PRIMARY KEY, messages JSON) ${opts}`,
+    )
+    await this.query(`CREATE TABLE IF NOT EXISTS \`${this.t.cursors}\` (\`key\` VARBINARY(1024) NOT NULL PRIMARY KEY, value TEXT) ${opts}`)
   }
 }

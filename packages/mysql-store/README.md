@@ -1,8 +1,11 @@
 # @bot-wa/mysql-store
 
+> [!WARNING]
+> **Experimental — aún no publicado en npm.** El paquete es `"private": true` dentro del monorepo; la API y el esquema pueden cambiar sin aviso. Está probado contra un MySQL real (ver [Tests de integración](#tests-de-integración)).
+
 MySQL/MariaDB [`IStore`](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/core) implementation for **@bot-wa/core** — persistent, shared bot state backed by [mysql2](https://www.npmjs.com/package/mysql2). Point any number of bot replicas at the same database and they share message logs, chats, contacts, flow checkpoints, AI conversation history and delivery cursors.
 
-- Six small tables, `CREATE TABLE IF NOT EXISTS` on `start()` — no migrations to run by hand.
+- Six small tables, `CREATE TABLE IF NOT EXISTS` on `start()` — no migrations to run by hand. Ids/keys are compared **byte-for-byte** (`VARBINARY`), never through a case- or accent-insensitive collation.
 - Message bodies, chats, contacts, checkpoints and conversations stored as **JSON** documents; `getMessagesByChat(limit)` is an `ORDER BY timestamp DESC LIMIT ?` window, returned oldest→newest (same windowing semantics as `@bot-wa/sqlite-store` / `@bot-wa/redis-store`).
 - Configurable **table prefix**, so apps/bots can share one database.
 - Injectable pool → fully hermetic tests (an in-memory fake pool ships with the test-suite; no real MySQL needed).
@@ -77,6 +80,7 @@ await store.start()
 | `database`    | `string`           | —                            | Database for the config-based connection. |
 | `tablePrefix` | `string`           | `''`                         | Prefix for every table (`[A-Za-z0-9_]` only). |
 | `pool`        | `PoolLike`         | —                            | Inject an existing mysql2/promise pool (required for tests). The store never creates/closes it. |
+| `maxMessagesPerChat` | `number`    | — (unbounded)                | Keep at most N messages per chat; `saveMessage` prunes the oldest (by `timestamp`) beyond the cap. |
 | `logger`      | `{ error? }`       | —                            | Receives lifecycle errors (e.g. pool close failure). |
 
 ## Schema
@@ -85,18 +89,63 @@ Provisioned idempotently on `start()` (`CREATE TABLE IF NOT EXISTS`), with `{p}`
 
 | Table | Columns | Contents |
 | ----- | ------- | -------- |
-| `{p}messages` | `id VARCHAR(255) PRIMARY KEY, chat_id VARCHAR(255), timestamp BIGINT, msg JSON` | one row per `StoredMessage` (`id` = `${chatId}:${messageId}`) |
-| `{p}chats` | `id VARCHAR(255) PRIMARY KEY, data JSON` | `StoredChat` |
-| `{p}contacts` | `id VARCHAR(255) PRIMARY KEY, data JSON` | `StoredContact` |
-| `{p}checkpoints` | `` `key` VARCHAR(255) PRIMARY KEY, cp JSON `` | `FlowCheckpoint` |
-| `{p}conversations` | `` `key` VARCHAR(255) PRIMARY KEY, messages JSON `` | `AIMessage[]` |
-| `{p}cursors` | `` `key` VARCHAR(255) PRIMARY KEY, value TEXT `` | delivery cursor (e.g. Telegram `update_id`) |
+| `{p}messages` | `id VARBINARY(1024) PRIMARY KEY, chat_id VARBINARY(1024) NOT NULL, timestamp BIGINT, msg JSON`, index `chat_ts (chat_id, timestamp)` | one row per `StoredMessage` (`id` = `${chatId}:${messageId}`) |
+| `{p}chats` | `id VARBINARY(1024) PRIMARY KEY, data JSON` | `StoredChat` |
+| `{p}contacts` | `id VARBINARY(1024) PRIMARY KEY, data JSON` | `StoredContact` |
+| `{p}checkpoints` | `` `key` VARBINARY(1024) PRIMARY KEY, cp JSON `` | `FlowCheckpoint` |
+| `{p}conversations` | `` `key` VARBINARY(1024) PRIMARY KEY, messages JSON `` | `AIMessage[]` |
+| `{p}cursors` | `` `key` VARBINARY(1024) PRIMARY KEY, value TEXT `` | delivery cursor (e.g. Telegram `update_id`) |
 
-Writes are upserts (`INSERT ... ON DUPLICATE KEY UPDATE`) with fully parameterized statements (`?` placeholders). For large message logs, consider adding an index on `({p}messages.chat_id, timestamp)`.
+Every table is created `ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`, regardless of the server defaults. Writes are upserts (`INSERT ... ON DUPLICATE KEY UPDATE`) with fully parameterized statements (`?` placeholders). The `chat_ts` index serves the `getMessagesByChat` window, `deleteChat` and the `maxMessagesPerChat` trim.
+
+Why `VARBINARY` keys: ids are opaque strings and must compare exactly. A `VARCHAR` inherits the server collation — `utf8mb4_0900_ai_ci` on MySQL 8 is case- **and** accent-insensitive, so `abc`/`ABC` or `e`/`é` would share one row — and the `_bin` collations are `PAD SPACE` (`'k' = 'k '`). Keys may be up to 1024 bytes (long base64 message ids, composed checkpoint keys).
+
+### Upgrading tables created by an earlier version
+
+`CREATE TABLE IF NOT EXISTS` never alters existing tables. Tables provisioned before the switch to `VARBINARY` keys keep the old `VARCHAR(255)` columns (collation-dependent comparisons, 255-character limit) and lack the index. To upgrade them in place (bytes are preserved; replace `{p}` with your prefix):
+
+```sql
+ALTER TABLE `{p}messages` MODIFY id VARBINARY(1024) NOT NULL, MODIFY chat_id VARBINARY(1024) NOT NULL, ADD KEY chat_ts (chat_id, timestamp);
+ALTER TABLE `{p}chats` MODIFY id VARBINARY(1024) NOT NULL;
+ALTER TABLE `{p}contacts` MODIFY id VARBINARY(1024) NOT NULL;
+ALTER TABLE `{p}checkpoints` MODIFY `key` VARBINARY(1024) NOT NULL;
+ALTER TABLE `{p}conversations` MODIFY `key` VARBINARY(1024) NOT NULL;
+ALTER TABLE `{p}cursors` MODIFY `key` VARBINARY(1024) NOT NULL;
+```
 
 ## Notes
 
 - `getMessagesByChat(chatId, limit)` reads the newest `limit` rows (`ORDER BY timestamp DESC LIMIT ?`) and returns them oldest→newest — same windowing semantics as `@bot-wa/sqlite-store`.
 - `start()` creates a pool only when none was injected (and is safe to call again); `stop()` closes only a self-created pool. An injected pool is caller-managed and keeps serving after `stop()`.
-- Works against MySQL 5.7+/8.x and MariaDB 10.x (`VALUES(col)` upsert syntax).
+- MySQL's `JSON` type rejects unpaired UTF-16 surrogates (e.g. a string cut in the middle of an emoji). The store writes them as U+FFFD (`�`) instead of failing the write — the same value the UTF-8 based stores end up with. Well-formed text (emoji, CJK, RTL, combining marks) round-trips unchanged.
+- `upsertChat`/`upsertContact` merge shallowly with a read-then-write; two concurrent partial upserts of the *same* record can lose one side's fields (same as `@bot-wa/postgres-store`).
+- Works against MySQL 5.7+/8.x and MariaDB 10.x (`VALUES(col)` upsert syntax). The integration suite runs on MySQL 8.4 in CI and has also been run against 8.0.
 - The database named in the URI/config must exist — the store creates tables, not databases.
+
+## Tests de integración
+
+Los tests unitarios (`tests/mysql-store.test.ts`, `tests/conformance.test.ts`) usan un `FakePool` en memoria que reconoce las sentencias del store, así que nunca ejecutan SQL real. `tests/integration.test.ts` sí lo hace: corre la suite compartida de conformidad de `IStore` y casos propios de MySQL (esquema e índice idempotentes, persistencia tras `stop()`/`start()` con un cliente nuevo, recorte con `maxMessagesPerChat`, `deleteChat` purgando el log, merge superficial, unicode/emoji y JSON grandes, orden/límite de `getMessagesByChat`, `saveMessage` concurrentes y ids que solo difieren en mayúsculas/acentos) contra un servidor de verdad.
+
+Es opt-in: se activa con la variable de entorno `BOTWA_TEST_MYSQL_URL` y, si no está definida, se salta entera, así que `pnpm test` sigue siendo hermético. Unos pocos tests "hermetic pins" del mismo archivo fijan esas regresiones sin servidor y corren siempre.
+
+```bash
+# 1. Un MySQL desechable (puerto 53306 para no chocar con uno local)
+docker run -d --name botwa-it-mysql -e MYSQL_ROOT_PASSWORD=root -e MYSQL_DATABASE=botwa -p 53306:3306 mysql:8.4
+
+# 2. Espera a que acepte conexiones TCP: repite hasta ver "mysqld is alive"
+#    (el primer arranque inicializa los datos y tarda unos 20-30 s)
+docker exec botwa-it-mysql mysqladmin ping -h 127.0.0.1 -uroot -proot
+
+# 3. Ejecuta la suite contra él
+BOTWA_TEST_MYSQL_URL=mysql://root:root@127.0.0.1:53306/botwa pnpm --filter @bot-wa/mysql-store test
+
+# 4. Limpieza
+docker rm -f botwa-it-mysql
+```
+
+En PowerShell: `$env:BOTWA_TEST_MYSQL_URL = 'mysql://root:root@127.0.0.1:53306/botwa'; pnpm --filter @bot-wa/mysql-store test`.
+
+- **Aislamiento:** cada store del test usa su propio `tablePrefix` (`it<run>_<n>_`); cada test borra sus tablas al terminar y un `afterAll` elimina lo que quede de esa ejecución. Se puede apuntar a una base compartida sin pisar datos ni chocar con otra ejecución en paralelo.
+- **Usuario:** necesita permisos de `CREATE`, `DROP`, `INDEX`, `SELECT`, `INSERT`, `UPDATE` y `DELETE` sobre la base, y lectura de `information_schema`.
+- **Windows + Docker Desktop:** usa `127.0.0.1` en lugar de `localhost`. `localhost` resuelve primero a `::1` y el reenvío IPv6 de Docker Desktop acepta la conexión TCP pero no entrega el handshake de MySQL, así que `mysql2` acaba en `ETIMEDOUT`.
+- **CI:** el job `store-integration` levanta `mysql:8.4` como servicio y define `BOTWA_TEST_MYSQL_URL=mysql://root:root@localhost:3306/botwa`.
