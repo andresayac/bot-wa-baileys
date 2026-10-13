@@ -6,20 +6,23 @@
 import type { CallEvent, InboundMessage } from './provider.js'
 
 /**
- * Normalize a call into an `InboundMessage` of `type: 'call'`. The caller id is
- * used as both the chat and the sender (a DM with the caller): `CallEvent` only
- * carries `from`, and the core never derives a chat id from an id's shape.
+ * Normalize a call into an `InboundMessage` of `type: 'call'`. The sender is the
+ * caller (`CallEvent.from`); the chat is `CallEvent.chatId` (a group call) or,
+ * when omitted, the DM with the caller. `isGroup` comes from the provider — the
+ * core never derives a chat id or its kind from an id's shape.
  */
 export function callToInbound(call: CallEvent): InboundMessage {
+  const chatId = call.chatId ?? call.from
+  const isGroup = call.isGroup === true
   return {
-    ref: { id: call.id, chatId: call.from },
-    chat: { id: call.from, kind: 'dm', isGroup: false, isBroadcast: false },
+    ref: { id: call.id, chatId },
+    chat: { id: chatId, kind: isGroup ? 'group' : 'dm', isGroup, isBroadcast: false },
     senderInfo: { id: call.from },
-    from: call.from,
+    from: chatId,
     sender: call.from,
-    chatId: call.from,
+    chatId,
     senderId: call.from,
-    isGroup: false,
+    isGroup,
     isBroadcast: false,
     fromMe: false,
     type: 'call',

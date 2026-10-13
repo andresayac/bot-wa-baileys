@@ -5,6 +5,7 @@
  */
 
 import type {
+  CallEvent,
   ChatId,
   IProvider,
   InboundEvent,
@@ -122,12 +123,14 @@ export class MockProvider implements IProvider {
 
   /**
    * Simulate an inbound call notification (what `bot.on('call')` and the `CALL`
-   * trigger receive). Reuse the same `id` to emit later updates of one call.
+   * trigger receive). Reuse the same `id` to emit later updates of one call. For a
+   * group call pass `chatId` (the group) and `isGroup: true`; `from` is the caller.
    */
-  call(opts: { id?: string; from?: string; status?: string } = {}): void {
+  call(opts: Partial<CallEvent> = {}): void {
+    const { id, from, status, ...extra } = opts
     this.emitEvent({
       kind: 'call',
-      event: { id: opts.id ?? `call-${++counter}`, from: opts.from ?? 'user-1', status: opts.status ?? 'offer' },
+      event: { id: id ?? `call-${++counter}`, from: from ?? 'user-1', status: status ?? 'offer', ...extra },
     })
   }
 }

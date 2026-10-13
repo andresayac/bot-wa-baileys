@@ -159,6 +159,9 @@ export class ConversationRuntime {
 
   hasActive(key: string): boolean { return this.active.has(key) }
 
+  /** True while `key` has a persisted checkpoint waiting to be resumed by its next message. */
+  hasDormant(key: string): boolean { return this.dormant.has(key) }
+
   async enter(nameOrFn: string | ConversationFn, ctx: RuntimeMessage): Promise<void> {
     const fn = typeof nameOrFn === 'string' ? this.registry.get(nameOrFn) : nameOrFn
     if (!fn) throw new Error(`Conversation "${String(nameOrFn)}" is not registered`)

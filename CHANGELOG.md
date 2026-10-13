@@ -49,6 +49,7 @@ Rewrite del core, ahora transporte-agnóstico (ver [guía de migración](docs/MI
 - Persistencia de flows `.persistent()` vía checkpoints en el store. `IStore` genérico + `MemoryStore` (con dump/load a JSON, mensajes no persistidos).
 - Sistema de hooks (`before/after/onError`, evento `send`), plugins con `unplug`, DI (`bot.provide`), scheduler, validación de config en runtime, group mode, graceful shutdown con drain.
 - Testing kit (`createTestBot`, `MockProvider`) en `@bot-wa/core/testing`.
+- `CallEvent` gana campos opcionales `chatId`, `isGroup`, `isVideo` y `offline`. El trigger `CALL` proyecta una llamada de grupo al grupo (`scope: 'dm' | 'group'` las distingue; `groupMode` distinto de `'all'` las excluye) y nunca reemplaza una conversación en curso: un `flow(CALL)` se omite mientras el llamante tiene una conversación activa o dormida (su checkpoint se conserva).
 
 **Cambios de comportamiento vs v1**
 - Matching por defecto = `equals` normalizado (no `contains`).
@@ -65,3 +66,4 @@ Rewrite del core, ahora transporte-agnóstico (ver [guía de migración](docs/MI
 - Capa de identidad LID/PN (Baileys 7), render de QR (terminal + PNG), login por pairing code.
 - **Rate limiter anti-ban**: token bucket por chat y global, cola FIFO (no descarta mensajes), jitter human-like opcional.
 - Política de reconexión: `conflict/replaced` (440) y `forbidden` (403) no reconectan en loop; `restartRequired` (515) reconecta ya; resto con backoff exponencial con tope; un `start()` fallido durante reconexión reprograma con backoff.
+- Eventos `call` con identidad canónica: el llamante (`CallEvent.from`) pasa por la misma resolución LID/PN que los mensajes (`callerPn`, mapeo aprendido o `getPNForLID`), así un `flow(CALL).ask(...)` recibe la respuesta de texto del mismo usuario. Las llamadas de grupo llevan `chatId` (el grupo) e `isGroup` en todas sus actualizaciones; se exponen además `isVideo` y `offline`.

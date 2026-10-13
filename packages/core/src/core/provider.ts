@@ -239,10 +239,33 @@ export interface PresenceEvent {
   chatId: ChatId
   presences: Record<UserId, { lastKnownPresence?: string; lastSeen?: number }>
 }
+/**
+ * An inbound call notification. Transports may emit several per call (one per
+ * status update) with the same `id`.
+ */
 export interface CallEvent {
   id: string
+  /**
+   * The caller, resolved to the SAME canonical id their messages carry as
+   * `senderId` (the identity-stability contract applies to calls too).
+   */
   from: UserId
+  /** Transport status, e.g. WhatsApp `offer` / `ringing` / `reject` / `timeout` / `terminate`. */
   status: string
+  /**
+   * The chat the call belongs to: the group for a group call. Omitted → the DM
+   * with the caller (`from`).
+   */
+  chatId?: ChatId
+  /** `true` when `chatId` is a group (a group call). Provider-set, like `ChatInfo.isGroup`. */
+  isGroup?: boolean
+  /** `true` for a video call, when the transport says so. */
+  isVideo?: boolean
+  /**
+   * `true` when the notification was delivered late (e.g. replayed after the bot
+   * reconnected) rather than while the call was ringing.
+   */
+  offline?: boolean
 }
 
 /* ============================================================================

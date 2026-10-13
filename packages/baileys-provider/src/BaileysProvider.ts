@@ -13,6 +13,7 @@ import NodeCache from '@cacheable/node-cache'
 import makeWASocket, {
   Browsers,
   type proto,
+  type WACallEvent,
   type WAMessage,
   type WAMessageKey,
   fetchLatestBaileysVersion,
@@ -47,6 +48,8 @@ import { classifyDisconnect, backoffDelay, MAX_RECONNECT_ATTEMPTS } from './reco
 import { putBounded } from './boundedMap.js'
 import { IdentityStore } from './identity.js'
 import { toInbound } from './toInbound.js'
+import { toCallEvent } from './toCallEvent.js'
+import { normalize } from './jid.js'
 import { toOutbound } from './toOutbound.js'
 import { RateLimiter, type RateLimitConfig } from './RateLimiter.js'
 import {
@@ -142,6 +145,8 @@ export class BaileysProvider implements IProvider<WAMessage> {
   private lidCache = new Map<string, string>()
   private msgCache = new Map<string, WAMessage>()
   private identity = new IdentityStore()
+  /** Call id → group JID of group calls in progress (see {@link toCallEvent}). */
+  private callGroups = new Map<string, string>()
   private rateLimiter: RateLimiter
   private listeners = new Set<(e: InboundEvent<WAMessage>) => void | Promise<void>>()
 
@@ -377,7 +382,9 @@ export class BaileysProvider implements IProvider<WAMessage> {
 
       if (events['call']) {
         for (const call of events['call']) {
-          this.fan({ kind: 'call', event: { id: call.id, from: call.from, status: String(call.status) } })
+          // Same canonical caller id as their messages (LID/PN), never the raw `from`.
+          await this.seedCaller(call)
+          this.fan({ kind: 'call', event: toCallEvent(call, this.identity, this.callGroups) })
         }
       }
 
@@ -404,6 +411,12 @@ export class BaileysProvider implements IProvider<WAMessage> {
       if (!jid || !jid.endsWith('@lid') || this.identity.knowsPnFor(jid)) continue
       await this.getPNForLID(jid).catch(() => undefined)
     }
+  }
+
+  /** A bare-LID caller without `callerPn`: learn its PN from the authoritative mapping first. */
+  private async seedCaller(call: WACallEvent): Promise<void> {
+    if (call.callerPn || !call.from?.endsWith('@lid') || this.identity.knowsPnFor(call.from)) return
+    await this.getPNForLID(normalize(call.from)).catch(() => undefined)
   }
 
   private mapReason(statusCode?: number): DisconnectReason {

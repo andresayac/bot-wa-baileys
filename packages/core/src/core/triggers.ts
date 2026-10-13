@@ -167,18 +167,29 @@ export const POLL: TypeTrigger = freezeTypeTrigger(['poll'], 'POLL')
  * An inbound call notification (the provider's `{ kind: 'call' }` event).
  *
  * The handler receives a context with `type === 'call'`, an empty `body`,
- * `from`/`sender` set to the caller (`CallEvent.from`, treated as a DM chat) and
- * `ctx.call` holding the `CallEvent`, so `ctx.reply()` answers the caller and
- * a `flow(CALL)` can keep talking with them in that DM.
+ * `sender` set to the caller (`CallEvent.from`, the same canonical id their
+ * messages carry) and `ctx.call` holding the `CallEvent`. For a 1:1 call `from`
+ * is the DM with the caller; for a group call (`CallEvent.isGroup`) `from` is the
+ * group and `isGroup` is `true`, so `scope: 'dm' | 'group'` tells them apart.
+ * `ctx.reply()` answers in that chat and a `flow(CALL)` keeps talking there (per
+ * participant in a group, like any conversation).
  *
  * - Fires **once per call id** (the first event seen for it). Transports emit
  *   several updates per call (WhatsApp: offer → ringing/reject/timeout/terminate);
- *   listen to `bot.on('call')` to observe every update.
+ *   listen to `bot.on('call')` to observe every update. `ctx.call.offline` flags a
+ *   notification delivered late (e.g. replayed after a reconnect).
  * - Runs after the `before('call')`/`after('call')` hooks and the `'call'` event;
  *   a `before('call')` hook that calls `abort()` suppresses it.
  * - Calls never reach text/function triggers, commands, active conversations,
  *   the catch-all or the `'message'` event, and are not persisted as messages.
  *   Message-bound helpers (`react`, `quote`, `markRead`, `delete`) are meaningless here.
+ * - A call **never replaces a conversation in progress**: while the caller has an
+ *   active conversation or a dormant (persisted) one, a `flow(CALL)` /
+ *   `bot.conversation(…, { trigger: CALL })` is skipped as if it did not match
+ *   (the next `CALL` handler, if any, runs instead); plain `bot.when(CALL, fn)`
+ *   handlers still run.
+ * - Group calls follow `groupMode`: with `'mentions'` or `'commands'` they never
+ *   reach `CALL` triggers (a call can neither mention the bot nor be a command).
  * - Ignored while the bot is not started.
  *
  * @example

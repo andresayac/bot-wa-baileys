@@ -697,7 +697,8 @@ export class Bot extends EventEmitter {
   }
 
   private registerEnterMatcher(trigger: Trigger, target: string): () => void {
-    const unsub = this.dispatcher.matcher(trigger, (ctx) => {
+    // conversationMatcher: a projected event (a call) must never replace a conversation in progress.
+    const unsub = this.dispatcher.conversationMatcher(trigger, (ctx) => {
       void this.runtime.enter(target, ctx).catch((error) => this.emitError({ error, ctx: ctx as unknown as MessageContext }))
     })
     this.disposables.add(unsub)
@@ -921,10 +922,13 @@ export class Bot extends EventEmitter {
    * A call event: hooks + `'call'` event as before, then — only when a `CALL`
    * type trigger is registered — the first event of each call id is projected
    * into a `type: 'call'` context and dispatched to the type-trigger matchers.
+   * Group calls follow `groupMode`: anything but `'all'` keeps them away from triggers.
    */
   private async handleCall(call: CallEvent): Promise<void> {
     const proceed = await this.dispatchHookEvent('call', call)
     if (!proceed || !this.acceptingInbound || !this.dispatcher.hasTypeMatcher('call')) return
+    // A call can never mention the bot nor be a command: a restrictive groupMode keeps group calls out.
+    if (call.isGroup === true && this.config.groupMode && this.config.groupMode !== 'all') return
     if (call.id && !this.seenCalls.add(call.id)) return
     const ctx = buildMessageContext({
       inbound: callToInbound(call),

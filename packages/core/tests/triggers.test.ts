@@ -7,8 +7,11 @@ import {
 import * as publicApi from '../src/index.js'
 import { createTestBot } from '../src/testing/createTestBot.js'
 import { flow, addKeyword } from '../src/flows/FlowBuilder.js'
+import { Bot } from '../src/core/Bot.js'
+import { MemoryStore } from '../src/store/MemoryStore.js'
+import type { IStore } from '../src/store/IStore.js'
+import { MockProvider } from '../src/testing/MockProvider.js'
 import type { MessageContext, MessageType, Trigger } from '../src/core/types.js'
-import type { MockProvider } from '../src/testing/MockProvider.js'
 
 const msg = (type: string, over: Partial<{ body: string; isGroup: boolean }> = {}) =>
   ({ body: over.body ?? '', isGroup: over.isGroup ?? false, type })
@@ -338,5 +341,134 @@ describe('CALL trigger', () => {
     provider.call({ id: 'c-1', from: 'caller', status: 'offer' })
     await tick(10)
     expect(handler).not.toHaveBeenCalled()
+  })
+})
+
+describe('CALL trigger vs conversations in progress', () => {
+  /**
+   * A persistent two-step order flow on a MemoryStore + MockProvider. `store` is the bot's
+   * (namespaced) store, so checkpoint keys are plain chat keys; `seed` runs before `start()`.
+   */
+  async function bootOrderBot(seed?: (store: IStore) => Promise<void>) {
+    const provider = new MockProvider()
+    const bot = new Bot({ provider, store: new MemoryStore() })
+    const store = bot.getStore()
+    await seed?.(store)
+    bot.use(flow('pedido').id('pedido').persistent()
+      .ask('¿direccion?', 'dir')
+      .ask('¿pago?', 'pago')
+      .say((_ctx, c) => `pedido: ${String(c.state.dir)} / ${String(c.state.pago)}`))
+    await bot.start()
+    const say = async (text: string) => { provider.incoming(text, { from: 'u1' }); await tick(10) }
+    return { bot, provider, store, say }
+  }
+
+  it('a flow(CALL) never replaces the caller\'s active conversation nor clears its checkpoint', async () => {
+    const { bot, provider, store, say } = await bootOrderBot()
+    bot.use(flow(CALL).say('vi tu llamada'))
+    await say('pedido')
+    await say('calle 1')
+    expect(await store.listCheckpoints()).toEqual([['u1', expect.objectContaining({ flowId: 'pedido', step: 1 })]])
+
+    provider.call({ id: 'c1', from: 'u1' })
+    await tick(10)
+    expect(await store.listCheckpoints()).toEqual([['u1', expect.objectContaining({ flowId: 'pedido', step: 1 })]])
+
+    await say('tarjeta')
+    expect(textsTo(provider, 'u1')).toEqual(['¿direccion?', '¿pago?', 'pedido: calle 1 / tarjeta'])
+  })
+
+  it('a bot.conversation(…, { trigger: CALL }) never replaces an active conversation either', async () => {
+    const { bot, provider, say } = await bootOrderBot()
+    const started = vi.fn()
+    bot.conversation('callback', async () => { started() }, { trigger: CALL })
+    await say('pedido')
+    provider.call({ id: 'c1', from: 'u1' })
+    await tick(10)
+    expect(started).not.toHaveBeenCalled()
+    await say('calle 1')
+    expect(textsTo(provider, 'u1')).toEqual(['¿direccion?', '¿pago?'])
+  })
+
+  it('a skipped CALL flow lets the next CALL handler run, and plain handlers still fire mid-flow', async () => {
+    const { bot, provider, say } = await bootOrderBot()
+    bot.use(flow(CALL).say('vi tu llamada'))
+    bot.when(CALL, (ctx) => ctx.reply('📵 no atiendo llamadas'))
+    await say('pedido')
+    provider.call({ id: 'c1', from: 'u1' })
+    await tick(10)
+    expect(textsTo(provider, 'u1')).toEqual(['¿direccion?', '📵 no atiendo llamadas'])
+    await say('calle 1')
+    expect(textsTo(provider, 'u1').at(-1)).toBe('¿pago?')
+
+    // With no conversation in progress the CALL flow (registered first) wins as usual.
+    provider.call({ id: 'c2', from: 'u2' })
+    await tick(10)
+    expect(textsTo(provider, 'u2')).toEqual(['vi tu llamada'])
+  })
+
+  it('a flow(CALL) does not start over a dormant checkpoint; the next message resumes it', async () => {
+    const { bot, provider, store, say } = await bootOrderBot(async (s) => {
+      await s.setCheckpoint('u1', { flowId: 'pedido', step: 1, state: { dir: 'calle 1' }, updatedAt: Date.now() })
+    })
+    bot.use(flow(CALL).ask('vi tu llamada, ¿qué necesitas?', 'need'))
+
+    provider.call({ id: 'c1', from: 'u1' })
+    await tick(10)
+    expect(textsTo(provider, 'u1')).toEqual([])
+    expect(await store.listCheckpoints()).toEqual([['u1', expect.objectContaining({ flowId: 'pedido', step: 1 })]])
+
+    await say('hola')                 // wakes the dormant order flow: re-prompts the pending ask
+    await say('tarjeta')
+    expect(textsTo(provider, 'u1')).toEqual(['¿pago?', 'pedido: calle 1 / tarjeta'])
+  })
+})
+
+describe('CALL trigger — group calls', () => {
+  it('a group call is projected into the group: reply goes to the group, sender is the caller', async () => {
+    const { bot, provider } = await createTestBot()
+    let seen: MessageContext | undefined
+    bot.when(CALL, async (ctx) => { seen = ctx; await ctx.reply('no atiendo llamadas de grupo') })
+    provider.call({ id: 'g-1', from: 'caller-1', chatId: 'group-1', isGroup: true })
+    await tick(10)
+    expect(seen?.isGroup).toBe(true)
+    expect(seen?.from).toBe('group-1')
+    expect(seen?.sender).toBe('caller-1')
+    expect(textsTo(provider, 'group-1')).toEqual(['no atiendo llamadas de grupo'])
+    expect(textsTo(provider, 'caller-1')).toEqual([])
+  })
+
+  it('scope separates DM calls from group calls', async () => {
+    const { bot, provider } = await createTestBot()
+    const dm = vi.fn(); const group = vi.fn()
+    bot.when({ ...CALL, scope: 'dm' }, (ctx) => { dm(ctx.from); ctx.pass() })
+    bot.when({ ...CALL, scope: 'group' }, (ctx) => { group(ctx.from) })
+    provider.call({ id: 'c-dm', from: 'caller-1' })
+    provider.call({ id: 'c-group', from: 'caller-1', chatId: 'group-1', isGroup: true })
+    await tick(10)
+    expect(dm.mock.calls).toEqual([['caller-1']])
+    expect(group.mock.calls).toEqual([['group-1']])
+  })
+
+  it('a group flow(CALL) is per participant: the caller\'s next group message answers it', async () => {
+    const { bot, provider } = await createTestBot()
+    bot.use(flow(CALL).ask('¿qué necesitas?', 'need').say((_ctx, c) => `ok: ${String(c.state.need)}`))
+    provider.call({ id: 'g-1', from: 'caller-1', chatId: 'group-1', isGroup: true })
+    await tick(10)
+    provider.incoming('soporte', { from: 'group-1', sender: 'caller-1', isGroup: true })
+    await tick(10)
+    expect(textsTo(provider, 'group-1')).toEqual(['¿qué necesitas?', 'ok: soporte'])
+  })
+
+  it('groupMode "mentions"/"commands" keep group calls away from CALL triggers (DM calls still fire)', async () => {
+    for (const groupMode of ['mentions', 'commands'] as const) {
+      const { bot, provider } = await createTestBot({ groupMode })
+      const handler = vi.fn()
+      bot.when(CALL, (ctx) => { handler(ctx.from) })
+      provider.call({ id: 'c-group', from: 'caller-1', chatId: 'group-1', isGroup: true })
+      provider.call({ id: 'c-dm', from: 'caller-1' })
+      await tick(10)
+      expect(handler.mock.calls, groupMode).toEqual([['caller-1']])
+    }
   })
 })
