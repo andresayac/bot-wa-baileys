@@ -48,6 +48,12 @@ export class MemoryStore implements IStore {
 
   constructor(private opts: MemoryStoreOptions = {}) {}
 
+  /**
+   * `true` when this store mirrors itself to a JSON `file`, so its data (including
+   * `persistent()` flow checkpoints) survives a process restart. `false` = RAM only.
+   */
+  get durable(): boolean { return Boolean(this.opts.file) }
+
   async start(): Promise<void> {
     if (this.opts.file && existsSync(this.opts.file)) {
       try {

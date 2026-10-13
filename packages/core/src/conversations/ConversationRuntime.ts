@@ -31,6 +31,19 @@ export interface ConversationControlsBase {
 export type ConversationFn<C extends ConversationControlsBase = ConversationControlsBase> =
   (c: C, ctx: RuntimeMessage) => Promise<void>
 
+/**
+ * One `register()` / `registerCompiled()` call, as recorded by {@link ConversationRuntime.listRegistrations}.
+ * Exactly one of `flow` / `fn` is set.
+ */
+export interface ConversationRegistration {
+  /** Conversation name (the `CompiledFlow.id` for DSL flows). */
+  readonly name: string
+  /** The DSL flow, when registered through `registerCompiled()` — fully introspectable. */
+  readonly flow?: CompiledFlow
+  /** The async function, when registered through `register()` — opaque to introspection. */
+  readonly fn?: ConversationFn
+}
+
 /** Minimal checkpoint persistence surface the runtime needs (Task 5). Implemented by IStore. */
 export interface CheckpointStore {
   getCheckpoint(key: string): Promise<FlowCheckpoint | undefined>
@@ -76,11 +89,24 @@ export class ConversationRuntime {
   private dormant = new Map<string, FlowCheckpoint>()
   /** Keys whose persistent checkpoint must NOT be cleared on unwind (shutdown teardown). */
   private preserveOnAbort = new Set<string>()
+  /** Registration history for introspection — see {@link listRegistrations}. */
+  private registrations: ConversationRegistration[] = []
 
   constructor(private cfg: RuntimeConfig = {}) {}
 
-  register(name: string, fn: ConversationFn): void { this.registry.set(name, fn) }
+  register(name: string, fn: ConversationFn): void { this.define({ name, fn }, fn) }
   has(name: string): boolean { return this.registry.has(name) }
+
+  /**
+   * Every `register`/`registerCompiled` call so far, oldest first. A name registered twice
+   * appears twice; the LAST entry for a name is the live one. Read by `Bot.describe()`/`Bot.lint()`.
+   */
+  listRegistrations(): ConversationRegistration[] { return [...this.registrations] }
+
+  private define(registration: ConversationRegistration, fn: ConversationFn): void {
+    this.registry.set(registration.name, fn)
+    this.registrations.push(registration)
+  }
 
   /** Wires a checkpoint-capable store; required for `persistent()` flows to actually persist. */
   attachStore(store: CheckpointStore): void { this.store = store }
@@ -88,7 +114,7 @@ export class ConversationRuntime {
   /** Registers a compiled DSL flow by its `flow.id`, wrapping it with checkpoint support when persistent. */
   registerCompiled(flow: CompiledFlow): void {
     this.compiled.set(flow.id, flow)
-    this.register(flow.id, this.wrapCompiled(flow))
+    this.define({ name: flow.id, flow }, this.wrapCompiled(flow))
   }
 
   private wrapCompiled(flow: CompiledFlow, startAt = 0): ConversationFn {

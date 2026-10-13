@@ -73,6 +73,9 @@ import { Scheduler } from '../scheduler/Scheduler.js'
 import { parseDuration } from '../utils/duration.js'
 import { randomId } from '../utils/timers.js'
 import { validateConfig } from '../utils/validateConfig.js'
+import { FlowRouteLog, isDurableStore, type FlowInventory } from '../flows/inventory.js'
+import { describeFlows, type DescribeOptions, type FlowGraph } from '../flows/describe.js'
+import { lintFlows, type LintDiagnostic, type LintOptions } from '../flows/lint.js'
 
 /** A user message handler — receives the full inbound {@link MessageContext}. */
 export type MessageHandler = (ctx: MessageContext) => unknown | Promise<unknown>
@@ -157,6 +160,8 @@ export class Bot extends EventEmitter {
   private connState: ConnectionState = 'closed'
   /** In-flight outbound sends — tracked so `stop({ drain: true })` can wait for them. */
   private inflightSends = new Set<Promise<unknown>>()
+  /** Trigger routes, kept for `describe()` / `lint()` introspection. */
+  private flowRoutes = new FlowRouteLog()
 
   /** Resolves when the bot reaches the `'ready'` connection state. */
   readonly ready: Promise<void>
@@ -421,7 +426,9 @@ export class Bot extends EventEmitter {
       return this.registerEnterMatcher(trigger, handler.id)
     }
     const fn = handler
-    const unsub = this.dispatcher.matcher(trigger, (ctx) => fn(this.asMessage(ctx)))
+    const unmatch = this.dispatcher.matcher(trigger, (ctx) => fn(this.asMessage(ctx)))
+    const unroute = this.flowRoutes.add(trigger)
+    const unsub = () => { unmatch(); unroute() }
     this.disposables.add(unsub)
     return unsub
   }
@@ -650,6 +657,50 @@ export class Bot extends EventEmitter {
   }
 
   /* =========================================================================
+   * INTROSPECTION (describe / lint)
+   * ====================================================================== */
+
+  /**
+   * Read-only snapshot of the registered flows, conversations and trigger routes,
+   * plus the bits of config the linter needs. Input of `describeFlows()`/`lintFlows()`.
+   */
+  flowInventory(): FlowInventory {
+    const timeout = this.config.conversation?.timeout
+    return {
+      registrations: this.runtime.listRegistrations(),
+      routes: this.flowRoutes.list(),
+      defaultTimeoutMs: timeout !== undefined ? parseDuration(timeout) : undefined,
+      durableStore: isDurableStore(this.store),
+    }
+  }
+
+  /**
+   * Describe every registered flow/conversation as a Mermaid flowchart (default)
+   * or, with `{ format: 'json' }`, as a JSON graph. See {@link describeFlows}.
+   *
+   * @example
+   * ```ts
+   * writeFileSync('flows.mmd', bot.describe())        // open in mermaid.live or any Mermaid viewer
+   * const graph = bot.describe({ format: 'json' })    // { version, flows, groups, nodes, edges }
+   * ```
+   */
+  describe(options: DescribeOptions & { format: 'json' }): FlowGraph
+  describe(options?: DescribeOptions & { format?: 'mermaid' }): string
+  describe(options?: DescribeOptions): string | FlowGraph
+  describe(options?: DescribeOptions): string | FlowGraph { return describeFlows(this, options) }
+
+  /**
+   * Statically lint the registered flows: unreachable steps/flows, missing goto
+   * targets, empty/duplicate triggers, risky timeouts, ambiguous menus, … See {@link lintFlows}.
+   *
+   * @example
+   * ```ts
+   * for (const d of bot.lint({ minSeverity: 'warning' })) bot.logger.warn(d, d.message)
+   * ```
+   */
+  lint(options?: LintOptions): LintDiagnostic[] { return lintFlows(this, options) }
+
+  /* =========================================================================
    * INTERNAL WIRING
    * ====================================================================== */
 
@@ -661,9 +712,11 @@ export class Bot extends EventEmitter {
   }
 
   private registerEnterMatcher(trigger: Trigger, target: string): () => void {
-    const unsub = this.dispatcher.matcher(trigger, (ctx) => {
+    const unmatch = this.dispatcher.matcher(trigger, (ctx) => {
       void this.runtime.enter(target, ctx).catch((error) => this.emitError({ error, ctx: ctx as unknown as MessageContext }))
     })
+    const unroute = this.flowRoutes.add(trigger, target)
+    const unsub = () => { unmatch(); unroute() }
     this.disposables.add(unsub)
     return unsub
   }

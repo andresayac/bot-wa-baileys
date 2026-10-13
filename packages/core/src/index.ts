@@ -153,3 +153,30 @@ export { Scheduler } from './scheduler/Scheduler.js'
 
 // Testing helpers live under the "./testing" subpath export
 // (import from '@bot-wa/core/testing') — not re-exported here to keep the entry lean.
+
+// describe-lint
+export { describeFlows } from './flows/describe.js'
+export type {
+  DescribeOptions,
+  FlowGraph,
+  FlowGraphFlow,
+  FlowGraphNode,
+  FlowGraphNodeKind,
+  FlowGraphEdge,
+  FlowGraphEdgeKind,
+  FlowGraphGroup,
+  FlowGraphOption,
+  FlowGraphTimeoutSource,
+} from './flows/describe.js'
+export { lintFlows } from './flows/lint.js'
+export type { LintCode, LintDiagnostic, LintOptions, LintSeverity } from './flows/lint.js'
+export { describeTrigger } from './flows/inventory.js'
+export type {
+  FlowInventory,
+  FlowInventoryProvider,
+  FlowRoute,
+  FlowSource,
+  TriggerInfo,
+  TriggerPatternInfo,
+} from './flows/inventory.js'
+export type { ConversationRegistration } from './conversations/ConversationRuntime.js'
