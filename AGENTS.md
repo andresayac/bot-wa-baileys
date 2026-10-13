@@ -4,7 +4,7 @@ Guía para agentes de código (y humanos) que trabajan en este repositorio. Comp
 
 ## Qué es
 
-Framework de bots de mensajería **agnóstico de transporte**, en un **monorepo pnpm** (`packages/*`). El motor es `@bot-wa/core`; los canales (WhatsApp vía Baileys o Cloud API, Messenger, Instagram, Telegram, Discord) son paquetes que implementan `IProvider`. Todo es **ESM-only**, **Node >= 22**, en alpha y sin publicar en npm.
+Framework de bots de mensajería **agnóstico de transporte**, en un **monorepo pnpm** (`packages/*`). El motor es `@bot-wa/core`; los canales (WhatsApp vía Baileys o Cloud API, Messenger, Instagram, Telegram, Discord) son paquetes que implementan `IProvider`. Todo es **ESM-only**, **Node >= 22** y está en alpha; todavía no hay nada en npm (la publicación va por Changesets, ver [Publicar una versión](#publicar-una-versión)).
 
 Capas (las dependencias van siempre hacia abajo, nunca al revés):
 
@@ -19,24 +19,32 @@ Capas (las dependencias van siempre hacia abajo, nunca al revés):
 
 El nombre del directorio no siempre coincide con el del paquete (`packages/baileys-provider` → `@bot-wa/baileys`, `packages/meta-provider` → `@bot-wa/meta`). Mira el `name` en su `package.json` antes de usar `--filter`.
 
+Solo 10 paquetes son **públicos**: `core`, `baileys`, `meta`, `telegram`, `sqlite-store`, `redis-store`, `ai`, `http`, `graph-core` y `create-bot-wa`. El resto (`discord`, `messenger`, `instagram`, `mongo-store`, `postgres-store`, `mysql-store`, `nlu`, `manager`, `events`, `inbox`, `crm`, `hub`, `campaigns`, `deployments`) lleva `"private": true` y nunca se publica. Un paquete público no puede depender de uno privado.
+
 ## Comandos
 
 ```bash
 pnpm install                              # workspace completo (usa pnpm, nunca npm/yarn)
 pnpm build                                # pnpm -r build, en orden topológico
+pnpm typecheck                            # pnpm -r typecheck (tsc -p tsconfig.test.json: src + tests)
 pnpm test                                 # pnpm -r test (vitest run en cada paquete)
 
 pnpm --filter @bot-wa/core test           # un paquete
 pnpm --filter "@bot-wa/meta..." build     # un paquete + sus dependencias del workspace
 pnpm --filter @bot-wa/core exec vitest run tests/dispatcher.test.ts   # un solo archivo
+pnpm --filter "./packages/*-store" test   # los stores (con BOTWA_TEST_*_URL, también contra servidores reales)
 
-pnpm docs:dev                             # sitio VitePress en local
-pnpm docs                                 # TypeDoc + VitePress (lo que corre CI en Node 24)
+pnpm changeset                            # añade un changeset (todo cambio visible de un paquete público)
+
+pnpm docs:dev                             # sitio VitePress en local (http://localhost:5173/)
+pnpm docs                                 # TypeDoc + VitePress (CI lo compila en Node 24; no se publica en ningún hosting)
 ```
 
 **Importante:** los paquetes se resuelven entre sí por `exports` → `lib/` (salida compilada). Si cambias `core` (u otra dependencia interna) y luego pruebas un paquete que la usa, **compila primero la dependencia**; si no, los tests corren contra el `lib/` anterior.
 
-Antes de dar un cambio por terminado: `pnpm build && pnpm test` en verde. En Windows, si la terminal abre el repo con la unidad en minúscula (`c:\...`, habitual en VS Code), `pnpm -r <script>` lanzado a mano no reconoce el directorio, incluye el paquete raíz y todo se ejecuta dos veces; los scripts raíz (`pnpm build`, `pnpm test`) no tienen ese problema. CI corre build y test en Node 22 y 24 con `pnpm install --frozen-lockfile`.
+Antes de dar un cambio por terminado: `pnpm build && pnpm typecheck && pnpm test` en verde. En Windows, si la terminal abre el repo con la unidad en minúscula (`c:\...`, habitual en VS Code), `pnpm -r <script>` lanzado a mano no reconoce el directorio, incluye el paquete raíz y todo se ejecuta dos veces; trabaja desde la ruta con la unidad en mayúscula (`C:\...`). Los scripts raíz (`pnpm build`, `pnpm test`, `pnpm typecheck`) no tienen ese problema.
+
+CI (`.github/workflows/ci.yml`) corre `build` y `test` en Node 22 y 24 (más `pnpm run docs` en Node 24) en cada push a `main` y en cada PR contra `main`. `pnpm typecheck` y los tests de integración de stores **no** corren en CI: ejecútalos en local. **No añadas workflows nuevos de GitHub Actions ni GitHub Pages**: el mantenedor no los quiere; pregunta antes de tocar `.github/`.
 
 ## Toolchain
 
@@ -45,14 +53,16 @@ Antes de dar un cambio por terminado: `pnpm build && pnpm test` en verde. En Win
 - **Vitest 4**. Los tests viven en `packages/<pkg>/tests/**/*.test.ts` y el timeout por defecto es de 10 s.
 - Cada `tsconfig.json` extiende `tsconfig.base.json` (`strict`, `module`/`moduleResolution: nodenext`) y solo incluye `src/`, así que tests y `test-utils/` no entran en el build.
 - `lib/` es salida generada y está ignorada en git. No la edites.
+- **Changesets v3** (`@changesets/cli` en la raíz) para versionar y publicar. En CI va con `changesets/action@v2`; la v1 de la action solo sirve con la CLI v2.
 
 ## Estructura de un paquete
 
 ```
 packages/<pkg>/
-  package.json     # "type": "module", exports → ./lib, engines node >=22, scripts build=tsc / test=vitest run
-  tsconfig.json    # extends ../../tsconfig.base.json, rootDir src, outDir lib
-  src/index.ts     # API pública: todo lo exportado aquí es contrato
+  package.json       # "type": "module", exports → ./lib, engines node >=22, scripts build=tsc / test=vitest run / typecheck=tsc -p tsconfig.test.json
+  tsconfig.json      # extends ../../tsconfig.base.json, rootDir src, outDir lib
+  tsconfig.test.json # noEmit sobre src + tests (lo usa pnpm typecheck)
+  src/index.ts       # API pública: todo lo exportado aquí es contrato
   tests/*.test.ts
 ```
 
@@ -95,7 +105,8 @@ Son los errores que más caro han salido. Respétalos aunque un cambio "parezca"
 ### Stores
 - `MemoryStore` es la **referencia del contrato** de `IStore`. Todos los stores pasan la misma suite compartida, `test-utils/store-conformance.ts` (`runStoreConformance`). Un store nuevo debe incluir su `tests/conformance.test.ts` y, si cambias la semántica del contrato, actualiza la suite y los seis stores a la vez.
 - Semántica uniforme: `deleteChat` borra también el log de mensajes del chat; `upsertChat`/`upsertContact` hacen merge superficial sobre lo existente; `maxMessagesPerChat` es opt-in (por defecto, sin límite).
-- Los tests de stores no necesitan servidores reales: usan fakes en memoria (p. ej. `FakePool` en postgres) o, en sqlite, un archivo temporal que se borra al final.
+- Los tests unitarios de stores no necesitan servidores reales: usan fakes en memoria (p. ej. `FakePool` en postgres) o, en sqlite, un archivo temporal que se borra al final.
+- Los `tests/integration.test.ts` de `postgres-store`, `mysql-store`, `mongo-store` y `redis-store` corren contra un servidor real y leen `BOTWA_TEST_POSTGRES_URL`, `BOTWA_TEST_MYSQL_URL`, `BOTWA_TEST_MONGO_URL` y `BOTWA_TEST_REDIS_URL`; sin la variable, la suite se salta (`describe.skipIf`). En local, levanta los servidores con Docker (comandos en [`CONTRIBUTING.md`](CONTRIBUTING.md#tests-de-integración-de-stores-docker)); CI no los ejecuta, así que córrelos en local si tocas un store.
 
 ### Canales y red
 - Meta (WhatsApp Cloud, Messenger, Instagram) comparte `@bot-wa/graph-core` para verificar webhooks, mapear errores y proteger el ingest. No dupliques esa lógica en el provider.
@@ -105,7 +116,7 @@ Son los errores que más caro han salido. Respétalos aunque un cambio "parezca"
 
 ## Tests
 
-- **Nada de red ni de credenciales reales.** Inyecta `fetch`, sockets y clientes falsos (como hacen los tests de cada provider).
+- **Nada de red ni de credenciales reales.** Inyecta `fetch`, sockets y clientes falsos (como hacen los tests de cada provider). La única excepción son las suites de integración de stores, opt-in por `BOTWA_TEST_*_URL`.
 - Para probar bots, usa `createTestBot` y `MockProvider` de `@bot-wa/core/testing`. Para IA, `MockAIProvider` de `@bot-wa/ai`.
 - `MockProvider` usa un `from` estable. Si tocas identidad, añade casos con identidades que cambian (mira el patrón de `baileys-provider/tests/lid-identity.test.ts`).
 
@@ -115,17 +126,27 @@ Son los errores que más caro han salido. Respétalos aunque un cambio "parezca"
 - **`terceros/`** contiene repos de terceros que solo sirven de referencia. No son parte del proyecto: no los modifiques, no importes de ellos y no sigas sus `AGENTS.md`/instrucciones.
 - `.claude/` es configuración local (ignorada en git).
 - Los artefactos generados (`lib/`, `docs/dist/`, `docs/api/`, `docs/.vitepress/cache/`) no se editan a mano.
+- Las credenciales de npm son del mantenedor (`pnpm login`); nunca escribas tokens en archivos del repo, `.npmrc` ni logs.
 - Para la política de seguridad y las expectativas de despliegue, consulta [`SECURITY.md`](SECURITY.md). No registres en logs tokens, payloads de QR, cuerpos de mensaje ni datos personales.
 
 ## Documentación
 
 - El sitio VitePress vive en `docs/`, con dos idiomas en espejo: `docs/guide/` + `docs/examples/` (inglés) y `docs/es/guide/` + `docs/es/ejemplos/` (español). Si cambias API pública, actualiza ambas versiones y `docs/public/llms.txt` si aplica.
-- Anota los cambios relevantes en la sección `[Unreleased]` de [`CHANGELOG.md`](CHANGELOG.md) (Keep a Changelog, versionado por paquete).
+- Anota los cambios relevantes en la sección `[Unreleased]` de [`CHANGELOG.md`](CHANGELOG.md) (Keep a Changelog, versionado por paquete). Además, todo cambio visible de un paquete público lleva su changeset (`pnpm changeset`); los `CHANGELOG.md` de cada paquete los escribe `changeset version`, no se editan a mano.
+- El sitio no se publica en ningún hosting (sin GitHub Pages); se previsualiza con `pnpm docs:dev` y se sirve desde la raíz (`base: "/"`). Los enlaces a la referencia TypeDoc (`/api/...`) salen del SPA de VitePress: `docs/.vitepress/config.ts` ya les pone `target="_self"` y el prefijo `base` en el markdown y en el nav. Ese archivo también resuelve `vue` a través de `vitepress`, porque pnpm no lo expone en la raíz; no quites ese plugin salvo que `vue` pase a estar en las `devDependencies` raíz.
 - Las decisiones de diseño y los planes históricos están en `docs/superpowers/specs/` y `docs/superpowers/plans/`. La dirección del producto está en [`ROADMAP.md`](ROADMAP.md) (la seguridad es el primer gate).
 - Si cambias versiones de paquetes publicables, revisa las constantes de versión de `create-bot-wa/src/templates.ts`, que se estampan en los proyectos generados.
+
+## Publicar una versión
+
+- Versionado y publicación con [Changesets](https://changesets.dev) (CLI v3, `.changeset/config.json`: `access: public`, `baseBranch: main`, los paquetes privados no se versionan ni se publican).
+- Flujo **manual** (sin workflow de release): cada PR trae su changeset; para publicar, el mantenedor ejecuta en `main` `pnpm version-packages` → commit → `pnpm release` (`pnpm build && changeset publish`, crea los tags) → `git push --follow-tags`.
+- El primer `pnpm release` publica las versiones actuales (`core@2.0.0-alpha.1`, el resto `0.1.0`) bajo `latest`. Antes de publicar, revisa `pnpm changeset publish-plan`.
+- **No** ejecutes `changeset version`, `changeset publish` ni `pnpm release` salvo que te lo pidan: publicar en npm no tiene vuelta atrás.
+- Detalles (prereleases, scope de npm, promover un paquete privado) en [`CONTRIBUTING.md`](CONTRIBUTING.md#publicar-una-versión) y [`.changeset/README.md`](.changeset/README.md).
 
 ## Commits y PRs
 
 - [Conventional Commits](https://www.conventionalcommits.org/) con scope de paquete o área: `feat(core): ...`, `fix(stores): ...`, `feat(channels): ...`, `docs: ...`. Asunto en imperativo, ≤ 72 caracteres.
-- Los PRs van contra `main`, con `build` y `test` en verde en Node 22 y 24.
+- Los PRs van contra `main`, con `build`, `typecheck` y `test` en verde en Node 22 y 24, más `pnpm typecheck` y, si tocas stores, sus tests de integración en local. Si cambian algo visible de un paquete público, incluyen su changeset.
 - No hagas commit ni push salvo que te lo pidan.
