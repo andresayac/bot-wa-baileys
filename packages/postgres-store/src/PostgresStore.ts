@@ -95,6 +95,68 @@ export interface PostgresStoreOptions {
 /** tablePrefix is interpolated into SQL identifiers — allow only plain identifiers. */
 const TABLE_PREFIX_RE = /^[A-Za-z_][A-Za-z0-9_]*$/
 
+/* JSONB encoding ------------------------------------------------------------- *
+ * PostgreSQL's jsonb rejects two things a JS string can legally hold: U+0000
+ * (the `\u0000` escape, SQLSTATE 22P05) and unpaired UTF-16 surrogates (e.g.
+ * text truncated mid-emoji, 22P02). A single one anywhere in a message body or
+ * raw payload would make the whole write throw, so both are replaced with
+ * U+FFFD. Everything else round-trips unchanged.
+ * --------------------------------------------------------------------------- */
+
+/** JSON.stringify emits NUL and lone surrogates as `\uXXXX` escapes (never raw). */
+const JSONB_UNSAFE_ESCAPE = /\\u(?:0000|d[89a-f][0-9a-f]{2})/i
+const JSONB_UNSAFE_CHAR = /\u0000|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g
+
+function jsonbSafeString(s: string): string {
+  return s.replace(JSONB_UNSAFE_CHAR, String.fromCharCode(0xfffd))
+}
+
+function jsonbSafeReplacer(_key: string, value: unknown): unknown {
+  if (typeof value === 'string') return jsonbSafeString(value)
+  if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
+    const keys = Object.keys(value)
+    if (keys.some((k) => jsonbSafeString(k) !== k)) {
+      const rec = value as Record<string, unknown>
+      return Object.fromEntries(keys.map((k) => [jsonbSafeString(k), rec[k]]))
+    }
+  }
+  return value
+}
+
+/** Serialize a document for a JSONB parameter (see the note above). */
+function toJsonb(value: unknown): string {
+  const text = JSON.stringify(value)
+  // Fast path: no escape that jsonb could reject. A false positive (a literal
+  // backslash followed by "u0000" in some string) only costs the slow path.
+  if (!JSONB_UNSAFE_ESCAPE.test(text)) return text
+  return JSON.stringify(value, jsonbSafeReplacer)
+}
+
+/**
+ * The BIGINT sort key for a message timestamp. `StoredMessage.timestamp` is any
+ * JS number, but the column only takes integers (a fractional value was a
+ * 22P02 on insert), so it is floored and clamped; NaN sorts as 0. The exact
+ * value is kept in the JSONB document.
+ */
+function sortKey(timestamp: number): number {
+  const n = Math.floor(Number(timestamp))
+  if (Number.isNaN(n)) return 0
+  return Math.min(Number.MAX_SAFE_INTEGER, Math.max(Number.MIN_SAFE_INTEGER, n))
+}
+
+/**
+ * Concurrent `CREATE ... IF NOT EXISTS` of the same object (replicas booting at
+ * once) can lose a catalog race: unique_violation on pg_type / pg_class (23505)
+ * or duplicate_table / duplicate_object (42P07 / 42710). The object exists by
+ * then, so re-running the idempotent statement succeeds.
+ */
+const CATALOG_RACE_CODES = new Set(['23505', '42P07', '42710'])
+const SCHEMA_ATTEMPTS = 5
+
+function isCatalogRace(err: unknown): boolean {
+  return typeof err === 'object' && err !== null && CATALOG_RACE_CODES.has(String((err as { code?: unknown }).code))
+}
+
 export class PostgresStore implements IStore {
   private readonly connectionString: string
   private readonly prefix: string
@@ -166,7 +228,7 @@ export class PostgresStore implements IStore {
   async saveMessage(msg: StoredMessage): Promise<void> {
     await this.query(
       `INSERT INTO ${this.table('messages')} (id, chat_id, timestamp, msg) VALUES ($1, $2, $3, $4) ON CONFLICT (id) DO UPDATE SET chat_id = EXCLUDED.chat_id, timestamp = EXCLUDED.timestamp, msg = EXCLUDED.msg`,
-      [messageKey(msg.ref), msg.chatId, msg.timestamp, JSON.stringify(msg)],
+      [messageKey(msg.ref), msg.chatId, sortKey(msg.timestamp), toJsonb(msg)],
     )
     await this.trimChat(msg.chatId)
   }
@@ -207,14 +269,7 @@ export class PostgresStore implements IStore {
   /* Chats ------------------------------------------------------------------- */
 
   async upsertChat(chat: StoredChat): Promise<void> {
-    // Shallow-merge over any existing record so a partial upsert keeps prior
-    // fields — consistent with MemoryStore/MongoStore.
-    const existing = await this.getChat(chat.id)
-    const merged = { ...existing, ...chat }
-    await this.query(
-      `INSERT INTO ${this.table('chats')} (id, data) VALUES ($1, $2) ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data`,
-      [chat.id, JSON.stringify(merged)],
-    )
+    await this.mergeUpsert('chats', chat.id, chat, await this.getChat(chat.id))
   }
   async getChat(chatId: string): Promise<StoredChat | undefined> {
     const { rows } = await this.query<{ data: unknown }>(
@@ -237,12 +292,7 @@ export class PostgresStore implements IStore {
   /* Contacts ---------------------------------------------------------------- */
 
   async upsertContact(contact: StoredContact): Promise<void> {
-    const existing = await this.getContact(contact.id)
-    const merged = { ...existing, ...contact }
-    await this.query(
-      `INSERT INTO ${this.table('contacts')} (id, data) VALUES ($1, $2) ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data`,
-      [contact.id, JSON.stringify(merged)],
-    )
+    await this.mergeUpsert('contacts', contact.id, contact, await this.getContact(contact.id))
   }
   async getContact(userId: string): Promise<StoredContact | undefined> {
     const { rows } = await this.query<{ data: unknown }>(
@@ -259,6 +309,35 @@ export class PostgresStore implements IStore {
 
   async deleteContact(userId: string): Promise<void> {
     await this.query(`DELETE FROM ${this.table('contacts')} WHERE id = $1`, [userId])
+  }
+
+  /**
+   * Shallow-merge upsert with MemoryStore semantics (`{ ...existing, ...patch }`:
+   * present keys overwrite, keys explicitly set to `undefined` are removed),
+   * done ATOMICALLY on the server: on conflict the row is merged in a single
+   * statement — `(data - <undefined keys>) || patch` — so concurrent partial
+   * upserts of one id (overlapping events, several replicas) never drop each
+   * other's fields. A read-modify-write in JS lost them.
+   *
+   * `existing` (a prior read) only seeds the INSERT branch, i.e. when no row
+   * exists at write time — then it equals `patch` on a real server unless the
+   * row was deleted in between. Pool fakes that model ON CONFLICT as a plain
+   * row replace (tests/fakePool.ts) rely on it to still see merged data.
+   */
+  private async mergeUpsert(
+    name: 'chats' | 'contacts',
+    id: string,
+    patch: StoredChat | StoredContact,
+    existing: StoredChat | StoredContact | undefined,
+  ): Promise<void> {
+    const t = this.table(name)
+    const cleared = Object.entries(patch)
+      .filter(([, v]) => v === undefined)
+      .map(([k]) => jsonbSafeString(k))
+    await this.query(
+      `INSERT INTO ${t} (id, data) VALUES ($1, $2) ON CONFLICT (id) DO UPDATE SET data = (${t}.data - $4::text[]) || $3::jsonb`,
+      [id, toJsonb({ ...existing, ...patch }), toJsonb(patch), cleared],
+    )
   }
 
   /* Delivery cursor ---------------------------------------------------------- */
@@ -290,7 +369,7 @@ export class PostgresStore implements IStore {
   async setCheckpoint(key: string, cp: FlowCheckpoint): Promise<void> {
     await this.query(
       `INSERT INTO ${this.table('checkpoints')} (key, cp) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET cp = EXCLUDED.cp`,
-      [key, JSON.stringify(cp)],
+      [key, toJsonb(cp)],
     )
   }
   async clearCheckpoint(key: string): Promise<void> {
@@ -316,7 +395,7 @@ export class PostgresStore implements IStore {
   async setConversation(key: string, messages: AIMessage[]): Promise<void> {
     await this.query(
       `INSERT INTO ${this.table('conversations')} (key, messages) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET messages = EXCLUDED.messages`,
-      [key, JSON.stringify(messages)],
+      [key, toJsonb(messages)],
     )
   }
   async clearConversation(key: string): Promise<void> {
@@ -328,13 +407,26 @@ export class PostgresStore implements IStore {
   /**
    * Creates the pool (only when none was injected) and the schema. Idempotent:
    * a second call while started is a no-op; `CREATE TABLE IF NOT EXISTS` makes
-   * schema creation safe across replicas and restarts.
+   * schema creation safe across replicas and restarts (replicas booting at the
+   * same moment can race on the catalog — that error is retried).
    */
   async start(): Promise<void> {
     if (this.started) return
     if (!this.pool) this.pool = new Pool({ connectionString: this.connectionString })
-    for (const stmt of this.schemaStatements()) await this.pool.query(stmt)
+    for (const stmt of this.schemaStatements()) await this.createSchemaObject(this.pool, stmt)
     this.started = true
+  }
+
+  /** Run one idempotent DDL statement, retrying a lost catalog race (see CATALOG_RACE_CODES). */
+  private async createSchemaObject(pool: PostgresPoolLike, stmt: string): Promise<void> {
+    for (let attempt = 1; ; attempt++) {
+      try {
+        await pool.query(stmt)
+        return
+      } catch (err) {
+        if (attempt >= SCHEMA_ATTEMPTS || !isCatalogRace(err)) throw err
+      }
+    }
   }
 
   /**

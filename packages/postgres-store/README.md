@@ -1,11 +1,14 @@
 # @bot-wa/postgres-store
 
+> **Experimental — aún no publicado en npm** (experimental, not yet published to npm). A real, tested implementation, but the package is `private`: it is not part of the first alpha and its API may change. Use it from this monorepo (`workspace:*`); the `pnpm add` below will work once it is published.
+
 PostgreSQL [`IStore`](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/core) implementation for **@bot-wa/core** — persistent, shared bot state backed by PostgreSQL (node-postgres, `pg`). Point any number of bot replicas at the same database and they share message logs, chats, contacts, flow checkpoints, AI conversation history and delivery cursors.
 
 - Documents stored as **JSONB**; per-chat logs ordered by a dedicated `timestamp BIGINT` column.
 - `getMessagesByChat(chatId, limit)` is a plain `ORDER BY timestamp DESC LIMIT n` (+ reverse) — latest `limit` messages, oldest→newest (same windowing semantics as `@bot-wa/redis-store` / `@bot-wa/sqlite-store`).
 - Optional **table prefix**, so apps/bots can share one database.
-- Injectable pool → fully hermetic tests (an in-memory `FakePool` ships with the test-suite; no real PostgreSQL needed).
+- `upsertChat` / `upsertContact` shallow-merge **atomically on the server** (`jsonb ||`), so concurrent partial updates from several replicas never drop each other's fields.
+- Injectable pool → fully hermetic unit tests (an in-memory `FakePool` ships with the test-suite; no real PostgreSQL needed), plus an opt-in [integration suite](#integration-tests) against a real server.
 
 ## Install
 
@@ -61,6 +64,7 @@ await store.start()
 | `connectionString` | `string`            | `postgres://localhost:5432/botwa` | PostgreSQL connection URL. Ignored when `pool` is provided. |
 | `tablePrefix`      | `string`            | `''`                           | Identifier prefix for every table (`'mybot_'` → `mybot_messages`). Plain identifier characters only. |
 | `pool`             | `PostgresPoolLike`  | —                              | Inject an existing `pg` `Pool`-like client (required for tests). The store never creates/ends it. |
+| `maxMessagesPerChat` | `number`          | unbounded                      | Per-chat cap: `saveMessage` prunes the oldest rows (by timestamp) beyond it. |
 | `logger`           | `{ error? }`        | —                              | Receives lifecycle errors (e.g. pool end failure). |
 
 ## Schema
@@ -74,11 +78,35 @@ await store.start()
 | `{prefix}conversations` | `key TEXT PK`, `messages JSONB` | `AIMessage[]` |
 | `{prefix}cursors` | `key TEXT PK`, `value TEXT` | delivery cursor (e.g. Telegram `update_id`) |
 
-An index on `(chat_id, timestamp)` backs `getMessagesByChat`. All writes are parameterized `INSERT ... ON CONFLICT ... DO UPDATE` upserts; all DB access goes through a single `query(text, values)` call.
+An index on `(chat_id, timestamp)` backs `getMessagesByChat`. All writes are parameterized `INSERT ... ON CONFLICT ... DO UPDATE` upserts; all DB access goes through a single `query(text, values)` call. Chats and contacts merge in the conflict clause itself — `data = (data - <keys set to undefined>) || patch` — which is the same `{ ...existing, ...patch }` semantics as `MemoryStore`, but atomic.
 
 ## Notes
 
 - Designed for **shared state**: multiple bot replicas on one PostgreSQL database get a consistent view of history, checkpoints and cursors.
 - Messages, chats, contacts and cursors live forever — delete them explicitly. There is no TTL (unlike `@bot-wa/redis-store`).
 - `start()` is idempotent while started; it creates a pool only when none was injected. `stop()` ends only a self-created pool — an injected pool is left open. An own-pool store can be restarted after `stop()` (fresh pool, idempotent schema pass).
+- Replicas may boot at the same moment: concurrent `CREATE TABLE IF NOT EXISTS` of the same table can lose a race on PostgreSQL's catalog (`23505` on `pg_type`), and `start()` retries that statement instead of failing.
+- `jsonb` cannot hold U+0000 or unpaired UTF-16 surrogates (e.g. text cut in the middle of an emoji). Rather than failing the whole write, those characters are stored as U+FFFD; everything else round-trips unchanged. Ids and keys are `TEXT` columns and are stored verbatim, so they must not contain U+0000.
+- `timestamp` may be any number: the `BIGINT` sort column gets `Math.floor(timestamp)`, while the exact value is kept in the `msg` document. Order among messages with the same (floored) timestamp is not defined.
 - Message IDs are `messageKey(ref)` = `` `${ref.chatId}:${ref.id}` `` (imported from `@bot-wa/core`), so message ids that are only unique per chat on some transports are safe.
+
+## Integration tests
+
+Unit tests run against the in-memory `FakePool`, which pattern-matches the statements the store issues, so they cannot prove that PostgreSQL accepts them. `tests/integration.test.ts` runs the shared `IStore` conformance suite plus store-specific checks (idempotent schema, persistence across `stop()`/`start()`, `maxMessagesPerChat` trimming, `deleteChat` purging the log, atomic shallow merge, unicode and multi-MB JSON, ordering/limit, concurrent writes) against a **real** server.
+
+It is opt-in: without `BOTWA_TEST_POSTGRES_URL` the whole file is skipped and `pnpm test` stays hermetic (no network).
+
+```bash
+# a throwaway PostgreSQL 16 on port 55432
+docker run -d --name botwa-it-postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=botwa -p 55432:5432 postgres:16-alpine
+
+BOTWA_TEST_POSTGRES_URL=postgres://postgres:postgres@127.0.0.1:55432/botwa \
+  pnpm --filter @bot-wa/postgres-store test
+
+docker rm -f botwa-it-postgres
+```
+
+- Use `127.0.0.1` rather than `localhost` on Windows: `localhost` resolves to `::1` first and Docker Desktop's IPv6 port forward can hang until the connection timeout.
+- Each run creates its tables under a random prefix (`it<hex>_<n>_…`, one per store) and drops them in `afterAll`, so reruns and parallel CI jobs can share one database. The user in the URL needs `CREATE` on the current schema.
+- In CI, point the same variable at a `postgres` service container (standard port 5432).
+
