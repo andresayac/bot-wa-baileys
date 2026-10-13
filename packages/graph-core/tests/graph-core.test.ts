@@ -59,6 +59,58 @@ describe('toGraphError', () => {
     expect(e.constructor).toBe(ProviderError)
     expect(e.message).toContain('999')
   })
+
+  describe('131051 (unsupported message type)', () => {
+    it("defaults to kind 'native' when the request kind is unknown", () => {
+      const e = toGraphError({ code: 131051, message: 'Unsupported message type' })
+      expect(e).toBeInstanceOf(UnsupportedContentError)
+      expect((e as UnsupportedContentError).kind).toBe('native')
+      expect(e.message).toContain('131051')
+    })
+    it('reports the kind of the failing request when the caller knows it', () => {
+      const e = toGraphError({ code: 131051 }, { contentKind: 'poll' })
+      expect((e as UnsupportedContentError).kind).toBe('poll')
+    })
+  })
+
+  describe('131062 (BSUID recipients not supported for this message)', () => {
+    const err = { code: 131062, message: 'Business-scoped User ID (BSUID) recipients are not supported for this message.' }
+
+    it("maps to UnsupportedContentError with kind 'template' for a template send", () => {
+      const e = toGraphError(err, { chatId: 'US.13491208655302741918', contentKind: 'template' })
+      expect(e).toBeInstanceOf(UnsupportedContentError)
+      expect((e as UnsupportedContentError).kind).toBe('template')
+      expect(e.message).toContain('131062')
+      expect(e.message).toContain(err.message)
+    })
+    it("defaults to kind 'template' (only auth templates are refused for BSUIDs)", () => {
+      const e = toGraphError(err)
+      expect(e).toBeInstanceOf(UnsupportedContentError)
+      expect((e as UnsupportedContentError).kind).toBe('template')
+    })
+    it('keeps the request kind when the failing send was not a template', () => {
+      const e = toGraphError(err, { contentKind: 'text' })
+      expect(e).toBeInstanceOf(UnsupportedContentError)
+      expect((e as UnsupportedContentError).kind).toBe('text')
+    })
+    it('tells the caller to address the user by phone number instead', () => {
+      expect(toGraphError(err).message).toMatch(/phone number/i)
+    })
+    it('is not mistaken for a window or reachability error', () => {
+      const e = toGraphError(err, { chatId: 'US.1' })
+      expect(e).not.toBeInstanceOf(OutsideSessionWindowError)
+      expect(e).not.toBeInstanceOf(RecipientUnreachableError)
+    })
+  })
+
+  it('leaves the username-management codes (147001-147005) as a generic ProviderError', () => {
+    // Returned by the business-username API, never by a message send: no typed send error fits.
+    for (const code of [147001, 147002, 147003, 147004, 147005]) {
+      const e = toGraphError({ code, message: 'Username not available' })
+      expect(e.constructor).toBe(ProviderError)
+      expect(e.message).toContain(String(code))
+    }
+  })
 })
 
 describe('checkGraphSignature', () => {

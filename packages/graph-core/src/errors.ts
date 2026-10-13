@@ -11,6 +11,7 @@ import {
   RateLimitedError,
   UnsupportedContentError,
   type ChatId,
+  type OutboundContent,
 } from '@bot-wa/core'
 
 export interface GraphError {
@@ -24,6 +25,12 @@ export interface GraphErrorOptions {
   chatId?: ChatId
   /** Server-signalled retry delay in ms (from a Retry-After header). */
   retryAfterMs?: number
+  /**
+   * The `OutboundContent` kind of the failing send, when the caller knows it.
+   * Becomes `UnsupportedContentError.kind` for the "unsupported content" codes
+   * (131051, 131062); without it each code falls back to its most likely kind.
+   */
+  contentKind?: OutboundContent['kind']
 }
 
 /** Translate a Graph error into the core's typed provider error. */
@@ -37,12 +44,21 @@ export function toGraphError(err: GraphError, opts: GraphErrorOptions = {}): Pro
     case 131026: // message undeliverable (recipient can't receive)
       return new RecipientUnreachableError(chatId, `${msg} (131026)`)
     case 131051: // unsupported message type
-      return new UnsupportedContentError('native', `${msg} (131051)`)
+      return new UnsupportedContentError(opts.contentKind ?? 'native', `${msg} (131051)`)
+    case 131062: // BSUID recipient not supported for this message (WhatsApp): only the
+                 // one-tap / zero-tap / copy-code authentication templates need a phone number
+      return new UnsupportedContentError(
+        opts.contentKind ?? 'template',
+        `${msg} (131062) — send it to the user's phone number (wa_id), not the business-scoped user id.`,
+      )
     case 4:      // app-level rate limit
     case 613:    // calls to this API have exceeded the rate limit
     case 80007:  // account-level rate limit
     case 36003:  // business rate limit
       return new RateLimitedError(opts.retryAfterMs ?? 60_000, `${msg} (${code})`)
+    // 147001-147005 (business-username API: not available, not eligible, FB/IG not
+    // linked, transfer required) fall through on purpose: they are account-management
+    // failures, not send failures, so no typed send error fits.
     default:
       return new ProviderError(`${msg}${code ? ` (code ${code})` : ''}`)
   }
