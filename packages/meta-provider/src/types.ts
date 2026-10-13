@@ -4,6 +4,7 @@
 
 import type { Logger } from 'pino'
 import type { SecureFetchOptions } from '@bot-wa/http'
+import type { IdentityMap } from './identity.js'
 
 export interface CloudAPIProviderConfig {
   /** Permanent (system-user) access token with whatsapp_business_messaging. */
@@ -30,6 +31,15 @@ export interface CloudAPIProviderConfig {
   mediaDownload?: Omit<SecureFetchOptions, 'fetch'>
   /** The bot's own wa_id (for identity/mention logic). Optional. */
   selfId?: string
+  /**
+   * Where learned phone ↔ BSUID links are kept. WhatsApp username users arrive
+   * with only a business-scoped user id (BSUID); a user first seen with a phone
+   * number keeps the phone-based chatId only if this map remembers the link.
+   * Default: a bounded in-memory {@link MemoryIdentityMap} (lost on restart).
+   * Provide a persistent implementation (sync or async) to keep ids stable
+   * across restarts.
+   */
+  identityMap?: IdentityMap
   debug?: boolean
   logger?: Logger
 }
@@ -47,5 +57,7 @@ export interface GraphErrorBody {
 
 export interface GraphSendMessageResponse {
   messages?: Array<{ id: string }>
+  /** `input` echoes `to`/`recipient`; `wa_id` is omitted for BSUID sends Meta can't map to a phone. */
+  contacts?: Array<{ input?: string; wa_id?: string; user_id?: string }>
   error?: GraphErrorBody['error']
 }

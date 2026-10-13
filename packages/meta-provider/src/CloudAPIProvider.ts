@@ -38,7 +38,8 @@ import { ProviderError, UnsupportedContentError } from '@bot-wa/core'
 import type { CloudAPIProviderConfig } from './types.js'
 import { GraphClient } from './graphClient.js'
 import { toOutbound, type ResolvedMedia } from './toOutbound.js'
-import { parseInbound, type GraphWebhookBody } from './parseInbound.js'
+import { extractDrafts, resolveDrafts, type GraphWebhookBody, type InboundDraft } from './parseInbound.js'
+import { IdentityResolver, MemoryIdentityMap, isPromiseLike, type MaybePromise } from './identity.js'
 import { verifyChallenge, checkGraphSignature, parseGraphBody, type ChallengeQuery } from '@bot-wa/graph-core'
 
 const EXT_MIME: Record<string, string> = {
@@ -60,6 +61,9 @@ export class CloudAPIProvider implements IProvider<unknown> {
   private readonly logger: Logger
   private readonly graph: GraphClient
   private listeners = new Set<(e: InboundEvent) => void | Promise<void>>()
+  private readonly identity: IdentityResolver
+  /** Tail of webhook batches waiting on an async identity lookup (keeps webhook order). */
+  private pending: Promise<void> | undefined
 
   constructor(config: CloudAPIProviderConfig) {
     this.config = { apiVersion: 'v21.0', graphUrl: 'https://graph.facebook.com', ...config }
@@ -71,6 +75,7 @@ export class CloudAPIProvider implements IProvider<unknown> {
       graphUrl: this.config.graphUrl,
       mediaDownload: this.config.mediaDownload,
     })
+    this.identity = new IdentityResolver(config.identityMap ?? new MemoryIdentityMap(), this.logger)
     if (!this.config.appSecret && !this.config.allowUnsignedWebhooks) {
       throw new Error(
         'CloudAPIProvider requires `appSecret` to authenticate webhook POSTs. ' +
@@ -109,7 +114,9 @@ export class CloudAPIProvider implements IProvider<unknown> {
     this.fan({ kind: 'connection', update: { state: 'ready' } })
     this.logger.debug('CloudAPIProvider ready — wire your webhook to ingest()')
   }
+  /** Emits `closed` after any webhook batch still waiting on an async identity lookup. */
   async stop(): Promise<void> {
+    while (this.pending) await this.pending
     this.fan({ kind: 'connection', update: { state: 'closed' } })
   }
 
@@ -130,13 +137,52 @@ export class CloudAPIProvider implements IProvider<unknown> {
    * JSON object re-serialized here won't reproduce the original bytes and the
    * signature check will fail on legitimate requests. When `appSecret` is set
    * and a non-string body is received, a warning is logged.
+   *
+   * Identity: users are keyed by phone number (wa_id) when known, otherwise by
+   * their business-scoped user id (BSUID — username users). Phone ↔ BSUID pairs
+   * are learned across webhooks (see `identityMap`). Events are emitted
+   * synchronously, unless an async `identityMap` lookup is needed; then they are
+   * emitted once it settles, preserving webhook order.
    */
   ingest(body: unknown, headers?: Record<string, string | string[] | undefined>): number {
     const sig = checkGraphSignature(body, headers, this.config.appSecret, this.logger)
     if (!sig.ok) return sig.status
     const parsed = parseGraphBody<GraphWebhookBody>(body)
-    for (const event of parseInbound(parsed)) this.fan(event)
+    this.dispatch(extractDrafts(parsed, this.logger))
     return 200
+  }
+
+  private dispatch(drafts: InboundDraft[]): void {
+    if (drafts.length === 0) return
+    if (this.pending) {
+      this.enqueue(() => resolveDrafts(drafts, this.identity, this.logger))
+      return
+    }
+    let result: MaybePromise<InboundEvent[]>
+    try {
+      result = resolveDrafts(drafts, this.identity, this.logger)
+    } catch (err) {
+      this.logger.error({ err }, 'CloudAPIProvider failed to resolve webhook identities')
+      return
+    }
+    if (isPromiseLike(result)) {
+      this.enqueue(result)
+      return
+    }
+    for (const event of result) this.fan(event)
+  }
+
+  /**
+   * Chain a batch behind any in-flight one so events keep webhook order. A
+   * promise is only passed when nothing is in flight; handlers attach at once.
+   */
+  private enqueue(next: Promise<InboundEvent[]> | (() => MaybePromise<InboundEvent[]>)): void {
+    const resolved = typeof next === 'function' ? (this.pending ?? Promise.resolve()).then(next) : next
+    const run: Promise<void> = resolved
+      .then((events) => { for (const event of events) this.fan(event) })
+      .catch((err: unknown) => this.logger.error({ err }, 'CloudAPIProvider failed to resolve webhook identities'))
+    this.pending = run
+    void run.then(() => { if (this.pending === run) this.pending = undefined })
   }
 
   /* Outbound -------------------------------------------------------------- */
@@ -167,6 +213,8 @@ export class CloudAPIProvider implements IProvider<unknown> {
       // Cloud API replies reference the quoted message via context.
       ;(message as Record<string, unknown>).context = { message_id: options.quoted.id }
     }
+    // A BSUID target is pinned so its receipts/replies keep this chat id.
+    this.identity.noteOutbound(chatId)
     const res = await this.graph.sendMessage(chatId, message)
     return { ref: { id: res.id ?? '', chatId }, raw: res }
   }

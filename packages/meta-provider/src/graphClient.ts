@@ -7,6 +7,7 @@
 import { ProviderError, type ChatId } from '@bot-wa/core'
 import { toGraphError, type GraphError } from '@bot-wa/graph-core'
 import { secureFetch, type SecureFetchOptions } from '@bot-wa/http'
+import { isBsuid } from './identity.js'
 
 export interface GraphClientConfig {
   accessToken: string
@@ -45,12 +46,18 @@ export class GraphClient {
     return body
   }
 
-  /** Send a message payload (already shaped by toOutbound). */
+  /**
+   * Send a message payload (already shaped by toOutbound). A business-scoped
+   * user id (BSUID, e.g. `US.1349...`, or a parent `US.ENT.1181...`) is
+   * addressed with `recipient`; a phone number (wa_id) with `to`. Never both:
+   * Meta gives `to` precedence when both are present.
+   */
   async sendMessage(to: ChatId, message: Record<string, unknown>): Promise<{ id?: string }> {
+    const target = isBsuid(to) ? { recipient: to } : { to }
     const res = await fetch(this.base(`${this.cfg.phoneNumberId}/messages`), {
       method: 'POST',
       headers: this.headers({ 'Content-Type': 'application/json' }),
-      body: JSON.stringify({ messaging_product: 'whatsapp', recipient_type: 'individual', to, ...message }),
+      body: JSON.stringify({ messaging_product: 'whatsapp', recipient_type: 'individual', ...target, ...message }),
     })
     const body = (await this.check(res, to)) as { messages?: Array<{ id: string }> }
     return { id: body.messages?.[0]?.id }

@@ -8,7 +8,18 @@ export { GraphClient, toProviderError } from './graphClient.js'
 export { toOutbound } from './toOutbound.js'
 export type { ResolvedMedia } from './toOutbound.js'
 export { parseInbound } from './parseInbound.js'
-export type { GraphWebhookBody } from './parseInbound.js'
+export type {
+  GraphWebhookBody,
+  GraphValue,
+  GraphMessage,
+  GraphStatus,
+  GraphContact,
+  GraphMedia,
+  GraphUserIdUpdate,
+  ParseInboundOptions,
+} from './parseInbound.js'
+export { MemoryIdentityMap, isBsuid } from './identity.js'
+export type { IdentityMap, IdentityLogger, MemoryIdentityMapOptions, MaybePromise } from './identity.js'
 export { verifyChallenge, verifySignature } from '@bot-wa/graph-core'
 export type { ChallengeQuery } from '@bot-wa/graph-core'
 export type { CloudAPIProviderConfig, GraphErrorBody, GraphSendMessageResponse } from './types.js'
