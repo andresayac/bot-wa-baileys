@@ -321,10 +321,16 @@ function telegramLabel(): string { return 'Telegram · Bot API' }
 
 /* ai (baileys + @bot-wa/ai) ----------------------------------------------- */
 
+/* Since 2026-01-15 Meta's WhatsApp Business Platform terms ("AI Providers")
+ * prohibit general-purpose AI assistants; AI that serves the business's own
+ * customers (support, sales, bookings) is allowed. The template therefore ships
+ * a persona scoped to one business instead of an open-ended assistant. */
+const AI_POLICY_URL = 'https://www.whatsapp.com/legal/business-solution-terms'
+
 const ai: ProjectTemplate = {
   name: 'ai',
   label: 'WhatsApp · Baileys + AI',
-  description: 'WhatsApp bot (Baileys) with an AI autoresponder via @bot-wa/ai (Anthropic).',
+  description: 'WhatsApp bot (Baileys) with a business-scoped AI customer-support autoresponder via @bot-wa/ai (Anthropic).',
   files: (name) => [
     {
       path: 'package.json',
@@ -348,18 +354,30 @@ const ai: ProjectTemplate = {
           "  provider: new BaileysProvider({ session: process.env.BOT_SESSION ?? 'my-ai-bot' }),",
           '})',
           '',
-          '// AI autoresponder: answers any text message with Claude (Anthropic).',
+          '// Business-scoped persona: keep the AI on YOUR business (support, sales, bookings).',
+          '// Since 2026-01-15 the WhatsApp Business Platform terms prohibit general-purpose',
+          '// AI assistants (open-ended, ChatGPT-style chatbots); AI that serves your own',
+          '// customers is allowed. Policy: ' + AI_POLICY_URL,
+          "const BUSINESS = process.env.BUSINESS_NAME ?? 'Mi Negocio'",
+          'const PERSONA = [',
+          "  'Eres el asistente de atención al cliente de ' + BUSINESS + '.',",
+          "  'Solo respondes sobre sus productos, servicios, precios, pedidos, horarios y reservas.',",
+          "  'Si te piden algo ajeno al negocio, explica con amabilidad que solo puedes ayudar con temas de ' + BUSINESS + ' y ofrece hablar con una persona.',",
+          "  'Responde breve y en el idioma del cliente. Si no sabes un dato, dilo; no lo inventes.',",
+          "].join(' ')",
+          '',
+          '// AI autoresponder: answers text messages that no command/handler/flow consumed.',
           "// Also adds ctx.tools.ai and a /reset command to clear a chat's context.",
           'bot.plug(',
           '  aiPlugin({',
           "    provider: 'anthropic',",
           '    apiKey: process.env.ANTHROPIC_API_KEY,',
-          "    persona: 'Eres un asistente amable y breve.',",
+          '    persona: PERSONA,',
           '  }),',
           ')',
           '',
           "bot.on('qr', (qr) => bot.logger.info('Scan the QR to link WhatsApp: ' + qr))",
-          "bot.on('ready', () => bot.logger.info('✅ Bot connected — any message now gets an AI reply'))",
+          "bot.on('ready', () => bot.logger.info('✅ Bot connected — unhandled text messages get a business-scoped AI reply'))",
           '',
           ...HANDLERS,
           '',
@@ -373,6 +391,8 @@ const ai: ProjectTemplate = {
         [
           '# Anthropic API key (console.anthropic.com) — used by the AI autoresponder.',
           'ANTHROPIC_API_KEY=',
+          '# Your business name — the AI persona only answers about this business.',
+          'BUSINESS_NAME=Mi Negocio',
           '# Session/auth folder name (sessions/<name>).',
           'BOT_SESSION=my-ai-bot',
           '',
@@ -383,8 +403,17 @@ const ai: ProjectTemplate = {
       path: 'README.md',
       contents: readme(name, aiLabel(), ai.description, [
         'On first start a **QR code** is printed — scan it with WhatsApp → Linked devices.',
-        'Every incoming text message is auto-replied by the AI; send `/reset` in a chat to clear its context.',
+        'Text messages that no command, handler or flow consumed are answered by the AI, scoped to your business',
+        '(`BUSINESS_NAME` in `.env`, `PERSONA` in `src/bot.js`); send `/reset` in a chat to clear its context.',
         'Switch providers by changing `provider` in `src/bot.js` (e.g. `openai`, `gemini`, `ollama`) and its env key.',
+        '',
+        '## WhatsApp AI policy',
+        '',
+        'Since 2026-01-15 the Meta terms for the **WhatsApp Business Platform** prohibit **general-purpose AI assistants**',
+        '(open-ended, ChatGPT-style chatbots whose main purpose is the AI itself). AI that serves your own business —',
+        'customer support, sales, bookings — is allowed. Keep `PERSONA` scoped to your business, especially if you move',
+        'this bot to the official Cloud API (`@bot-wa/meta`). Baileys is an unofficial WhatsApp Web client and is also',
+        'subject to WhatsApp\'s terms. Check the [current terms](' + AI_POLICY_URL + ') before going live.',
       ]),
     },
   ],

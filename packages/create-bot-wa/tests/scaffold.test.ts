@@ -1,11 +1,12 @@
 import { afterEach, describe, expect, it } from 'vitest'
+import { execFileSync } from 'node:child_process'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { sanitizeName, scaffold } from '../src/scaffold.js'
 import { TEMPLATE_NAMES, TEMPLATES } from '../src/templates.js'
-// @ts-expect-error plain-JS bin (no bundled types at test time)
+// Plain-JS bin; typed through its JSDoc because tsconfig sets `allowJs`.
 import { parseArgs } from '../src/cli.js'
 
 /** Temp dirs created per test, removed after each test (hermetic). */
@@ -62,6 +63,9 @@ describe('scaffold — every template', () => {
     const readme = await read(target, 'README.md')
     expect(readme).toContain('npm install')
     expect(readme).toContain('npm start')
+
+    // bot.js is syntactically valid ESM (parse only — imports are not resolved, no network).
+    expect(() => execFileSync(process.execPath, ['--check', join(target, 'src/bot.js')], { stdio: 'pipe' })).not.toThrow()
   })
 
   it('baileys template wires BaileysProvider + BOT_SESSION', async () => {
@@ -137,6 +141,39 @@ describe('scaffold — every template', () => {
     expect(bot).toContain('process.env.ANTHROPIC_API_KEY')
 
     expect(await read(target, '.env.example')).toContain('ANTHROPIC_API_KEY=')
+  })
+
+  it('ai template ships a business-scoped persona, not a general-purpose assistant', async () => {
+    const base = await makeTempDir()
+    const target = join(base, 'a2')
+    await scaffold({ targetDir: target, template: 'ai' })
+
+    const bot = await read(target, 'src/bot.js')
+    // The persona is built from the business name and restricted to the business's own topics.
+    expect(bot).toContain('process.env.BUSINESS_NAME')
+    expect(bot).toContain('persona: PERSONA')
+    expect(bot).toMatch(/solo (respondes|ayudas)/i)
+    expect(bot).not.toContain('Eres un asistente amable y breve.')
+    // The source points at the policy so whoever edits the persona sees it.
+    expect(bot).toContain('WhatsApp Business Platform')
+
+    expect(await read(target, '.env.example')).toContain('BUSINESS_NAME=')
+  })
+
+  it('ai template README explains the Meta 2026 AI policy', async () => {
+    const base = await makeTempDir()
+    const target = join(base, 'a3')
+    await scaffold({ targetDir: target, template: 'ai' })
+
+    const readme = await read(target, 'README.md')
+    expect(readme).toContain('WhatsApp Business Platform')
+    expect(readme).toContain('2026-01-15')
+    expect(readme).toMatch(/general-purpose/i)
+    expect(readme).not.toMatch(/every incoming text message is auto-replied/i)
+  })
+
+  it('ai template description is business-scoped', () => {
+    expect(TEMPLATES.ai.description).toMatch(/customer support|business/i)
   })
 })
 
