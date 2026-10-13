@@ -73,6 +73,9 @@ import { Scheduler } from '../scheduler/Scheduler.js'
 import { parseDuration } from '../utils/duration.js'
 import { randomId } from '../utils/timers.js'
 import { validateConfig } from '../utils/validateConfig.js'
+import { AccessList, Whitelist, checkAccess, type AccessListSnapshot, type AccessListsSnapshot, type WhitelistSnapshot } from '../gates/accessList.js'
+import { KeyedQueue } from '../utils/keyedQueue.js'
+import { HandoffRegistry, type HandoffEvent, type HandoffOptions, type HandoffState, type ResumeEvent, type ResumeOptions } from '../gates/handoff.js'
 
 /** A user message handler — receives the full inbound {@link MessageContext}. */
 export type MessageHandler = (ctx: MessageContext) => unknown | Promise<unknown>
@@ -115,6 +118,10 @@ export interface BotEvents {
   presence: PresenceEvent
   /** Forwarded provider event: outbound delivery/read receipt. */
   status: DeliveryStatus
+  /** A chat was handed off to a human (`bot.handoff()` / `ctx.handoff()`). */
+  handoff: HandoffEvent
+  /** A handed-off chat was given back to the bot (`bot.resume()`). */
+  resume: ResumeEvent
 }
 
 export type BotEventArgs<K extends keyof BotEvents> = BotEvents[K] extends void ? [] : [BotEvents[K]]
@@ -160,6 +167,21 @@ export class Bot extends EventEmitter {
 
   /** Resolves when the bot reaches the `'ready'` connection state. */
   readonly ready: Promise<void>
+
+  /**
+   * Senders/chats whose inbound messages are dropped before anything else (not
+   * persisted, no hooks, no routing, no `'message'` event). Ids are matched exactly
+   * against `ctx.sender` and `ctx.from`. See {@link AccessList}.
+   */
+  readonly blacklist = new AccessList('blacklist')
+  /**
+   * When enabled, only senders/chats on this list are processed (the blacklist
+   * still wins). Disabled by default. See {@link Whitelist}.
+   */
+  readonly whitelist = new Whitelist()
+  private handoffs: HandoffRegistry
+  /** Serializes this bot's chat upserts per chat (see {@link persistChat}). */
+  private chatWrites = new KeyedQueue()
 
   constructor(config: BotConfig) {
     super()
@@ -234,6 +256,18 @@ export class Bot extends EventEmitter {
         }
         return this.emit(event, payload)
       },
+      gate: (ctx) => this.handoffs.admits(ctx),
+    })
+
+    this.handoffs = new HandoffRegistry({
+      store: { upsertChat: (chat) => this.persistChat(chat), listChats: () => this.store.listChats() },
+      config: this.config.handoff,
+      commandPrefix: this.config.commandPrefix,
+      hasCommand: (name) => this.dispatcher.hasCommand(name),
+      abortChat: (chatId) => { this.runtime.abortChat(chatId) },
+      emit: (event: 'handoff' | 'resume', payload: HandoffEvent | ResumeEvent) => { this.emit(event, payload) },
+      reportError: (error) => this.emitError({ error }),
+      logger: this.logger.child({ module: 'handoff' }),
     })
 
     this.ready = new Promise<void>((resolve) => {
@@ -281,6 +315,7 @@ export class Bot extends EventEmitter {
       storeAttempted = true
       await this.store.start()
       await this.runtime.loadDormant()
+      await this.handoffs.load()
       providerAttempted = true
       await this.provider.start()
       this.scheduler.start(this.logger.child({ module: 'scheduler' }))
@@ -404,6 +439,75 @@ export class Bot extends EventEmitter {
       catch (error) { failed.push({ chatId, error: error as Error }) }
     }
     return { sent, failed }
+  }
+
+  /* =========================================================================
+   * HUMAN HANDOFF + ACCESS LISTS  (see gates/handoff.ts, gates/accessList.ts)
+   * ====================================================================== */
+
+  /**
+   * Hand `chatId` over to a human agent. Until {@link resume}, the Dispatcher skips
+   * every routing stage for that chat (commands, conversations, dormant resume,
+   * matchers, catch-all) except `BotConfig.handoff.allowCommands`; inbound messages
+   * are still persisted, hooks still run and the `'message'` event still fires.
+   * Active conversations in the chat are cancelled silently and its dormant
+   * checkpoints dropped. Emits `'handoff'` and persists the state on
+   * `StoredChat.handoff` (survives restarts with a persistent store).
+   *
+   * The state flips synchronously, so not awaiting is safe. Resolves `true` if the
+   * chat was not already handed off; never rejects for store failures (they go to
+   * the `'error'` event). Throws `TypeError` synchronously on an empty chat id.
+   */
+  handoff(chatId: ChatId, opts?: HandoffOptions): Promise<boolean> {
+    return this.handoffs.handoff(chatId, opts)
+  }
+
+  /**
+   * Give a handed-off chat back to the bot: routing resumes immediately, `'resume'`
+   * fires and the persisted state is cleared. Resolves `true` if the chat was handed off.
+   */
+  resume(chatId: ChatId, opts?: ResumeOptions): Promise<boolean> {
+    return this.handoffs.resume(chatId, opts)
+  }
+
+  /** Is `chatId` currently handed off to a human? */
+  isHandedOff(chatId: ChatId): boolean {
+    return this.handoffs.has(chatId)
+  }
+
+  /** Snapshot of the chat's handoff state (`since`, `reason`, `meta`), or `undefined`. */
+  getHandoff(chatId: ChatId): HandoffState | undefined {
+    return this.handoffs.get(chatId)
+  }
+
+  /** Snapshots of every chat currently handed off. */
+  listHandoffs(): HandoffState[] {
+    return this.handoffs.list()
+  }
+
+  /**
+   * Send to a chat from outside the inbound pipeline — typically a human agent's
+   * message during a handoff. Same path as {@link send} (`before`/`after('send')`
+   * hooks, outbound ledger) but also accepts a plain string as text. Works whether or
+   * not the chat is handed off and never resumes the bot by itself.
+   */
+  sendTo(chatId: ChatId, content: string | OutboundContent, options?: SendOptions): Promise<SentMessage> {
+    return this.send(chatId, typeof content === 'string' ? { kind: 'text', text: content } : content, options)
+  }
+
+  /** JSON-serializable snapshot of {@link blacklist} + {@link whitelist} for host persistence. */
+  exportAccessLists(): AccessListsSnapshot {
+    return { blacklist: this.blacklist.export(), whitelist: this.whitelist.export() }
+  }
+
+  /** Restore {@link exportAccessLists} output. Lists missing from `snapshot` are left untouched. */
+  loadAccessLists(snapshot: {
+    blacklist?: AccessListSnapshot | readonly string[]
+    whitelist?: Partial<WhitelistSnapshot> | readonly string[]
+  }): this {
+    if (snapshot.blacklist) this.blacklist.load(snapshot.blacklist)
+    if (snapshot.whitelist) this.whitelist.load(snapshot.whitelist)
+    return this
   }
 
   /* =========================================================================
@@ -655,6 +759,15 @@ export class Bot extends EventEmitter {
 
   private asMessage(ctx: DispatchContext): MessageContext { return ctx as unknown as MessageContext }
 
+  /**
+   * Upsert a chat record, one write at a time per chat. Stores merge with a non-atomic
+   * read-modify-write, so overlapping upserts (inbound, outbound ledger, handoff) could
+   * otherwise drop a field such as `handoff`.
+   */
+  private persistChat(chat: StoredChat): Promise<void> {
+    return this.chatWrites.run(chat.id, () => this.store.upsertChat(chat))
+  }
+
   private emitError(payload: { error: unknown; ctx?: MessageContext }): void {
     if (this.listenerCount('error') > 0) this.emit('error', payload)
     else this.logger.error({ err: payload.error }, 'unhandled bot error')
@@ -709,6 +822,12 @@ export class Bot extends EventEmitter {
     inbound: InboundMessage,
     interaction?: { id: string; data: string; respondBy?: number },
   ): Promise<void> {
+    // Access gate (blacklist/whitelist): dropped before persistence, hooks and routing.
+    const access = checkAccess(this.blacklist, this.whitelist, inbound)
+    if (access !== 'allowed') {
+      this.logger.debug({ gate: access, chatId: inbound.chatId, senderId: inbound.senderId }, 'inbound dropped by access list')
+      return
+    }
     const timestamp = normalizeTimestamp(inbound.timestamp)
     const stored: StoredMessage = {
       ref: inbound.ref,
@@ -725,7 +844,7 @@ export class Bot extends EventEmitter {
       raw: this.config.persistRaw ? inbound.raw : undefined,
     }
     await Promise.all([
-      this.store.upsertChat({
+      this.persistChat({
         id: inbound.chatId,
         ...this.namespace,
         kind: inbound.chat.kind,
@@ -789,7 +908,7 @@ export class Bot extends EventEmitter {
       const existing = await this.store.getMessage(input.ref)
       const status = higherDeliveryStatus(existing?.status, input.status)
       await Promise.all([
-        this.store.upsertChat({
+        this.persistChat({
           id: input.chatId,
           ...this.namespace,
           lastMessageAt: timestamp,
@@ -849,6 +968,7 @@ export class Bot extends EventEmitter {
       acknowledgeInteraction: this.provider.acknowledgeInteraction
         ? (id, text) => this.provider.acknowledgeInteraction!(id, { text })
         : undefined,
+      handoff: (chatId, opts) => this.handoff(chatId, opts),
       interaction,
     })
 

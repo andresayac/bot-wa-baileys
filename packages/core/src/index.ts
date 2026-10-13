@@ -153,3 +153,25 @@ export { Scheduler } from './scheduler/Scheduler.js'
 
 // Testing helpers live under the "./testing" subpath export
 // (import from '@bot-wa/core/testing') — not re-exported here to keep the entry lean.
+
+// handoff-gates
+export { AccessList, Whitelist, checkAccess } from './gates/accessList.js'
+export type {
+  AccessDecision,
+  AccessListAction,
+  AccessListChange,
+  AccessListName,
+  AccessListSnapshot,
+  AccessListsSnapshot,
+  WhitelistSnapshot,
+} from './gates/accessList.js'
+export { validateHandoffConfig } from './gates/handoff.js'
+export type {
+  HandoffConfig,
+  HandoffEvent,
+  HandoffOptions,
+  HandoffState,
+  ResumeEvent,
+  ResumeOptions,
+  StoredHandoff,
+} from './gates/handoff.js'

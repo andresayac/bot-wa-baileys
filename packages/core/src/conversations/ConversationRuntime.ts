@@ -240,6 +240,27 @@ export class ConversationRuntime {
     return n
   }
 
+  /**
+   * Silently abort every active conversation in `chatId` — under `participant` scope that
+   * is every participant's conversation in a group — and drop the chat's dormant
+   * checkpoints (memory + store). Used by human handoff. Matching is by the runtime's own
+   * key grammar (`chatId` or `chatId:sender`); the ids themselves are never parsed.
+   * Returns the number of active conversations aborted.
+   */
+  abortChat(chatId: string): number {
+    const inChat = (key: string) => key === chatId || key.startsWith(`${chatId}:`)
+    let n = 0
+    for (const key of [...this.active.keys()]) {
+      if (inChat(key) && this.abort(key)) n++
+    }
+    for (const key of [...this.dormant.keys()]) {
+      if (!inChat(key)) continue
+      this.dormant.delete(key)
+      void this.store?.clearCheckpoint(key).catch(() => {})
+    }
+    return n
+  }
+
   /** Usado por controls. */
   wait(handle: ConversationHandle, opts: ResolvedWaitOptions = {}): Promise<RuntimeMessage> {
     const entry = handle as ActiveConversation

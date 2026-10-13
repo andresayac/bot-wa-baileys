@@ -118,6 +118,9 @@ export function buildMessageContext(deps: BuildContextDeps): IMessageContext {
     async recording() { await deps.typing?.(from, 'recording') },
     async delete() { await deps.deleteMessage?.(inbound.ref) },
 
+    /* Human handoff — resolves false when built without a bot (no `deps.handoff`) */
+    async handoff(opts) { return deps.handoff ? deps.handoff(from, opts) : false },
+
     /* Dispatch control — `_passed`/`_aborted` are the Dispatcher's flags -- */
     pass() { (ctx as unknown as { _passed?: boolean })._passed = true },
     abort() { (ctx as unknown as { _aborted?: boolean })._aborted = true },
