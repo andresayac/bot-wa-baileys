@@ -281,6 +281,21 @@ export interface NodeMeta {
   conversation?: string
   /** Previous sibling step in the same step sequence. */
   prev?: string
+  /**
+   * The node runs user code that receives the conversation controls `c` (a `.do()` or `then` action,
+   * a dynamic say/ask text, an async conversation), so it may `c.goto()` any flow.
+   */
+  opaque?: true
+}
+
+/** Whether a step runs a user function that receives `c` (`.media()` compiles to a `do` step, but runs no user code). */
+function runsUserCode(step: CompiledStep): boolean {
+  switch (step.kind) {
+    case 'do': return !step.media
+    case 'say':
+    case 'ask': return typeof step.text === 'function'
+    default: return false
+  }
 }
 
 type LayoutItem = { node: string } | { group: string; items: LayoutItem[] }
@@ -461,7 +476,7 @@ export function buildFlowGraph(inventory: FlowInventory, maxLabelLength = 60): B
           () => [`then: ${action ? `${action}()` : '(action)'}`],
           scope.items,
         )
-        meta.set(optionId, { conversation: scope.conversation })
+        meta.set(optionId, { conversation: scope.conversation, opaque: true })
         connect([enter], optionId)
         out.push({ from: optionId, kind: 'next' })
       } else {
@@ -478,7 +493,7 @@ export function buildFlowGraph(inventory: FlowInventory, maxLabelLength = 60): B
       const id = `${idPrefix}_s${i}`
       const path = `${pathPrefix}steps[${i}]`
       stepNode(step, flow, id, path, scope)
-      meta.set(id, { step, owner: flow, conversation: scope.conversation, prev })
+      meta.set(id, { step, owner: flow, conversation: scope.conversation, prev, ...(runsUserCode(step) && { opaque: true as const }) })
       connect(tails, id)
       tails = exitsOf(step, id, path, scope)
       prev = id
@@ -493,7 +508,7 @@ export function buildFlowGraph(inventory: FlowInventory, maxLabelLength = 60): B
     if (!flow) {
       graph.flows.push({ id: fid, name: conversation.name, kind: 'conversation', entry: fid, triggers, persistent: false })
       addNode({ id: fid, kind: 'conversation', flow: fid }, (s) => [`conversation: ${s(conversation.name)}`, ...triggerLines(triggers, s)])
-      meta.set(fid, { conversation: conversation.name })
+      meta.set(fid, { conversation: conversation.name, opaque: true })
       return
     }
     const entry = `${fid}_in`

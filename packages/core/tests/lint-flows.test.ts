@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { Bot } from '../src/core/Bot.js'
 import { MockProvider } from '../src/testing/MockProvider.js'
+import { createTestBot } from '../src/testing/createTestBot.js'
 import { MemoryStore } from '../src/store/MemoryStore.js'
 import { flow, type CompiledFlow, type CompiledStep } from '../src/flows/FlowBuilder.js'
 import { lintFlows, type LintCode, type LintDiagnostic } from '../src/flows/lint.js'
@@ -244,6 +245,70 @@ describe('lintFlows — reachability', () => {
     const d = lint(bot)
     expect(only(d, 'unreachable-flow').map((x) => x.flow)).toEqual(['c', 'd'])
     expect(only(d, 'unreachable-step').map((x) => x.nodeId)).toEqual(['f0_s1'])
+  })
+
+  it('does not warn about [] flows a .do() action may enter with c.goto() (and they really are entered)', async () => {
+    const { bot, chat } = await createTestBot()
+    bot.use(flow('menu').timeout('1m').ask('a o b?', 'pick').do((_ctx, c) => { c.goto(c.state.pick === 'a' ? 'ventas' : 'soporte') }))
+    bot.use(flow([]).id('ventas').say('bienvenido a ventas'))
+    bot.use(flow([]).id('soporte').say('bienvenido a soporte'))
+
+    expect(bot.lint({ minSeverity: 'warning' })).toEqual([])
+    const d = bot.lint()
+    expect(d.map((x) => [x.code, x.severity, x.flow])).toEqual([
+      ['unreachable-flow', 'info', 'ventas'],
+      ['unreachable-flow', 'info', 'soporte'],
+      ['empty-trigger', 'info', 'ventas'],
+      ['empty-trigger', 'info', 'soporte'],
+    ])
+    for (const x of d) {
+      expect(x.message).toContain('c.goto(')
+      expect(x.message).not.toMatch(/can never start/)
+    }
+
+    await chat.send('menu')
+    await chat.expectReply('a o b?')
+    await chat.send('a')
+    await chat.expectReply('bienvenido a ventas')
+    await bot.stop()
+  })
+
+  it('does not warn about flows an async conversation may enter with c.goto()', () => {
+    const bot = mkBot()
+    bot.conversation('menu', async (c) => { c.goto('ventas') })
+    bot.use(flow([]).id('ventas').say('x'))
+    bot.conversation('legacy', async () => {}, { trigger: [] })
+    expect(bot.lint({ minSeverity: 'warning' })).toEqual([])
+    expect(only(bot.lint(), 'unreachable-flow').map((x) => [x.flow, x.severity])).toEqual([['ventas', 'info'], ['legacy', 'info']])
+  })
+
+  it('counts choose then actions and dynamic texts as code that may call c.goto()', () => {
+    const viaThen = mkBot()
+    viaThen.use(flow('menu').choose('p', { x: { label: 'X', then: (_ctx, c) => { c.goto('target') } } }))
+    viaThen.use(flow([]).id('target').say('x'))
+    expect(viaThen.lint({ minSeverity: 'warning' })).toEqual([])
+
+    const viaText = mkBot()
+    viaText.use(flow('menu').say((_ctx, c) => c.goto('target')))
+    viaText.use(flow([]).id('target').say('x'))
+    expect(viaText.lint({ minSeverity: 'warning' })).toEqual([])
+  })
+
+  it('still warns when the only code that could call c.goto() can never run', () => {
+    const bot = mkBot()
+    // .media() is not user code; the .do() sits after an unconditional goto; 'island' itself is unreachable.
+    bot.use(flow('start').media('https://example.com/a.png').goto('next').do((_ctx, c) => { c.goto('orphan') }))
+    bot.use(flow('next').say('x'))
+    bot.use(flow([]).id('orphan').say('x'))
+    bot.use(flow([]).id('island').do((_ctx, c) => { c.goto('orphan') }))
+    bot.conversation('gone', async (c) => { c.goto('orphan') })()
+    const d = lint(bot)
+    expect(only(d, 'unreachable-flow').map((x) => [x.flow, x.severity])).toEqual([
+      ['orphan', 'warning'],
+      ['island', 'warning'],
+      ['gone', 'warning'],
+    ])
+    expect(only(d, 'empty-trigger').map((x) => [x.flow, x.severity])).toEqual([['orphan', 'warning'], ['island', 'warning']])
   })
 })
 

@@ -31,8 +31,8 @@ export type LintSeverity = 'error' | 'warning' | 'info'
  * | `invalid-timeout` | error | a step `timeout` the runtime cannot parse (`'2 minutos'`) |
  * | `empty-choice` | error | `choose()` without options — every answer is rejected |
  * | `unreachable-step` | warning | steps after an unconditional `goto` (or an end step) |
- * | `unreachable-flow` | warning | no trigger can start it and no reachable flow jumps to it |
- * | `empty-trigger` | warning / info | `[]` never matches; `''` matches empty-body messages (or everything) |
+ * | `unreachable-flow` | warning / info | no trigger can start it and no reachable flow jumps to it (info when reachable code could still `c.goto()` it) |
+ * | `empty-trigger` | warning / info | `[]` never matches (info for a flow entered only by `goto()`/`c.goto()`); `''` matches empty-body messages (or everything) |
  * | `duplicate-trigger` | warning | a route never fires: an earlier route in dispatch order owns the same pattern |
  * | `flow-id-collision` | warning | two different flows/conversations share one id; only the last one runs |
  * | `persistent-memory-store` | warning | `.persistent()` with only the RAM store: checkpoints die on restart |
@@ -89,10 +89,10 @@ const ANONYMOUS_ID = /^flow_\d+_\d+$/
  * Statically check a bot's flows (or a plain list of flows) and return
  * structured diagnostics, most severe first (stable within a severity).
  *
- * Opaque code is never guessed at: async conversations, `.do()` actions and
- * predicate triggers are treated as "could do anything", so the linter only
- * reports what is certain from the declared structure. See {@link LintCode}
- * for every check.
+ * Opaque code is never guessed at: async conversations, `.do()`/`then` actions,
+ * dynamic texts and predicate triggers are treated as "could do anything" —
+ * including `c.goto()` to any flow — so the linter only warns about what is
+ * certain from the declared structure. See {@link LintCode} for every check.
  */
 export function lintFlows(source: FlowSource, options: LintOptions = {}): LintDiagnostic[] {
   const built = buildFlowGraph(resolveFlowInventory(source))
@@ -116,7 +116,8 @@ export function lintFlows(source: FlowSource, options: LintOptions = {}): LintDi
     incoming.set(edge.to, (incoming.get(edge.to) ?? 0) + 1)
   }
 
-  // Intra-flow reachability: every node reachable from its flow's entry without leaving the flow.
+  // Intra-flow reachability: every node reachable from its flow's entry without leaving the flow
+  // (an async conversation is a single node: its entry).
   const reachedNodes = new Set<string>()
   const visit = (start: string, into: Set<string>, allow: (id: string) => boolean = () => true): void => {
     const stack = [start]
@@ -127,7 +128,7 @@ export function lintFlows(source: FlowSource, options: LintOptions = {}): LintDi
       stack.push(...(successors.get(id) ?? []))
     }
   }
-  for (const flow of graph.flows) if (flow.kind === 'flow') visit(flow.entry, reachedNodes)
+  for (const flow of graph.flows) visit(flow.entry, reachedNodes)
 
   // Cross-flow reachability: start from conversations with a trigger that can match, follow live gotos.
   const triggerInfo = new Map<FlowRoute, TriggerInfo>(inventory.routes.map((r) => [r, describeTrigger(r.trigger)]))
@@ -145,6 +146,12 @@ export function lintFlows(source: FlowSource, options: LintOptions = {}): LintDi
       if (names.has(target) && !reached.has(target)) { reached.add(target); queue.push(target) }
     }
   }
+
+  // Opaque code (a .do() or then action, a dynamic say/ask text, an async conversation) receives `c` and may
+  // c.goto() ANY flow. Once such code can run, a flow nothing above reaches is only possibly dead, not certainly.
+  const reachedFlowIds = new Set(graph.flows.filter((f) => reached.has(f.name)).map((f) => f.id))
+  const codeMayGoto = graph.nodes.some((node) =>
+    meta.get(node.id)?.opaque === true && node.flow !== undefined && reachedFlowIds.has(node.flow) && reachedNodes.has(node.id))
 
   /* ---- conversation-level checks ---------------------------------------- */
   graph.flows.forEach((flow, i) => {
@@ -170,9 +177,14 @@ export function lintFlows(source: FlowSource, options: LintOptions = {}): LintDi
         ? 'it has no trigger'
         : `its trigger ${routes.map((r) => triggerInfo.get(r)!.label).join(' / ')} never matches`
       report({
-        code: 'unreachable-flow', severity: 'warning', flow: flow.name, nodeId: flow.entry,
-        message: `${what} "${flow.name}" can never start: ${reason}, and no reachable flow jumps to it with goto(). ` +
-          `It can only be entered from code via c.goto("${flow.name}").`,
+        code: 'unreachable-flow', severity: codeMayGoto ? 'info' : 'warning', flow: flow.name, nodeId: flow.entry,
+        message: codeMayGoto
+          ? `${what} "${flow.name}" is not started by any trigger (${reason}) and no reachable flow jumps to it with goto(). ` +
+            `It may still be entered with c.goto("${flow.name}") from code (a .do() or choose then action, a dynamic text or an ` +
+            'async conversation), which the linter cannot see into; if nothing calls it, it never runs.'
+          : `${what} "${flow.name}" can never start: ${reason}, no reachable flow jumps to it with goto(), and no reachable code ` +
+            `(.do() or then action, dynamic text, async conversation) could call c.goto("${flow.name}"). ` +
+            'Give it a trigger, or goto() it from a reachable flow.',
       })
     }
   })
@@ -252,11 +264,16 @@ export function lintFlows(source: FlowSource, options: LintOptions = {}): LintDi
       if (route.target === undefined) {
         report({ code: 'empty-trigger', severity: 'warning', ...base, message: 'A bot.when([]) handler never runs: an empty trigger list matches nothing.' })
       } else {
-        const goto = gotoOnly.has(route.target)
+        const viaGoto = gotoOnly.has(route.target)
+        const viaCode = !reached.has(route.target) && codeMayGoto
         report({
-          code: 'empty-trigger', severity: goto ? 'info' : 'warning', ...base,
+          code: 'empty-trigger', severity: viaGoto || viaCode ? 'info' : 'warning', ...base,
           message: `Trigger [] of ${who} never matches anything` +
-            (goto ? ' — the flow is only entered through goto(), which is fine if intended.' : '.'),
+            (viaGoto
+              ? ' — the flow is only entered through goto(), which is fine if intended.'
+              : viaCode
+                ? ` — no goto() reaches it either, so it can only be entered with c.goto("${route.target}") from code, which is fine if intended.`
+                : '.'),
         })
       }
       continue
