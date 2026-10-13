@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import type { InboundInteraction, InboundMessage } from '@bot-wa/core'
+import type { InboundEvent, InboundInteraction, IProvider } from '@bot-wa/core'
 import { ProviderError } from '@bot-wa/core'
 import { DiscordProvider } from '../src/DiscordProvider.js'
 import { fakeSocketFactory, wait } from './_fakeSocket.js'
@@ -69,8 +69,8 @@ describe('DiscordProvider — gateway ingress', () => {
   it('MESSAGE_CREATE → normalized InboundMessage; bot authors ignored', async () => {
     mockFetch()
     const p = provider({ selfId: 'BOT1' })
-    const events: Array<{ kind: string }> = []
-    p.onEvent((e) => { events.push(e as { kind: string }) })
+    const events: InboundEvent[] = []
+    p.onEvent((e) => { events.push(e) })
     await boot(p)
 
     socketsOf(p)[0].serverSend({
@@ -82,9 +82,9 @@ describe('DiscordProvider — gateway ingress', () => {
         mentions: [], attachments: [],
       },
     })
-    const messages = () => events.filter((e) => e.kind === 'message') as Array<{ message: InboundMessage }>
+    const messages = () => events.flatMap((e) => (e.kind === 'message' ? [e.message] : []))
     expect(messages()).toHaveLength(1)
-    const m = messages()[0].message
+    const m = messages()[0]
     expect(m.chatId).toBe('C1')
     expect(m.senderId).toBe('U1')
     expect(m.body).toBe('hola bot')
@@ -222,8 +222,10 @@ describe('DiscordProvider — REST outbound', () => {
 
   it('markRead is a no-op (Discord has no read receipts)', async () => {
     const calls = mockFetch()
-    const p = provider()
-    await p.markRead!([{ id: 'M1', chatId: 'C1' }])
+    // Call through the IProvider contract (the concrete no-op takes no args).
+    const p: IProvider = provider()
+    expect(p.markRead).toBeTypeOf('function')
+    await p.markRead?.([{ id: 'M1', chatId: 'C1' }])
     expect(calls).toHaveLength(0)
   })
 })

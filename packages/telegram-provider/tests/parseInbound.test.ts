@@ -120,8 +120,9 @@ describe('parseUpdate', () => {
         reply_to_message: { message_id: 9, date: 1, from: { id: 55, first_name: 'Luis' }, chat: privateChat, text: '¿vienes?' },
       },
     })
+    expect(ev?.kind).toBe('message')
     if (ev?.kind === 'message') {
-      expect(ev.message.quoted?.ref.id).toBe('9')
+      expect(ev.message.quoted?.ref?.id).toBe('9')
       expect(ev.message.quoted?.body).toBe('¿vienes?')
       expect(ev.message.quoted?.senderId).toBe('55')
     }
@@ -135,8 +136,9 @@ describe('parseUpdate', () => {
         reply_to: { message: { message_id: 8, date: 1, from: { id: 55 }, chat: privateChat, caption: 'foto' } },
       },
     })
+    expect(ev?.kind).toBe('message')
     if (ev?.kind === 'message') {
-      expect(ev.message.quoted?.ref.id).toBe('8')
+      expect(ev.message.quoted?.ref?.id).toBe('8')
       expect(ev.message.quoted?.body).toBe('foto')
     }
   })

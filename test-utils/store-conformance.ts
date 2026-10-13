@@ -14,6 +14,17 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import type { IStore, StoredMessage } from '@bot-wa/core'
 
+/** An IStore whose optional delivery-cursor methods are known to be present. */
+type CursorStore = IStore & Required<Pick<IStore, 'getCursor' | 'setCursor'>>
+
+/**
+ * The cursor methods are optional on `IStore`, but every store run through this
+ * suite must implement them (the cursor test asserts it before narrowing).
+ */
+function hasCursor(store: IStore): store is CursorStore {
+  return typeof store.getCursor === 'function' && typeof store.setCursor === 'function'
+}
+
 export interface ConformanceHarness {
   /** Build a fresh, started store and a teardown that releases it. */
   make(): Promise<{ store: IStore; teardown: () => Promise<void> }>
@@ -86,11 +97,11 @@ export function runStoreConformance(name: string, h: ConformanceHarness): void {
     })
 
     it('upsertContact shallow-merges over the existing record', async () => {
-      await store.upsertContact({ id: 'u@x', name: 'Alice', pushName: 'A' })
-      await store.upsertContact({ id: 'u@x', name: 'Alice B.' }) // omits pushName
+      await store.upsertContact({ id: 'u@x', name: 'Alice', username: 'alice' })
+      await store.upsertContact({ id: 'u@x', name: 'Alice B.' }) // omits username
       const c = await store.getContact('u@x')
       expect(c?.name).toBe('Alice B.')
-      expect(c?.pushName).toBe('A') // preserved
+      expect(c?.username).toBe('alice') // preserved
     })
 
     it('lists chats and contacts', async () => {
@@ -110,9 +121,12 @@ export function runStoreConformance(name: string, h: ConformanceHarness): void {
     })
 
     it('stores and reads a delivery cursor', async () => {
-      expect(await store.getCursor('k')).toBeUndefined()
-      await store.setCursor('k', '42')
-      expect(await store.getCursor('k')).toBe('42')
+      const s = store
+      expect(hasCursor(s), 'store must implement getCursor/setCursor').toBe(true)
+      if (!hasCursor(s)) return // unreachable: the assertion above already failed
+      expect(await s.getCursor('k')).toBeUndefined()
+      await s.setCursor('k', '42')
+      expect(await s.getCursor('k')).toBe('42')
     })
 
     it('manages flow checkpoints (set/get/list/clear)', async () => {

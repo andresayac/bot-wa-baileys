@@ -3,12 +3,28 @@ import { createTestBot } from '@bot-wa/core/testing'
 import { MockAIProvider } from '../src/MockAIProvider.js'
 import { LazyProvider } from '../src/providers/LazyProvider.js'
 import type { AIProvider } from '../src/types.js'
+import { AIClient } from '../src/AIClient.js'
 import { aiPlugin } from '../src/plugin.js'
+import type { AIPluginConfig } from '../src/plugin.js'
 
-async function botWithAI(cfg = {}, mock: AIProvider = new MockAIProvider({ reply: 'IA responde' })) {
+async function botWithAI(cfg: AIPluginConfig = {}, mock: AIProvider = new MockAIProvider({ reply: 'IA responde' })) {
   const { bot, chat } = await createTestBot()
-  const unplug = bot.plug(aiPlugin({ __provider: mock, persona: 'ACME', ...cfg } as any))
+  const unplug = bot.plug(aiPlugin({ __provider: mock, persona: 'ACME', ...cfg }))
   return { bot, chat, mock, unplug }
+}
+
+/**
+ * `bot.conversation` types its ctx as the transport-neutral `RuntimeMessage`
+ * (no `tools`), although at runtime it is the full MessageContext. Narrow it at
+ * runtime to the AIClient the plugin injected as `ctx.tools.ai`.
+ */
+function aiToolOf(ctx: object): AIClient {
+  const tools: unknown = 'tools' in ctx ? ctx.tools : undefined
+  expect(tools, 'ctx.tools').toBeTypeOf('object')
+  const ai: unknown = typeof tools === 'object' && tools !== null && 'ai' in tools ? tools.ai : undefined
+  expect(ai, 'ctx.tools.ai').toBeInstanceOf(AIClient)
+  if (!(ai instanceof AIClient)) throw new Error('ctx.tools.ai is not an AIClient')
+  return ai
 }
 
 describe('aiPlugin', () => {
@@ -28,7 +44,7 @@ describe('aiPlugin', () => {
   it('exposes ctx.tools.ai.ask inside a conversation', async () => {
     const { bot, chat } = await botWithAI({ autoReply: false })
     bot.conversation('q', async (c, ctx) => {
-      const a = await (ctx.tools as any).ai.ask('algo')
+      const a = await aiToolOf(ctx).ask('algo')
       await ctx.reply(`ai dijo: ${a}`)
     })
     await chat.send('q')
@@ -69,7 +85,7 @@ describe('aiPlugin', () => {
     await new Promise((r) => setTimeout(r, 30))
     expect(chat.replies().filter((r) => r.includes('IA responde'))).toHaveLength(0)
     bot.conversation('q', async (c, ctx) => {
-      const a = await (ctx.tools as any).ai.ask('algo')
+      const a = await aiToolOf(ctx).ask('algo')
       await ctx.reply(`ai dijo: ${a}`)
     })
     await chat.send('q')
