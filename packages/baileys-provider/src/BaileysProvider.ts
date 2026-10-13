@@ -11,7 +11,6 @@ import { EventEmitter } from 'events'
 import { Boom } from '@hapi/boom'
 import NodeCache from '@cacheable/node-cache'
 import makeWASocket, {
-  Browsers,
   type proto,
   type WAMessage,
   type WAMessageKey,
@@ -45,7 +44,9 @@ import {
 } from '@bot-wa/core'
 import { classifyDisconnect, backoffDelay, MAX_RECONNECT_ATTEMPTS } from './reconnect.js'
 import { putBounded } from './boundedMap.js'
+import { resolveBrowser, type BrowserConfig } from './browser.js'
 import { IdentityStore } from './identity.js'
+import { normalize } from './jid.js'
 import { toInbound } from './toInbound.js'
 import { toOutbound } from './toOutbound.js'
 import { RateLimiter, type RateLimitConfig } from './RateLimiter.js'
@@ -75,7 +76,15 @@ export interface QrConfig {
 export interface BaileysProviderConfig {
   session?: string
   sessionsDir?: string
-  browser?: 'macOS' | 'ubuntu' | 'windows' | 'appropriate' | [string, string, string]
+  /**
+   * Browser identity advertised in the WhatsApp Web handshake. Leave it unset
+   * (recommended): Baileys >= 7.0.0-rc14 then uses its own default,
+   * `Browsers.macOS('Chrome')`. A preset advertises Chrome on that OS. A custom
+   * `[os, browserName, osVersion]` tuple is passed through verbatim and logged
+   * as a warning: since late July 2026 WhatsApp closes non-standard clients
+   * with 428 "Connection Terminated" before the QR.
+   */
+  browser?: BrowserConfig
   markOnlineOnConnect?: boolean
   syncFullHistory?: boolean
   ignoreNewsletters?: boolean
@@ -153,6 +162,12 @@ export class BaileysProvider implements IProvider<WAMessage> {
     this.rateLimiter = new RateLimiter(config.rateLimit)
     // Validate eagerly, before any filesystem or network operation.
     resolveSessionDirectory(this.config.sessionsDir, this.config.session)
+    if (Array.isArray(config.browser)) {
+      this.logger.warn(
+        { browser: config.browser },
+        'custom browser tuple overrides the Baileys default (macOS Chrome) handshake; WhatsApp may close the connection with 428 before the QR',
+      )
+    }
   }
 
   get connection(): unknown | null { return this.sock }
@@ -190,9 +205,11 @@ export class BaileysProvider implements IProvider<WAMessage> {
     this.isShuttingDown = false
     const sessionDir = assertSessionDirectorySafe(this.config.sessionsDir, this.config.session)
     this.authState = await useMultiFileAuthState(sessionDir)
+    // Never throws: on a network/parse failure Baileys falls back to the WA Web
+    // version bundled with the installed release (isLatest: false, error set).
     const versionInfo = await fetchLatestBaileysVersion()
     this.version = versionInfo.version
-    this.logger.debug({ version: this.version, latest: versionInfo.isLatest }, 'baileys version')
+    this.logger.debug({ version: this.version, latest: versionInfo.isLatest, err: versionInfo.error }, 'baileys version')
     await this.buildSocket()
   }
 
@@ -267,12 +284,19 @@ export class BaileysProvider implements IProvider<WAMessage> {
     return (await this.getPNForLID(jid)) ?? jid
   }
 
+  /**
+   * Resolve a LID to its phone-number JID, or `undefined` when no mapping is
+   * known (e.g. a username-only contact). The mapping store answers with a
+   * device-qualified JID (`<user>:<device>@s.whatsapp.net`); it is normalised to
+   * the user JID so the cache, the identity store and outbound sends agree.
+   */
   async getPNForLID(lid: string): Promise<string | undefined> {
     const cached = this.lidCache.get(lid)
     if (cached) return cached
-    const pn = await this.sock?.signalRepository.lidMapping.getPNForLID(lid).catch(() => null)
+    const raw = await this.sock?.signalRepository.lidMapping.getPNForLID(lid).catch(() => null)
+    const pn = raw ? normalize(raw) : undefined
     if (pn) { this.cacheLid(lid, pn); this.identity.observe(lid, pn) }
-    return pn ?? undefined
+    return pn
   }
 
   private cacheLid(a: string, b: string): void { putBounded(this.lidCache, a, b, LID_CACHE_MAX) }
@@ -301,19 +325,16 @@ export class BaileysProvider implements IProvider<WAMessage> {
 
   private async buildSocket(): Promise<void> {
     if (!this.authState) throw new Error('auth state missing — call start() first')
-    const browser: [string, string, string] =
-      this.config.browser === undefined || this.config.browser === 'macOS' ? Browsers.macOS('Desktop')
-        : this.config.browser === 'ubuntu' ? Browsers.ubuntu('Bot')
-          : this.config.browser === 'windows' ? Browsers.windows('Bot')
-            : this.config.browser === 'appropriate' ? Browsers.appropriate('Bot')
-              : (this.config.browser as [string, string, string])
+    // Omit the key entirely when unset: makeWASocket spreads our config over its
+    // defaults, so `browser: undefined` would erase rc14's default identity.
+    const browser = resolveBrowser(this.config.browser)
 
     const make = (makeWASocket as unknown as { default?: typeof makeWASocket }).default ?? makeWASocket
     this.sock = make({
       version: this.version,
       logger: this.logger,
       auth: { creds: this.authState.state.creds, keys: makeCacheableSignalKeyStore(this.authState.state.keys, this.logger) },
-      browser,
+      ...(browser ? { browser } : {}),
       msgRetryCounterCache: this.msgRetryCounterCache as unknown as undefined,
       generateHighQualityLinkPreview: true,
       markOnlineOnConnect: this.config.markOnlineOnConnect ?? false,
@@ -430,7 +451,7 @@ export class BaileysProvider implements IProvider<WAMessage> {
         try {
           const code = await this.sock.requestPairingCode(this.config.pairingCode.replace(/\D/g, ''))
           this.fan({ kind: 'connection', update: { state: 'authenticating', authPayload: code } })
-        } catch (error) { this.logger.warn({ error }, 'pairing code request failed — falling back to QR') }
+        } catch (error) { this.logger.warn({ err: error }, 'pairing code request failed — falling back to QR') }
       }
     }
 
@@ -451,7 +472,7 @@ export class BaileysProvider implements IProvider<WAMessage> {
       const action = classifyDisconnect(statusCode)
 
       if (action === 'wipe') {
-        this.logger.warn({ statusCode }, 'session invalid — wiping')
+        this.logger.warn({ statusCode, detail: message }, 'session invalid — wiping')
         try {
           removeSessionDirectory(this.config.sessionsDir, this.config.session)
         } catch (error) {
@@ -464,17 +485,17 @@ export class BaileysProvider implements IProvider<WAMessage> {
         return
       }
       if (action === 'stop') {
-        this.logger.warn({ statusCode }, 'not reconnecting: session taken over (conflict) or forbidden.')
+        this.logger.warn({ statusCode, detail: message }, 'not reconnecting: session taken over (conflict) or forbidden.')
         return
       }
       if (action === 'reconnect-now') { this.scheduleReconnect(0); return }
       if (this.reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
-        this.logger.error({ statusCode, attempts: this.reconnectAttempts }, `giving up after ${MAX_RECONNECT_ATTEMPTS} reconnect attempts`)
+        this.logger.error({ statusCode, detail: message, attempts: this.reconnectAttempts }, `giving up after ${MAX_RECONNECT_ATTEMPTS} reconnect attempts`)
         return
       }
       const delay = backoffDelay(this.reconnectAttempts)
       this.reconnectAttempts++
-      this.logger.warn({ statusCode, attempt: this.reconnectAttempts, delayMs: delay }, 'connection closed — reconnecting with backoff')
+      this.logger.warn({ statusCode, detail: message, attempt: this.reconnectAttempts, delayMs: delay }, 'connection closed — reconnecting with backoff')
       this.scheduleReconnect(delay)
     }
   }
@@ -501,7 +522,7 @@ export class BaileysProvider implements IProvider<WAMessage> {
     if (this.isShuttingDown) return
     if (this.reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
       this.logger.error(
-        { error, attempts: this.reconnectAttempts },
+        { err: error, attempts: this.reconnectAttempts },
         `giving up: start() failed ${MAX_RECONNECT_ATTEMPTS} times during reconnect`,
       )
       this.fan({ kind: 'connection', update: { state: 'closed', reason: 'transient', detail: { message: 'reconnect exhausted' } } })
@@ -509,7 +530,7 @@ export class BaileysProvider implements IProvider<WAMessage> {
     }
     const delay = backoffDelay(this.reconnectAttempts)
     this.reconnectAttempts++
-    this.logger.warn({ error, attempt: this.reconnectAttempts, delayMs: delay }, 'reconnect start() failed — retrying with backoff')
+    this.logger.warn({ err: error, attempt: this.reconnectAttempts, delayMs: delay }, 'reconnect start() failed — retrying with backoff')
     this.scheduleReconnect(delay)
   }
 

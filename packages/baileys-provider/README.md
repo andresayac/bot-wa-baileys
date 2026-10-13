@@ -1,0 +1,215 @@
+# @bot-wa/baileys
+
+Transporte **WhatsApp vía [Baileys 7](https://github.com/WhiskeySockets/Baileys)** ([`IProvider` v2](../core/src/core/provider.ts)) para [`@bot-wa/core`](../core). Vincula el bot como un dispositivo de WhatsApp Web (QR o código de emparejamiento) y abre un WebSocket propio: no hace falta servidor público ni webhook.
+
+> **Cliente no oficial.** Baileys implementa el protocolo de WhatsApp Web por ingeniería inversa; ni WhatsApp ni Meta lo respaldan. Automatizar una cuenta puede infringir los [Términos de servicio de WhatsApp](https://www.whatsapp.com/legal/terms-of-service) y acabar en **bloqueo del número**. Usa un número dedicado, escribe solo a quien te lo pidió (opt-in), no hagas envíos masivos y deja el rate limiter activado. Si necesitas una vía oficial y sin riesgo de baneo, usa [`@bot-wa/meta`](../meta-provider) (WhatsApp Cloud API).
+
+- **Ingress:** socket propio con reconexión y backoff; los eventos de Baileys se traducen a `InboundEvent` neutros.
+- **Outbound:** texto, imagen, video, audio, nota de voz (transcodifica a Opus), documento, sticker (conversión con `sharp`), ubicación, contacto, **encuestas nativas** y reacciones. Botones, listas y tarjetas se degradan a texto numerado.
+- **Acciones:** confirmaciones de lectura, typing/recording, borrar mensajes y descarga de media entrante.
+- **Identidad estable:** el provider resuelve la dualidad LID/PN de WhatsApp antes de emitir cada evento, así que el core siempre ve el mismo `senderId` para la misma persona.
+
+## Requisitos
+
+- **Node ≥ 22** (ESM-only).
+- **`@whiskeysockets/baileys` 7.0.0-rc14 o superior.** Desde finales de julio de 2026, WhatsApp cierra con `428 Connection Terminated` las conexiones de clientes con el handshake anterior, antes incluso de mostrar el QR. La rc14 trae el handshake actualizado (entre otras cosas, la versión de WhatsApp Web incluida en el paquete). Si tu lockfile resuelve una rc anterior, actualízala.
+- Salida de red hacia `wss://web.whatsapp.com` y, al arrancar, hacia `raw.githubusercontent.com`: el provider consulta la versión de WhatsApp Web más reciente publicada por Baileys. Si no hay acceso, usa la versión incluida en la release instalada, que por eso tiene que ser ≥ rc14.
+
+## Instalación
+
+En el monorepo el paquete ya está disponible como workspace. Desde una app:
+
+```bash
+pnpm add @bot-wa/core @bot-wa/baileys
+```
+
+`ffmpeg` viene incluido (`@ffmpeg-installer/ffmpeg`) para las notas de voz, y `sharp` para los stickers.
+
+## Quickstart
+
+```ts
+import { Bot } from '@bot-wa/core'
+import { BaileysProvider } from '@bot-wa/baileys'
+
+const bot = new Bot({ provider: new BaileysProvider({ session: 'mi-bot' }) })
+
+bot.on('ready', () => console.log('✅ Conectado'))
+bot.when('hola', (ctx) => ctx.reply('👋 ¡Hola!'))
+
+await bot.start()   // la primera vez imprime el QR en la terminal: escanéalo desde WhatsApp → Dispositivos vinculados
+```
+
+La sesión queda guardada en `./sessions/mi-bot`; los siguientes arranques reconectan sin QR. Hay un ejemplo completo (comandos, flows, media, hooks, DI y scheduler) en [`examples/bot.ts`](examples/bot.ts) (`pnpm --filter @bot-wa/baileys example`).
+
+## Configuración
+
+```ts
+interface BaileysProviderConfig {
+  session?: string            // id de la sesión, por defecto 'default'
+  sessionsDir?: string        // carpeta raíz de las sesiones, por defecto './sessions'
+  pairingCode?: string        // número en formato internacional: emparejar con código en vez de QR
+  qr?: QrConfig               // cómo mostrar el QR (por defecto: terminal, tamaño pequeño)
+  rateLimit?: RateLimitConfig // ritmo de envío anti-baneo (activado por defecto)
+  reconnect?: boolean         // por defecto true
+  browser?: BrowserConfig     // identidad del dispositivo; mejor no tocarla (ver abajo)
+  markOnlineOnConnect?: boolean // por defecto false: el teléfono sigue recibiendo notificaciones
+  syncFullHistory?: boolean     // por defecto false
+  ignoreBroadcasts?: boolean    // por defecto true (status@broadcast se ignora siempre)
+  ignoreNewsletters?: boolean   // por defecto true
+  debug?: boolean               // nivel 'debug' en el logger por defecto (si no, 'error')
+  logger?: Logger               // logger compatible con pino
+}
+```
+
+### Sesión
+
+Cada sesión vive en `<sessionsDir>/<session>` y contiene las credenciales del dispositivo vinculado. Para varios números, usa un `session` distinto por número. Las reglas de validación están en [Seguridad de la sesión](#seguridad-de-la-sesión).
+
+### QR o código de emparejamiento
+
+Por defecto el provider emite un QR. Si el servidor no tiene cámara ni terminal a mano, pide un **código de emparejamiento**:
+
+```ts
+const provider = new BaileysProvider({
+  session: 'mi-bot',
+  pairingCode: '+57 300 123 4567',   // solo cuentan los dígitos
+  qr: { terminal: false },
+})
+const bot = new Bot({ provider })
+bot.on('qr', (artifact) => {
+  // Por aquí llegan tanto los QR (cadenas largas) como el código de 8 caracteres.
+  if (artifact.length === 8) notificarAlOperador(artifact)
+})
+await bot.start()
+```
+
+En el teléfono: **Dispositivos vinculados → Vincular con el número de teléfono** e introduce el código. El código se pide una sola vez por arranque, con el primer QR. Si la petición falla, el provider lo registra en el log y sigue ofreciendo el QR. QR y código llegan también en el evento `connection`, como `authPayload`.
+
+### Renderizado del QR
+
+```ts
+interface QrConfig {
+  terminal?: boolean        // dibuja el QR en stdout
+  small?: boolean           // QR compacto (por defecto true)
+  file?: boolean | string   // PNG: true → '<session>.qr.png' en el CWD; un string fija la ruta
+  handler?: (qr: string) => void | Promise<void>  // tu propio render (web, Slack…)
+}
+```
+
+Sin `qr`, se dibuja en la terminal. Si pasas un objeto `qr`, solo se activa lo que indiques. Los errores al escribir el PNG se registran en el log, nunca se lanzan.
+
+> El QR y el código de emparejamiento dan acceso a la cuenta mientras están vigentes. No los registres en logs ni los envíes por canales sin cifrar, y borra el PNG cuando ya no lo necesites.
+
+### Identidad del navegador (`browser`)
+
+**Déjalo sin definir.** El provider entonces no envía la opción y Baileys usa su identidad por defecto (`Browsers.macOS('Chrome')`), que es la que valida el handshake de la rc14. Los presets `'macOS' | 'ubuntu' | 'windows' | 'appropriate'` anuncian **Chrome** en ese sistema operativo. Una tupla propia `[os, navegador, versión]` se pasa tal cual y deja un aviso en el log: con identidades no estándar (p. ej. `'Desktop'` o un nombre inventado), WhatsApp puede cerrar la conexión con `428` antes del QR.
+
+### Rate limiter (anti-baneo)
+
+Todo `send()` pasa por un token bucket antes de llegar al socket. Los envíos que superan el límite **se encolan, no se descartan**, y un chat bloqueado no frena a los demás.
+
+```ts
+new BaileysProvider({
+  session: 'mi-bot',
+  rateLimit: {
+    perChat: { max: 5, window: '10s' },   // por defecto
+    global: { max: 50, window: '60s' },   // por defecto
+    jitter: { min: 500, max: 1500 },      // pausa "humana" entre envíos (desactivada por defecto)
+    maxWait: '30s',                       // pasado este tiempo en cola, el envío falla con RateLimiterTimeout
+    // enabled: false                     // desactivarlo del todo (no recomendado)
+  },
+})
+```
+
+Más detalle en la guía [Rate limiting](../../docs/es/guide/rate-limiting.md).
+
+### Reconexión y backoff
+
+Cuando el socket se cierra, el provider emite `connection` con `state: 'closed'` y decide según el código de Baileys:
+
+| Código | Significado | Qué hace el provider | `reason` |
+| --- | --- | --- | --- |
+| 401 `loggedOut`, 500 `badSession`, 411 `multideviceMismatch` | La sesión ya no vale | Borra **solo** la carpeta de esa sesión y arranca de nuevo (QR nuevo) | `sessionInvalid` |
+| 440 `connectionReplaced`, 403 `forbidden` | Otra instancia usa la sesión, o prohibido | **No reconecta** (pelear con la otra instancia arriesga el número) | `sessionTakenOver` |
+| 515 `restartRequired` | Reinicio normal tras emparejar | Reconecta al instante | `transient` |
+| El resto (428, 408, 503…) | Corte transitorio | Backoff exponencial: 1 s, 2 s, 4 s… hasta 30 s, máximo 10 intentos | `transient` |
+
+Si `start()` falla durante una reconexión (por ejemplo, sin red), se reintenta con el mismo backoff y el mismo tope. Al agotarlo, emite un `closed` final con `detail.message: 'reconnect exhausted'`. Con `reconnect: false` no se reintenta nunca. El contador vuelve a cero cada vez que la conexión abre.
+
+## Identidad: LID y PN
+
+WhatsApp identifica a cada usuario de dos formas: el número de teléfono (**PN**, `573001234567@s.whatsapp.net`) y un identificador opaco (**LID**, `…@lid`). Un mismo contacto puede llegar como PN, como LID con el PN al lado (`remoteJidAlt`/`participantAlt`) o como LID a secas, y la forma puede cambiar de un mensaje a otro. Si el bot usara el `remoteJid` crudo, una misma persona quedaría partida en dos claves y los flows se romperían (el `ask` nunca recibe la respuesta).
+
+El provider lo resuelve con un `IdentityStore` **antes** de emitir cada evento:
+
+- Aprende el par LID↔PN cuando lo ve: en la clave del mensaje, en los eventos `lid-mapping.update` y consultando el almacén de mapeos de Baileys (que se guarda en la carpeta de la sesión y sobrevive a reinicios).
+- Canonicaliza: si conoce el PN de un LID, `chatId` y `senderId` usan el **PN**. Si no, usan el **LID**. Siempre normalizados, sin sufijo de dispositivo (`:12`).
+- En grupos, `chatId` es el grupo (`…@g.us`) y `senderId` el participante canonicalizado.
+- `ctx.senderInfo.platformData` lleva `{ phoneNumber?, lid? }`: el PN si se conoce y el LID crudo tal como llegó.
+- Al enviar a un LID, el provider usa el PN si lo conoce y, si no, envía directamente al LID.
+
+Para casos avanzados se exportan `IdentityStore`, `provider.getPNForLID(lid)` y los helpers de JID (`isPn`, `isLid`, `normalizeJid`, `sameUser`…).
+
+### Contactos con nombre de usuario (2026)
+
+Con los nombres de usuario de WhatsApp, algunos contactos **nunca** exponen su número: llegan siempre como `@lid`, sin PN al lado ni mapeo conocido. Para ellos la identidad es **estable sobre el LID**: todos sus mensajes producen el mismo `chatId`/`senderId`, `platformData.phoneNumber` queda `undefined` y los envíos van al LID. No des por hecho que `senderId` es un teléfono: compruébalo con `isPn()` antes de usarlo como tal.
+
+**Comportamiento residual:** si el mapeo LID→PN se aprende **más tarde** (llega un mensaje con el PN al lado o un `lid-mapping.update`), desde ese momento la persona pasa a identificarse por su PN. Una conversación que empezó bajo el LID sigue esperando en la clave del LID y no verá los mensajes siguientes, que llegan con el PN. En la práctica:
+
+- Pon `.timeout()` en los flows (o `timeout` en `c.ask`/`c.waitText`) para que una conversación huérfana se cierre sola. El usuario la reinicia con el disparador o con un comando como `/reset`.
+- Si guardas datos por persona (CRM, preferencias), guarda también `platformData.phoneNumber` y `platformData.lid` para poder reconciliar los dos registros.
+
+## Seguridad de la sesión
+
+La carpeta de la sesión (`creds.json` y las claves Signal) **es** la cuenta: quien la copie puede leer y enviar mensajes como tu número.
+
+- **Contención de rutas.** `session` es un id opaco: de 1 a 128 caracteres entre letras, dígitos, `.`, `_` y `-`, empezando por letra o dígito. No admite separadores ni `..`. Se valida en el constructor, antes de tocar el disco. `sessionsDir` no puede ser la raíz del sistema de archivos. Antes de leer, escribir o borrar, el provider rechaza una carpeta de sesión que sea un enlace simbólico y comprueba con la ruta real que sigue dentro de `sessionsDir`.
+- **`stop()` vs `logoutAndDeleteSession()`.** `stop()` cierra el socket y **conserva** la sesión: el siguiente `start()` reconecta sin QR. `logoutAndDeleteSession()` desvincula el dispositivo en WhatsApp y borra **solo** la carpeta de esa sesión, así que el siguiente arranque pide un QR nuevo. Úsalo solo cuando quieras desvincular de verdad.
+- **Borrado automático.** Con 401/500/411 (sesión inválida) el provider borra la carpeta de la sesión por su cuenta para poder emparejar de nuevo.
+- Añade `sessions/` a `.gitignore`, restringe los permisos de la carpeta (p. ej. `chmod 700`) y no ejecutes dos instancias con la misma sesión: WhatsApp cerraría una con `440 conflict`.
+- El provider no registra QR, códigos ni cuerpos de mensaje. Con `debug: true` el log de Baileys es muy verboso; no lo dejes activado en producción.
+
+## Capacidades
+
+| Capability | Valor | Notas |
+| --- | --- | --- |
+| `buttons` | ❌ | se degradan a texto numerado |
+| `lists` | ❌ | se degradan a texto numerado |
+| `polls` | ✅ | envío de encuestas nativas; los votos todavía no se leen (ver [Limitaciones](#limitaciones)) |
+| `reactions` | ✅ | enviar y recibir |
+| `edit` | ❌ | |
+| `typing` | ✅ | `composing` / `recording` / `paused` |
+| `presence` | ✅ | eventos `presence` |
+| `readReceipts` | ✅ | `markRead` |
+| `groups` | ✅ | mensajes de grupo y eventos de participantes |
+| `templates` | ❌ | requieren la Cloud API (`@bot-wa/meta`) |
+| `interactionsRequireAck` | ❌ | |
+| `pushIngress` | ❌ | el provider mantiene su propio socket |
+
+## Mapeo de errores
+
+Los fallos de `sock.sendMessage` se convierten en errores tipados de `@bot-wa/core`:
+
+| Error de Baileys | Se convierte en |
+| --- | --- |
+| 429 | `RateLimitedError` (`retryAfterMs` sale de `retry-after`, por defecto 1 s) |
+| 413 o *too large* | `PayloadTooLargeError` |
+| 401 / 403, *forbidden*, *not-authorized*, *blocked* | `RecipientUnreachableError` |
+| `kind: 'template'` o `'native'` | `UnsupportedContentError` |
+| sin socket conectado | `ProviderError('Provider not connected')` |
+| cualquier otro | `ProviderError`, con el error original en `cause` |
+
+Si un envío espera en la cola del rate limiter más de `maxWait`, falla con `RateLimiterTimeout`.
+
+## Limitaciones
+
+- **Sin botones ni listas nativos.** WhatsApp Web dejó de soportarlos para clientes no oficiales. Usa menús numerados con `choose()` (en el DSL `flow().choose(...)` o en conversaciones `c.choose(...)`) o una encuesta nativa con `ctx.poll(pregunta, opciones)`. `ctx.buttons(...)` y el contenido `list` siguen funcionando, pero llegan como texto numerado.
+- **Los votos de las encuestas todavía no se leen.** Baileys 7 ya no descifra los votos, así que el evento `bot.on('poll', ...)` no se dispara con este transporte. Cada voto llega como un mensaje de tipo `poll` (`bot.onPoll`) sin el contenido del voto. Si el bot necesita la respuesta, usa `choose()`. `ctx.poll()` sirve para encuestas que lee una persona.
+- Sin plantillas ni ventana de 24 h: eso es de la Cloud API.
+- No se pueden editar mensajes enviados (`edit: false`).
+
+## Notas
+
+- ESM only (`"type": "module"`); los imports relativos llevan extensión `.js`.
+- Los errores se registran bajo la clave `err` de pino, así que el log muestra mensaje y stack. Si inyectas tu propio `logger`, mantén el serializer de errores de pino.
+- `provider.socket` expone el socket de Baileys para operaciones que el `IProvider` no cubre (grupos, perfil…). Úsalo con cuidado: lo que hagas ahí se salta el rate limiter y el mapeo de errores.

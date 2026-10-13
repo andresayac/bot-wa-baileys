@@ -13,6 +13,7 @@
 
 export { BaileysProvider } from './BaileysProvider.js'
 export type { BaileysProviderConfig, QrConfig } from './BaileysProvider.js'
+export type { BrowserConfig, BrowserPreset } from './browser.js'
 
 // Identity + JID helpers (WhatsApp-specific; advanced users)
 export { IdentityStore } from './identity.js'
