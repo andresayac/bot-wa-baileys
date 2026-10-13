@@ -1,11 +1,14 @@
 # @bot-wa/redis-store
 
+> [!WARNING]
+> **Experimental — aún no publicado en npm.** Forma parte de la primera alpha, pero todavía no hay nada en npm: hasta entonces úsalo desde este monorepo (`workspace:*`); el `pnpm add` de abajo funcionará cuando se publique. La API puede cambiar sin aviso. Está probado contra un Redis real (ver [Tests de integración](#tests-de-integración)).
+
 Redis [`IStore`](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/core) implementation for **@bot-wa/core** — distributed, shared bot state backed by Redis (node-redis v4). Point any number of bot replicas at the same Redis instance and they share message logs, chats, contacts, flow checkpoints, AI conversation history and delivery cursors.
 
 - Per-chat message logs as Redis **sorted sets** (score = timestamp) → `getMessagesByChat(limit)` is an `O(log N + limit)` `ZRANGE`, not a scan.
 - Everything is JSON under one configurable **prefix**, so apps/bots can share a database.
 - Optional **TTL** for ephemeral session state (conversations, checkpoints).
-- Injectable client → fully hermetic tests (an in-memory fake ships with the test-suite; no real Redis needed).
+- Injectable client → fully hermetic unit tests (an in-memory fake ships with the test-suite; no real Redis needed), plus an opt-in suite against a real server.
 - Ships a small **distributed lock** helper (`acquireLock` / `releaseLock`) as the building block for multi-replica FIFO message processing.
 
 ## Install
@@ -44,10 +47,13 @@ Pass an already-created (usually already-connected) client — the store then ne
 import { createClient } from 'redis'
 
 const client = createClient({ url: process.env.REDIS_URL })
+client.on('error', (err) => logger.error({ err }, 'redis client error')) // required, see below
 await client.connect()
 
 const store = new RedisStore({ client })   // no url needed
 ```
+
+node-redis **re-throws an `'error'` event that has no listener**, so an injected client without one crashes the process on the first dropped connection. The store attaches that listener only to the client it creates itself.
 
 In tests, inject an in-memory fake instead (see `tests/fakeRedis.ts` in this package) so the suite runs with no network and no real Redis:
 
@@ -63,8 +69,9 @@ const store = new RedisStore({ client: fake })
 | `url`    | `string`          | `redis://localhost:6379`  | Redis connection URL. Ignored when `client` is provided. |
 | `prefix` | `string`          | `'botwa'`                 | Namespace prefix for every key. |
 | `client` | `RedisLikeClient` | —                         | Inject an existing client (required for tests). The store never connects/quits it. |
-| `ttl`    | `number`          | —                         | TTL in **seconds** for AI conversations and flow checkpoints. Messages, chats, contacts and cursors never expire — delete them explicitly. |
-| `logger` | `{ error? }`    | —                         | Receives lifecycle errors (e.g. quit failure). |
+| `ttl`    | `number`          | —                         | TTL in **seconds** for AI conversations and flow checkpoints (fractions allowed, applied with millisecond precision). Messages, chats, contacts and cursors never expire — delete them explicitly. A non-positive or non-finite value throws a `RangeError` from the constructor. |
+| `maxMessagesPerChat` | `number` | — (unbounded)       | Keep only the newest N messages per chat; `saveMessage` prunes older ZSET members **and** their item keys. Must be a non-negative integer (else `RangeError`). |
+| `logger` | `{ error? }`    | —                         | Receives the errors of a store-created client (connection drops, failed reconnects) and lifecycle errors (e.g. close failure). |
 
 ## Key scheme
 
@@ -96,12 +103,47 @@ try {
 }
 ```
 
-- `acquireLock(key, ttlMs = 30_000)` → opaque token on success, `null` when already held. The `PX` deadline guarantees a crashed holder never wedges the fleet.
+- `acquireLock(key, ttlMs = 30_000)` → opaque token on success, `null` when already held. The `PX` deadline guarantees a crashed holder never wedges the fleet. `ttlMs` must be a positive finite number (fractions are rounded up); anything else rejects with a `RangeError`.
 - `releaseLock(key, token)` → `true` only if the token still owns the lock. Release is an atomic Lua compare-and-delete, so a slow holder can never delete a newer owner's lock.
 
 ## Notes
 
 - Designed for **distributed state**: multiple bot replicas sharing one Redis get a consistent view of history, checkpoints and cursors.
-- Listing (`listChats` / `listContacts` / `listCheckpoints`) uses `KEYS {prefix}:…:*` — fine at bot scale; switch to `SCAN` if you expect a very large keyspace on a shared server.
+- Listing (`listChats` / `listContacts` / `listCheckpoints`) uses `KEYS {prefix}:…:*` — fine at bot scale; switch to `SCAN` if you expect a very large keyspace on a shared server. Glob metacharacters in the prefix (`*`, `?`, `[`, `]`, `\`) are escaped, so a prefix like `bot[1]` never lists another prefix's keys.
+- `getMessagesByChat(chatId, limit)` accepts any number, like `MemoryStore`: `0`, negative or `NaN` → `[]`, fractions round up, `Infinity` → the whole log.
+- `maxMessagesPerChat` pruning is safe with several replicas writing the same chat at once: each trim removes only what is beyond the newest N at that instant, so it can never cut into the newest N.
+- `upsertChat` / `upsertContact` shallow-merge with a read-modify-write. Concurrent upserts of the same record **within one process** are serialized, so none loses the other's fields; two **replicas** upserting the same record at the same instant can still overwrite each other's fields (last write wins).
 - Do not inject a client configured with `returnBuffers: true`; the store expects string replies.
-- `start()` connects only a self-created client (and is idempotent); `stop()` quits only a self-created client.
+- Lifecycle of a **self-created** client (an injected one is never connected, quit or listened to):
+  - `start()` is idempotent (concurrent calls share one connect) and rejects promptly with the socket error (e.g. `ECONNREFUSED`) if the server is unreachable; call it again to retry.
+  - Once connected, a dropped connection is logged through `logger.error` and retried with backoff (0–500 ms) instead of crashing the process.
+  - `stop()` is idempotent and never hangs: it sends `QUIT` (pending replies still arrive), disconnects immediately if the client is offline, and gives up waiting for the `QUIT` reply after 2 s.
+
+## Tests de integración
+
+Los tests unitarios (`tests/redis-store.test.ts`, `tests/conformance.test.ts`) usan un cliente falso en memoria (`tests/fakeRedis.ts`) que solo imita los comandos que envía el store, así que Redis nunca los ejecuta. `tests/integration.test.ts` sí lo hace, contra un servidor de verdad:
+
+- la suite compartida de conformidad de `IStore` (con cliente inyectado y con cliente propio del store);
+- ciclo de vida: `start()` idempotente (también en paralelo), persistencia tras `stop()`/`start()` con una instancia y una conexión nuevas, reinicio de la misma instancia, servidor inalcanzable al arrancar, conexión cortada (vía un proxy TCP local) sin tumbar el proceso, y `stop()` que no se cuelga;
+- log de mensajes: orden y `limit` de `getMessagesByChat` (inserción desordenada, límite por defecto, `Infinity`, fracciones, `0`, negativos), timestamps repetidos, `deleteMessage`, `deleteChat` purgando todas las claves, recorte con `maxMessagesPerChat` y `saveMessage` concurrentes desde una y varias conexiones (también recortando a la vez);
+- merge superficial de `upsertChat`/`upsertContact` (también concurrente), unicode/emoji en claves y valores, JSON de varios MB y prefijos con metacaracteres de glob;
+- `ttl` (comprobado con `PTTL`, también fraccionario) y el lock distribuido (exclusivo entre conexiones, `PX`, solo el dueño libera, expiración).
+
+Es opt-in: se activa con la variable de entorno `BOTWA_TEST_REDIS_URL` y, si no está definida, el archivo se salta entero, así que `pnpm test` sigue siendo hermético (sin red).
+
+```bash
+# 1. Un Redis desechable (puerto 56379 para no chocar con uno local)
+docker run -d --name botwa-it-redis -p 56379:6379 redis:7-alpine
+
+# 2. Ejecuta la suite contra él
+BOTWA_TEST_REDIS_URL=redis://127.0.0.1:56379 pnpm --filter @bot-wa/redis-store test
+
+# 3. Limpieza
+docker rm -f botwa-it-redis
+```
+
+En PowerShell: `$env:BOTWA_TEST_REDIS_URL = 'redis://127.0.0.1:56379'; pnpm --filter @bot-wa/redis-store test`.
+
+- **Aislamiento:** todas las claves de una ejecución viven bajo `botwa-it:<pid>-<uuid>:…`, con un prefijo distinto por store, y un `afterAll` borra lo que quede de esa ejecución. No se usa `FLUSHDB`: se puede apuntar a un Redis compartido sin pisar datos ni chocar con otra ejecución en paralelo. La URL admite usuario, contraseña y número de base (`redis://user:pass@host:6379/2`).
+- **Windows + Docker Desktop:** usa `127.0.0.1` en lugar de `localhost`. `localhost` resuelve primero a `::1` y el reenvío IPv6 de Docker Desktop acepta la conexión TCP pero la corta (`ECONNRESET`), así que los hooks expiran.
+- **CI:** el job `store-integration` levanta `redis:7` como servicio y define `BOTWA_TEST_REDIS_URL=redis://localhost:6379`.

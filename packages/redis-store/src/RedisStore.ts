@@ -98,8 +98,16 @@ export interface RedisLikeClient {
   multi(): RedisMulti
   connect(): Promise<unknown>
   quit(): Promise<unknown>
+  /**
+   * Drop the connection without waiting for pending replies. Optional; when
+   * present, stop() uses it instead of quit() while the client is not ready
+   * (quit() would wait for a reconnect that may never come).
+   */
+  disconnect?(): Promise<unknown>
   /** Connection state; when true, start() skips connecting an own client. */
   isOpen?: boolean
+  /** Socket connected and handshake done (node-redis). `false` makes stop() disconnect instead of quit. */
+  isReady?: boolean
 }
 
 /**
@@ -130,42 +138,111 @@ export interface RedisStoreOptions {
   /**
    * Optional TTL in SECONDS applied to ephemeral session-state keys (AI
    * conversation history and flow checkpoints). Messages, chats, contacts
-   * and cursors are never expired — delete them explicitly.
+   * and cursors are never expired — delete them explicitly. Must be a
+   * positive finite number (fractions allowed, applied with millisecond
+   * precision); anything else throws a `RangeError` from the constructor.
    */
   ttl?: number
   /**
    * Max messages retained per chat. When set, `saveMessage` prunes the oldest
    * entries (by score/timestamp) beyond the cap — both the ZSET members and
-   * their item keys. Default: undefined = unbounded.
+   * their item keys. Must be a non-negative integer (else `RangeError`).
+   * Default: undefined = unbounded.
    */
   maxMessagesPerChat?: number
+  /**
+   * Receives client errors (connection drops, failed reconnects) of a
+   * store-created client, and lifecycle errors (e.g. quit failure). An
+   * injected client's errors are the caller's to handle.
+   */
   logger?: { error?: (...args: unknown[]) => void }
 }
+
+/** node-redis' default reconnect backoff: 0, 50, 100 … capped at 500 ms. */
+const reconnectDelay = (retries: number): number => Math.min(retries * 50, 500)
+
+/** How long stop() waits for the reply to QUIT before dropping the connection. */
+const QUIT_TIMEOUT_MS = 2_000
 
 function toStr(value: string | Buffer | null | undefined): string {
   if (value == null) return ''
   return typeof value === 'string' ? value : value.toString()
 }
 
+/**
+ * Escape Redis glob metacharacters so `KEYS` matches a namespace literally.
+ * Without it a prefix such as `bot[1]` matched `bot1:…` keys (another
+ * tenant's) and missed its own, and a `*` in a prefix matched any sibling.
+ */
+function escapeGlob(literal: string): string {
+  return literal.replace(/[*?[\]\\]/g, '\\$&')
+}
+
+/**
+ * Unwrap node-redis' ReconnectStrategyError so start() rejects with the socket
+ * error itself (e.g. `code: 'ECONNREFUSED'`), not the strategy wrapper.
+ */
+function connectError(err: unknown): unknown {
+  if (err instanceof Error && 'socketError' in err && err.socketError instanceof Error) return err.socketError
+  return err
+}
+
 export class RedisStore implements IStore {
   private readonly client: RedisLikeClient
   private readonly ownsClient: boolean
   private readonly prefix: string
-  private readonly ttl?: number
+  /** `ttl` option converted to milliseconds (sent as PX: EX only takes whole seconds). */
+  private readonly ttlMs?: number
   private readonly maxMessagesPerChat?: number
   private readonly logger?: { error?: (...args: unknown[]) => void }
+  /**
+   * True between a successful start() and stop(): a dropped connection is then
+   * retried with backoff. Before the first connect (and after stop()) the
+   * reconnect strategy gives up at once, so start() fails fast on an
+   * unreachable server instead of retrying forever.
+   */
+  private keepReconnecting = false
+  /** In-flight connect of an own client, shared by concurrent start() calls. */
+  private connecting?: Promise<void>
+  /** Tail of the pending read-merge-write chain per record key (see {@link mergeRecord}). */
+  private readonly mergeChains = new Map<string, Promise<void>>()
 
   constructor(opts: RedisStoreOptions = {}) {
     this.prefix = opts.prefix ?? 'botwa'
-    this.ttl = opts.ttl
+    if (opts.ttl != null) {
+      // The server rejects a non-integer EX and any non-positive expiry, which
+      // previously surfaced as an error on every checkpoint/conversation write.
+      if (!(opts.ttl > 0) || !Number.isFinite(opts.ttl)) {
+        throw new RangeError(`RedisStore: ttl must be a positive number of seconds, got ${opts.ttl}`)
+      }
+      this.ttlMs = Math.max(1, Math.round(opts.ttl * 1000))
+    }
+    if (opts.maxMessagesPerChat != null && !(Number.isInteger(opts.maxMessagesPerChat) && opts.maxMessagesPerChat >= 0)) {
+      throw new RangeError(`RedisStore: maxMessagesPerChat must be a non-negative integer, got ${opts.maxMessagesPerChat}`)
+    }
     this.maxMessagesPerChat = opts.maxMessagesPerChat
     this.logger = opts.logger
     // node-redis' generated command signatures aren't directly assignable to a
     // plain interface (union-rest + MaximumOneOf option types); the command
     // subset used here matches at runtime, so narrow at the boundary.
-    const client = opts.client ?? createClient({ url: opts.url ?? 'redis://localhost:6379' })
-    this.client = client as RedisLikeClient
+    this.client = (opts.client ?? this.createOwnClient(opts.url ?? 'redis://localhost:6379')) as RedisLikeClient
     this.ownsClient = !opts.client
+  }
+
+  private createOwnClient(url: string): NativeRedisClient {
+    const client = createClient({
+      url,
+      socket: {
+        reconnectStrategy: (retries: number, cause: Error) => (this.keepReconnecting ? reconnectDelay(retries) : cause),
+      },
+    })
+    // node-redis re-throws an 'error' event nobody listens to: without this, a
+    // dropped connection (server restart, network blip) crashed the process
+    // instead of reconnecting. Guarded because test doubles may not be emitters.
+    if (typeof client.on === 'function') {
+      client.on('error', (err: unknown) => this.logger?.error?.({ err }, 'RedisStore client error'))
+    }
+    return client
   }
 
   /* Key scheme (all namespaced by prefix) --------------------------------- *
@@ -205,15 +282,38 @@ export class RedisStore implements IStore {
     return `${this.prefix}:lock:${key}`
   }
 
-  /** SET with the configured TTL (seconds) when one is set, plain SET otherwise. */
+  /** SET with the configured TTL when one is set, plain SET otherwise. */
   private setMaybeTtl(key: string, value: string): Promise<string | null> {
-    return this.ttl != null ? this.client.set(key, value, { EX: this.ttl }) : this.client.set(key, value)
+    return this.ttlMs != null ? this.client.set(key, value, { PX: this.ttlMs }) : this.client.set(key, value)
   }
 
   /** KEYS scan + prefix strip. Fine at bot scale; swap for SCAN if keyspace is huge. */
   private async scanIds(namespace: string): Promise<Array<{ key: string; id: string }>> {
-    const keys = await this.client.keys(`${namespace}*`)
+    const keys = await this.client.keys(`${escapeGlob(namespace)}*`)
     return keys.map((key) => ({ key, id: key.slice(namespace.length) }))
+  }
+
+  /**
+   * Shallow-merge `patch` over the JSON record at `key` (upsert semantics).
+   * GET + SET is not atomic: two concurrent upserts of one record (Bot does
+   * this for inbound and outbound traffic of the same chat) both read the old
+   * value and the later SET silently dropped the other's fields. Upserts of the
+   * same key are therefore chained in-process. Writers in OTHER processes can
+   * still interleave; see the README.
+   */
+  private mergeRecord(key: string, patch: object): Promise<void> {
+    const previous = this.mergeChains.get(key) ?? Promise.resolve()
+    const run = previous.then(async () => {
+      const raw = await this.client.get(key)
+      const existing = raw == null ? undefined : (JSON.parse(toStr(raw)) as object)
+      await this.client.set(key, JSON.stringify({ ...existing, ...patch }))
+    })
+    const tail = run.catch(() => {}) // a failed upsert must not poison the next one
+    this.mergeChains.set(key, tail)
+    void tail.then(() => {
+      if (this.mergeChains.get(key) === tail) this.mergeChains.delete(key)
+    })
+    return run
   }
 
   /* Messages -------------------------------------------------------------- */
@@ -233,15 +333,21 @@ export class RedisStore implements IStore {
 
   /** Prune the oldest messages of a chat beyond `maxMessagesPerChat` (ZSET members + item keys). */
   private async trimChat(chatId: string): Promise<void> {
-    if (this.maxMessagesPerChat == null) return
+    const cap = this.maxMessagesPerChat
+    if (cap == null) return
     const setKey = this.msgSetKey(chatId)
     const count = await this.client.zCard(setKey)
-    const overflow = count - this.maxMessagesPerChat
-    if (overflow <= 0) return
-    // Oldest `overflow` members (lowest scores first).
-    const stale = await this.client.zRange(setKey, '-inf', '+inf', {
+    if (count <= cap) return
+    // Select the members ranked BELOW the newest `cap`, in one command at one
+    // instant. Taking "the oldest `count - cap`" instead raced with concurrent
+    // trims from other connections/replicas: once another trim had pruned,
+    // the stale `count` made this one cut into the newest `cap` (data loss).
+    // A member that is beyond the cap at any instant stays beyond it, so this
+    // can never over-prune; `count - cap` only bounds how many go per call.
+    const stale = await this.client.zRange(setKey, '+inf', '-inf', {
       BY: 'SCORE',
-      LIMIT: { offset: 0, count: overflow },
+      REV: true,
+      LIMIT: { offset: cap, count: count - cap },
     })
     if (!stale.length) return
     const tx = this.client.multi()
@@ -256,11 +362,17 @@ export class RedisStore implements IStore {
   }
 
   async getMessagesByChat(chatId: string, limit = 50): Promise<StoredMessage[]> {
-    // Latest `limit` entries, newest first (REV swaps the bound order).
+    // Same window as MemoryStore's slice for ANY number: non-positive/NaN gives
+    // nothing, a fraction rounds up, Infinity means everything. Redis' LIMIT
+    // only takes integers (it rejected 2.5 and Infinity) and reads a negative
+    // count as "all", so normalize before it reaches the server.
+    if (!(limit > 0)) return []
+    const count = Math.min(Math.ceil(limit), Number.MAX_SAFE_INTEGER)
+    // Latest `count` entries, newest first (REV swaps the bound order).
     const members = await this.client.zRange(this.msgSetKey(chatId), '+inf', '-inf', {
       BY: 'SCORE',
       REV: true,
-      LIMIT: { offset: 0, count: limit },
+      LIMIT: { offset: 0, count },
     })
     const items = await Promise.all(members.map((m) => this.client.get(this.msgItemKey(m))))
     const messages: StoredMessage[] = []
@@ -285,8 +397,7 @@ export class RedisStore implements IStore {
   async upsertChat(chat: StoredChat): Promise<void> {
     // Shallow-merge over any existing record so a partial upsert keeps prior
     // fields — consistent with MemoryStore/MongoStore.
-    const existing = await this.getChat(chat.id)
-    await this.client.set(this.chatKey(chat.id), JSON.stringify({ ...existing, ...chat }))
+    await this.mergeRecord(this.chatKey(chat.id), chat)
   }
   async getChat(chatId: string): Promise<StoredChat | undefined> {
     const raw = await this.client.get(this.chatKey(chatId))
@@ -317,8 +428,7 @@ export class RedisStore implements IStore {
   /* Contacts -------------------------------------------------------------- */
 
   async upsertContact(contact: StoredContact): Promise<void> {
-    const existing = await this.getContact(contact.id)
-    await this.client.set(this.contactKey(contact.id), JSON.stringify({ ...existing, ...contact }))
+    await this.mergeRecord(this.contactKey(contact.id), contact)
   }
   async getContact(userId: string): Promise<StoredContact | undefined> {
     const raw = await this.client.get(this.contactKey(userId))
@@ -405,8 +515,13 @@ export class RedisStore implements IStore {
    * scheduling of idempotent work — not a guarantee of strict exclusion.
    */
   async acquireLock(key: string, ttlMs = 30_000): Promise<string | null> {
+    // PX only takes a positive integer: the server rejected fractions, and a
+    // lock without a finite deadline would defeat the crash-safety guarantee.
+    if (!(ttlMs > 0) || !Number.isFinite(ttlMs)) {
+      throw new RangeError(`RedisStore.acquireLock: ttlMs must be a positive number, got ${ttlMs}`)
+    }
     const token = randomUUID()
-    const acquired = await this.client.set(this.lockKey(key), token, { NX: true, PX: ttlMs })
+    const acquired = await this.client.set(this.lockKey(key), token, { NX: true, PX: Math.ceil(ttlMs) })
     return acquired === 'OK' ? token : null
   }
 
@@ -425,16 +540,69 @@ export class RedisStore implements IStore {
 
   /* Lifecycle -------------------------------------------------------------- */
 
+  /**
+   * Connect a store-created client (idempotent; concurrent calls share one
+   * connect). Rejects promptly with the socket error when the server is
+   * unreachable — call it again to retry. Injected clients are caller-managed
+   * and never connected here.
+   */
   async start(): Promise<void> {
-    // Injected clients are caller-managed; never connect/quit them.
-    if (this.ownsClient && this.client.isOpen !== true) await this.client.connect()
+    if (!this.ownsClient) return
+    if (this.connecting) return this.connecting
+    if (this.client.isOpen === true) return
+    this.connecting = (async () => {
+      this.keepReconnecting = false // the first attempt fails fast; retry with backoff only once connected
+      try {
+        await this.client.connect()
+        this.keepReconnecting = true
+      } catch (err) {
+        throw connectError(err)
+      } finally {
+        this.connecting = undefined
+      }
+    })()
+    return this.connecting
   }
+
+  /**
+   * Close a store-created client (idempotent; injected clients are left
+   * alone). Never waits on an unreachable server: a client that is not ready
+   * is disconnected instead of sent a QUIT that would queue until a reconnect.
+   */
   async stop(): Promise<void> {
     if (!this.ownsClient) return
+    if (this.connecting) await this.connecting.catch(() => {})
+    this.keepReconnecting = false // an in-flight reconnect loop gives up instead of retrying forever
+    if (this.client.isOpen !== true) return
     try {
-      await this.client.quit()
+      await this.closeOwnClient()
     } catch (err) {
-      this.logger?.error?.({ err }, 'RedisStore failed to quit client')
+      this.logger?.error?.({ err }, 'RedisStore failed to close client')
+    }
+  }
+
+  /** Graceful QUIT (pending replies still arrive), bounded so stop() can never hang. */
+  private async closeOwnClient(): Promise<void> {
+    const { client } = this
+    if (client.isReady === false && client.disconnect) {
+      await client.disconnect()
+      return
+    }
+    const quit = client.quit()
+    quit.catch(() => {}) // still awaited below; this only covers the timeout path
+    let timer: NodeJS.Timeout | undefined
+    const timedOut = new Promise<true>((resolve) => {
+      timer = setTimeout(() => resolve(true), QUIT_TIMEOUT_MS)
+    })
+    try {
+      if ((await Promise.race([quit.then(() => false as const), timedOut])) && client.disconnect) {
+        // The socket closed cleanly after QUIT was written (e.g. the server
+        // restarted): node-redis then never settles QUIT. disconnect() flushes
+        // the queue (rejecting it) and only then complains the client is closed.
+        await client.disconnect().catch(() => {})
+      }
+    } finally {
+      clearTimeout(timer)
     }
   }
 }
