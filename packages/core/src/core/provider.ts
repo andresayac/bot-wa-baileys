@@ -11,6 +11,8 @@
  *  - ESM, zero runtime deps in core (only structural / type-only references).
  */
 
+import type { InboundDedupeOptions } from './dedupe.js'
+
 /* ============================================================================
  * 1. IDENTITY PRIMITIVES  (opaque — no shape grammar)
  * ========================================================================== */
@@ -713,6 +715,13 @@ export interface BotConfig {
   connectionId?: string
   /** Persist provider-native payloads. Disabled by default to minimize PII. */
   persistRaw?: boolean
+  /**
+   * Inbound idempotency: a redelivered message/interaction (webhook retry,
+   * reconnect replay) never runs handlers twice. Keyed by `chatId` + `ref.id`
+   * (interactions: `interactionId`), bounded LRU with optional TTL. Enabled by
+   * default (`{ size: 1000 }`); `false` disables it. See `InboundDeduper`.
+   */
+  dedupe?: InboundDedupeOptions | false
   store?: StoreKind | IStore
   storeConfig?: Record<string, unknown>
   /** REQUIRED in v2: the constructed transport provider (BaileysProvider, ...). */

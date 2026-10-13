@@ -66,6 +66,7 @@ import { NamespacedStore, type StoreNamespace } from '../store/NamespacedStore.j
 import type { IStore } from '../store/IStore.js'
 import { Dispatcher, type DispatchContext } from './Dispatcher.js'
 import { buildMessageContext } from './context.js'
+import { createInboundDeduper, type InboundDeduper } from './dedupe.js'
 import { ConversationRuntime, type CheckpointStore, type ConversationFn } from '../conversations/ConversationRuntime.js'
 import { createControls, type ConversationControls } from '../conversations/controls.js'
 import { FlowBuilder, isCompiledFlow, type CompiledFlow } from '../flows/FlowBuilder.js'
@@ -148,6 +149,8 @@ export class Bot extends EventEmitter {
   private namespace: StoreNamespace
   private runtime: ConversationRuntime
   private dispatcher: Dispatcher
+  /** Inbound idempotency guard (`BotConfig.dedupe`); `null` when disabled. */
+  private inboundDedupe: InboundDeduper | null
   private scheduler = new Scheduler()
   private tools: Record<string, unknown> = {}
   private disposables = new DisposableList()
@@ -173,6 +176,7 @@ export class Bot extends EventEmitter {
     }
     this.config = { commandPrefix: '/', ...config }
     this.provider = config.provider
+    this.inboundDedupe = createInboundDeduper(config.dedupe)
 
     this.logger = config.logger as Logger ?? pino({
       level: config.debug ? 'debug' : 'error',
@@ -677,14 +681,18 @@ export class Bot extends EventEmitter {
 
   private async handleProviderEvent(event: InboundEvent): Promise<void> {
     switch (event.kind) {
-      case 'message':
+      case 'message': {
         if (!this.acceptingInbound || event.message.fromMe) return
-        await this.handleInbound(event.message)
+        const message = event.message
+        await this.runInboundOnce(event, () => this.handleInbound(message))
         return
-      case 'interaction':
+      }
+      case 'interaction': {
         if (!this.acceptingInbound) return
-        await this.handleInteraction(event.interaction)
+        const interaction = event.interaction
+        await this.runInboundOnce(event, () => this.handleInteraction(interaction))
         return
+      }
       case 'connection': {
         const u = event.update
         this.connState = u.state
@@ -703,6 +711,12 @@ export class Bot extends EventEmitter {
         await this.dispatchHookEvent('status', event.status)
         return
     }
+  }
+
+  /** Inbound idempotency gate: a redelivered message/interaction never reaches handlers twice. */
+  private async runInboundOnce(event: InboundEvent, handle: () => Promise<void>): Promise<void> {
+    if (!this.inboundDedupe) return handle()
+    await this.inboundDedupe.run(event, handle, () => this.logger.debug({ kind: event.kind }, 'duplicate inbound event dropped'))
   }
 
   private async handleInbound(

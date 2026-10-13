@@ -130,7 +130,10 @@ export class Dispatcher {
       return this.finish(ctx)
     } catch (error) {
       this.deps.logger?.error?.('dispatch error', error)
-      await hooks.runError('message', ctx, error)
+      // runError() rethrows when no onError('message') hook is registered; that must not
+      // swallow the error before it reaches the bot's 'error' event (it used to vanish
+      // into the per-chat queue's catch — e.g. a RateLimitedError from ctx.reply()).
+      try { await hooks.runError('message', ctx, error) } catch { /* no error hook: surfaced below */ }
       emit('error', { error, ctx })
     }
   }
