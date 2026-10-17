@@ -22,7 +22,7 @@
  */
 
 import { definePlugin, type MessageContext, type PluginContext, type PluginSpec } from '@bot-wa/core'
-import type { AIConfig, AIProvider } from './types.js'
+import type { AIConfig, AIProvider, AIStreamConfig } from './types.js'
 import { ContextManager } from './ContextManager.js'
 import { AIClient } from './AIClient.js'
 import { resolveProvider } from './providers/resolve.js'
@@ -63,11 +63,24 @@ export function aiPlugin(config: AIPluginConfig = {}): PluginSpec<AIPluginConfig
       ctx.onDispose(() => { Reflect.deleteProperty(ctx.tools, 'ai') })
 
       const errorMessage = cfg.errorMessage ?? DEFAULT_ERROR_MESSAGE
+      const streamCfg = resolveStreamConfig(cfg.stream)
 
       if (cfg.autoReply !== false) {
         bot.onMessage(async (mctx: MessageContext) => {
           if (mctx.type !== 'text' || !mctx.body) return
           const key = chatKeyOf(mctx)
+          if (streamCfg && typeof mctx.stream === 'function') {
+            try {
+              await mctx.stream(client.streamReplyInChat(key, mctx.body), {
+                typing: cfg.humanizeTyping !== false,
+                ...streamCfg,
+              })
+            } catch (err) {
+              ctx.logger.warn({ err }, 'ai streamed autoreply failed')
+              await mctx.reply(errorMessage)
+            }
+            return
+          }
           try {
             if (cfg.humanizeTyping !== false) await mctx.typing()
             const text = await client.replyInChat(key, mctx.body)
@@ -96,4 +109,12 @@ export function aiPlugin(config: AIPluginConfig = {}): PluginSpec<AIPluginConfig
       }
     },
   })
+}
+
+/** `stream` option → the StreamOptions to use, or `undefined` when streaming is off. */
+function resolveStreamConfig(stream: AIConfig['stream']): Omit<AIStreamConfig, 'enabled'> | undefined {
+  if (!stream) return undefined
+  if (stream === true) return {}
+  const { enabled, ...opts } = stream
+  return enabled === false ? undefined : opts
 }

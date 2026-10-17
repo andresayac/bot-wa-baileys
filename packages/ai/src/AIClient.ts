@@ -101,6 +101,73 @@ export class AIClient {
     return this.provider.stream({ ...this.base(input.messages), ...input })
   }
 
+  /**
+   * Streaming twin of {@link replyInChat}: yields the answer piece by piece (feed
+   * it to `ctx.stream()`). The turn (user + assistant) is stored once the stream
+   * ends — also when the consumer stops early (the partial answer is kept, and the
+   * provider request is aborted) — but not when the provider fails. `timeoutMs`
+   * applies as an IDLE timeout: no chunk for that long → {@link AITimeoutError}.
+   *
+   * @example
+   * ```ts
+   * await ctx.stream(ctx.tools.ai.streamReplyInChat(chatKeyOf(ctx), ctx.body))
+   * ```
+   */
+  async *streamReplyInChat(chatKey: string, userText: string, opts?: { signal?: AbortSignal }): AsyncGenerator<string, void, undefined> {
+    const history = await this.ctx.history(chatKey)
+    const messages: AIMessage[] = [...history, { role: 'user', content: userText }]
+    const ctrl = new AbortController()
+    const onUserAbort = () => ctrl.abort()
+    if (opts?.signal) {
+      if (opts.signal.aborted) ctrl.abort()
+      else opts.signal.addEventListener('abort', onUserAbort, { once: true })
+    }
+    const iterator = this.provider.stream({ ...this.base(messages), signal: ctrl.signal })[Symbol.asyncIterator]()
+    let text = ''
+    let completed = false
+    let failed = false
+    try {
+      for (;;) {
+        const r = await this.nextWithIdleTimeout(iterator, ctrl)
+        if (r.done) break
+        if (typeof r.value !== 'string' || !r.value) continue
+        text += r.value
+        yield r.value
+      }
+      completed = true
+    } catch (error) {
+      failed = true
+      throw error
+    } finally {
+      if (opts?.signal) opts.signal.removeEventListener('abort', onUserAbort)
+      if (!completed) {
+        ctrl.abort()
+        try { void Promise.resolve(iterator.return?.()).catch(() => undefined) } catch { /* ignore */ }
+      }
+      if (!failed && text) {
+        await this.ctx.appendMany(chatKey, [
+          { role: 'user', content: userText },
+          { role: 'assistant', content: text },
+        ])
+      }
+    }
+  }
+
+  private async nextWithIdleTimeout(iterator: AsyncIterator<string>, ctrl: AbortController): Promise<IteratorResult<string>> {
+    const next = iterator.next()
+    if (this.timeoutMs <= 0) return next
+    next.catch(() => undefined)
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => { reject(new AITimeoutError(this.timeoutMs)); ctrl.abort() }, this.timeoutMs)
+    })
+    try {
+      return await Promise.race([next, timeout])
+    } finally {
+      if (timer) clearTimeout(timer)
+    }
+  }
+
   async replyInChat(chatKey: string, userText: string, opts?: { signal?: AbortSignal }): Promise<string> {
     const history = await this.ctx.history(chatKey)
     const messages: AIMessage[] = [...history, { role: 'user', content: userText }]

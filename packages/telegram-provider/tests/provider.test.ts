@@ -250,7 +250,7 @@ describe('TelegramProvider long-poll', () => {
     await waitFor(() => gu().length >= 2)
     expect(JSON.parse(gu()[0].init!.body as string).offset).toBeUndefined()
     expect(JSON.parse(gu()[1].init!.body as string).offset).toBe(102)
-    expect(JSON.parse(gu()[0].init!.body as string).allowed_updates).toEqual(['message', 'edited_message', 'callback_query'])
+    expect(JSON.parse(gu()[0].init!.body as string).allowed_updates).toEqual(['message', 'edited_message', 'callback_query', 'stopped_message_generation'])
     expect(seen).toEqual(['msg:a', 'btn:go'])
     expect(conn).toContain('connecting')
     expect(conn).toContain('ready')

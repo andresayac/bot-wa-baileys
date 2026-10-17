@@ -16,6 +16,7 @@
 
 import { humanTypingDelay, sleep } from '../utils/timers.js'
 import { unavailableUserData } from '../user/UserDataService.js'
+import { streamText } from '../streaming/streamText.js'
 import type {
   BuildContextDeps,
   Button,
@@ -111,6 +112,16 @@ export function buildMessageContext(deps: BuildContextDeps): IMessageContext {
     },
     async sendNative(provider: string, payload: unknown) {
       return sendOut({ kind: 'native', provider, payload })
+    },
+    stream(source, opts) {
+      return streamText({
+        capabilities: deps.capabilities,
+        isPrivate,
+        send: sendOut,
+        edit: deps.editMessage ? (ref, content) => deps.editMessage!(ref, content) : undefined,
+        draft: deps.sendDraft ? (draftId, text, o) => deps.sendDraft!(from, draftId, text, o) : undefined,
+        typing: deps.typing ? () => deps.typing!(from, 'typing') : undefined,
+      }, source, opts)
     },
 
     /* Actions — degrade to no-op when the provider lacks the capability -- */

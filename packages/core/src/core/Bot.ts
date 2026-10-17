@@ -87,7 +87,7 @@ import { WelcomeTracker } from './welcome.js'
 import { callToInbound, RecentIds } from './calls.js'
 import { UserDataService } from '../user/UserDataService.js'
 import type { UserData } from '../user/types.js'
-import type { UserDataEntry } from './provider.js'
+import type { BuildContextDeps, UserDataEntry } from './provider.js'
 
 /** A user message handler — receives the full inbound {@link MessageContext}. */
 export type MessageHandler = (ctx: MessageContext) => unknown | Promise<unknown>
@@ -1243,6 +1243,7 @@ export class Bot extends EventEmitter {
       handoff: (chatId, opts) => this.handoff(chatId, opts),
       interaction,
       user: this.users.for(inbound.senderId),
+      ...this.streamDeps(),
     })
 
     // Group mode filter.
@@ -1258,6 +1259,16 @@ export class Bot extends EventEmitter {
 
     this.logger.debug({ from: ctx.from, type: ctx.type }, 'dispatching message')
     await this.dispatcher.dispatch(ctx as unknown as DispatchContext)
+  }
+
+  /** `ctx.stream()` backing: capabilities + the provider's edit/draft primitives (when present). */
+  private streamDeps(): Pick<BuildContextDeps, 'capabilities' | 'editMessage' | 'sendDraft'> {
+    const p = this.provider
+    return {
+      capabilities: p.capabilities,
+      editMessage: p.editMessage ? (ref, content) => p.editMessage!(ref, content) : undefined,
+      sendDraft: p.sendDraft ? (chatId, draftId, text, opts) => p.sendDraft!(chatId, draftId, text, opts) : undefined,
+    }
   }
 
   /** Run hooks + emit for a provider event. Resolves `false` if a before-hook aborted or it threw. */
@@ -1298,6 +1309,7 @@ export class Bot extends EventEmitter {
       typing: async (chatId, state) => { await this.provider.typing?.(chatId, state) },
       handoff: (chatId, opts) => this.handoff(chatId, opts),
       user: this.users.for(inbound.senderId),
+      ...this.streamDeps(),
     })
     ctx.call = call
     await this.dispatcher.dispatchEvent(ctx as unknown as DispatchContext)

@@ -1,5 +1,5 @@
 export type { AIMessage } from '@bot-wa/core'
-import type { AIMessage } from '@bot-wa/core'
+import type { AIMessage, StreamOptions } from '@bot-wa/core'
 import type { PresetName } from './providers/presets.js'
 
 export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
@@ -52,4 +52,18 @@ export interface AIConfig {
   errorMessage?: string
   refusalMessage?: string
   humanizeTyping?: boolean
+  /**
+   * Stream the autoresponder's answer with `ctx.stream()` (native drafts on
+   * Telegram, live edits on Discord, sentence chunks with typing on WhatsApp)
+   * instead of one message at the end. `true` uses the defaults; an object tunes
+   * the `StreamOptions`. Default: off (one message). Falls back to the one-shot
+   * reply when the core has no `ctx.stream`.
+   */
+  stream?: boolean | AIStreamConfig
+}
+
+/** {@link AIConfig.stream} as an object: `StreamOptions` for the autoresponder. */
+export type AIStreamConfig = Omit<StreamOptions, 'signal' | 'sendOptions'> & {
+  /** Default true; `false` disables streaming while keeping the options around. */
+  enabled?: boolean
 }

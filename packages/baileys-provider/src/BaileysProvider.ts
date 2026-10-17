@@ -139,6 +139,7 @@ export class BaileysProvider implements IProvider<WAMessage> {
     buttons: false, lists: false, polls: true, reactions: true, edit: false,
     typing: true, presence: true, readReceipts: true, groups: true, templates: false,
     interactionsRequireAck: false, pushIngress: false,
+    streaming: 'none', // no live preview: ctx.stream() sends sentence chunks with typing
   }
 
   private readonly config: BaileysProviderConfig

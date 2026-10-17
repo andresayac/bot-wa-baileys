@@ -14,6 +14,7 @@
 import type { HandoffConfig, HandoffOptions, StoredHandoff } from '../gates/handoff.js'
 import type { InboundDedupeOptions } from './dedupe.js'
 import type { UserData } from '../user/types.js'
+import type { StreamOptions, StreamResult, StreamSource } from '../streaming/types.js'
 
 /* ============================================================================
  * 1. IDENTITY PRIMITIVES  (opaque — no shape grammar)
@@ -378,6 +379,33 @@ export interface ProviderCapabilities {
   interactionsRequireAck: boolean
   /** Delivery is push-to-us (webhook) rather than a socket the provider owns. */
   pushIngress: boolean
+  /**
+   * How `ctx.stream()` renders a reply that is still being generated:
+   * `'draft'` — native ephemeral draft previews ({@link IProvider.sendDraft}) then
+   * one final send (Telegram `sendMessageDraft`); `'edit'` — send once, then
+   * throttled {@link IProvider.editMessage} calls (Discord, Telegram groups);
+   * `'none'` — no live preview: sentence-sized chunks with typing (WhatsApp).
+   * Omitted → treated as `'none'`.
+   */
+  streaming?: StreamingMode
+}
+
+/** See {@link ProviderCapabilities.streaming}. */
+export type StreamingMode = 'draft' | 'edit' | 'none'
+
+/** Options of one {@link IProvider.sendDraft} call. */
+export interface DraftOptions {
+  /** Show the user a button to stop the generation (Telegram `can_stop`). */
+  canStop?: boolean
+  /** Keep the draft visible when the user presses stop (Telegram `keep_on_stop`). */
+  keepOnStop?: boolean
+  /**
+   * Called (at most once) when the user stops this draft. Providers without a
+   * stop control never call it.
+   */
+  onStop?: () => void
+  /** Transport-native passthrough (e.g. Telegram `message_thread_id`). */
+  platformData?: Record<string, unknown>
 }
 
 /* ============================================================================
@@ -517,6 +545,15 @@ export interface IProvider<TRaw = unknown> {
   deleteMessage?(ref: MessageRef): Promise<void>
   editMessage?(ref: MessageRef, content: OutboundContent): Promise<SendResult<TRaw>>
   acknowledgeInteraction?(interactionId: string, opts?: { text?: string; defer?: boolean }): Promise<void>
+  /**
+   * Show (or update) an ephemeral, not-yet-sent preview of a message being
+   * generated. Same `draftId` → the same draft is updated in place. A draft is
+   * NOT a message: the caller must still `send()` the final text. Only for
+   * providers with `capabilities.streaming === 'draft'`; rejects (typed error)
+   * where the transport refuses drafts (e.g. Telegram groups), and the caller
+   * then falls back to edits or chunks.
+   */
+  sendDraft?(chatId: ChatId, draftId: number, text: string, opts?: DraftOptions): Promise<void>
 
   /**
    * A single primary connection handle for DEBUGGING ONLY. Not a structural
@@ -591,6 +628,13 @@ export interface MessageContext<TTools extends object = DefaultTools, TRaw = unk
   replyWithTyping(text: string, msPerChar?: number): Promise<SentMessage>
   /** Escape hatch for transport-native content (templates, components). */
   sendNative(provider: string, payload: unknown): Promise<SentMessage>
+  /**
+   * Stream a reply that is still being generated (e.g. LLM tokens) to this chat,
+   * using the best strategy the provider supports (`capabilities.streaming`):
+   * native drafts, throttled edits, or sentence chunks with typing. Long text is
+   * split so no message exceeds `capabilities.maxTextLength`. See `StreamOptions`.
+   */
+  stream(source: StreamSource, opts?: StreamOptions): Promise<StreamResult>
 
   /* Actions — degrade to no-op when the provider lacks the capability */
   markRead(): Promise<void>
@@ -651,6 +695,12 @@ export interface BuildContextDeps<TRaw = unknown> {
   downloadMedia?(ref: MediaRef): Promise<Buffer | NodeJS.ReadableStream>
   /** Backs `ctx.handoff()`; without it `ctx.handoff()` resolves `false`. */
   handoff?(chatId: ChatId, opts?: HandoffOptions): Promise<boolean>
+  /** Provider capabilities — `ctx.stream()` picks its strategy from them. */
+  capabilities?: ProviderCapabilities
+  /** Backs live edits for `ctx.stream()` (strategy `'edit'`). */
+  editMessage?(ref: MessageRef, content: OutboundContent): Promise<unknown>
+  /** Backs native drafts for `ctx.stream()` (strategy `'draft'`). */
+  sendDraft?(chatId: ChatId, draftId: number, text: string, opts?: DraftOptions): Promise<void>
   /** Set when this context projects an interaction (button/slash/callback). */
   interaction?: { id: string; data: string; respondBy?: number }
   /** Sender profile exposed as `ctx.user`; when omitted every `ctx.user` call rejects with `UserDataError('UNAVAILABLE')`. */

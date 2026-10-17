@@ -252,3 +252,10 @@ export { UserDataError } from './user/errors.js'
 export type { UserDataErrorCode } from './user/errors.js'
 export type { UserData, UserSetOptions } from './user/types.js'
 export type { UserDataEntry } from './core/provider.js'
+
+// streaming
+// ctx.stream(): live replies (native drafts / throttled edits / sentence chunks).
+export { streamText, resolveStreamStrategy } from './streaming/streamText.js'
+export { splitMessage, findSplitPoint } from './streaming/split.js'
+export type { StreamSource, StreamStrategy, StreamOptions, StreamResult, StreamTarget } from './streaming/types.js'
+export type { StreamingMode, DraftOptions } from './core/provider.js'

@@ -26,6 +26,7 @@ import type {
   ChatId,
   ConnectionState,
   DisconnectReason,
+  DraftOptions,
   IProvider,
   InboundEvent,
   MediaRef,
@@ -56,6 +57,9 @@ const REPLYABLE = new Set([
   'sendDocument', 'sendSticker', 'sendLocation', 'sendContact', 'sendPoll',
 ])
 
+/** How long a draft's stop callback stays registered (drafts are ~30 s previews). */
+const DRAFT_STOP_TTL_MS = 10 * 60_000
+
 const MEDIA_KINDS: ReadonlyArray<OutboundContent['kind']> = ['image', 'video', 'audio', 'voice', 'document', 'sticker']
 
 /** Translate a Bot API error envelope into a typed provider error. */
@@ -85,6 +89,7 @@ export class TelegramProvider implements IProvider<unknown> {
     templates: false,
     interactionsRequireAck: false, // answerCallbackQuery stops the spinner; no hard deadline
     pushIngress: true,     // supports webhook; also owns a long-poll loop
+    streaming: 'draft',    // sendMessageDraft (private chats); edits elsewhere
   }
 
   private readonly config: Required<Pick<TelegramProviderConfig, 'token' | 'baseUrl' | 'polling' | 'pollTimeout' | 'errorBackoffMs' | 'maxBackoffMs' | 'pollIdleMs'>> & Pick<TelegramProviderConfig, 'mediaDownload'>
@@ -100,6 +105,8 @@ export class TelegramProvider implements IProvider<unknown> {
   private offset?: number
   private pollPromise?: Promise<void>
   private pollAbort?: AbortController
+  /** `${chatId}:${draftId}` → stop callback registered by sendDraft (can_stop). */
+  private readonly draftStops = new Map<string, { onStop: () => void; at: number }>()
 
   constructor(config: TelegramProviderConfig) {
     this.config = {
@@ -209,7 +216,7 @@ export class TelegramProvider implements IProvider<unknown> {
    * another instance polls the same token → sessionTakenOver, stop).
    */
   private async pollLoop(): Promise<void> {
-    const allowedUpdates = ['message', 'edited_message', 'callback_query']
+    const allowedUpdates = ['message', 'edited_message', 'callback_query', 'stopped_message_generation']
     while (!this.stopped) {
       this.pollAbort = new AbortController()
       try {
@@ -221,6 +228,7 @@ export class TelegramProvider implements IProvider<unknown> {
         this.pollErrors = 0 // a successful round resets the backoff ramp
         for (const u of updates ?? []) {
           if (typeof u.update_id === 'number') this.offset = u.update_id + 1
+          if (this.handleDraftStopped(u)) continue
           const ev = parseUpdate(u, this._selfId ?? undefined)
           if (ev) this.fan(ev)
         }
@@ -274,6 +282,7 @@ export class TelegramProvider implements IProvider<unknown> {
       return 400
     }
     if (!update || typeof update !== 'object' || typeof update.update_id !== 'number') return 400
+    if (this.handleDraftStopped(update)) return 200
     const ev = parseUpdate(update, this._selfId ?? undefined)
     if (ev) this.fan(ev)
     return 200
@@ -394,7 +403,53 @@ export class TelegramProvider implements IProvider<unknown> {
   /** editMessageText — text only; other kinds must throw per the edit capability. */
   async editMessage(ref: MessageRef, content: OutboundContent): Promise<SendResult<unknown>> {
     if (content.kind !== 'text') throw new UnsupportedContentError(content.kind, 'TelegramProvider.editMessage supports text only (editMessageText)')
-    const result = await this.callApi('editMessageText', { chat_id: ref.chatId, message_id: Number(ref.id), text: content.text })
-    return { ref, raw: result }
+    try {
+      const result = await this.callApi('editMessageText', { chat_id: ref.chatId, message_id: Number(ref.id), text: content.text })
+      return { ref, raw: result }
+    } catch (err) {
+      // Re-sending identical text is a no-op, not a failure (common while streaming).
+      if (err instanceof ProviderError && /message is not modified/i.test(err.message)) return { ref }
+      throw err
+    }
+  }
+
+  /* Streaming --------------------------------------------------------------- */
+
+  /**
+   * sendMessageDraft (Bot API 9.5+; empty text 10.0+; can_stop/keep_on_stop 10.3+):
+   * show/update an ephemeral preview of a message being generated. Private chats
+   * only — elsewhere Telegram rejects and `ctx.stream()` falls back to edits. The
+   * final text must still be sent with `send()`. With `canStop` + `onStop`, a
+   * `stopped_message_generation` update for this draft calls `onStop` once.
+   */
+  async sendDraft(chatId: ChatId, draftId: number, text: string, opts?: DraftOptions): Promise<void> {
+    this.pruneDraftStops()
+    if (opts?.onStop) this.draftStops.set(`${chatId}:${draftId}`, { onStop: opts.onStop, at: Date.now() })
+    await this.callApi('sendMessageDraft', {
+      chat_id: chatId,
+      draft_id: draftId,
+      text,
+      ...(opts?.canStop ? { can_stop: true } : {}),
+      ...(opts?.keepOnStop ? { keep_on_stop: true } : {}),
+      ...(opts?.platformData ?? {}),
+    })
+  }
+
+  /** Route a `stopped_message_generation` update to its draft's stop callback. */
+  private handleDraftStopped(update: TelegramUpdate): boolean {
+    const stopped = update.stopped_message_generation as { chat?: { id?: number | string }; draft_id?: number } | undefined
+    if (!stopped || typeof stopped !== 'object') return false
+    const key = `${stopped.chat?.id ?? ''}:${stopped.draft_id ?? ''}`
+    const entry = this.draftStops.get(key)
+    if (entry) {
+      this.draftStops.delete(key)
+      try { entry.onStop() } catch (err) { this.logger.error({ err }, 'draft onStop callback failed') }
+    }
+    return true
+  }
+
+  private pruneDraftStops(): void {
+    const cutoff = Date.now() - DRAFT_STOP_TTL_MS
+    for (const [k, v] of this.draftStops) if (v.at < cutoff) this.draftStops.delete(k)
   }
 }

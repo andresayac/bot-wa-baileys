@@ -23,7 +23,7 @@
  */
 
 import { Bot } from '../core/Bot.js'
-import { MockProvider, type MockOutgoing } from './MockProvider.js'
+import { MockProvider, type MockOutgoing, type MockProviderOptions } from './MockProvider.js'
 import { ChaosProvider, type ChaosOptions } from './chaos.js'
 import type { BotConfig } from '../core/provider.js'
 
@@ -31,6 +31,8 @@ import type { BotConfig } from '../core/provider.js'
 export interface CreateTestBotOptions {
   /** Wrap the MockProvider in a {@link ChaosProvider} with these options. */
   chaos?: ChaosOptions
+  /** Options for the underlying {@link MockProvider} (e.g. `{ streaming: 'edit' }`). */
+  provider?: MockProviderOptions
 }
 
 /** What {@link createTestBot} returns. */
@@ -70,7 +72,7 @@ export async function createTestBot(
   config: Omit<BotConfig, 'provider'> = {},
   options: CreateTestBotOptions = {},
 ): Promise<TestBot> {
-  const provider = new MockProvider()
+  const provider = new MockProvider(options.provider)
   const chaos = options.chaos ? new ChaosProvider(provider, options.chaos) : undefined
   const bot = new Bot({ ...config, provider: chaos ?? provider })
   await bot.start()
