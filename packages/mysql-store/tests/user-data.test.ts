@@ -103,6 +103,7 @@ describe('MysqlStore — user data', () => {
           ([k, v]) => [k, (k === 'expires_at' || k === 'updated_at') && v != null ? String(v) : v],
         ))), fields]
       },
+      getConnection: () => fake.getConnection(),
       async end() {},
     }
     const expiresAt = Date.now() + 60_000

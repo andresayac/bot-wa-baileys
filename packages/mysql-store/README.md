@@ -8,7 +8,7 @@ MySQL/MariaDB [`IStore`](https://github.com/andresayac/bot-wa-baileys/tree/main/
 - Six small tables, `CREATE TABLE IF NOT EXISTS` on `start()` — no migrations to run by hand. Ids/keys are compared **byte-for-byte** (`VARBINARY`), never through a case- or accent-insensitive collation.
 - Message bodies, chats, contacts, checkpoints and conversations stored as **JSON** documents; `getMessagesByChat(limit)` is an `ORDER BY timestamp DESC LIMIT ?` window, returned oldest→newest (same windowing semantics as `@bot-wa/sqlite-store` / `@bot-wa/redis-store`).
 - Configurable **table prefix**, so apps/bots can share one database.
-- Injectable pool → fully hermetic tests (an in-memory fake pool ships with the test-suite; no real MySQL needed).
+- Injectable pool → fully hermetic tests (an in-memory fake pool ships with the test-suite; no real MySQL needed). The fake mirrors the server where it matters: it rejects escaped unpaired surrogates in JSON (`ER_INVALID_JSON_TEXT`), returns `VARBINARY` columns as `Buffer`s and models connections, transactions and row locks.
 
 ## Install
 
@@ -79,7 +79,7 @@ await store.start()
 | `password`    | `string`           | —                            | Password for the config-based connection. |
 | `database`    | `string`           | —                            | Database for the config-based connection. |
 | `tablePrefix` | `string`           | `''`                         | Prefix for every table (`[A-Za-z0-9_]` only). |
-| `pool`        | `PoolLike`         | —                            | Inject an existing mysql2/promise pool (required for tests). The store never creates/closes it. |
+| `pool`        | `PoolLike`         | —                            | Inject an existing mysql2/promise pool (required for tests): `query`, `getConnection` and `end`. The store never creates/closes it. |
 | `maxMessagesPerChat` | `number`    | — (unbounded)                | Keep at most N messages per chat; `saveMessage` prunes the oldest (by `timestamp`) beyond the cap. |
 | `logger`      | `{ error? }`       | —                            | Receives lifecycle errors (e.g. pool close failure). |
 
@@ -118,13 +118,14 @@ ALTER TABLE `{p}cursors` MODIFY `key` VARBINARY(1024) NOT NULL;
 - `getMessagesByChat(chatId, limit)` reads the newest `limit` rows (`ORDER BY timestamp DESC LIMIT ?`) and returns them oldest→newest — same windowing semantics as `@bot-wa/sqlite-store`.
 - `start()` creates a pool only when none was injected (and is safe to call again); `stop()` closes only a self-created pool. An injected pool is caller-managed and keeps serving after `stop()`.
 - MySQL's `JSON` type rejects unpaired UTF-16 surrogates (e.g. a string cut in the middle of an emoji). The store writes them as U+FFFD (`�`) instead of failing the write — the same value the UTF-8 based stores end up with. Well-formed text (emoji, CJK, RTL, combining marks) round-trips unchanged.
-- `upsertChat`/`upsertContact` merge shallowly with a read-then-write; two concurrent partial upserts of the *same* record can lose one side's fields (same as `@bot-wa/postgres-store`).
+- `upsertChat`/`upsertContact` merge shallowly — exactly `{ ...existing, ...patch }` like `MemoryStore` (nested values are replaced, `null` is kept, an explicit `undefined` drops the key) — and **atomically across processes**: each upsert runs a short transaction on a dedicated pool connection (`SELECT data ... FOR UPDATE`, merge, `UPDATE`, `COMMIT`), so concurrent partial upserts of the same record from several replicas never lose fields. A missing row is created first with `INSERT ... ON DUPLICATE KEY UPDATE id = id` (no lock held, so creators never deadlock), and a deadlock victim is retried. `JSON_MERGE_PATCH` is not used on purpose: it merges recursively and treats `null` as delete.
+- An injected pool must therefore also provide `getConnection()` (every mysql2/promise pool does); see `PoolLike`/`ConnectionLike`.
 - Works against MySQL 5.7+/8.x and MariaDB 10.x (`VALUES(col)` upsert syntax). The integration suite has been run against MySQL 8.4 and 8.0.
 - The database named in the URI/config must exist — the store creates tables, not databases.
 
 ## Tests de integración
 
-Los tests unitarios (`tests/mysql-store.test.ts`, `tests/conformance.test.ts`) usan un `FakePool` en memoria que reconoce las sentencias del store, así que nunca ejecutan SQL real. `tests/integration.test.ts` sí lo hace: corre la suite compartida de conformidad de `IStore` y casos propios de MySQL (esquema e índice idempotentes, persistencia tras `stop()`/`start()` con un cliente nuevo, recorte con `maxMessagesPerChat`, `deleteChat` purgando el log, merge superficial, unicode/emoji y JSON grandes, orden/límite de `getMessagesByChat`, `saveMessage` concurrentes y ids que solo difieren en mayúsculas/acentos) contra un servidor de verdad.
+Los tests unitarios (`tests/mysql-store.test.ts`, `tests/conformance.test.ts`) usan un `FakePool` en memoria que reconoce las sentencias del store, así que nunca ejecutan SQL real. `tests/integration.test.ts` sí lo hace: corre la suite compartida de conformidad de `IStore` y casos propios de MySQL (esquema e índice idempotentes, persistencia tras `stop()`/`start()` con un cliente nuevo, recorte con `maxMessagesPerChat`, `deleteChat` purgando el log, merge superficial, unicode/emoji y JSON grandes, orden/límite de `getMessagesByChat`, `saveMessage` concurrentes, `upsertChat`/`upsertContact` parciales y concurrentes desde varios clientes (merge atómico sin pérdida de campos) e ids que solo difieren en mayúsculas/acentos) contra un servidor de verdad.
 
 Es opt-in: se activa con la variable de entorno `BOTWA_TEST_MYSQL_URL` y, si no está definida, se salta entera, así que `pnpm test` sigue siendo hermético. Unos pocos tests "hermetic pins" del mismo archivo fijan esas regresiones sin servidor y corren siempre.
 

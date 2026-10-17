@@ -7,17 +7,69 @@
  * Any statement the fake does not recognize throws, so the suite fails loudly
  * if the store ever drifts to new SQL.
  *
- * Like real mysql2, JSON-typed columns (msg/data/cp/messages) come back
- * already parsed into objects; set `jsonAsString: true` to return the raw
- * stored string instead (TEXT-column behavior / older driver behavior) so the
- * store's defensive parsing is exercised on both paths.
+ * Fidelity with a real MySQL 8 + mysql2 (each point verified against a live
+ * server, see tests/integration.test.ts):
+ *  - Parameters travel as UTF-8 text, so an unpaired UTF-16 surrogate in a
+ *    string parameter arrives as U+FFFD.
+ *  - JSON columns (msg/data/cp/messages) reject invalid JSON text and escaped
+ *    unpaired surrogates (`"\ud83d"`) with ER_INVALID_JSON_TEXT (errno 3140),
+ *    and come back already parsed; set `jsonAsString: true` to return the raw
+ *    stored string instead (TEXT-column / older driver behavior).
+ *  - VARBINARY id/key columns compare byte-wise and come back as Buffers.
+ *  - DML replies carry a ResultSetHeader (`affectedRows`) in the rows slot.
+ *  - `getConnection()` hands out dedicated connections with real transaction
+ *    semantics for the chats/contacts rows: `SELECT ... FOR UPDATE` takes a
+ *    row lock (also on a missing row, like InnoDB's gap lock) held until
+ *    COMMIT/ROLLBACK; writes from other connections wait for it; ROLLBACK
+ *    undoes the transaction's writes. `failNext()` injects server errors
+ *    (e.g. {@link deadlockError}); a deadlock rolls the transaction back, as
+ *    InnoDB does.
  */
-import type { MysqlQueryResult, PoolLike } from '../src/MysqlStore.js'
+import type { ConnectionLike, MysqlQueryResult, PoolLike } from '../src/MysqlStore.js'
 
 type Row = Record<string, unknown>
 
 /** Collapse whitespace so multi-line/template SQL matches its canonical shape. */
 const norm = (sql: string): string => sql.replace(/\s+/g, ' ').trim()
+
+/** A string parameter as the server receives it: UTF-8 on the wire (lone surrogates -> U+FFFD). */
+const wire = (v: unknown): string => Buffer.from(String(v), 'utf8').toString('utf8')
+
+/** Error shaped like mysql2's (code/errno/sqlState/sqlMessage). */
+export function mysqlError(code: string, errno: number, sqlState: string, sqlMessage: string): Error {
+  return Object.assign(new Error(sqlMessage), { code, errno, sqlState, sqlMessage })
+}
+
+/** What InnoDB throws at a deadlock victim (its transaction is rolled back). */
+export function deadlockError(): Error {
+  return mysqlError('ER_LOCK_DEADLOCK', 1213, '40001', 'Deadlock found when trying to get lock; try restarting transaction')
+}
+
+const invalidJson = (reason: string, position: number, column: string): Error =>
+  mysqlError('ER_INVALID_JSON_TEXT', 3140, '22032', `Invalid JSON text: "${reason}" at position ${position} in value for column '${column}'.`)
+
+/**
+ * Validate JSON text the way MySQL's JSON type does and return the stored
+ * (canonical) text. Rejects malformed JSON and `\uD800-\uDFFF` escapes that do
+ * not form a valid high+low pair, keys included.
+ */
+export function mysqlJsonIn(value: unknown, column: string): string {
+  const text = wire(value)
+  try {
+    JSON.parse(text)
+  } catch {
+    throw invalidJson('Invalid value.', 0, column)
+  }
+  const escape = /\\\\|\\u([dD][89a-fA-F][0-9a-fA-F]{2})(?:\\u([dD][c-fC-F][0-9a-fA-F]{2}))?|\\u([dD][c-fC-F][0-9a-fA-F]{2})/g
+  for (let m = escape.exec(text); m != null; m = escape.exec(text)) {
+    if (m[0] === '\\\\') continue
+    // m[1] alone = high without its low; m[3] = low without a preceding high.
+    if ((m[1] != null && m[2] == null) || m[3] != null) {
+      throw invalidJson('The surrogate pair in string is invalid.', m.index, column)
+    }
+  }
+  return text
+}
 
 export interface FakePoolOptions {
   /** Must match the tablePrefix the store under test uses. Default: ''. */
@@ -26,15 +78,56 @@ export interface FakePoolOptions {
   jsonAsString?: boolean
 }
 
+/** A dedicated connection (mysql2 `PoolConnection`): its own transaction and row locks. */
+export class FakeConnection implements ConnectionLike {
+  inTransaction = false
+  released = false
+  destroyed = false
+  /** Row locks held by the open transaction. */
+  readonly locks = new Set<string>()
+  /** Undo log of the open transaction: [table, key, previous row (undefined = absent)]. */
+  readonly undo: Array<[string, string, Row | undefined]> = []
+
+  constructor(private readonly pool: FakePool) {}
+
+  async query(sql: string, params?: readonly unknown[]): Promise<MysqlQueryResult> {
+    if (this.released || this.destroyed) throw new Error('FakePool: connection used after release()/destroy()')
+    return this.pool.run(this, sql, params)
+  }
+
+  release(): void {
+    if (this.released || this.destroyed) throw new Error('FakePool: connection released twice')
+    if (this.inTransaction) throw new Error('FakePool: connection released inside an open transaction')
+    this.released = true
+    this.pool.checkedOut--
+  }
+
+  destroy(): void {
+    if (this.released || this.destroyed) throw new Error('FakePool: connection released twice')
+    // The server rolls back a transaction whose connection goes away.
+    this.pool.endTransaction(this, true)
+    this.destroyed = true
+    this.pool.checkedOut--
+  }
+}
+
 export class FakePool implements PoolLike {
   /** Table name -> primary key -> row (column -> value). */
   readonly tables = new Map<string, Map<string, Row>>()
   /** Every statement received, in order (for assertions). */
-  readonly queries: Array<{ sql: string; params?: readonly unknown[] }> = []
+  readonly queries: Array<{ sql: string; params?: readonly unknown[]; conn?: FakeConnection }> = []
   /** True after end() was called (real pool: connections released). */
   ended = false
+  /** Connections handed out by getConnection() and not yet released/destroyed. */
+  checkedOut = 0
+  /** Every connection handed out by getConnection(). */
+  readonly connections: FakeConnection[] = []
 
   private readonly jsonAsString: boolean
+  /** Row lock -> owning connection + waiters. */
+  private readonly rowLocks = new Map<string, { owner: FakeConnection; waiters: Array<() => void> }>()
+  /** Errors to throw for the next statements matching a pattern (see failNext). */
+  private readonly failures: Array<{ match: RegExp; error: Error }> = []
   /**
    * How the user_data identifier columns (user_id, namespace, `key`) compare,
    * read from the CREATE TABLE the store issues, like the real server:
@@ -59,6 +152,64 @@ export class FakePool implements PoolLike {
       cursors: `${p}cursors`,
       userData: `${p}user_data`,
     }
+  }
+
+  /** Make the next statement whose normalized SQL matches `match` throw `error` (once). */
+  failNext(match: RegExp, error: Error): void {
+    this.failures.push({ match, error })
+  }
+
+  async getConnection(): Promise<FakeConnection> {
+    if (this.ended) throw new Error('FakePool: pool is closed')
+    const conn = new FakeConnection(this)
+    this.connections.push(conn)
+    this.checkedOut++
+    return conn
+  }
+
+  /* Locks / transactions ----------------------------------------------------- */
+
+  /**
+   * Wait until no OTHER connection's transaction holds the row lock; when
+   * `conn` is in a transaction, take the lock until COMMIT/ROLLBACK.
+   */
+  private async lock(conn: FakeConnection | null, table: string, key: string): Promise<void> {
+    const id = `${table}\u0000${key}`
+    for (;;) {
+      const held = this.rowLocks.get(id)
+      if (held == null || held.owner === conn) break
+      await new Promise<void>((resolve) => held.waiters.push(resolve))
+    }
+    if (conn?.inTransaction && !this.rowLocks.has(id)) {
+      this.rowLocks.set(id, { owner: conn, waiters: [] })
+      conn.locks.add(id)
+    }
+  }
+
+  /** Write a row, recording the previous one in the transaction's undo log. */
+  private write(conn: FakeConnection | null, table: string, key: string, row: Row | undefined): void {
+    const map = this.table(table)
+    if (conn?.inTransaction) conn.undo.push([table, key, map.get(key)])
+    if (row == null) map.delete(key)
+    else map.set(key, row)
+  }
+
+  /** COMMIT (rollback=false) or ROLLBACK the connection's transaction and release its locks. */
+  endTransaction(conn: FakeConnection, rollback: boolean): void {
+    if (rollback) {
+      for (const [table, key, prev] of conn.undo.reverse()) {
+        if (prev == null) this.table(table).delete(key)
+        else this.table(table).set(key, prev)
+      }
+    }
+    conn.undo.length = 0
+    conn.inTransaction = false
+    for (const id of conn.locks) {
+      const held = this.rowLocks.get(id)
+      this.rowLocks.delete(id)
+      for (const wake of held?.waiters ?? []) wake()
+    }
+    conn.locks.clear()
   }
 
   /** Classify the user_data identifier columns from the table's DDL (see {@link userDataIdentifiers}). */
@@ -154,12 +305,41 @@ export class FakePool implements PoolLike {
     return map
   }
 
+  /** Pool-level query: autocommit, on whichever connection the pool picks. */
   async query(sql: string, params?: readonly unknown[]): Promise<MysqlQueryResult> {
     if (this.ended) throw new Error('FakePool: pool is closed')
-    this.queries.push({ sql, params })
+    return this.run(null, sql, params)
+  }
+
+  /** Execute one statement, on a dedicated connection (`conn`) or in autocommit mode (null). */
+  async run(conn: FakeConnection | null, sql: string, params?: readonly unknown[]): Promise<MysqlQueryResult> {
+    this.queries.push(conn ? { sql, params, conn } : { sql, params })
     const s = norm(sql)
     const p = params ?? []
     const { messages, chats, contacts, checkpoints, conversations, cursors } = this.t
+    const header = (affectedRows: number): MysqlQueryResult => [{ affectedRows } as unknown as Row[], []]
+    /** Byte-exact VARBINARY key, as the server sees the parameter. */
+    const key = (v: unknown): string => wire(v)
+
+    const failure = this.failures.findIndex((f) => f.match.test(s))
+    if (failure !== -1) {
+      const [{ error }] = this.failures.splice(failure, 1)
+      // InnoDB rolls back the whole transaction of a deadlock victim.
+      if (conn?.inTransaction && (error as { errno?: unknown }).errno === 1213) this.endTransaction(conn, true)
+      throw error
+    }
+
+    /* Transactions --------------------------------------------------------- */
+    if (s === 'START TRANSACTION') {
+      if (conn == null) throw new Error('FakePool: START TRANSACTION on the pool (use getConnection())')
+      if (conn.inTransaction) this.endTransaction(conn, false) // implicit commit, like MySQL
+      conn.inTransaction = true
+      return header(0)
+    }
+    if (s === 'COMMIT' || s === 'ROLLBACK') {
+      if (conn != null) this.endTransaction(conn, s === 'ROLLBACK')
+      return header(0)
+    }
 
     /* DDL ------------------------------------------------------------------ */
     if (s.startsWith('CREATE TABLE IF NOT EXISTS')) {
@@ -167,7 +347,7 @@ export class FakePool implements PoolLike {
       if (m == null) throw new Error(`FakePool: unrecognized CREATE: ${s}`)
       this.table(m[1]) // create empty table
       if (m[1] === this.t.userData) this.classifyUserDataDdl(s)
-      return [[], []]
+      return header(0)
     }
 
     /* messages -------------------------------------------------------------- */
@@ -177,104 +357,140 @@ export class FakePool implements PoolLike {
         'ON DUPLICATE KEY UPDATE chat_id = VALUES(chat_id), timestamp = VALUES(timestamp), msg = VALUES(msg)'
     ) {
       const [id, chatId, timestamp, msg] = p
-      this.table(messages).set(String(id), { id, chat_id: chatId, timestamp: Number(timestamp), msg: String(msg) })
-      return [[], []]
+      const stored = mysqlJsonIn(msg, `${messages}.msg`)
+      const existed = this.table(messages).has(key(id))
+      this.table(messages).set(key(id), { id: key(id), chat_id: key(chatId), timestamp: Number(timestamp), msg: stored })
+      return header(existed ? 2 : 1)
     }
     if (s === `SELECT msg FROM \`${messages}\` WHERE id = ?`) {
-      const row = this.table(messages).get(String(p[0]))
+      const row = this.table(messages).get(key(p[0]))
       return [row ? [{ msg: this.jsonOut(String(row.msg)) }] : [], []]
     }
     if (s === `SELECT msg FROM \`${messages}\` WHERE chat_id = ? ORDER BY timestamp DESC LIMIT ?`) {
       const rows = [...this.table(messages).values()]
-        .filter((r) => r.chat_id === p[0])
+        .filter((r) => r.chat_id === key(p[0]))
         .sort((a, b) => Number(b.timestamp) - Number(a.timestamp))
         .slice(0, Number(p[1]))
         .map((r) => ({ msg: this.jsonOut(String(r.msg)) }))
       return [rows, []]
     }
     if (s === `DELETE FROM \`${messages}\` WHERE id = ?`) {
-      this.table(messages).delete(String(p[0]))
-      return [[], []]
+      return header(this.table(messages).delete(key(p[0])) ? 1 : 0)
     }
     if (s === `DELETE FROM \`${messages}\` WHERE chat_id = ?`) {
-      for (const [k, r] of this.table(messages)) if (r.chat_id === p[0]) this.table(messages).delete(k)
-      return [[], []]
+      let n = 0
+      for (const [k, r] of this.table(messages)) {
+        if (r.chat_id === key(p[0])) {
+          this.table(messages).delete(k)
+          n++
+        }
+      }
+      return header(n)
     }
     if (
       s ===
       `DELETE FROM \`${messages}\` WHERE chat_id = ? AND id NOT IN ` +
         `(SELECT id FROM (SELECT id FROM \`${messages}\` WHERE chat_id = ? ORDER BY timestamp DESC, id DESC LIMIT ?) keep)`
     ) {
-      const chatId = p[0]
+      const chatId = key(p[0])
       const keep = Number(p[2])
       const matching = [...this.table(messages).values()].filter((r) => r.chat_id === chatId)
-      matching.sort((a, b) => Number(b.timestamp) - Number(a.timestamp) || (String(a.id) < String(b.id) ? 1 : -1))
+      // VARBINARY orders by bytes: compare the UTF-8 encodings, not UTF-16 code units.
+      const bytes = (v: unknown): Buffer => Buffer.from(String(v), 'utf8')
+      matching.sort((a, b) => Number(b.timestamp) - Number(a.timestamp) || Buffer.compare(bytes(b.id), bytes(a.id)))
       const keepIds = new Set(matching.slice(0, keep).map((r) => String(r.id)))
+      let n = 0
       for (const [k, r] of this.table(messages)) {
-        if (r.chat_id === chatId && !keepIds.has(String(r.id))) this.table(messages).delete(k)
+        if (r.chat_id === chatId && !keepIds.has(String(r.id))) {
+          this.table(messages).delete(k)
+          n++
+        }
       }
-      return [[], []]
+      return header(n)
     }
 
-    /* chats / contacts (identical shape: id PK + data JSON) ------------------ */
+    /* chats / contacts (identical shape: id PK + data JSON; row-locked) ------ */
     for (const name of [chats, contacts]) {
-      if (s === `INSERT INTO \`${name}\` (id, data) VALUES (?, ?) ON DUPLICATE KEY UPDATE data = VALUES(data)`) {
-        this.table(name).set(String(p[0]), { id: p[0], data: String(p[1]) })
-        return [[], []]
+      if (s === `INSERT INTO \`${name}\` (id, data) VALUES (?, ?) ON DUPLICATE KEY UPDATE id = id`) {
+        const stored = mysqlJsonIn(p[1], `${name}.data`)
+        await this.lock(conn, name, key(p[0]))
+        if (this.table(name).has(key(p[0]))) return header(1) // FOUND_ROWS: a no-op duplicate still reports 1
+        this.write(conn, name, key(p[0]), { id: key(p[0]), data: stored })
+        return header(1)
+      }
+      if (s === `SELECT data FROM \`${name}\` WHERE id = ? FOR UPDATE`) {
+        if (conn == null || !conn.inTransaction) throw new Error(`FakePool: FOR UPDATE outside a transaction: ${s}`)
+        await this.lock(conn, name, key(p[0]))
+        const row = this.table(name).get(key(p[0]))
+        return [row ? [{ data: this.jsonOut(String(row.data)) }] : [], []]
+      }
+      if (s === `UPDATE \`${name}\` SET data = ? WHERE id = ?`) {
+        const stored = mysqlJsonIn(p[0], `${name}.data`)
+        await this.lock(conn, name, key(p[1]))
+        const row = this.table(name).get(key(p[1]))
+        if (row == null) return header(0)
+        this.write(conn, name, key(p[1]), { ...row, data: stored })
+        return header(1)
       }
       if (s === `SELECT data FROM \`${name}\` WHERE id = ?`) {
-        const row = this.table(name).get(String(p[0]))
+        const row = this.table(name).get(key(p[0]))
         return [row ? [{ data: this.jsonOut(String(row.data)) }] : [], []]
       }
       if (s === `SELECT data FROM \`${name}\``) {
         return [[...this.table(name).values()].map((r) => ({ data: this.jsonOut(String(r.data)) })), []]
       }
       if (s === `DELETE FROM \`${name}\` WHERE id = ?`) {
-        this.table(name).delete(String(p[0]))
-        return [[], []]
+        await this.lock(conn, name, key(p[0]))
+        const existed = this.table(name).has(key(p[0]))
+        this.write(conn, name, key(p[0]), undefined)
+        return header(existed ? 1 : 0)
       }
     }
 
     /* checkpoints ------------------------------------------------------------- */
     if (s === `INSERT INTO \`${checkpoints}\` (\`key\`, cp) VALUES (?, ?) ON DUPLICATE KEY UPDATE cp = VALUES(cp)`) {
-      this.table(checkpoints).set(String(p[0]), { key: p[0], cp: String(p[1]) })
-      return [[], []]
+      const stored = mysqlJsonIn(p[1], `${checkpoints}.cp`)
+      const existed = this.table(checkpoints).has(key(p[0]))
+      this.table(checkpoints).set(key(p[0]), { key: key(p[0]), cp: stored })
+      return header(existed ? 2 : 1)
     }
     if (s === `SELECT cp FROM \`${checkpoints}\` WHERE \`key\` = ?`) {
-      const row = this.table(checkpoints).get(String(p[0]))
+      const row = this.table(checkpoints).get(key(p[0]))
       return [row ? [{ cp: this.jsonOut(String(row.cp)) }] : [], []]
     }
     if (s === `DELETE FROM \`${checkpoints}\` WHERE \`key\` = ?`) {
-      this.table(checkpoints).delete(String(p[0]))
-      return [[], []]
+      return header(this.table(checkpoints).delete(key(p[0])) ? 1 : 0)
     }
     if (s === `SELECT \`key\`, cp FROM \`${checkpoints}\``) {
-      return [[...this.table(checkpoints).values()].map((r) => ({ key: r.key, cp: this.jsonOut(String(r.cp)) })), []]
+      // VARBINARY comes back from mysql2 as a Buffer.
+      return [[...this.table(checkpoints).values()].map((r) => ({ key: Buffer.from(String(r.key), 'utf8'), cp: this.jsonOut(String(r.cp)) })), []]
     }
 
     /* conversations ----------------------------------------------------------- */
     if (
       s === `INSERT INTO \`${conversations}\` (\`key\`, messages) VALUES (?, ?) ON DUPLICATE KEY UPDATE messages = VALUES(messages)`
     ) {
-      this.table(conversations).set(String(p[0]), { key: p[0], messages: String(p[1]) })
-      return [[], []]
+      const stored = mysqlJsonIn(p[1], `${conversations}.messages`)
+      const existed = this.table(conversations).has(key(p[0]))
+      this.table(conversations).set(key(p[0]), { key: key(p[0]), messages: stored })
+      return header(existed ? 2 : 1)
     }
     if (s === `SELECT messages FROM \`${conversations}\` WHERE \`key\` = ?`) {
-      const row = this.table(conversations).get(String(p[0]))
+      const row = this.table(conversations).get(key(p[0]))
       return [row ? [{ messages: this.jsonOut(String(row.messages)) }] : [], []]
     }
     if (s === `DELETE FROM \`${conversations}\` WHERE \`key\` = ?`) {
-      this.table(conversations).delete(String(p[0]))
-      return [[], []]
+      return header(this.table(conversations).delete(key(p[0])) ? 1 : 0)
     }
 
     /* cursors (TEXT value) ------------------------------------------------------ */
     if (s === `INSERT INTO \`${cursors}\` (\`key\`, value) VALUES (?, ?) ON DUPLICATE KEY UPDATE value = VALUES(value)`) {
-      this.table(cursors).set(String(p[0]), { key: p[0], value: String(p[1]) })
-      return [[], []]
+      const existed = this.table(cursors).has(key(p[0]))
+      this.table(cursors).set(key(p[0]), { key: key(p[0]), value: wire(p[1]) })
+      return header(existed ? 2 : 1)
     }
     if (s === `SELECT value FROM \`${cursors}\` WHERE \`key\` = ?`) {
-      const row = this.table(cursors).get(String(p[0]))
+      const row = this.table(cursors).get(key(p[0]))
       return [row ? [{ value: row.value }] : [], []]
     }
 

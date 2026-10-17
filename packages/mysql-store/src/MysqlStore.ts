@@ -63,7 +63,31 @@ export type MysqlQueryResult = [rows: Array<Record<string, unknown>>, fields: un
  */
 export interface PoolLike {
   query(sql: string, params?: readonly unknown[]): Promise<MysqlQueryResult>
+  /**
+   * Check out a dedicated connection (mysql2/promise `pool.getConnection()`).
+   * Used for the short transactions that make `upsertChat`/`upsertContact`
+   * atomic across processes.
+   */
+  getConnection(): Promise<ConnectionLike>
   end(): Promise<unknown>
+}
+
+/** Structural subset of a mysql2/promise `PoolConnection` used by {@link MysqlStore}. */
+export interface ConnectionLike {
+  query(sql: string, params?: readonly unknown[]): Promise<MysqlQueryResult>
+  /** Return the connection to the pool. */
+  release(): void
+  /** Close the connection instead of returning it (used when ROLLBACK itself fails). */
+  destroy?(): void
+}
+
+/** InnoDB deadlock victim (ER_LOCK_DEADLOCK): the transaction was rolled back and can be retried. */
+const ER_LOCK_DEADLOCK = 1213
+/** Bound on merge retries (deadlock victim, or the row deleted between ensure-insert and lock). */
+const MAX_MERGE_ATTEMPTS = 10
+
+function isDeadlock(err: unknown): boolean {
+  return typeof err === 'object' && err !== null && (err as { errno?: unknown }).errno === ER_LOCK_DEADLOCK
 }
 
 export interface MysqlStoreOptions {
@@ -160,6 +184,69 @@ export class MysqlStore implements IStore {
     return this.pool.query(sql, params)
   }
 
+  /**
+   * `{ ...existing, ...patch }` on one JSON document (chats/contacts), atomic
+   * across connections and processes — the exact MemoryStore semantics: a
+   * shallow merge where nested values are replaced, `null` is kept and an
+   * explicit `undefined` drops the key (it is not serialised).
+   *
+   * A plain read-then-write lets two concurrent partial upserts of the same
+   * record lose one side's fields. Instead, on one dedicated connection:
+   *
+   *   START TRANSACTION; SELECT data ... FOR UPDATE   -- row lock
+   *   UPDATE ... SET data = <merged in JS>; COMMIT
+   *
+   * so every writer merges over the latest committed document. When the row
+   * does not exist yet there is nothing to lock: the transaction is rolled
+   * back (releasing InnoDB's gap lock, so creators never deadlock each other)
+   * and the row is created with `INSERT ... ON DUPLICATE KEY UPDATE id = id`,
+   * a no-op if a concurrent writer created it first; the loop then merges
+   * over whatever is there. JSON_MERGE_PATCH is deliberately not used: it
+   * merges recursively and treats `null` as "delete", which is not shallow.
+   * A deadlock victim (ER_LOCK_DEADLOCK) is retried, bounded.
+   */
+  private async mergeDocument(table: string, id: string, patch: object): Promise<void> {
+    if (this.pool == null) {
+      throw new Error('MysqlStore: pool is not available — call start() first')
+    }
+    const pool = this.pool
+    const conn = await pool.getConnection()
+    let reusable = true
+    try {
+      for (let attempt = 1; attempt <= MAX_MERGE_ATTEMPTS; attempt++) {
+        let inTransaction = false
+        try {
+          await conn.query('START TRANSACTION')
+          inTransaction = true
+          const [rows] = await conn.query(`SELECT data FROM \`${table}\` WHERE id = ? FOR UPDATE`, [id])
+          if (rows.length > 0) {
+            const merged = { ...fromJson<object>(rows[0]?.data), ...patch }
+            await conn.query(`UPDATE \`${table}\` SET data = ? WHERE id = ?`, [toJson(merged), id])
+            await conn.query('COMMIT')
+            return
+          }
+          await conn.query('ROLLBACK')
+          inTransaction = false
+        } catch (err) {
+          if (inTransaction) {
+            try {
+              await conn.query('ROLLBACK')
+            } catch {
+              reusable = false // never hand a connection with an open transaction back to the pool
+            }
+          }
+          if (reusable && isDeadlock(err) && attempt < MAX_MERGE_ATTEMPTS) continue
+          throw err
+        }
+        await conn.query(`INSERT INTO \`${table}\` (id, data) VALUES (?, ?) ON DUPLICATE KEY UPDATE id = id`, [id, toJson(patch)])
+      }
+      throw new Error(`MysqlStore: could not upsert ${JSON.stringify(id)} into ${table} after ${MAX_MERGE_ATTEMPTS} attempts`)
+    } finally {
+      if (!reusable && conn.destroy) conn.destroy()
+      else conn.release()
+    }
+  }
+
   /* Messages -------------------------------------------------------------- */
 
   async saveMessage(msg: StoredMessage): Promise<void> {
@@ -208,15 +295,9 @@ export class MysqlStore implements IStore {
 
   /* Chats ----------------------------------------------------------------- */
 
+  /** Shallow-merges over any existing record, atomically across processes (see {@link mergeDocument}). */
   async upsertChat(chat: StoredChat): Promise<void> {
-    // Shallow-merge over any existing record so a partial upsert keeps prior
-    // fields — consistent with MemoryStore/MongoStore.
-    const existing = await this.getChat(chat.id)
-    const merged = { ...existing, ...chat }
-    await this.query(
-      `INSERT INTO \`${this.t.chats}\` (id, data) VALUES (?, ?) ON DUPLICATE KEY UPDATE data = VALUES(data)`,
-      [chat.id, toJson(merged)],
-    )
+    await this.mergeDocument(this.t.chats, chat.id, chat)
   }
   async getChat(chatId: string): Promise<StoredChat | undefined> {
     const [rows] = await this.query(`SELECT data FROM \`${this.t.chats}\` WHERE id = ?`, [chatId])
@@ -234,13 +315,9 @@ export class MysqlStore implements IStore {
 
   /* Contacts -------------------------------------------------------------- */
 
+  /** Shallow-merges over any existing record, atomically across processes (see {@link mergeDocument}). */
   async upsertContact(contact: StoredContact): Promise<void> {
-    const existing = await this.getContact(contact.id)
-    const merged = { ...existing, ...contact }
-    await this.query(
-      `INSERT INTO \`${this.t.contacts}\` (id, data) VALUES (?, ?) ON DUPLICATE KEY UPDATE data = VALUES(data)`,
-      [contact.id, toJson(merged)],
-    )
+    await this.mergeDocument(this.t.contacts, contact.id, contact)
   }
   async getContact(userId: string): Promise<StoredContact | undefined> {
     const [rows] = await this.query(`SELECT data FROM \`${this.t.contacts}\` WHERE id = ?`, [userId])

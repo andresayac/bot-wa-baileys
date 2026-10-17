@@ -25,7 +25,7 @@ import { randomBytes } from 'node:crypto'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { createPool } from 'mysql2/promise'
 import type { Pool, RowDataPacket } from 'mysql2/promise'
-import type { AIMessage, FlowCheckpoint, StoredMessage } from '@bot-wa/core'
+import type { AIMessage, FlowCheckpoint, StoredChat, StoredContact, StoredMessage } from '@bot-wa/core'
 import { MysqlStore } from '../src/MysqlStore.js'
 import type { MysqlQueryResult, MysqlStoreOptions, PoolLike } from '../src/MysqlStore.js'
 import { runStoreConformance } from '../../../test-utils/store-conformance.js'
@@ -404,6 +404,88 @@ describe.skipIf(!enabled)('MysqlStore — real MySQL integration', () => {
         await teardown()
       }
     })
+
+    it('matches MemoryStore exactly: explicit undefined removes a key, null is kept, nested values replace', async () => {
+      const { store, teardown } = await makeStore()
+      try {
+        await store.upsertChat({ id: 'c', name: 'Group', kind: 'group', raw: { a: { b: 1 }, keep: true } })
+        await store.upsertChat({ id: 'c', name: undefined, raw: { a: null } })
+        const chat = await store.getChat('c')
+        expect(chat).toEqual({ id: 'c', kind: 'group', raw: { a: null } })
+        expect(Object.keys(chat ?? {}).sort()).toEqual(['id', 'kind', 'raw'])
+
+        await store.upsertContact({ id: 'u', name: 'Ana', username: 'ana' })
+        await store.upsertContact({ id: 'u', username: null as unknown as string })
+        expect(await store.getContact('u')).toEqual({ id: 'u', name: 'Ana', username: null })
+      } finally {
+        await teardown()
+      }
+    })
+
+    // Regression: upsertChat/upsertContact were read-then-write, so two
+    // processes doing partial upserts of the same record raced and one side's
+    // fields were lost. Every client here owns its own pool (like a separate
+    // bot replica); the merged record must contain every field.
+    it('concurrent partial upserts from many clients never lose fields (atomic shallow merge)', async () => {
+      const { store, prefix, teardown } = await makeStore()
+      const others = await Promise.all(
+        Array.from({ length: 5 }, async () => {
+          const s = new MysqlStore({ uri: MYSQL_URL, tablePrefix: prefix })
+          await s.start()
+          return s
+        }),
+      )
+      const clients = [store, ...others]
+      const perClient = 30
+      const fields = (tag: string): Record<string, number> => {
+        const out: Record<string, number> = {}
+        clients.forEach((_, c) => { for (let i = 0; i < perClient; i++) out[`${tag}${c}_${i}`] = i })
+        return out
+      }
+      try {
+        await store.upsertChat({ id: 'existing', name: 'base' })
+        await store.upsertContact({ id: 'existing', name: 'base' })
+        for (const id of ['fresh', 'existing']) {
+          await Promise.all(
+            clients.flatMap((client, c) =>
+              Array.from({ length: perClient }, (_, i) => [
+                client.upsertChat({ id, [`chat${c}_${i}`]: i } as unknown as StoredChat),
+                client.upsertContact({ id, [`contact${c}_${i}`]: i } as unknown as StoredContact),
+              ]).flat(),
+            ),
+          )
+          const base = id === 'existing' ? { name: 'base' } : {}
+          expect(await store.getChat(id)).toEqual({ id, ...base, ...fields('chat') })
+          expect(await store.getContact(id)).toEqual({ id, ...base, ...fields('contact') })
+        }
+        expect(await rowCount(prefix, 'chats')).toBe(2)
+        expect(await rowCount(prefix, 'contacts')).toBe(2)
+      } finally {
+        await Promise.all(others.map((s) => s.stop()))
+        await teardown()
+      }
+    }, 120_000)
+
+    it('an upsert racing deleteChat never resurrects partial state or throws', async () => {
+      const { store, prefix, teardown } = await makeStore()
+      const other = new MysqlStore({ uri: MYSQL_URL, tablePrefix: prefix })
+      await other.start()
+      try {
+        for (let round = 0; round < 20; round++) {
+          await store.upsertChat({ id: 'c', name: 'base', kind: 'group' })
+          await Promise.all([store.deleteChat('c'), other.upsertChat({ id: 'c', name: `r${round}` })])
+          const got = await store.getChat('c')
+          // Either the delete came last (gone) or the upsert merged over the
+          // pre- or post-delete state — never a half-applied record.
+          if (got !== undefined) {
+            expect([{ id: 'c', name: `r${round}`, kind: 'group' }, { id: 'c', name: `r${round}` }]).toContainEqual(got)
+          }
+        }
+      } finally {
+        await other.stop()
+        await teardown()
+      }
+    }, 60_000)
   })
 
   /* Encoding / JSON fidelity ------------------------------------------------------------ */
@@ -618,6 +700,9 @@ describe('MysqlStore — real-server regressions (hermetic pins)', () => {
       async query(sql: string): Promise<MysqlQueryResult> {
         if (sql.startsWith('SELECT `key`, cp FROM')) return [[{ key: Buffer.from('chat-😀:ñ', 'utf8'), cp }], []]
         return [[], []]
+      },
+      async getConnection() {
+        throw new Error('not used')
       },
       async end() {},
     }
