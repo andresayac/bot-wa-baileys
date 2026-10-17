@@ -52,3 +52,55 @@ describe('onIdle × human handoff (real bot.handoff / bot.resume)', () => {
     await bot.stop()
   })
 })
+
+describe('describe/lint × WELCOME and type triggers', () => {
+  it('describes special triggers by name instead of "[object Object]"', async () => {
+    const { describeTrigger } = await import('../src/flows/inventory.js')
+    const { WELCOME, IMAGE, MEDIA, CALL } = await import('../src/core/triggers.js')
+    expect(describeTrigger(WELCOME)).toMatchObject({ label: 'WELCOME', predicate: true, special: { kind: 'welcome' } })
+    expect(describeTrigger({ ...IMAGE, scope: 'dm' })).toMatchObject({ label: 'type: image (dm only)', scope: 'dm', special: { kind: 'type', types: ['image'] } })
+    expect(describeTrigger(MEDIA).label).toMatch(/^type: image \| /)
+    expect(describeTrigger(CALL).label).toBe('type: call')
+  })
+
+  it('lint does not report special triggers as empty or duplicate text triggers', async () => {
+    const { lintFlows } = await import('../src/flows/lint.js')
+    const { flow } = await import('../src/flows/FlowBuilder.js')
+    const { WELCOME, IMAGE, MEDIA, CALL } = await import('../src/core/triggers.js')
+    const bot = new Bot({ provider: new MockProvider() })
+    bot.use([
+      flow(WELCOME).id('bienvenida').say('¡Hola!'),
+      flow(IMAGE).id('foto').say('linda foto'),
+      flow(MEDIA).id('media').say('recibido'),
+      flow(CALL).id('llamada').say('no atiendo llamadas'),
+    ])
+    const diagnostics = lintFlows(bot, { rules: { 'missing-timeout': false } })
+    expect(diagnostics).toEqual([])
+    const mermaid = bot.describe()
+    expect(mermaid).not.toContain('[object Object]')
+    expect(mermaid).toContain('WELCOME')
+  })
+})
+
+describe('CALL trigger × access lists and handoff', () => {
+  const tick = (ms = 10) => new Promise((r) => setTimeout(r, ms))
+
+  it('a blacklisted caller and a handed-off chat never reach CALL triggers; the call event still fires', async () => {
+    const { createTestBot } = await import('../src/testing/createTestBot.js')
+    const { CALL } = await import('../src/core/triggers.js')
+    const { bot, provider } = await createTestBot()
+    const handled: string[] = []
+    const raw: string[] = []
+    bot.when(CALL, (ctx) => { handled.push(ctx.from) })
+    bot.on('call', (e) => { raw.push(e.from) })
+    bot.blacklist.add('spammer')
+    await bot.handoff('with-agent')
+    provider.call({ id: 'c1', from: 'spammer' })
+    provider.call({ id: 'c2', from: 'with-agent' })
+    provider.call({ id: 'c3', from: 'friend' })
+    await tick()
+    expect(handled).toEqual(['friend'])
+    expect(raw).toEqual(['spammer', 'with-agent', 'friend'])
+    await bot.stop()
+  })
+})

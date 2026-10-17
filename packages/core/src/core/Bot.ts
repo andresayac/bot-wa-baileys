@@ -1207,12 +1207,18 @@ export class Bot extends EventEmitter {
     if (!proceed || !this.acceptingInbound || !this.dispatcher.hasTypeMatcher('call')) return
     // A call can never mention the bot nor be a command: a restrictive groupMode keeps group calls out.
     if (call.isGroup === true && this.config.groupMode && this.config.groupMode !== 'all') return
+    const inbound = callToInbound(call)
+    // Same gates as messages: a blacklisted / non-whitelisted caller or chat and a chat in human
+    // handoff never reach CALL triggers (the 'call' hooks and event above still run).
+    if (checkAccess(this.blacklist, this.whitelist, inbound) !== 'allowed') return
+    if (!this.handoffs.admits(inbound)) return
     if (call.id && !this.seenCalls.add(call.id)) return
     const ctx = buildMessageContext({
-      inbound: callToInbound(call),
+      inbound,
       tools: this.tools,
       send: (chatId, content, opts) => this.dispatchSend(chatId, content, opts),
       typing: async (chatId, state) => { await this.provider.typing?.(chatId, state) },
+      handoff: (chatId, opts) => this.handoff(chatId, opts),
     })
     ctx.call = call
     await this.dispatcher.dispatchEvent(ctx as unknown as DispatchContext)
