@@ -252,3 +252,15 @@ export { UserDataError } from './user/errors.js'
 export type { UserDataErrorCode } from './user/errors.js'
 export type { UserData, UserSetOptions } from './user/types.js'
 export type { UserDataEntry } from './core/provider.js'
+
+// bot-ops
+// bot.broadcast() engine, bot.trigger() types, bot.metrics() snapshot + Prometheus exporter,
+// and the conversation lifecycle types behind the 'conversation:started'/'conversation:ended' events.
+export { runBroadcast } from './ops/broadcast.js'
+export type { BroadcastOptions, BroadcastFailure, BroadcastProgress, BroadcastDeps } from './ops/broadcast.js'
+export type { TriggerOptions, TriggerResult, TriggerSkipReason, TriggerRaw } from './ops/trigger.js'
+export { MetricsCollector, formatUptime } from './ops/metrics.js'
+export type { BotMetricsSnapshot, ConversationCounters, ConversationStartedEvent, ConversationEndedEvent } from './ops/metrics.js'
+export { toPrometheus, PROMETHEUS_CONTENT_TYPE } from './ops/prometheus.js'
+export type { PrometheusOptions } from './ops/prometheus.js'
+export type { ConversationOutcome, EnterOptions, ConversationStartInfo, ConversationEndInfo } from './conversations/ConversationRuntime.js'

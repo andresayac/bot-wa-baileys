@@ -66,6 +66,41 @@ export interface RuntimeConfig {
   onError?: (error: unknown, ctx: RuntimeMessage) => void
   /** Task 3 inyecta la factory completa de controls; default = base. */
   controlsFactory?: (rt: ConversationRuntime, handle: ConversationHandle, ctx: RuntimeMessage) => ConversationControlsBase
+  /** A conversation was entered (metrics / `'conversation:started'`). Must not throw. */
+  onConversationStart?: (info: ConversationStartInfo) => void
+  /** A conversation ended, whatever the reason (metrics / `'conversation:ended'`). Must not throw. */
+  onConversationEnd?: (info: ConversationEndInfo) => void
+}
+
+/**
+ * How a conversation ended:
+ * - `completed` — the function returned, `c.end()` was called or it `c.goto()`-ed elsewhere;
+ * - `cancelled` — aborted (`/reset`, handoff, replaced by a new conversation, `stop()`) or `ConversationCancelled`;
+ * - `timedOut` — a wait expired;
+ * - `retriesExceeded` — `c.retry()` ran out of attempts;
+ * - `error` — the conversation threw anything else.
+ */
+export type ConversationOutcome = 'completed' | 'cancelled' | 'timedOut' | 'retriesExceeded' | 'error'
+
+/** Options of {@link ConversationRuntime.enter}. */
+export interface EnterOptions {
+  /** Initial `c.state` (shallow-copied). Used by `bot.trigger(name, { data })`. */
+  state?: Record<string, unknown>
+  /** Name reported to lifecycle observers when `enter()` receives a function (e.g. a resumed flow). */
+  name?: string
+}
+
+export interface ConversationStartInfo {
+  name: string
+  key: string
+  ctx: RuntimeMessage
+}
+
+export interface ConversationEndInfo extends ConversationStartInfo {
+  outcome: ConversationOutcome
+  durationMs: number
+  /** Target of the `c.goto()` that ended it, when it ended that way. */
+  goto?: string
 }
 
 interface PendingWait {
@@ -200,7 +235,7 @@ export class ConversationRuntime {
     }
     // enter() is fire-and-forget (it only resolves when the resumed flow ends); a rejection
     // here (e.g. a bad goto target) would otherwise become an unhandled rejection → crash.
-    void this.enter(resumed, ctx).catch((e) => {
+    void this.enter(resumed, ctx, { name: cp.flowId }).catch((e) => {
       this.cfg.onError?.(e, ctx)
       this.cfg.logger?.error?.('resume failed', e)
     })
@@ -213,6 +248,16 @@ export class ConversationRuntime {
   }
 
   hasActive(key: string): boolean { return this.active.has(key) }
+
+  /** Drop `key`'s dormant checkpoint (memory + store). Returns whether one existed. */
+  discardDormant(key: string): boolean {
+    if (!this.dormant.delete(key)) return false
+    void this.store?.clearCheckpoint(key).catch(() => {})
+    return true
+  }
+
+  /** Number of live conversations (every key). */
+  activeCount(): number { return this.active.size }
 
   /** True while `key` has a persisted checkpoint waiting to be resumed by its next message. */
   hasDormant(key: string): boolean { return this.dormant.has(key) }
@@ -234,9 +279,10 @@ export class ConversationRuntime {
     return false
   }
 
-  async enter(nameOrFn: string | ConversationFn, ctx: RuntimeMessage): Promise<void> {
+  async enter(nameOrFn: string | ConversationFn, ctx: RuntimeMessage, opts: EnterOptions = {}): Promise<void> {
     const fn = typeof nameOrFn === 'string' ? this.registry.get(nameOrFn) : nameOrFn
     if (!fn) throw new Error(`Conversation "${String(nameOrFn)}" is not registered`)
+    const name = typeof nameOrFn === 'string' ? nameOrFn : (opts.name ?? (fn.name || '(anonymous)'))
 
     const key = this.keyFor(ctx)
     // A fresh conversation on this key must not inherit a stale shutdown-preserve flag
@@ -244,34 +290,47 @@ export class ConversationRuntime {
     this.preserveOnAbort.delete(key)
     if (this.active.has(key)) this.abort(key)
 
-    const entry: ActiveConversation = { key, state: {}, inbox: [] }
+    const entry: ActiveConversation = { key, state: opts.state ? { ...opts.state } : {}, inbox: [] }
     this.active.set(key, entry)
+    const startedAt = Date.now()
+    this.notifyLifecycle(() => this.cfg.onConversationStart?.({ name, key, ctx }))
 
     const controls = (this.cfg.controlsFactory ?? defaultControlsFactory)(this, entry, ctx)
 
     let goto: ConversationGoto | undefined
+    let outcome: ConversationOutcome = 'completed'
     try {
       await fn(controls as never, ctx)
     } catch (e) {
       if (entry.cancelled) {
         // Conversación reemplazada/abortada: muere en silencio, sin efectos visibles.
+        outcome = 'cancelled'
       } else if (e instanceof ConversationEnded) {
         if (e.farewell) await this.safeReply(ctx, e.farewell)
       } else if (e instanceof ConversationGoto) {
         goto = e
       } else if (e instanceof ConversationTimeout) {
+        outcome = 'timedOut'
         await this.safeReply(ctx, this.cfg.timeoutMessage ?? '⏰ La conversación expiró por inactividad.')
       } else if (e instanceof ConversationCancelled) {
+        outcome = 'cancelled'
         if (!e.silent && this.cfg.cancelledMessage) await this.safeReply(ctx, this.cfg.cancelledMessage)
       } else if (e instanceof RetriesExceeded) {
+        outcome = 'retriesExceeded'
         await this.safeReply(ctx, this.cfg.retriesMessage ?? '❌ Demasiados intentos. Conversación terminada.')
       } else {
+        outcome = 'error'
         this.cfg.onError?.(e, ctx)
         this.cfg.logger?.error?.('conversation error', e)
         await this.safeReply(ctx, this.cfg.errorMessage ?? '⚠️ Ocurrió un error. La conversación terminó.')
       }
     } finally {
       this.cleanup(entry)
+      // A conversation aborted after it returned normally still counts as cancelled.
+      if (entry.cancelled) outcome = 'cancelled'
+      const info: ConversationEndInfo = { name, key, ctx, outcome, durationMs: Date.now() - startedAt }
+      if (goto && !entry.cancelled) info.goto = goto.target
+      this.notifyLifecycle(() => this.cfg.onConversationEnd?.(info))
     }
     if (goto && !entry.cancelled) await this.enter(goto.target, ctx)
   }
@@ -431,6 +490,10 @@ export class ConversationRuntime {
   reportError(error: unknown, ctx: RuntimeMessage): void {
     this.cfg.onError?.(error, ctx)
     this.cfg.logger?.error?.('conversation error', error)
+  }
+
+  private notifyLifecycle(fn: () => void): void {
+    try { fn() } catch (e) { this.cfg.logger?.warn?.('conversation lifecycle observer failed', e) }
   }
 
   private notifyEnd(entry: ActiveConversation): void {

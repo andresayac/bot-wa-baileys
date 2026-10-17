@@ -125,6 +125,19 @@ export class Dispatcher {
     return this.enqueue(ctx, () => this.run(ctx))
   }
 
+  /**
+   * Run `job` in `ctx`'s per-chat FIFO slot (after messages already queued for that
+   * key, before later ones) and resolve/reject with its result. No hooks or routing
+   * run — used by `bot.trigger()` to start a conversation in order with the chat.
+   */
+  runExclusive<T>(ctx: Pick<DispatchContext, 'from' | 'sender' | 'isGroup'>, job: () => Promise<T>): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      void this.enqueue(ctx as DispatchContext, async () => {
+        try { resolve(await job()) } catch (error) { reject(error) }
+      })
+    })
+  }
+
   private enqueue(ctx: DispatchContext, job: () => Promise<void>): Promise<void> {
     const key = this.deps.runtime.keyFor(ctx)
     const tail = this.queues.get(key) ?? Promise.resolve()
