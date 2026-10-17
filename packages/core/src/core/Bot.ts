@@ -1046,6 +1046,10 @@ export class Bot extends EventEmitter {
     }))
   }
 
+  /**
+   * Route one provider event. Messages/interactions: dedupe (runInboundOnce) → access lists →
+   * persistence → groupMode → Dispatcher; the full order is documented on `Dispatcher.run`.
+   */
   private async handleProviderEvent(event: InboundEvent): Promise<void> {
     switch (event.kind) {
       case 'message': {
@@ -1293,6 +1297,7 @@ export class Bot extends EventEmitter {
       send: (chatId, content, opts) => this.dispatchSend(chatId, content, opts),
       typing: async (chatId, state) => { await this.provider.typing?.(chatId, state) },
       handoff: (chatId, opts) => this.handoff(chatId, opts),
+      user: this.users.for(inbound.senderId),
     })
     ctx.call = call
     await this.dispatcher.dispatchEvent(ctx as unknown as DispatchContext)

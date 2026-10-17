@@ -104,3 +104,20 @@ describe('CALL trigger × access lists and handoff', () => {
     await bot.stop()
   })
 })
+
+describe('ctx.user on every context the bot builds', () => {
+  const tick = (ms = 10) => new Promise((r) => setTimeout(r, ms))
+
+  it('a CALL trigger context carries the caller profile (same data as their messages)', async () => {
+    const { createTestBot } = await import('../src/testing/createTestBot.js')
+    const { CALL } = await import('../src/core/triggers.js')
+    const { bot, provider } = await createTestBot()
+    await bot.user('caller-1').set('name', 'Ana')
+    let seen: unknown
+    bot.when(CALL, async (ctx) => { seen = await ctx.user.get('name') })
+    provider.call({ id: 'c1', from: 'caller-1' })
+    await tick()
+    expect(seen).toBe('Ana')
+    await bot.stop()
+  })
+})

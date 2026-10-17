@@ -134,6 +134,32 @@ export class Dispatcher {
     return next
   }
 
+  /**
+   * The message routing pipeline. Full inbound order, Bot + Dispatcher:
+   *
+   *  Bot.handleProviderEvent / handleInbound / processMessage (per event, before the queue)
+   *   1. inbound dedupe — a redelivered message/interaction (same chatId + id) stops here
+   *   2. blacklist / whitelist — dropped silently: not persisted, no hooks, no 'message'
+   *   3. persistence — chat, contact and message upserts
+   *   4. groupMode filter — a group message the bot must ignore stops here (still persisted)
+   *  Dispatcher (per-chat FIFO queue, this method)
+   *   5. before('message') hooks — may abort
+   *   6. handoff gate — a handed-off chat skips 7–11 (except `handoff.allowCommands`)
+   *   7. commands — always beat an active conversation (`/reset` escape)
+   *   8. active conversation (`c.ask`/`c.retry`/… waits)
+   *   9. dormant checkpoint resume (persistent flows after a restart)
+   *  10. matchers by specificity: WELCOME (100, first contact only) → text (40…10)
+   *      → function (5) → single-type IMAGE… (2) → multi-type MEDIA (1)
+   *  11. catch-all (`onMessage`, aiPlugin)
+   *  12. finish — after('message') hooks, then the 'message' event (onIdle re-arms here)
+   *
+   * Why: dedupe and the access lists run first so neither a retry nor a blocked sender
+   * costs a store write or reaches hooks; a handed-off chat is still persisted, still
+   * runs hooks and still emits 'message' (inbox/agents see it) but nothing routes it;
+   * WELCOME sits after commands/conversations so those never spend the welcome. Call
+   * events take a separate path (`dispatchEvent`): same access/handoff gates in the Bot,
+   * then only CALL type triggers — no message hooks, commands or 'message' event.
+   */
   private async run(ctx: DispatchContext): Promise<void> {
     const { hooks, runtime, emit } = this.deps
     const prefix = this.deps.commandPrefix ?? '/'
