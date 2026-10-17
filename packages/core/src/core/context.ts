@@ -59,14 +59,19 @@ export function buildMessageContext(deps: BuildContextDeps): IMessageContext {
     c?: EditOptions,
   ): Promise<EditResult> => {
     const explicit = isMessageRef(a)
-    const target = explicit ? a : deps.lastSent?.(from)
     const raw = (explicit ? b : a) as string | OutboundContent
     const opts = (explicit ? c : b as EditOptions | undefined) ?? {}
     const content: OutboundContent = typeof raw === 'string' ? { kind: 'text', text: raw } : raw
+    // The implicit target is the handler's own last reply, and only when it has the same
+    // kind: editing text over a photo or poll is not a meaningful (or portable) edit.
+    const last = explicit ? undefined : deps.lastSent?.(from)
+    const target = explicit ? a : last && last.kind === content.kind ? last.ref : undefined
     const native = deps.editMessage && (deps.supports ? deps.supports('edit') === 'native' : true)
     if (target && native) {
       try {
         const r = await deps.editMessage!(target, content)
+        // A before('send') hook blocked the edit: honor it, do not send a new message instead.
+        if (r.skipped) return { ...skipped(target), edited: false }
         const ref = r.ref ?? target
         return { ref, id: ref.id, chatId: ref.chatId, raw: r.raw, edited: true }
       } catch (error) {

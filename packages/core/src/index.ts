@@ -266,6 +266,7 @@ export {
   resolveReplyTyping,
   typingDuration,
   parseReplyDelay,
+  PacedSendCancelled,
 } from './core/messaging.js'
 export type {
   TypingConfig,
@@ -277,4 +278,6 @@ export type {
   MessagingSupport,
   Pacer,
   PacerOptions,
+  PaceGuard,
+  LastSentEntry,
 } from './core/messaging.js'

@@ -66,7 +66,7 @@ import { NamespacedStore, type StoreNamespace } from '../store/NamespacedStore.j
 import type { IStore } from '../store/IStore.js'
 import { Dispatcher, type DispatchContext } from './Dispatcher.js'
 import { buildMessageContext } from './context.js'
-import { LastSentTracker, createPacer, isEditableSend, messagingSupport, normalizeTypingConfig, type Pacer } from './messaging.js'
+import { LastSentTracker, createPacer, isEditableSend, messagingSupport, normalizeTypingConfig, type Pacer, type ReplyOptions } from './messaging.js'
 import type { BuildContextDeps } from './provider.js'
 import { createInboundDeduper, type InboundDeduper } from './dedupe.js'
 import { ConversationRuntime, type CheckpointStore, type ConversationFn } from '../conversations/ConversationRuntime.js'
@@ -224,6 +224,12 @@ export class Bot extends EventEmitter {
   private lastSent = new LastSentTracker()
   /** Delay + typing-indicator pacing for ctx text replies (`BotConfig.typing`). */
   private pacer: Pacer
+  /**
+   * Paced replies may still go out once their wait ends. Opened by `start()`, closed by
+   * `stop()` after the optional drain — a reply waiting on its typing indicator past that
+   * point is dropped instead of hitting a stopped provider.
+   */
+  private pacedSendsOpen = false
 
   constructor(config: BotConfig) {
     super()
@@ -391,6 +397,7 @@ export class Bot extends EventEmitter {
       this.scheduler.start(this.logger.child({ module: 'scheduler' }))
       this.isStarted = true
       this.acceptingInbound = true
+      this.pacedSendsOpen = true
       this.emit('started')
     } catch (error) {
       this.acceptingInbound = false
@@ -428,6 +435,7 @@ export class Bot extends EventEmitter {
         new Promise<void>((resolve) => setTimeout(resolve, timeout)),
       ])
     }
+    this.pacedSendsOpen = false
     this.runtime.abortAll()
     let stopError: unknown
     try { await this.provider.stop() }
@@ -457,9 +465,12 @@ export class Bot extends EventEmitter {
 
   /**
    * Central outbound path: `before('send')` (mutable/abortable) → provider.send → `after('send')`.
-   * Both {@link send} and every `ctx.reply`/`ctx.photo`/… reply helper route through here.
+   * Both {@link send} and every `ctx.reply`/`ctx.photo`/… reply helper route through here
+   * (`ctx.edit` uses the twin {@link dispatchEdit}). `origin` decides what `ctx.edit(content)`
+   * targets: a `ctx` send becomes the chat's last message; any other send (`bot.send`,
+   * `sendTo` from a human agent, campaigns) clears it so an implicit edit cannot touch it.
    */
-  private async dispatchSend(chatId: ChatId, content: OutboundContent, options?: SendOptions): Promise<SendResult> {
+  private async dispatchSend(chatId: ChatId, content: OutboundContent, options?: SendOptions, origin: 'ctx' | 'api' = 'api'): Promise<SendResult> {
     const payload: { chatId: ChatId; content: OutboundContent; options?: SendOptions } = { chatId, content, options }
     const proceed = await this.hooks.runBefore('send', payload as typeof payload & { abort(): void })
     if (!proceed) {
@@ -470,7 +481,10 @@ export class Bot extends EventEmitter {
     this.inflightSends.add(op)
     try {
       const res = await op
-      if (isEditableSend(payload.content)) this.lastSent.record(payload.chatId, res.ref)
+      if (isEditableSend(payload.content)) {
+        if (origin === 'ctx') this.lastSent.record(payload.chatId, res.ref, payload.content.kind)
+        else this.lastSent.forget(payload.chatId)
+      }
       await this.hooks.runAfter('send', payload)
       await this.persistOutbound({
         ref: res.ref,
@@ -491,6 +505,30 @@ export class Bot extends EventEmitter {
         error: toStoredError(error),
       })
       throw error
+    } finally {
+      this.inflightSends.delete(op)
+    }
+  }
+
+  /**
+   * Edit path behind `ctx.edit`: the same `before('send')` → provider → `after('send')`
+   * pipeline as {@link dispatchSend}, with the payload carrying `edit: ref` so hooks can
+   * tell edits apart. A hook may rewrite `payload.content` or `abort()` (→ `skipped`).
+   * The ledger entry of `ref` is updated in place with the edited content.
+   */
+  private async dispatchEdit(ref: MessageRef, content: OutboundContent): Promise<SendResult> {
+    const payload: { chatId: ChatId; content: OutboundContent; options?: SendOptions; edit: MessageRef } = {
+      chatId: ref.chatId, content, options: undefined, edit: ref,
+    }
+    const proceed = await this.hooks.runBefore('send', payload as typeof payload & { abort(): void })
+    if (!proceed) return { ref, skipped: true }
+    const op = this.provider.editMessage!(ref, payload.content)
+    this.inflightSends.add(op)
+    try {
+      const res = await op
+      await this.hooks.runAfter('send', payload)
+      await this.persistEdit(ref, payload.content, this.config.persistRaw ? res.raw : undefined)
+      return res
     } finally {
       this.inflightSends.delete(op)
     }
@@ -1222,6 +1260,31 @@ export class Bot extends EventEmitter {
     }
   }
 
+  /** Update the ledger entry of an edited bot message (keeps its timestamp and status). */
+  private async persistEdit(ref: MessageRef, content: OutboundContent, raw?: unknown): Promise<void> {
+    try {
+      const existing = await this.store.getMessage(ref)
+      await this.store.saveMessage({
+        ...(existing ?? {
+          ref,
+          chatId: ref.chatId,
+          senderId: this.provider.selfId ?? undefined,
+          timestamp: Date.now(),
+          fromMe: true,
+          direction: 'outbound' as const,
+          status: 'sent' as const,
+        }),
+        ...this.namespace,
+        type: content.kind,
+        body: outboundBody(content),
+        raw: raw ?? existing?.raw,
+      })
+    } catch (error) {
+      // The provider already applied the edit: report the ledger failure, do not fail the edit.
+      this.emitError({ error })
+    }
+  }
+
   private async handleDeliveryStatus(status: DeliveryStatus): Promise<void> {
     const existing = await this.store.getMessage(status.ref)
     await this.store.saveMessage({
@@ -1244,7 +1307,7 @@ export class Bot extends EventEmitter {
     const ctx = buildMessageContext({
       inbound,
       tools: this.tools,
-      send: (chatId, content, opts) => this.dispatchSend(chatId, content, opts),
+      send: (chatId, content, opts) => this.dispatchSend(chatId, content, opts, 'ctx'),
       markRead: async (ref) => { await this.provider.markRead?.([ref]) },
       typing: async (chatId, state) => { await this.provider.typing?.(chatId, state) },
       deleteMessage: async (ref) => { await this.provider.deleteMessage?.(ref) },
@@ -1276,11 +1339,29 @@ export class Bot extends EventEmitter {
   /** Typing/delay pacing, edit and capability seams shared by every context this bot builds. */
   private messagingDeps(): Pick<BuildContextDeps, 'pace' | 'editMessage' | 'lastSent' | 'supports'> {
     return {
-      pace: (chatId, text, opts, send) => this.pacer.run(chatId, text, opts, send),
-      editMessage: this.provider.editMessage ? (ref, content) => this.provider.editMessage!(ref, content) : undefined,
+      pace: (chatId, text, opts, send) => this.pacedSend(chatId, text, opts, send),
+      editMessage: this.provider.editMessage ? (ref, content) => this.dispatchEdit(ref, content) : undefined,
       lastSent: (chatId) => this.lastSent.get(chatId),
       supports: (feature) => messagingSupport(this.provider, feature),
     }
+  }
+
+  /**
+   * Run a ctx text reply through the pacer. The wait (delay + typing) is tracked as an
+   * in-flight send so `stop({ drain: true })` waits for it; the reply is dropped
+   * (`skipped`) if, by the end of the wait, the bot is stopping or the chat was handed
+   * off meanwhile (a reply that started in an already handed-off chat still goes out).
+   */
+  private pacedSend(chatId: ChatId, text: string, opts: ReplyOptions | undefined, send: () => Promise<SentMessage>): Promise<SentMessage> {
+    const handedOffAtStart = this.isChatHandedOff(chatId)
+    const op = this.pacer.run(chatId, text, opts, send, {
+      cancelled: () => !this.pacedSendsOpen || (!handedOffAtStart && this.isChatHandedOff(chatId)),
+      skip: () => ({ ref: { id: 'skipped', chatId }, id: 'skipped', chatId, skipped: true }),
+    })
+    this.inflightSends.add(op)
+    const settle = () => { this.inflightSends.delete(op) }
+    op.then(settle, settle)
+    return op
   }
 
   /** Run hooks + emit for a provider event. Resolves `false` if a before-hook aborted or it threw. */
@@ -1317,7 +1398,7 @@ export class Bot extends EventEmitter {
     const ctx = buildMessageContext({
       inbound,
       tools: this.tools,
-      send: (chatId, content, opts) => this.dispatchSend(chatId, content, opts),
+      send: (chatId, content, opts) => this.dispatchSend(chatId, content, opts, 'ctx'),
       typing: async (chatId, state) => { await this.provider.typing?.(chatId, state) },
       handoff: (chatId, opts) => this.handoff(chatId, opts),
       user: this.users.for(inbound.senderId),

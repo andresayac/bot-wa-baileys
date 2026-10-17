@@ -58,6 +58,13 @@ export interface ReplyOptions {
    * duration string (`'1.5s'`, `'500ms'`). Honored on every transport.
    */
   delay?: number | string
+  /**
+   * Checked after the delay / typing wait (only when there was one): when it returns
+   * `true` the reply is dropped and resolves a `skipped` result. Flow `.say` uses it so
+   * an aborted conversation does not speak after the fact. The bot also drops a paced
+   * reply when it stops or the chat is handed off during the wait.
+   */
+  cancelIf?: () => boolean
 }
 
 /** How a provider supports a messaging feature. */
@@ -132,8 +139,10 @@ export function normalizeTypingConfig(input: boolean | TypingConfig | undefined,
     charsPerSecond: input.charsPerSecond ?? base.charsPerSecond,
   }
   if (out.minMs > out.maxMs) {
-    // An explicit min above the inherited max raises the max (and vice versa is an error).
+    // An explicit bound wins over an inherited one: an explicit min raises the inherited
+    // max, an explicit max lowers the inherited min. Only two explicit bounds can conflict.
     if (input.maxMs === undefined) out.maxMs = out.minMs
+    else if (input.minMs === undefined) out.minMs = out.maxMs
     else throw new RangeError(`typing.minMs (${out.minMs}) must be <= typing.maxMs (${out.maxMs})`)
   }
   return out
@@ -160,22 +169,33 @@ export function parseReplyDelay(delay: number | string | undefined): number {
   return ms
 }
 
-/** Bounded "last message the bot sent in each chat" map, behind `ctx.edit(text)`. */
+/** The latest message the bot sent in a chat through `ctx`, and its content kind. */
+export interface LastSentEntry {
+  ref: MessageRef
+  kind: OutboundContent['kind']
+}
+
+/**
+ * Bounded "last message the bot sent in each chat" map, behind `ctx.edit(content)`.
+ * Only `ctx` replies are recorded; any other send to the chat (`bot.send`, `bot.sendTo`
+ * from a human agent, campaigns) should {@link forget} it, so an implicit edit never
+ * lands on a message the handler did not send.
+ */
 export class LastSentTracker {
-  private readonly refs = new Map<ChatId, MessageRef>()
+  private readonly refs = new Map<ChatId, LastSentEntry>()
   constructor(private readonly max = 1000) {}
 
-  /** Remember `ref` as the latest bot message of `chatId` (reactions should not be recorded). */
-  record(chatId: ChatId, ref: MessageRef): void {
+  /** Remember `ref` (of content `kind`) as the latest bot message of `chatId`. */
+  record(chatId: ChatId, ref: MessageRef, kind: OutboundContent['kind'] = 'text'): void {
     this.refs.delete(chatId)
-    this.refs.set(chatId, ref)
+    this.refs.set(chatId, { ref, kind })
     if (this.refs.size > this.max) {
       const oldest = this.refs.keys().next().value
       if (oldest !== undefined) this.refs.delete(oldest)
     }
   }
 
-  get(chatId: ChatId): MessageRef | undefined {
+  get(chatId: ChatId): LastSentEntry | undefined {
     return this.refs.get(chatId)
   }
 
@@ -200,9 +220,16 @@ export interface PacerOptions {
   sleep?: (ms: number) => Promise<void>
 }
 
+/** Re-checked after every pacing wait; when `cancelled()` is true the send is dropped. */
+export interface PaceGuard<T> {
+  cancelled(): boolean
+  /** Result returned instead of sending. */
+  skip(): T
+}
+
 /** Paces text replies: optional delay, then a typing indicator sized to the text, then the send. */
 export interface Pacer {
-  run<T>(chatId: ChatId, text: string, opts: ReplyOptions | undefined, send: () => Promise<T>): Promise<T>
+  run<T>(chatId: ChatId, text: string, opts: ReplyOptions | undefined, send: () => Promise<T>, guard?: PaceGuard<T>): Promise<T>
 }
 
 export function createPacer(options: PacerOptions): Pacer {
@@ -219,10 +246,15 @@ export function createPacer(options: PacerOptions): Pacer {
   }
 
   return {
-    async run(chatId, text, opts, send) {
+    async run(chatId, text, opts, send, guard) {
       const delayMs = parseReplyDelay(opts?.delay)
       const cfg = resolveReplyTyping(options.typing, opts?.typing)
-      if (delayMs > 0) await wait(delayMs)
+      // Anything may happen while we wait (handoff, abort, stop): re-check before sending.
+      const cancelled = (): boolean => guard?.cancelled() === true || opts?.cancelIf?.() === true
+      if (delayMs > 0) {
+        await wait(delayMs)
+        if (cancelled()) return skipOrThrow(guard)
+      }
 
       const typingMs = cfg.enabled && messagingSupport(provider as IProvider, 'typing') === 'native'
         ? typingDuration(text, cfg)
@@ -230,19 +262,34 @@ export function createPacer(options: PacerOptions): Pacer {
       if (typingMs <= 0) return send()
 
       indicate(chatId, 'typing')
-      let remaining = typingMs
-      while (remaining > 0) {
-        const step = Math.min(remaining, TYPING_REFRESH_MS)
-        await wait(step)
-        remaining -= step
-        if (remaining > 0) indicate(chatId, 'typing')
-      }
       try {
+        let remaining = typingMs
+        while (remaining > 0) {
+          const step = Math.min(remaining, TYPING_REFRESH_MS)
+          await wait(step)
+          remaining -= step
+          if (cancelled()) return skipOrThrow(guard)
+          if (remaining > 0) indicate(chatId, 'typing')
+        }
         return await send()
       } finally {
         indicate(chatId, 'paused')
       }
     },
+  }
+}
+
+/** A cancelled paced send without a guard cannot fabricate a result: report it as an abort. */
+function skipOrThrow<T>(guard: PaceGuard<T> | undefined): T {
+  if (guard) return guard.skip()
+  throw new PacedSendCancelled()
+}
+
+/** Thrown by {@link Pacer.run} when a reply is cancelled during its wait and no guard supplies a result. */
+export class PacedSendCancelled extends Error {
+  constructor() {
+    super('paced reply cancelled before it was sent')
+    this.name = 'PacedSendCancelled'
   }
 }
 

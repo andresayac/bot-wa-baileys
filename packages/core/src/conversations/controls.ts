@@ -74,7 +74,14 @@ export function createControls(rt: ConversationRuntime, handle: ConversationHand
   const rawWait = (o?: WaitOptions) => rt.wait(handle, { timeoutMs: timeoutOf(o), filter: o?.filter })
 
   // Records every wait so c.retry() can re-run it (see retry.ts).
-  const tracker = new WaitTracker({ assertAlive: () => rt.assertAlive(handle), reply: (text) => ctx.reply(text) })
+  // Paced replies (BotConfig.typing / delay) re-check liveness after their wait: an aborted
+  // conversation must not speak after the fact, and then unwinds like any other abort.
+  const cancelIf = () => !rt.isAlive(handle)
+  const replyAlive = async (text: string): Promise<void> => {
+    await ctx.reply(text, { cancelIf })
+    if (!rt.isAlive(handle)) rt.assertAlive(handle)
+  }
+  const tracker = new WaitTracker({ assertAlive: () => rt.assertAlive(handle), reply: replyAlive })
 
   /** `promptFor(message?)`: text sent before waiting (and re-sent by c.retry()); default: just the retry message. */
   function loopWait<T>(
@@ -96,7 +103,7 @@ export function createControls(rt: ConversationRuntime, handle: ConversationHand
   const idle = createIdleControls(rt, handle, ctx, (callback) => tracker.runOutOfBand(callback))
 
   const controls: ConversationControls = {
-    say: async (text) => { rt.assertAlive(handle); await ctx.reply(text) },
+    say: async (text) => { rt.assertAlive(handle); await replyAlive(text) },
     state: rt.getState(handle),
     end: (farewell) => { throw new ConversationEnded(farewell) },
     goto: (name, args) => { throw new ConversationGoto(name, args) },

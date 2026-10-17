@@ -14,7 +14,7 @@
 import type { HandoffConfig, HandoffOptions, StoredHandoff } from '../gates/handoff.js'
 import type { InboundDedupeOptions } from './dedupe.js'
 import type { UserData } from '../user/types.js'
-import type { EditOptions, EditResult, MessagingFeature, MessagingSupport, ReplyOptions, TypingConfig } from './messaging.js'
+import type { EditOptions, EditResult, LastSentEntry, MessagingFeature, MessagingSupport, ReplyOptions, TypingConfig } from './messaging.js'
 
 /* ============================================================================
  * 1. IDENTITY PRIMITIVES  (opaque — no shape grammar)
@@ -596,10 +596,12 @@ export interface MessageContext<TTools extends object = DefaultTools, TRaw = unk
   react(emoji: string, target?: MessageRef): Promise<SentMessage>
   quote(text: string, opts?: ReplyOptions): Promise<SentMessage>
   /**
-   * Edit the bot's last message in this chat (`ctx.edit(content)`) or a given one
+   * Edit the last `ctx` reply in this chat (`ctx.edit(content)`, only when it has the same
+   * content kind and no `bot.send`/`bot.sendTo` went to the chat since) or a given one
    * (`ctx.edit(ref, content)`). Native when the provider has `capabilities.edit` and
    * `editMessage`; otherwise (or when the kind is not editable there) it falls back
-   * to sending a new message — `{ fallback: 'skip' }` sends nothing instead.
+   * to sending a new message — `{ fallback: 'skip' }` sends nothing instead. Edits run
+   * the `before`/`after('send')` hooks (payload `edit: ref`); a hook abort resolves `skipped`.
    */
   edit(content: string | OutboundContent, opts?: EditOptions): Promise<EditResult>
   edit(ref: MessageRef, content: string | OutboundContent, opts?: EditOptions): Promise<EditResult>
@@ -672,12 +674,18 @@ export interface BuildContextDeps<TRaw = unknown> {
   interaction?: { id: string; data: string; respondBy?: number }
   /** Sender profile exposed as `ctx.user`; when omitted every `ctx.user` call rejects with `UserDataError('UNAVAILABLE')`. */
   user?: UserData
-  /** Paces text replies (delay + typing indicator) around `send`; omitted → sent immediately. */
-  pace?<T>(chatId: ChatId, text: string, opts: ReplyOptions | undefined, send: () => Promise<T>): Promise<T>
-  /** Native edit; omitted → `ctx.edit` degrades to a new send. */
+  /**
+   * Paces text replies (delay + typing indicator) around `send`; omitted → sent immediately.
+   * May resolve a `skipped` result instead of sending when the reply is cancelled during the wait.
+   */
+  pace?(chatId: ChatId, text: string, opts: ReplyOptions | undefined, send: () => Promise<SentMessage>): Promise<SentMessage>
+  /**
+   * Native edit through the bot's outbound pipeline (`before`/`after('send')` hooks, ledger);
+   * resolves `skipped` when a hook blocked it. Omitted → `ctx.edit` degrades to a new send.
+   */
   editMessage?(ref: MessageRef, content: OutboundContent): Promise<SendResult<TRaw>>
-  /** Latest message the bot sent to `chatId` (target of `ctx.edit(content)`). */
-  lastSent?(chatId: ChatId): MessageRef | undefined
+  /** Latest message the handler side sent to `chatId` via `ctx` (target of `ctx.edit(content)`). */
+  lastSent?(chatId: ChatId): LastSentEntry | undefined
   /** Support level of a messaging feature; omitted → everything is attempted natively. */
   supports?(feature: MessagingFeature): MessagingSupport
 }

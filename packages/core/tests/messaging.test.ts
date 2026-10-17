@@ -5,6 +5,7 @@ import { flow } from '../src/flows/FlowBuilder.js'
 import {
   DEFAULT_TYPING,
   LastSentTracker,
+  PacedSendCancelled,
   TYPING_REFRESH_MS,
   UnsupportedContentError,
   createPacer,
@@ -119,6 +120,13 @@ describe('typing config helpers', () => {
     expect(resolveReplyTyping(off, { enabled: false }).enabled).toBe(false)
   })
 
+  it('an explicit maxMs below the inherited minMs lowers the min instead of throwing', () => {
+    expect(normalizeTypingConfig({ maxMs: 500 })).toMatchObject({ minMs: 500, maxMs: 500 })
+    expect(resolveReplyTyping(normalizeTypingConfig(true), { maxMs: 500 })).toMatchObject({ enabled: true, minMs: 500, maxMs: 500 })
+    // Both bounds explicit and inconsistent is still a configuration error.
+    expect(() => resolveReplyTyping(normalizeTypingConfig(true), { minMs: 900, maxMs: 500 })).toThrow(RangeError)
+  })
+
   it('parses reply delays', () => {
     expect(parseReplyDelay(undefined)).toBe(0)
     expect(parseReplyDelay(250)).toBe(250)
@@ -148,10 +156,11 @@ describe('typing config helpers', () => {
     t.record('a', { id: '1', chatId: 'a' })
     t.record('a', { id: '2', chatId: 'a' })
     t.record('b', { id: '3', chatId: 'b' })
-    expect(t.get('a')?.id).toBe('2')
-    t.record('c', { id: '4', chatId: 'c' })
+    expect(t.get('a')?.ref.id).toBe('2')
+    t.record('c', { id: '4', chatId: 'c' }, 'image')
+    expect(t.get('c')).toEqual({ ref: { id: '4', chatId: 'c' }, kind: 'image' })
     expect(t.get('a')).toBeUndefined()
-    expect(t.get('b')?.id).toBe('3')
+    expect(t.get('b')?.ref.id).toBe('3')
     t.forget('b')
     expect(t.get('b')).toBeUndefined()
   })
@@ -274,6 +283,14 @@ describe('automatic typing on ctx replies', () => {
     expect(provider.log.filter((e) => e.op === 'typing')).toEqual([])
   })
 
+  it('a per-reply maxMs below the bot minMs still sends', async () => {
+    const provider = new MessagingMock()
+    const bot = await makeBot(provider, { typing: { enabled: true, minMs: 50, maxMs: 100 } })
+    const sent = await runHandler(bot, provider, (ctx) => ctx.reply('ok', { typing: { maxMs: 5 } }))
+    expect(sent.skipped).toBeFalsy()
+    expect(provider.outbox.map((m) => m.content)).toEqual([{ kind: 'text', text: 'ok' }])
+  })
+
   it('rejects an invalid BotConfig.typing at construction', () => {
     expect(() => new Bot({ provider: new MessagingMock(), typing: { minMs: -1 } })).toThrow(RangeError)
   })
@@ -293,6 +310,66 @@ describe('reply delay', () => {
     const provider = new MessagingMock()
     const bot = await makeBot(provider)
     await expect(runHandler(bot, provider, (ctx) => ctx.say('x', { delay: -1 }))).rejects.toThrow(RangeError)
+    expect(provider.outbox).toHaveLength(0)
+  })
+})
+
+describe('pacing cancellation', () => {
+  const slow = { enabled: true, minMs: 60, maxMs: 60 }
+
+  it('does not send a paced reply when the chat is handed off during the wait', async () => {
+    const provider = new MessagingMock()
+    const bot = await makeBot(provider, { typing: slow })
+    const res = await runHandler(bot, provider, (ctx) => {
+      const pending = ctx.reply('tarde')
+      void bot.handoff('chat-1')
+      return pending
+    })
+    expect(res.skipped).toBe(true)
+    expect(provider.outbox).toHaveLength(0)
+  })
+
+  it('still sends when the chat was already handed off before the reply started', async () => {
+    const provider = new MessagingMock()
+    const bot = await makeBot(provider, { typing: slow })
+    const res = await runHandler(bot, provider, async (ctx) => {
+      await bot.handoff('chat-1')
+      return ctx.reply('aviso')
+    })
+    expect(res.skipped).toBeFalsy()
+    expect(provider.outbox).toHaveLength(1)
+  })
+
+  it('does not send a paced reply after bot.stop()', async () => {
+    const provider = new MessagingMock()
+    const bot = await makeBot(provider, { typing: slow })
+    const res = await runHandler(bot, provider, async (ctx) => {
+      const pending = ctx.reply('tarde', { delay: 30 })
+      await bot.stop()
+      return pending
+    })
+    expect(res.skipped).toBe(true)
+    expect(provider.outbox).toHaveLength(0)
+  })
+
+  it('stop({ drain: true }) waits for a paced reply and delivers it', async () => {
+    const provider = new MessagingMock()
+    const bot = await makeBot(provider, { typing: slow })
+    let pending: Promise<unknown> | undefined
+    await runHandler(bot, provider, async (ctx) => { pending = ctx.reply('drenado') })
+    await bot.stop({ drain: true })
+    await pending
+    expect(provider.outbox.map((m) => m.content)).toEqual([{ kind: 'text', text: 'drenado' }])
+  })
+
+  it('a flow .say aborted during typing sends nothing', async () => {
+    const provider = new MessagingMock()
+    const bot = await makeBot(provider, { typing: slow })
+    bot.use(flow('registro').say('Bienvenido').say('Segundo'))
+    provider.incoming('registro', { from: 'chat-2' })
+    await new Promise((r) => setTimeout(r, 15))
+    expect(bot.abortConversation('chat-2')).toBe(true)
+    await new Promise((r) => setTimeout(r, 150))
     expect(provider.outbox).toHaveLength(0)
   })
 })
@@ -330,12 +407,67 @@ describe('ctx.edit', () => {
     ])
   })
 
-  it('tracks the last message across bot.send too', async () => {
+  it('never targets a message sent outside ctx (bot.send / sendTo)', async () => {
     const provider = new MessagingMock({ edit: true })
     const bot = await makeBot(provider)
-    const sent = await bot.sendText('chat-1', 'desde fuera')
+    await bot.sendText('chat-1', 'desde fuera')
     const res = await runHandler(bot, provider, (ctx) => ctx.edit('corregido'))
-    expect(res).toMatchObject({ edited: true, id: sent.id })
+    expect(res.edited).toBe(false)
+    expect(provider.log.filter((e) => e.op === 'edit')).toEqual([])
+
+    // A human agent's sendTo after a bot reply invalidates the implicit target.
+    const res2 = await runHandler(bot, provider, async (ctx) => {
+      await ctx.reply('bot')
+      await bot.sendTo('chat-1', 'agente humano')
+      return ctx.edit('editado', { fallback: 'skip' })
+    })
+    expect(res2).toMatchObject({ edited: false, skipped: true })
+    expect(provider.log.filter((e) => e.op === 'edit')).toEqual([])
+  })
+
+  it('does not edit text over a last message of another kind', async () => {
+    const provider = new MessagingMock({ edit: true })
+    const bot = await makeBot(provider)
+    const res = await runHandler(bot, provider, async (ctx) => {
+      await ctx.reply('texto')
+      await ctx.photo('https://example.test/x.png')
+      return ctx.edit('nuevo texto', { fallback: 'skip' })
+    })
+    expect(res).toMatchObject({ edited: false, skipped: true })
+    expect(provider.log.filter((e) => e.op === 'edit')).toEqual([])
+  })
+
+  it('routes edits through before/after(send) hooks and the outbound ledger', async () => {
+    const provider = new MessagingMock({ edit: true })
+    const bot = await makeBot(provider)
+    const seen: unknown[] = []
+    bot.before('send', (p: { content: OutboundContent; edit?: MessageRef }) => {
+      if (p.content.kind === 'text') p.content = { kind: 'text', text: p.content.text.replace('secreto', '***') }
+    })
+    bot.after('send', (p: { content: OutboundContent; edit?: MessageRef }) => { seen.push({ content: p.content, edit: p.edit }) })
+    let first: MessageRef | undefined
+    const res = await runHandler(bot, provider, async (ctx) => {
+      first = (await ctx.reply('v1')).ref
+      return ctx.edit('v2 secreto')
+    })
+    expect(res.edited).toBe(true)
+    expect(provider.log.at(-1)).toEqual({ op: 'edit', ref: first, content: { kind: 'text', text: 'v2 ***' } })
+    expect(seen.at(-1)).toEqual({ content: { kind: 'text', text: 'v2 ***' }, edit: first })
+    const stored = await bot.getStore().getMessage(first!)
+    expect(stored?.body).toBe('v2 ***')
+  })
+
+  it('a before(send) hook can block an edit', async () => {
+    const provider = new MessagingMock({ edit: true })
+    const bot = await makeBot(provider)
+    bot.before('send', (p: { abort(): void; edit?: MessageRef }) => { if (p.edit) p.abort() })
+    const res = await runHandler(bot, provider, async (ctx) => {
+      await ctx.reply('v1')
+      return ctx.edit('v2')
+    })
+    expect(res).toMatchObject({ edited: false, skipped: true })
+    expect(provider.log.filter((e) => e.op === 'edit')).toEqual([])
+    expect(provider.outbox).toHaveLength(1)
   })
 
   it('degrades to a new message when the provider cannot edit', async () => {
@@ -421,5 +553,20 @@ describe('ctx.react', () => {
     expect(support).toBe('unsupported')
     expect(res.skipped).toBe(true)
     expect(provider.outbox).toHaveLength(0)
+  })
+})
+
+describe('createPacer cancellation', () => {
+  it('drops the send after the wait when a guard or cancelIf says so', async () => {
+    const provider = new MessagingMock()
+    const pacer = createPacer({ provider, typing: normalizeTypingConfig({ enabled: true, ...fast }), sleep: async () => {} })
+    let sent = 0
+    const send = async () => { sent++; return 'sent' }
+    expect(await pacer.run('c', 'x', undefined, send, { cancelled: () => true, skip: () => 'skipped' })).toBe('skipped')
+    await expect(pacer.run('c', 'x', { cancelIf: () => true }, send)).rejects.toBeInstanceOf(PacedSendCancelled)
+    // No wait → nothing to re-check: sent immediately.
+    const off = createPacer({ provider, typing: DEFAULT_TYPING, sleep: async () => {} })
+    expect(await off.run('c', 'x', { cancelIf: () => true }, send)).toBe('sent')
+    expect(sent).toBe(1)
   })
 })

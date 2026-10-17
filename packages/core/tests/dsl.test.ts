@@ -5,6 +5,10 @@ import { flow } from '../src/flows/FlowBuilder.js'
 import { flowToConversation } from '../src/conversations/interpreter.js'
 import { matchTrigger } from '../src/core/matching.js'
 
+/** Texts passed to a `reply` mock (controls also pass pacing options as a 2nd argument). */
+const texts = (fn: { mock: { calls: unknown[][] } }): unknown[] => fn.mock.calls.map((c) => c[0])
+
+
 function makeMsg(body: string) {
   return { from: 'a@s.whatsapp.net', sender: 'a@s.whatsapp.net', body, type: 'text', isGroup: false, reply: vi.fn(async () => {}) }
 }
@@ -22,11 +26,11 @@ describe('FlowBuilder + interpreter', () => {
       .compile()
     const start = makeMsg('registrar')
     const entry = rt.enter(flowToConversation(f), start)
-    await vi.waitFor(() => expect(start.reply).toHaveBeenCalledWith('¿Tu nombre?'))
+    await vi.waitFor(() => expect(texts(start.reply)).toContain('¿Tu nombre?'))
     rt.deliver(makeMsg('Andres'))
     await entry
     expect(saved[0]).toEqual({ name: 'Andres' })
-    expect(start.reply).toHaveBeenCalledWith('✅ Hola Andres')
+    expect(texts(start.reply)).toContain('✅ Hola Andres')
   })
 
   it('choose sub-flow returns to parent (transcript bug fix)', async () => {
@@ -41,8 +45,8 @@ describe('FlowBuilder + interpreter', () => {
     await vi.waitFor(() => expect(start.reply).toHaveBeenCalled())
     rt.deliver(makeMsg('1'))
     await entry
-    expect(start.reply).toHaveBeenCalledWith('📱 iPhone — $999')
-    expect(start.reply).toHaveBeenCalledWith('✅ ¡Gracias!')   // el padre CONTINÚA
+    expect(texts(start.reply)).toContain('📱 iPhone — $999')
+    expect(texts(start.reply)).toContain('✅ ¡Gracias!')   // el padre CONTINÚA
   })
 
   it('validate in ask re-prompts', async () => {
@@ -53,12 +57,12 @@ describe('FlowBuilder + interpreter', () => {
       .compile()
     const start = makeMsg('email')
     const entry = rt.enter(flowToConversation(f), start)
-    await vi.waitFor(() => expect(start.reply).toHaveBeenCalledWith('¿Email?'))
+    await vi.waitFor(() => expect(texts(start.reply)).toContain('¿Email?'))
     rt.deliver(makeMsg('nope'))
-    await vi.waitFor(() => expect(start.reply).toHaveBeenCalledWith('inválido'))
+    await vi.waitFor(() => expect(texts(start.reply)).toContain('inválido'))
     rt.deliver(makeMsg('a@b.co'))
     await entry
-    expect(start.reply).toHaveBeenCalledWith('ok a@b.co')
+    expect(texts(start.reply)).toContain('ok a@b.co')
   })
 
   it('persistent() without string id throws at compile', () => {
@@ -100,7 +104,7 @@ describe('FlowBuilder + interpreter', () => {
     await vi.waitFor(() => expect(start.reply).toHaveBeenCalled())   // menú enviado
     rt.deliver(makeMsg('1'))                                         // opción 1 = 'si'
     await entry
-    expect(start.reply).toHaveBeenCalledWith('elegiste: si')
+    expect(texts(start.reply)).toContain('elegiste: si')
   })
 
   it('choose stores selection under a custom stateKey (I5)', async () => {
@@ -114,6 +118,6 @@ describe('FlowBuilder + interpreter', () => {
     await vi.waitFor(() => expect(start.reply).toHaveBeenCalled())
     rt.deliver(makeMsg('2'))   // opción 2 = 'no'
     await entry
-    expect(start.reply).toHaveBeenCalledWith('k=no')
+    expect(texts(start.reply)).toContain('k=no')
   })
 })
