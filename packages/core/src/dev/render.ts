@@ -129,6 +129,11 @@ export function renderOutbound(content: OutboundContent): RenderedOutbound {
       return { text: `[template: ${content.name} · ${content.language}]`, choices: [] }
     case 'native':
       return { text: `[native payload for ${content.provider}]`, choices: [] }
+    case 'form': {
+      const head = `[form: ${content.form.title ?? content.form.id}]`
+      const fields = content.form.fields.map((f) => `  · ${f.label} (${f.type}${f.required === false ? ', optional' : ''})`)
+      return { text: [head, ...(content.form.intro ? [content.form.intro] : []), ...fields].join('\n'), choices: [] }
+    }
   }
 }
 

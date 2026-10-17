@@ -106,6 +106,8 @@ export function toOutbound(content: OutboundContent, media?: ResolvedTelegramMed
         params: { phone_number: content.phone, first_name: content.displayName ?? content.phone },
       }
 
+    case 'form':
+      throw new UnsupportedContentError('form', 'This transport has no native forms — flow().form() asks field by field instead (capabilities.forms is not "native").')
     case 'poll':
       return {
         method: 'sendPoll',

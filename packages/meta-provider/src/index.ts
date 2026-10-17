@@ -23,3 +23,8 @@ export type { IdentityMap, IdentityLogger, MemoryIdentityMapOptions, MaybePromis
 export { verifyChallenge, verifySignature } from '@bot-wa/graph-core'
 export type { ChallengeQuery } from '@bot-wa/graph-core'
 export type { CloudAPIProviderConfig, GraphErrorBody, GraphSendMessageResponse } from './types.js'
+export {
+  toFlowJson, toFlowMessage, flowJsonWarnings, flowScreenId, flowRefOf,
+  DEFAULT_FLOW_JSON_VERSION, FLOW_MESSAGE_VERSION, FLOW_LIMITS,
+} from './flows.js'
+export type { WhatsAppFlowJson, FlowRef, FlowJsonOptions } from './flows.js'

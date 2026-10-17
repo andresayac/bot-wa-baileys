@@ -9,6 +9,7 @@
  */
 
 import { UnsupportedContentError, type OutboundContent } from '@bot-wa/core'
+import { toFlowMessage } from './flows.js'
 
 /** How the provider resolved a MediaSource for Cloud API. */
 export interface ResolvedMedia {
@@ -116,6 +117,9 @@ export function toOutbound(content: OutboundContent, media?: ResolvedMedia): Rec
 
     case 'native':
       return content.payload as Record<string, unknown>
+
+    case 'form':
+      return toFlowMessage(content)
 
     case 'poll':
       throw new UnsupportedContentError('poll', 'WhatsApp Cloud API no soporta mensajes de encuesta (Graph 131051). Usa botones (kind buttons) o WhatsApp Flows.')

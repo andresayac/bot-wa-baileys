@@ -1233,6 +1233,7 @@ export class Bot extends EventEmitter {
       inbound,
       tools: this.tools,
       send: (chatId, content, opts) => this.dispatchSend(chatId, content, opts),
+      capabilities: this.provider.capabilities,
       markRead: async (ref) => { await this.provider.markRead?.([ref]) },
       typing: async (chatId, state) => { await this.provider.typing?.(chatId, state) },
       deleteMessage: async (ref) => { await this.provider.deleteMessage?.(ref) },
@@ -1295,6 +1296,7 @@ export class Bot extends EventEmitter {
       inbound,
       tools: this.tools,
       send: (chatId, content, opts) => this.dispatchSend(chatId, content, opts),
+      capabilities: this.provider.capabilities,
       typing: async (chatId, state) => { await this.provider.typing?.(chatId, state) },
       handoff: (chatId, opts) => this.handoff(chatId, opts),
       user: this.users.for(inbound.senderId),
@@ -1352,6 +1354,7 @@ function outboundBody(content: OutboundContent): string | undefined {
     case 'card': return content.title
     case 'template': return content.name
     case 'reaction': return content.emoji
+    case 'form': return content.form.title ?? content.form.id
     default: return undefined
   }
 }

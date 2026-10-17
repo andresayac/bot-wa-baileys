@@ -92,6 +92,8 @@ export function toOutbound(content: OutboundContent): Record<string, unknown> {
     case 'native':
       return content.payload as Record<string, unknown>
 
+    case 'form':
+      throw new UnsupportedContentError('form', 'This transport has no native forms — flow().form() asks field by field instead (capabilities.forms is not "native").')
     case 'poll':
       throw new UnsupportedContentError('poll', 'Instagram DM has no poll messages — use quick replies (kind buttons) instead.')
     case 'reaction':

@@ -40,6 +40,9 @@ export type LintSeverity = 'error' | 'warning' | 'info'
  * | `ambiguous-choice` | warning | typing an option's key/label picks a different option |
  * | `missing-timeout` | info | ask/choose falls back to the built-in 5-minute wait |
  * | `wait-never-expires` | info | ask/choose with a `0` timeout never expires |
+ * | `form-state-collision` | warning | a `form()` stores its answers under a `c.state` key another ask/choose/form of the same flow also writes |
+ *
+ * Wait checks (`invalid-timeout`, `missing-timeout`, `wait-never-expires`) also cover `form()` steps.
  */
 export type LintCode =
   | 'goto-target-missing'
@@ -55,6 +58,7 @@ export type LintCode =
   | 'ambiguous-choice'
   | 'missing-timeout'
   | 'wait-never-expires'
+  | 'form-state-collision'
 
 /** One finding. Plain data — safe to `JSON.stringify`, log or send to a dashboard. */
 export interface LintDiagnostic {
@@ -224,7 +228,20 @@ export function lintFlows(source: FlowSource, options: LintOptions = {}): LintDi
       })
     }
 
-    if ((step.kind === 'ask' || step.kind === 'choose') && m.owner) {
+    if (step.kind === 'form') {
+      const key = node.stateKey ?? step.form.id
+      const other = graph.nodes.find((n) => n.id !== node.id && n.stateKey === key && meta.get(n.id)?.conversation === m.conversation &&
+        (n.kind === 'ask' || n.kind === 'choose' || n.kind === 'form'))
+      if (other) {
+        report({
+          code: 'form-state-collision', severity: 'warning', ...at,
+          message: `${cap(where)} stores its answers in c.state.${key}, which ${other.kind} at ${other.path} of the same flow also writes — ` +
+            'one overwrites the other. Give the form its own { stateKey }.',
+        })
+      }
+    }
+
+    if ((step.kind === 'ask' || step.kind === 'choose' || step.kind === 'form') && m.owner) {
       const t = effectiveWaitTimeout(step.opts, m.owner, inventory.defaultTimeoutMs)
       if (t.invalid) {
         report({

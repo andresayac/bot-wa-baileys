@@ -16,6 +16,7 @@
 
 import { humanTypingDelay, sleep } from '../utils/timers.js'
 import { unavailableUserData } from '../user/UserDataService.js'
+import { newFormToken } from '../forms/reply.js'
 import type {
   BuildContextDeps,
   Button,
@@ -112,6 +113,11 @@ export function buildMessageContext(deps: BuildContextDeps): IMessageContext {
     async sendNative(provider: string, payload: unknown) {
       return sendOut({ kind: 'native', provider, payload })
     },
+    async form(definition, opts) {
+      const token = opts?.token ?? newFormToken(definition.id)
+      return sendOut({ kind: 'form', form: definition, token, ...(opts?.nativeId !== undefined ? { nativeId: opts.nativeId } : {}) })
+    },
+    capabilities: deps.capabilities,
 
     /* Actions — degrade to no-op when the provider lacks the capability -- */
     async markRead() { await deps.markRead?.(inbound.ref) },

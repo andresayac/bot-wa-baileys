@@ -4,6 +4,7 @@ import type { ConversationFn, RuntimeMessage } from './ConversationRuntime.js'
 import type { ConversationControls } from './controls.js'
 import { ConversationGoto } from './errors.js'
 import { markStep, replayable } from './retry.js'
+import { runFormStep } from '../forms/runForm.js'
 
 async function resolveText(t: CompiledStep & { kind: 'say' | 'ask' }, ctx: RuntimeMessage, c: ConversationControls): Promise<string> {
   return typeof t.text === 'function' ? await t.text(ctx, c) : t.text
@@ -54,6 +55,9 @@ async function runStepsFrom(
         else if (typeof then === 'function') await (then as FlowAction)(ctx, c)
         break
       }
+      case 'form':
+        await runFormStep(step.form, ctx, c, step.opts, flow.opts.timeoutMs)
+        break
       case 'goto':
         throw new ConversationGoto(step.target)
     }

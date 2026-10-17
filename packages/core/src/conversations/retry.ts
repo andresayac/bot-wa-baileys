@@ -273,7 +273,7 @@ export class WaitTracker {
     // sub-flow that already returned): rewind to the nearest earlier prompt step of this flow.
     for (let i = cur.index; i >= 0; i--) {
       const step = cur.flow.steps[i]
-      if (step.kind !== 'ask' && step.kind !== 'choose') continue
+      if (step.kind !== 'ask' && step.kind !== 'choose' && step.kind !== 'form') continue
       const retries = step.opts?.retries ?? DEFAULT_RETRIES
       if (1 >= retries) return new RetriesExceeded()
       return new ConversationRetry(message, cur.flow, i, 1)

@@ -4,6 +4,8 @@ import type { ConversationControls } from '../conversations/controls.js'
 import { normalizeText } from '../core/matching.js'
 import { isTypeTrigger, isWelcomeTrigger } from '../core/triggers.js'
 import { parseDuration } from '../utils/duration.js'
+import type { FormDefinition, FormStepOptions } from '../forms/types.js'
+import { assertFormDefinition } from '../forms/validate.js'
 
 export type DynamicText = (ctx: RuntimeMessage, c: ConversationControls) => string | Promise<string>
 export type FlowAction = (ctx: RuntimeMessage, c: ConversationControls) => unknown | Promise<unknown>
@@ -19,6 +21,8 @@ export type CompiledStep =
     }
   | { kind: 'choose'; prompt: string; options: Record<string, { label: string; then?: CompiledFlow | FlowAction }>; stateKey?: string; opts?: WaitOptions }
   | { kind: 'goto'; target: string }
+  /** `.form()`: a native form, or one question per field on providers without forms. */
+  | { kind: 'form'; form: FormDefinition; opts?: FormStepOptions }
 
 export interface CompiledFlow {
   id: string
@@ -79,6 +83,30 @@ export class FlowBuilder {
       }
     }
     this.steps.push({ kind: 'choose', prompt, options: compiled, stateKey })
+    return this
+  }
+
+  /**
+   * Collect a typed form. On providers with `capabilities.forms === 'native'`
+   * (WhatsApp Cloud API → WhatsApp Flows) it sends one native form and waits for
+   * its submission; elsewhere it asks field by field. Either way the validated
+   * answers are stored in `c.state[opts.stateKey ?? definition.id]`.
+   * The definition is checked here: a malformed one throws a `TypeError`.
+   *
+   * @example
+   * ```ts
+   * flow('registro')
+   *   .form({ id: 'signup', title: 'Registro', fields: [
+   *     { type: 'text', name: 'name', label: 'Nombre' },
+   *     { type: 'email', name: 'email', label: 'Correo' },
+   *     { type: 'select', name: 'plan', label: 'Plan', options: { basic: 'Básico', pro: 'Pro' } },
+   *   ] })
+   *   .say((_ctx, c) => `Gracias ${(c.state.signup as { name: string }).name}`)
+   * ```
+   */
+  form(definition: FormDefinition, opts?: FormStepOptions): this {
+    assertFormDefinition(definition)
+    this.steps.push({ kind: 'form', form: definition, opts })
     return this
   }
 
@@ -160,6 +188,9 @@ function hashSteps(steps: CompiledStep[]): number {
           break
         case 'goto':
           parts.push(step.target)
+          break
+        case 'form':
+          parts.push(step.form.id, step.form.fields.map((f) => f.name).join(','))
           break
         case 'do':
           parts.push('fn')

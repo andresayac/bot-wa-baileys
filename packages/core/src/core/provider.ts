@@ -14,6 +14,7 @@
 import type { HandoffConfig, HandoffOptions, StoredHandoff } from '../gates/handoff.js'
 import type { InboundDedupeOptions } from './dedupe.js'
 import type { UserData } from '../user/types.js'
+import type { FormContent, FormDefinition } from '../forms/types.js'
 
 /* ============================================================================
  * 1. IDENTITY PRIMITIVES  (opaque — no shape grammar)
@@ -79,6 +80,12 @@ export type MessageType =
   | 'sticker' | 'location' | 'contact' | 'poll' | 'buttons' | 'list'
   | 'unknown'
   /**
+   * A native form submission (e.g. a WhatsApp Flow completion). Its `body` is
+   * `JSON.stringify(FormReply)` — build it with `formReplyBody()`, read it with
+   * `parseFormReply()`. Consumed by `flow().form()` steps.
+   */
+  | 'form'
+  /**
    * Not a message a provider emits: the Bot projects an inbound {@link CallEvent}
    * into a context of this type so the `CALL` trigger can handle it (see `core/triggers.ts`).
    */
@@ -92,7 +99,7 @@ export type MessageType =
  *  - Discord (plain HTTPS GET).
  */
 export interface MediaRef {
-  kind: Exclude<MessageType, 'text' | 'poll' | 'buttons' | 'list' | 'unknown' | 'call'>
+  kind: Exclude<MessageType, 'text' | 'poll' | 'buttons' | 'list' | 'unknown' | 'call' | 'form'>
   mimetype?: string
   filename?: string
   size?: number
@@ -339,6 +346,8 @@ export type OutboundContent =
   | { kind: 'card'; title: string; body?: string; imageUrl?: string; buttons?: Button[] }
   | { kind: 'template'; name: string; language: string; components?: unknown }
   | { kind: 'native'; provider: string; payload: unknown }
+  /** A native form (only sent to providers with `capabilities.forms === 'native'`). */
+  | FormContent
 
 /** Result of a send. Opaque `ref` — no faked remoteJid/fromMe triple. */
 export interface SendResult<TRaw = unknown> {
@@ -378,6 +387,13 @@ export interface ProviderCapabilities {
   interactionsRequireAck: boolean
   /** Delivery is push-to-us (webhook) rather than a socket the provider owns. */
   pushIngress: boolean
+  /**
+   * How `flow().form()` renders: `'native'` = the provider accepts `form`
+   * OutboundContent and emits `'form'` inbound messages with the submission
+   * (WhatsApp Flows on the Cloud API); `'degraded'` (or absent) = the core asks
+   * field by field with plain text messages.
+   */
+  forms?: 'native' | 'degraded'
 }
 
 /* ============================================================================
@@ -591,6 +607,16 @@ export interface MessageContext<TTools extends object = DefaultTools, TRaw = unk
   replyWithTyping(text: string, msPerChar?: number): Promise<SentMessage>
   /** Escape hatch for transport-native content (templates, components). */
   sendNative(provider: string, payload: unknown): Promise<SentMessage>
+  /**
+   * Send a native form (`OutboundContent` kind `'form'`). Only meaningful when
+   * `capabilities.forms === 'native'`; other providers reject it with
+   * `UnsupportedContentError`. The submission arrives as an inbound message of
+   * type `'form'` (see `parseFormReply()`); `flow().form()` handles all of this.
+   * Set on contexts built by a Bot.
+   */
+  form?(definition: FormDefinition, opts?: { token?: string; nativeId?: string }): Promise<SentMessage>
+  /** Capabilities of the provider this message came from (set on contexts built by a Bot). */
+  capabilities?: ProviderCapabilities
 
   /* Actions — degrade to no-op when the provider lacks the capability */
   markRead(): Promise<void>
@@ -655,6 +681,8 @@ export interface BuildContextDeps<TRaw = unknown> {
   interaction?: { id: string; data: string; respondBy?: number }
   /** Sender profile exposed as `ctx.user`; when omitted every `ctx.user` call rejects with `UserDataError('UNAVAILABLE')`. */
   user?: UserData
+  /** Provider capabilities exposed as `ctx.capabilities` (drives `flow().form()` rendering). */
+  capabilities?: ProviderCapabilities
 }
 
 /* ============================================================================

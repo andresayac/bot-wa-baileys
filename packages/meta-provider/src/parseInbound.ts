@@ -15,7 +15,9 @@ import type {
   MessageType,
   MediaRef,
   SenderInfo,
+  FormReply,
 } from '@bot-wa/core'
+import { formReplyBody } from '@bot-wa/core'
 import {
   IdentityResolver,
   MemoryIdentityMap,
@@ -59,6 +61,8 @@ export interface GraphMessage {
     type?: string
     button_reply?: { id?: string; title?: string }
     list_reply?: { id?: string; title?: string; description?: string }
+    /** WhatsApp Flow completion: `response_json` is a JSON string with `flow_token` + the Footer payload. */
+    nfm_reply?: { name?: string; body?: string; response_json?: string }
   }
   /** System notices, e.g. `user_changed_number` / `user_changed_user_id`. */
   system?: {
@@ -200,6 +204,16 @@ function toMessage(msg: GraphMessage, id: string, who: ResolvedParty): InboundMe
   }
 }
 
+/** Split an `nfm_reply.response_json` into the core's normalized {@link FormReply}. */
+function flowReplyOf(responseJson: unknown): FormReply | undefined {
+  if (typeof responseJson !== 'string') return undefined
+  let parsed: unknown
+  try { parsed = JSON.parse(responseJson) } catch { return undefined }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return undefined
+  const { flow_token: token, ...values } = parsed as Record<string, unknown>
+  return typeof token === 'string' ? { token, values } : { values }
+}
+
 const str = (v: unknown): string | undefined => (typeof v === 'string' && v.length > 0 ? v : undefined)
 
 /** Build a party from raw webhook id fields; a BSUID-shaped `from` counts as a BSUID. */
@@ -318,6 +332,18 @@ export function extractDrafts(body: GraphWebhookBody, logger: IdentityLogger): I
               })
             }
           }
+        }
+
+        // WhatsApp Flow completions → 'form' messages (consumed by flow().form()).
+        if (msg.type === 'interactive' && msg.interactive?.type === 'nfm_reply') {
+          const reply = flowReplyOf(msg.interactive.nfm_reply?.response_json)
+          if (!reply) { drop('nfm_reply', 'response_json is not a JSON object', id); continue }
+          pendingEvents.push({
+            kind: 'event',
+            party,
+            build: (who) => ({ kind: 'message', message: { ...toMessage(msg, id, who), type: 'form', body: formReplyBody(reply) } }),
+          })
+          continue
         }
 
         // Interactive replies (button/list clicks) → interaction events.
