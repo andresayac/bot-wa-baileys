@@ -41,7 +41,7 @@ describe('PostgresStore — user data', () => {
     await store.setUserData({ userId: 'u1', namespace: 'n', key: 'k', value: { b: 2 }, expiresAt: Date.now() + 60_000, updatedAt: 2 })
     const rows = [...(fake.tables.get('user_data')?.rows.values() ?? [])]
     expect(rows).toHaveLength(1)
-    expect(rows[0]).toMatchObject({ user_id: 'u1', namespace: 'n', key: 'k', value: '{"b":2}', updated_at: 2 })
+    expect(rows[0]).toMatchObject({ user_id: 'u1', namespace: 'n', key: 'k', value: '{"b":2}', updated_at: '2' }) // BIGINT: a string, like node-postgres returns it
   })
 
   it('purgeExpiredUserData physically deletes only expired rows and reports the count', async () => {

@@ -232,8 +232,10 @@ export class PostgresStore implements IStore {
 
   async getMessagesByChat(chatId: string, limit = 50): Promise<StoredMessage[]> {
     // Latest `limit` rows, newest first — then reversed to oldest -> newest.
+    // Timestamp ties break by id, the same order trimChat keeps, so the window
+    // is deterministic and shows exactly the rows a capped store retains.
     const { rows } = await this.query<{ msg: unknown }>(
-      `SELECT msg FROM ${this.table('messages')} WHERE chat_id = $1 ORDER BY timestamp DESC LIMIT $2`,
+      `SELECT msg FROM ${this.table('messages')} WHERE chat_id = $1 ORDER BY timestamp DESC, id DESC LIMIT $2`,
       [chatId, limit],
     )
     return rows.map((r) => this.asJson<StoredMessage>(r.msg)).reverse()
@@ -246,7 +248,7 @@ export class PostgresStore implements IStore {
   /* Chats ------------------------------------------------------------------- */
 
   async upsertChat(chat: StoredChat): Promise<void> {
-    await this.mergeUpsert('chats', chat.id, chat, await this.getChat(chat.id))
+    await this.mergeUpsert('chats', chat.id, chat)
   }
   async getChat(chatId: string): Promise<StoredChat | undefined> {
     const { rows } = await this.query<{ data: unknown }>(
@@ -269,7 +271,7 @@ export class PostgresStore implements IStore {
   /* Contacts ---------------------------------------------------------------- */
 
   async upsertContact(contact: StoredContact): Promise<void> {
-    await this.mergeUpsert('contacts', contact.id, contact, await this.getContact(contact.id))
+    await this.mergeUpsert('contacts', contact.id, contact)
   }
   async getContact(userId: string): Promise<StoredContact | undefined> {
     const { rows } = await this.query<{ data: unknown }>(
@@ -296,24 +298,22 @@ export class PostgresStore implements IStore {
    * upserts of one id (overlapping events, several replicas) never drop each
    * other's fields. A read-modify-write in JS lost them.
    *
-   * `existing` (a prior read) only seeds the INSERT branch, i.e. when no row
-   * exists at write time — then it equals `patch` on a real server unless the
-   * row was deleted in between. Pool fakes that model ON CONFLICT as a plain
-   * row replace (tests/fakePool.ts) rely on it to still see merged data.
+   * One round trip, no prior read: the INSERT branch only runs when no row
+   * exists at write time, and then the merge result is the patch itself.
    */
   private async mergeUpsert(
     name: 'chats' | 'contacts',
     id: string,
     patch: StoredChat | StoredContact,
-    existing: StoredChat | StoredContact | undefined,
   ): Promise<void> {
     const t = this.table(name)
     const cleared = Object.entries(patch)
       .filter(([, v]) => v === undefined)
       .map(([k]) => jsonbSafeString(k))
+    // EXCLUDED.data is the proposed row, i.e. the patch: sent once, used by both branches.
     await this.query(
-      `INSERT INTO ${t} (id, data) VALUES ($1, $2) ON CONFLICT (id) DO UPDATE SET data = (${t}.data - $4::text[]) || $3::jsonb`,
-      [id, toJsonb({ ...existing, ...patch }), toJsonb(patch), cleared],
+      `INSERT INTO ${t} (id, data) VALUES ($1, $2) ON CONFLICT (id) DO UPDATE SET data = (${t}.data - $3::text[]) || EXCLUDED.data`,
+      [id, toJsonb(patch), cleared],
     )
   }
 

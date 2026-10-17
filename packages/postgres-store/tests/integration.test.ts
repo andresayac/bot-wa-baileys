@@ -323,6 +323,17 @@ describe.skipIf(!URL)('PostgresStore — real PostgreSQL integration', () => {
       expect(await count(t)).toBe(4)
     })
 
+    it('timestamp ties: the window shows exactly the rows the cap keeps (id tie-break)', async () => {
+      const capped = makeStore({ maxMessagesPerChat: 2 })
+      await capped.start()
+      for (const id of ['m3', 'm1', 'm4', 'm2']) await capped.saveMessage(msg('c@x', id, id, 7))
+      expect((await capped.getMessagesByChat('c@x')).map((m) => m.ref.id)).toEqual(['m3', 'm4'])
+      const store = makeStore()
+      await store.start()
+      for (const id of ['x3', 'x1', 'x4', 'x2']) await store.saveMessage(msg('d@x', id, id, 7))
+      expect((await store.getMessagesByChat('d@x', 2)).map((m) => m.ref.id)).toEqual(['x3', 'x4'])
+    })
+
     it('a cap of 1 keeps only the newest message', async () => {
       const store = makeStore({ maxMessagesPerChat: 1 })
       await store.start()

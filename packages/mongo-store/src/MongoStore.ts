@@ -79,7 +79,11 @@ export interface MongoLikeCollection<T extends { _id: string }> {
   ): Promise<{ matchedCount: number; upsertedCount: number }>
   /** `promoteBuffers` asks the driver to return BSON Binary as Node Buffers. */
   findOne(filter: { _id: string }, options?: { promoteBuffers?: boolean }): Promise<T | null>
-  find(filter?: Record<string, unknown>, options?: { promoteBuffers?: boolean }): MongoLikeCursor<T>
+  /** `projection` (e.g. `{ _id: 1 }`) limits the returned fields; the documents are then partial. */
+  find(
+    filter?: Record<string, unknown>,
+    options?: { promoteBuffers?: boolean; projection?: Record<string, 0 | 1> },
+  ): MongoLikeCursor<T>
   deleteOne(filter: { _id: string }): Promise<{ deletedCount: number }>
   deleteMany(filter: Record<string, unknown>): Promise<{ deletedCount: number }>
   createIndex(spec: Record<string, 1 | -1>): Promise<string>
@@ -160,6 +164,14 @@ const UPSERT = { upsert: true, ignoreUndefined: true } as const
 const READ = { promoteBuffers: true } as const
 
 /**
+ * Max ids per trim `deleteMany`. One `$in` with the whole overflow of a long
+ * history (cap turned on or lowered later) overflows BSON's 16 MiB command
+ * limit — ~400k message keys already do — so the delete goes in chunks.
+ * @internal
+ */
+export const TRIM_DELETE_BATCH = 10_000
+
+/**
  * Shallow-merge update with object-spread semantics (`{ ...existing, ...patch }`,
  * as in MemoryStore): defined fields are `$set`; fields explicitly present as
  * `undefined` are `$unset` (cleared) rather than stored as BSON null.
@@ -229,12 +241,17 @@ export class MongoStore implements IStore {
   private async trimChat(chatId: string): Promise<void> {
     if (this.maxMessagesPerChat == null) return
     // Newest first, skip the ones we keep — anything left is stale overflow.
+    // Only the ids travel back; the overflow goes in as few deleteMany as fit.
     const stale = await this.messages
-      .find({ chatId })
+      .find({ chatId }, { projection: { _id: 1 } })
       .sort({ timestamp: -1 })
       .skip(this.maxMessagesPerChat)
       .toArray()
-    for (const d of stale) await this.messages.deleteOne({ _id: d._id })
+    // Chunked so a large backlog never exceeds the BSON command size limit.
+    for (let i = 0; i < stale.length; i += TRIM_DELETE_BATCH) {
+      const ids = stale.slice(i, i + TRIM_DELETE_BATCH).map((d) => d._id)
+      await this.messages.deleteMany({ _id: { $in: ids } })
+    }
   }
 
   async getMessage(ref: MessageRef): Promise<StoredMessage | undefined> {
