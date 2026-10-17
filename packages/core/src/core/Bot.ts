@@ -68,6 +68,8 @@ import { Dispatcher, type DispatchContext } from './Dispatcher.js'
 import { buildMessageContext } from './context.js'
 import { ConversationRuntime, type CheckpointStore, type ConversationFn } from '../conversations/ConversationRuntime.js'
 import { createControls, type ConversationControls } from '../conversations/controls.js'
+import type { ConversationHandler } from '../conversations/handler.js'
+import { ChatIdleWatchers, type IdleHandler } from './idle.js'
 import { FlowBuilder, isCompiledFlow, type CompiledFlow } from '../flows/FlowBuilder.js'
 import { Scheduler } from '../scheduler/Scheduler.js'
 import { parseDuration } from '../utils/duration.js'
@@ -152,6 +154,14 @@ export class Bot extends EventEmitter {
   private runtime: ConversationRuntime
   private dispatcher: Dispatcher
   private scheduler = new Scheduler()
+  /** Per-chat inactivity watchers ({@link onIdle}); backed by the scheduler. */
+  private idle = new ChatIdleWatchers({
+    events: this,
+    delay: (ms, fn) => this.scheduler.delay(ms, fn),
+    isActive: () => this.acceptingInbound,
+    isSuspended: (chatId) => this.isChatHandedOff(chatId),
+    onError: (error, ctx) => this.emitError({ error, ctx }),
+  })
   private tools: Record<string, unknown> = {}
   private disposables = new DisposableList()
   private isStarted = false
@@ -433,7 +443,23 @@ export class Bot extends EventEmitter {
     return unsub
   }
 
-  conversation(name: string, fn: ConversationFn<ConversationControls>, opts?: { trigger?: Trigger }): () => void {
+  /**
+   * Register an async conversation, entered when `opts.trigger` (default: `name`) matches.
+   * `ctx` is the full {@link MessageContext} of the triggering message (`ctx.tools`, media
+   * helpers, `react`…); `c` offers `ask`/`waitText`/`waitMedia`/`choose`, `retry()`,
+   * `idle()`/`idleClear()`, `end(farewell?)` and `goto(name)`.
+   *
+   * @example
+   * ```ts
+   * bot.conversation('ahorcado', async (c, ctx) => {
+   *   c.idle('2m', () => c.end('⏰ Te desconecté por inactividad'))
+   *   let letra = await c.ask('Escribe una letra')
+   *   while (letra.length !== 1) letra = await c.retry('❌ Solo una letra')
+   *   await ctx.react('✅')
+   * })
+   * ```
+   */
+  conversation(name: string, fn: ConversationHandler, opts?: { trigger?: Trigger }): () => void {
     this.runtime.register(name, fn as ConversationFn)
     return this.registerEnterMatcher(opts?.trigger ?? name, name)
   }
@@ -584,6 +610,41 @@ export class Bot extends EventEmitter {
   delay(duration: string | number, fn: () => void | Promise<void>): ScheduledTask { return this.scheduler.delay(duration, fn) }
 
   /* =========================================================================
+   * IDLE (per-chat inactivity)
+   * ====================================================================== */
+
+  /**
+   * Run `handler` once when a chat stays quiet for `duration` (`'10m'`, `'1h'`, `'1d'`, ms…) after
+   * its last processed inbound message. Every new inbound message from that chat reschedules it,
+   * and re-arms it after it fired. `ctx` is that last message's context, so
+   * `ctx.reply('¿Sigues ahí?')` answers in the right chat. Handler errors go to the bot
+   * `'error'` event. Pending timers are cancelled by {@link clearIdle}, by the returned
+   * unsubscribe and by `stop()`. The handler never runs for a chat in human handoff: a
+   * `'handoff'` event carrying `{ chatId }` cancels that chat's timers, and its messages do not
+   * re-arm them until a `'resume'` event for that chat (the bot's own `isHandedOff()` state is
+   * honoured too, when present). `duration` must be positive and at most 2^31 − 1 ms (about
+   * 24.8 days, the longest a Node timer can wait); otherwise it throws `RangeError`.
+   *
+   * @example
+   * ```ts
+   * bot.onIdle('10m', async (ctx, { idleMs }) => {
+   *   await ctx.reply(`¿Sigues ahí? (${idleMs / 60_000} min sin respuesta)`)
+   * })
+   * ```
+   */
+  onIdle(duration: string | number, handler: IdleHandler): () => void {
+    return this.idle.add(duration, handler)
+  }
+
+  /**
+   * Cancel pending {@link onIdle} timers for `chatId` (every chat when omitted) — e.g. when a
+   * human agent takes the chat over. They re-arm on that chat's next processed inbound message.
+   */
+  clearIdle(chatId?: ChatId): void {
+    this.idle.clear(chatId)
+  }
+
+  /* =========================================================================
    * HELPERS
    * ====================================================================== */
 
@@ -705,6 +766,17 @@ export class Bot extends EventEmitter {
    * ====================================================================== */
 
   private asMessage(ctx: DispatchContext): MessageContext { return ctx as unknown as MessageContext }
+
+  /**
+   * The bot's own handoff state for {@link onIdle}: `isHandedOff(chatId)` when this bot has
+   * human-handoff support (it is authoritative — it also knows handoffs restored from the store
+   * at `start()`, which emit no `'handoff'` event); `false` otherwise. Looked up dynamically so
+   * the idle watchers follow whichever handoff implementation (or subclass override) is present.
+   */
+  private isChatHandedOff(chatId: ChatId): boolean {
+    const isHandedOff = (this as unknown as { isHandedOff?: (chatId: ChatId) => unknown }).isHandedOff
+    return typeof isHandedOff === 'function' && isHandedOff.call(this, chatId) === true
+  }
 
   private emitError(payload: { error: unknown; ctx?: MessageContext }): void {
     if (this.listenerCount('error') > 0) this.emit('error', payload)

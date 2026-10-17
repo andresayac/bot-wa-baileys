@@ -125,6 +125,7 @@ export {
   ConversationEnded,
   ConversationGoto,
   RetriesExceeded,
+  ConcurrentWaitError,
 } from './conversations/errors.js'
 
 // Hooks & plugins
@@ -180,3 +181,10 @@ export type {
   TriggerPatternInfo,
 } from './flows/inventory.js'
 export type { ConversationRegistration } from './conversations/ConversationRuntime.js'
+
+// conversations
+export { ConversationRetry, RetryUnavailableError } from './conversations/retry.js'
+export type { ConversationHandler } from './conversations/handler.js'
+export type { IdleCallback } from './conversations/idle.js'
+export type { ConversationObserver } from './conversations/ConversationRuntime.js'
+export type { IdleHandler, IdleEvent } from './core/idle.js'

@@ -37,6 +37,29 @@ export function parseDuration(input: string | number): number {
   return Math.round(value * multipliers[unit])
 }
 
+/**
+ * Longest delay a Node timer can hold: 2^31 − 1 ms (about 24.8 days). `setTimeout` with a
+ * larger delay does not wait — it fires after 1 ms (`TimeoutOverflowWarning`).
+ */
+export const MAX_TIMER_MS = 2_147_483_647
+
+/**
+ * Parse an inactivity period — the single parser behind `bot.onIdle()` and `c.idle()`.
+ * Accepts everything {@link parseDuration} does (`'90s'`, `'10m'`, `'2 hours'`, `'1d'`, ms) and
+ * requires a positive, finite value of at most {@link MAX_TIMER_MS}; throws `RangeError` otherwise
+ * (an unparsable string throws the parser's `Error`). Internal.
+ */
+export function parseIdlePeriod(duration: string | number, api: string): number {
+  const ms = parseDuration(duration)
+  if (!Number.isFinite(ms) || ms <= 0) {
+    throw new RangeError(`${api} needs a positive, finite duration — got ${JSON.stringify(duration)}`)
+  }
+  if (ms > MAX_TIMER_MS) {
+    throw new RangeError(`${api} supports at most ${MAX_TIMER_MS} ms (about 24 days) — got ${JSON.stringify(duration)}`)
+  }
+  return ms
+}
+
 /** Race a promise against a timeout — rejects with `TimeoutError` if exceeded. */
 export class TimeoutError extends Error {
   constructor(message = 'Operation timed out') {

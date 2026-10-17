@@ -1,5 +1,5 @@
 import {
-  ConversationCancelled, ConversationEnded, ConversationGoto,
+  ConcurrentWaitError, ConversationCancelled, ConversationEnded, ConversationGoto,
   ConversationTimeout, RetriesExceeded,
 } from './errors.js'
 import type { CompiledFlow } from '../flows/FlowBuilder.js'
@@ -72,11 +72,25 @@ interface PendingWait {
   timer?: NodeJS.Timeout
 }
 
+/**
+ * Lifecycle observer of ONE live conversation (see {@link ConversationRuntime.observe}).
+ * Used by `c.idle()` watchdogs; callbacks must be cheap and must not throw.
+ */
+export interface ConversationObserver {
+  /** Any inbound message routed to the conversation's key — even one its pending wait filters out. */
+  inbound?(ctx: RuntimeMessage): void
+  /** The conversation ended or was aborted/replaced. Fires at most once. */
+  end?(): void
+}
+
 interface ActiveConversation extends ConversationHandle {
   state: Record<string, unknown>
   inbox: RuntimeMessage[]
   pending?: PendingWait
   cancelled?: ConversationCancelled
+  /** Control error injected from outside the conversation's call stack; thrown at its next wait. */
+  interrupted?: Error
+  observers?: Set<ConversationObserver>
 }
 
 const INBOX_CAP = 10
@@ -230,6 +244,7 @@ export class ConversationRuntime {
   deliver(ctx: RuntimeMessage): boolean {
     const entry = this.active.get(this.keyFor(ctx))
     if (!entry) return false
+    if (entry.observers) for (const o of [...entry.observers]) { try { o.inbound?.(ctx) } catch { /* observers must not break delivery */ } }
     if (entry.pending) {
       if (entry.pending.filter && !entry.pending.filter(ctx)) return false
       entry.pending.resolve(ctx)
@@ -247,6 +262,7 @@ export class ConversationRuntime {
     entry.cancelled = cancel
     if (entry.pending) entry.pending.reject(cancel)
     this.active.delete(key)
+    this.notifyEnd(entry)
     return true
   }
 
@@ -266,12 +282,19 @@ export class ConversationRuntime {
     return n
   }
 
-  /** Usado por controls. */
+  /**
+   * Wait for the conversation's next inbound message (used by controls). A conversation has a
+   * single pending-wait slot: a wait started while another is pending (an un-awaited `c.ask()`
+   * or `c.retry()`…) is refused with {@link ConcurrentWaitError} — the pending wait keeps it.
+   */
   wait(handle: ConversationHandle, opts: ResolvedWaitOptions = {}): Promise<RuntimeMessage> {
     const entry = handle as ActiveConversation
     if (this.active.get(entry.key) !== entry || entry.cancelled) {
       return Promise.reject(entry.cancelled ?? new ConversationCancelled(true))
     }
+    if (entry.pending) return Promise.reject(new ConcurrentWaitError())
+    const interrupted = takeInterrupt(entry)
+    if (interrupted) return Promise.reject(interrupted)
     // A buffered message that already satisfies the filter must be consumed —
     // previously a filtered wait skipped the inbox entirely and only looked at
     // FUTURE messages, silently dropping an in-flight answer. With no filter it
@@ -287,15 +310,19 @@ export class ConversationRuntime {
 
     return new Promise<RuntimeMessage>((resolve, reject) => {
       const timeoutMs = opts.timeoutMs ?? this.cfg.defaultTimeoutMs ?? 300_000
-      const timer = timeoutMs > 0
-        ? setTimeout(() => { entry.pending = undefined; reject(new ConversationTimeout()) }, timeoutMs)
-        : undefined
-      entry.pending = {
-        filter: opts.filter,
-        resolve: (ctx) => { if (timer) clearTimeout(timer); entry.pending = undefined; resolve(ctx) },
-        reject: (err) => { if (timer) clearTimeout(timer); entry.pending = undefined; reject(err) },
-        timer,
+      // Settling (answer, timeout, abort, interrupt) frees the slot only while it still holds
+      // THIS wait, so a stale timer can never clear a newer wait.
+      const release = () => {
+        if (pending.timer) clearTimeout(pending.timer)
+        if (entry.pending === pending) entry.pending = undefined
       }
+      const pending: PendingWait = {
+        filter: opts.filter,
+        resolve: (ctx) => { release(); resolve(ctx) },
+        reject: (err) => { release(); reject(err) },
+      }
+      if (timeoutMs > 0) pending.timer = setTimeout(() => pending.reject(new ConversationTimeout()), timeoutMs)
+      entry.pending = pending
     })
   }
 
@@ -313,16 +340,64 @@ export class ConversationRuntime {
     if (this.active.get(entry.key) !== entry || entry.cancelled) {
       throw entry.cancelled ?? new ConversationCancelled(true)
     }
+    const interrupted = takeInterrupt(entry)
+    if (interrupted) throw interrupted
+  }
+
+  /**
+   * Observe one live conversation (inbound activity + end). Returns an unsubscribe; a
+   * handle that is no longer live gets a no-op subscription. `end` fires exactly once,
+   * on completion, error, abort or replacement — so observers never outlive the entry.
+   */
+  observe(handle: ConversationHandle, observer: ConversationObserver): () => void {
+    const entry = handle as ActiveConversation
+    if (this.active.get(entry.key) !== entry || entry.cancelled) return () => {}
+    const observers = (entry.observers ??= new Set())
+    observers.add(observer)
+    return () => { observers.delete(observer) }
+  }
+
+  /**
+   * Steer a live conversation from OUTSIDE its call stack (e.g. an idle callback calling
+   * `c.end()`/`c.goto()`): `error` rejects the pending wait, or — if the conversation is busy —
+   * is thrown at its next wait/`say`. It then unwinds through the normal ending path
+   * (farewell, goto, timeout/retries messages). Returns false if the handle is not live.
+   */
+  interrupt(handle: ConversationHandle, error: Error): boolean {
+    const entry = handle as ActiveConversation
+    if (this.active.get(entry.key) !== entry || entry.cancelled) return false
+    if (entry.pending) entry.pending.reject(error)
+    else entry.interrupted = error
+    return true
+  }
+
+  /** Report an error raised outside a conversation's own flow (idle callbacks) via `onError`. */
+  reportError(error: unknown, ctx: RuntimeMessage): void {
+    this.cfg.onError?.(error, ctx)
+    this.cfg.logger?.error?.('conversation error', error)
+  }
+
+  private notifyEnd(entry: ActiveConversation): void {
+    const observers = entry.observers
+    entry.observers = undefined
+    for (const o of observers ?? []) { try { o.end?.() } catch { /* observers must not break teardown */ } }
   }
 
   private cleanup(entry: ActiveConversation): void {
     if (entry.pending?.timer) clearTimeout(entry.pending.timer)
     if (this.active.get(entry.key) === entry) this.active.delete(entry.key)
+    this.notifyEnd(entry)
   }
 
   private async safeReply(ctx: RuntimeMessage, text: string): Promise<void> {
     try { await ctx.reply(text) } catch (e) { this.cfg.logger?.warn?.('reply failed', e) }
   }
+}
+
+function takeInterrupt(entry: ActiveConversation): Error | undefined {
+  const e = entry.interrupted
+  entry.interrupted = undefined
+  return e
 }
 
 function defaultControlsFactory(rt: ConversationRuntime, handle: ConversationHandle, ctx: RuntimeMessage): ConversationControlsBase {
