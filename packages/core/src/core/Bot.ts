@@ -82,6 +82,7 @@ import { describeFlows, type DescribeOptions, type FlowGraph } from '../flows/de
 import { lintFlows, type LintDiagnostic, type LintOptions } from '../flows/lint.js'
 import { AccessList, Whitelist, checkAccess, type AccessListSnapshot, type AccessListsSnapshot, type WhitelistSnapshot } from '../gates/accessList.js'
 import { KeyedQueue } from '../utils/keyedQueue.js'
+import { definedFields } from '../utils/definedFields.js'
 import { HANDOFF_INDEX_KEY, HandoffRegistry, type HandoffEvent, type HandoffOptions, type HandoffState, type ResumeEvent, type ResumeOptions, type StoredHandoff } from '../gates/handoff.js'
 import { WelcomeTracker } from './welcome.js'
 import { callToInbound, RecentIds } from './calls.js'
@@ -1004,10 +1005,17 @@ export class Bot extends EventEmitter {
   /**
    * Upsert a chat record, one write at a time per chat. Stores merge with a non-atomic
    * read-modify-write, so overlapping upserts (inbound, outbound ledger, handoff) could
-   * otherwise drop a field such as `handoff`.
+   * otherwise drop a field such as `handoff`. Undefined fields are omitted: stores read an
+   * explicit `undefined` as "unset", which would wipe e.g. a stored name.
    */
   private persistChat(chat: StoredChat): Promise<void> {
-    return this.chatWrites.run(chat.id, () => this.store.upsertChat(chat))
+    const record = definedFields(chat)
+    return this.chatWrites.run(chat.id, () => this.store.upsertChat(record))
+  }
+
+  /** Upsert a contact record, omitting undefined fields (same reason as {@link persistChat}). */
+  private persistContact(contact: StoredContact): Promise<void> {
+    return this.store.upsertContact(definedFields(contact))
   }
 
   /**
@@ -1125,7 +1133,7 @@ export class Bot extends EventEmitter {
         updatedAt: timestamp,
         raw: this.config.persistRaw ? inbound.chat.platformData : undefined,
       }),
-      this.store.upsertContact({
+      this.persistContact({
         id: inbound.senderId,
         ...this.namespace,
         name: inbound.senderInfo.displayName,

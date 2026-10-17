@@ -760,11 +760,16 @@ export interface IStore {
   getMessagesByChat(chatId: ChatId, limit?: number): Promise<StoredMessage[]>
   deleteMessage(ref: MessageRef): Promise<void>
 
+  /**
+   * Shallow-merge `chat` onto the stored record. An own field set to `undefined` UNSETS
+   * that field, so a partial upsert must omit what it does not know (the Bot does).
+   */
   upsertChat(chat: StoredChat): Promise<void>
   getChat(chatId: ChatId): Promise<StoredChat | undefined>
   listChats(): Promise<StoredChat[]>
   deleteChat(chatId: ChatId): Promise<void>
 
+  /** Shallow-merge `contact` onto the stored record; same `undefined` = unset rule as {@link upsertChat}. */
   upsertContact(contact: StoredContact): Promise<void>
   getContact(userId: UserId): Promise<StoredContact | undefined>
   listContacts(): Promise<StoredContact[]>
