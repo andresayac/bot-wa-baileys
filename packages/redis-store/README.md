@@ -112,7 +112,7 @@ try {
 - Listing (`listChats` / `listContacts` / `listCheckpoints`) uses `KEYS {prefix}:…:*` — fine at bot scale; switch to `SCAN` if you expect a very large keyspace on a shared server. Glob metacharacters in the prefix (`*`, `?`, `[`, `]`, `\`) are escaped, so a prefix like `bot[1]` never lists another prefix's keys.
 - `getMessagesByChat(chatId, limit)` accepts any number, like `MemoryStore`: `0`, negative or `NaN` → `[]`, fractions round up, `Infinity` → the whole log.
 - `maxMessagesPerChat` pruning is safe with several replicas writing the same chat at once: each trim removes only what is beyond the newest N at that instant, so it can never cut into the newest N.
-- `upsertChat` / `upsertContact` shallow-merge with a read-modify-write. Concurrent upserts of the same record **within one process** are serialized, so none loses the other's fields; two **replicas** upserting the same record at the same instant can still overwrite each other's fields (last write wins).
+- `upsertChat` / `upsertContact` shallow-merge exactly like `MemoryStore` (`{ ...existing, ...patch }`; an explicit `undefined` removes the field). The write is an atomic compare-and-set on the server (a small Lua script): if another replica changed the record between the read and the write, the store re-reads and merges again, so concurrent upserts from **any number of replicas** never lose each other's fields. The merge runs in JS, not in Lua, so values are stored byte-exact (a server-side cjson round-trip would turn `[]` into `{}` and cut numbers to 14 digits). Under pathological contention an upsert gives up after 50 attempts with an error.
 - Do not inject a client configured with `returnBuffers: true`; the store expects string replies.
 - Lifecycle of a **self-created** client (an injected one is never connected, quit or listened to):
   - `start()` is idempotent (concurrent calls share one connect) and rejects promptly with the socket error (e.g. `ECONNREFUSED`) if the server is unreachable; call it again to retry.
@@ -121,12 +121,13 @@ try {
 
 ## Tests de integración
 
-Los tests unitarios (`tests/redis-store.test.ts`, `tests/conformance.test.ts`) usan un cliente falso en memoria (`tests/fakeRedis.ts`) que solo imita los comandos que envía el store, así que Redis nunca los ejecuta. `tests/integration.test.ts` sí lo hace, contra un servidor de verdad:
+Los tests unitarios (`tests/redis-store.test.ts`, `tests/conformance.test.ts`, `tests/fakeRedis.test.ts`) usan un cliente falso en memoria (`tests/fakeRedis.ts`) que imita la semántica de Redis para los comandos que envía el store: glob de `KEYS` byte a byte (escapes con `\`, clases `[...]`), `ZRANGE` por rango o por score, validación de `EX`/`PX` y `LIMIT`, `WRONGTYPE`, `MULTI` sin rollback y `EVAL` solo de los scripts del store. Esas expectativas viven en `tests/redis-probes.ts` y `tests/integration.test.ts` las verifica también contra un servidor de verdad, junto con:
 
 - la suite compartida de conformidad de `IStore` (con cliente inyectado y con cliente propio del store);
+- las mismas sondas (`redis-probes.ts`) que usa el fake, para que no se aleje del servidor real;
 - ciclo de vida: `start()` idempotente (también en paralelo), persistencia tras `stop()`/`start()` con una instancia y una conexión nuevas, reinicio de la misma instancia, servidor inalcanzable al arrancar, conexión cortada (vía un proxy TCP local) sin tumbar el proceso, y `stop()` que no se cuelga;
 - log de mensajes: orden y `limit` de `getMessagesByChat` (inserción desordenada, límite por defecto, `Infinity`, fracciones, `0`, negativos), timestamps repetidos, `deleteMessage`, `deleteChat` purgando todas las claves, recorte con `maxMessagesPerChat` y `saveMessage` concurrentes desde una y varias conexiones (también recortando a la vez);
-- merge superficial de `upsertChat`/`upsertContact` (también concurrente), unicode/emoji en claves y valores, JSON de varios MB y prefijos con metacaracteres de glob;
+- merge superficial de `upsertChat`/`upsertContact` (también concurrente, desde varias conexiones/réplicas a la vez, y sin alterar los valores JSON), unicode/emoji en claves y valores, JSON de varios MB y prefijos con metacaracteres de glob;
 - `ttl` (comprobado con `PTTL`, también fraccionario) y el lock distribuido (exclusivo entre conexiones, `PX`, solo el dueño libera, expiración).
 
 Es opt-in: se activa con la variable de entorno `BOTWA_TEST_REDIS_URL` y, si no está definida, el archivo se salta entero, así que `pnpm test` sigue siendo hermético (sin red).

@@ -249,3 +249,132 @@ describe('RedisStore — lifecycle', () => {
     expect(fake.expires.has('botwa:msg:c')).toBe(false)
   })
 })
+
+describe('RedisStore — record upserts across replicas', () => {
+  const chat = (fake: FakeRedisClient, key = 'botwa:chat:c'): unknown => JSON.parse(fake.strings.get(key) ?? 'null')
+
+  it('two stores (replicas) sharing one server never lose each other\'s fields', async () => {
+    const fake = new FakeRedisClient()
+    const a = new RedisStore({ client: fake })
+    const b = new RedisStore({ client: fake })
+    await a.upsertChat({ id: 'c', name: 'Original' })
+    // Each replica only chains its OWN upserts, so these interleave on the server.
+    await Promise.all([
+      a.upsertChat({ id: 'c', name: 'Renamed', kind: 'group' }),
+      b.upsertChat({ id: 'c', lastMessageAt: 7 }),
+      a.upsertChat({ id: 'c', updatedAt: 8 }),
+      b.upsertChat({ id: 'c', botId: 'bot-3' }),
+    ])
+    expect(chat(fake)).toEqual({ id: 'c', name: 'Renamed', kind: 'group', lastMessageAt: 7, updatedAt: 8, botId: 'bot-3' })
+
+    await Promise.all([
+      a.upsertContact({ id: 'u', name: 'Ana' }),
+      b.upsertContact({ id: 'u', username: 'ana' }),
+      b.upsertContact({ id: 'u', phoneNumber: '+57' }),
+    ])
+    expect(await a.getContact('u')).toEqual({ id: 'u', name: 'Ana', username: 'ana', phoneNumber: '+57' })
+  })
+
+  it('an explicit undefined removes the field (MemoryStore semantics), also under contention', async () => {
+    const fake = new FakeRedisClient()
+    const a = new RedisStore({ client: fake })
+    const b = new RedisStore({ client: fake })
+    await a.upsertContact({ id: 'u', name: 'Ana', username: 'ana', phoneNumber: '+1' })
+    await Promise.all([a.upsertContact({ id: 'u', phoneNumber: undefined }), b.upsertContact({ id: 'u', name: 'Ana B.' })])
+    const stored = JSON.parse(fake.strings.get('botwa:contact:u') ?? 'null') as Record<string, unknown>
+    expect(stored).toEqual({ id: 'u', name: 'Ana B.', username: 'ana' })
+    expect('phoneNumber' in stored).toBe(false)
+  })
+
+  it('a write that lands between the read and the write is merged, not overwritten', async () => {
+    const fake = new FakeRedisClient()
+    const store = new RedisStore({ client: fake })
+    await store.upsertChat({ id: 'c', name: 'A' })
+    const realGet = fake.get.bind(fake)
+    let raced = false
+    vi.spyOn(fake, 'get').mockImplementation(async (key) => {
+      const value = await realGet(key)
+      if (!raced && key === 'botwa:chat:c') {
+        raced = true // another process writes right after our read
+        await fake.set(key, JSON.stringify({ id: 'c', name: 'A', kind: 'group' }))
+      }
+      return value
+    })
+    await store.upsertChat({ id: 'c', lastMessageAt: 1 })
+    expect(chat(fake)).toEqual({ id: 'c', name: 'A', kind: 'group', lastMessageAt: 1 })
+  })
+
+  it('gives up with an error instead of spinning forever under endless contention', async () => {
+    const fake = new FakeRedisClient()
+    const store = new RedisStore({ client: fake })
+    await store.upsertChat({ id: 'c', name: 'A' })
+    const realGet = fake.get.bind(fake)
+    let n = 0
+    const spy = vi.spyOn(fake, 'get').mockImplementation(async (key) => {
+      const value = await realGet(key)
+      await fake.set(key, JSON.stringify({ id: 'c', n: ++n }))
+      return value
+    })
+    await expect(store.upsertChat({ id: 'c', kind: 'group' })).rejects.toThrow(/contention/)
+    // A failed upsert does not poison the next one.
+    spy.mockRestore()
+    await store.upsertChat({ id: 'c', kind: 'dm' })
+    expect((chat(fake) as { kind?: string }).kind).toBe('dm')
+  })
+
+  it('keeps the merged record byte-exact (no lossy server-side JSON re-encoding)', async () => {
+    const fake = new FakeRedisClient()
+    const store = new RedisStore({ client: fake })
+    const raw = { arr: [], obj: {}, float: 0.1 + 0.2, big: Number.MAX_SAFE_INTEGER, url: 'https://x/y' }
+    await store.upsertChat({ id: 'c', raw })
+    await store.upsertChat({ id: 'c', name: 'n' })
+    expect(fake.strings.get('botwa:chat:c')).toBe(JSON.stringify({ id: 'c', raw, name: 'n' }))
+  })
+})
+
+describe('RedisStore — glob metacharacters in the prefix (hermetic)', () => {
+  it('listings stay inside the prefix even when it contains glob metacharacters', async () => {
+    const fake = new FakeRedisClient()
+    const bracket = new RedisStore({ client: fake, prefix: 'base[1]' })
+    const sibling = new RedisStore({ client: fake, prefix: 'base1' }) // matched by the unescaped pattern `base[1]:chat:*`
+    const star = new RedisStore({ client: fake, prefix: 'base*' })
+    const other = new RedisStore({ client: fake, prefix: 'base-other' }) // matched by the unescaped pattern `base*:chat:*`
+    const slash = new RedisStore({ client: fake, prefix: 'base\\' })
+    const query = new RedisStore({ client: fake, prefix: 'bas?' })
+
+    for (const [store, tag] of [[bracket, 'bracket'], [sibling, 'sibling'], [star, 'star'], [other, 'other'], [slash, 'slash'], [query, 'query']] as const) {
+      await store.upsertChat({ id: `chat-${tag}` })
+      await store.upsertContact({ id: `user-${tag}` })
+      await store.setCheckpoint(`cp-${tag}`, { flowId: tag, step: 0, state: {}, updatedAt: 0 })
+    }
+
+    expect((await bracket.listChats()).map((c) => c.id)).toEqual(['chat-bracket'])
+    expect((await bracket.listContacts()).map((c) => c.id)).toEqual(['user-bracket'])
+    expect((await bracket.listCheckpoints()).map(([k]) => k)).toEqual(['cp-bracket'])
+    expect((await star.listChats()).map((c) => c.id)).toEqual(['chat-star'])
+    expect((await star.listContacts()).map((c) => c.id)).toEqual(['user-star'])
+    expect((await star.listCheckpoints()).map(([k]) => k)).toEqual(['cp-star'])
+    expect((await sibling.listChats()).map((c) => c.id)).toEqual(['chat-sibling'])
+    expect((await slash.listChats()).map((c) => c.id)).toEqual(['chat-slash'])
+    expect((await query.listChats()).map((c) => c.id)).toEqual(['chat-query'])
+  })
+
+  it('a glob-hostile prefix only scans and deletes its own user-data keys', async () => {
+    const fake = new FakeRedisClient()
+    const hostile = new RedisStore({ client: fake, prefix: 'ud[1]' })
+    const neighbour = new RedisStore({ client: fake, prefix: 'ud1' })
+    await hostile.setUserData({ userId: 'u', namespace: 'default', key: 'a', value: 1, updatedAt: 1 })
+    await neighbour.setUserData({ userId: 'u', namespace: 'default', key: 'b', value: 2, updatedAt: 1 })
+    expect((await hostile.listUserData('u')).map((e) => e.key)).toEqual(['a'])
+    await hostile.deleteUserData('u')
+    expect((await neighbour.listUserData('u')).map((e) => e.key)).toEqual(['b'])
+    expect(await hostile.listUserData('u')).toEqual([])
+  })
+
+  it('the fake really treats an unescaped bracket prefix as a class (the bug the escaping prevents)', async () => {
+    const fake = new FakeRedisClient()
+    await fake.set('base1:chat:x', '{}')
+    expect(await fake.keys('base[1]:chat:*')).toEqual(['base1:chat:x'])
+    expect(await fake.keys('base\\[1\\]:chat:*')).toEqual([])
+  })
+})

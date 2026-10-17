@@ -41,15 +41,14 @@ import type {
 import { messageKey } from '@bot-wa/core'
 import { RedisUserData } from './userData.js'
 import { escapeGlob } from './glob.js'
+import { MERGE_CAS_SCRIPT, RELEASE_LOCK_SCRIPT } from './scripts.js'
 
-/** Lua compare-and-delete: only DEL the lock if the token still matches. */
-const RELEASE_LOCK_SCRIPT = `
-if redis.call('get', KEYS[1]) == ARGV[1] then
-  return redis.call('del', KEYS[1])
-else
-  return 0
-end
-`
+/**
+ * Compare-and-set attempts per upsert. Each failed attempt means another
+ * writer's upsert of the same record landed, so the fleet always progresses;
+ * the cap only turns pathological contention into an error instead of a spin.
+ */
+const MERGE_MAX_ATTEMPTS = 50
 
 /** The native node-redis v4 client type produced by `createClient` (modules bundled by `redis`). */
 export type NativeRedisClient = ReturnType<typeof createClient>
@@ -199,7 +198,7 @@ export class RedisStore implements IStore {
   private keepReconnecting = false
   /** In-flight connect of an own client, shared by concurrent start() calls. */
   private connecting?: Promise<void>
-  /** Tail of the pending read-merge-write chain per record key (see {@link mergeRecord}). */
+  /** Tail of the pending in-process upsert chain per record key (see {@link mergeRecord}). */
   private readonly mergeChains = new Map<string, Promise<void>>()
   private readonly userData: RedisUserData
 
@@ -292,19 +291,37 @@ export class RedisStore implements IStore {
   }
 
   /**
-   * Shallow-merge `patch` over the JSON record at `key` (upsert semantics).
-   * GET + SET is not atomic: two concurrent upserts of one record (Bot does
-   * this for inbound and outbound traffic of the same chat) both read the old
-   * value and the later SET silently dropped the other's fields. Upserts of the
-   * same key are therefore chained in-process. Writers in OTHER processes can
-   * still interleave; see the README.
+   * Shallow-merge `patch` over the JSON record at `key` (upsert semantics,
+   * exactly MemoryStore's `{ ...existing, ...patch }`: an explicit `undefined`
+   * removes the field, since JSON drops it).
+   *
+   * A plain GET + SET is not atomic: two concurrent upserts of one record (Bot
+   * does this for inbound and outbound traffic of the same chat, and every
+   * replica does it for the chats they share) both read the old value and the
+   * later SET drops the other's fields. So the write is an optimistic
+   * compare-and-set ({@link MERGE_CAS_SCRIPT}, atomic on the server): it only
+   * lands if the record is still the exact string the merge was computed from,
+   * otherwise the record is re-read and the merge retried — safe across
+   * processes. The merge itself stays in JS because a cjson round-trip on the
+   * server would alter values. Upserts of one key are also chained in-process
+   * so a single replica does not race (and retry) against itself.
    */
   private mergeRecord(key: string, patch: object): Promise<void> {
     const previous = this.mergeChains.get(key) ?? Promise.resolve()
     const run = previous.then(async () => {
-      const raw = await this.client.get(key)
-      const existing = raw == null ? undefined : (JSON.parse(toStr(raw)) as object)
-      await this.client.set(key, JSON.stringify({ ...existing, ...patch }))
+      for (let attempt = 0; attempt < MERGE_MAX_ATTEMPTS; attempt++) {
+        const raw = await this.client.get(key)
+        const current = raw == null ? null : toStr(raw)
+        const existing = current == null ? undefined : (JSON.parse(current) as object)
+        const merged = JSON.stringify({ ...existing, ...patch })
+        const written = await this.client.eval(MERGE_CAS_SCRIPT, {
+          keys: [key],
+          // ['0', ''] = "the key must still be absent"; ['1', raw] = "it must still be exactly raw".
+          arguments: current == null ? ['0', '', merged] : ['1', current, merged],
+        })
+        if (Number(written) === 1) return
+      }
+      throw new Error(`RedisStore: gave up upserting ${key} after ${MERGE_MAX_ATTEMPTS} attempts (write contention)`)
     })
     const tail = run.catch(() => {}) // a failed upsert must not poison the next one
     this.mergeChains.set(key, tail)

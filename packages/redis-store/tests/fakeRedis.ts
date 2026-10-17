@@ -1,30 +1,173 @@
 /**
  * In-memory fake of the node-redis v4 client surface used by RedisStore.
  *
- * Hermetic: no network, no real Redis. Expiry is lazy (checked on access)
- * and deterministic — tests can force a key to expire by rewriting its entry
- * in {@link FakeRedisClient.expires}. `eval` implements the ONE script the
- * store sends (the Lua compare-and-delete lock release).
+ * Hermetic: no network, no real Redis. It models the server semantics the
+ * store relies on — checked against a live server by the shared probes in
+ * redis-probes.ts — including:
+ *  - KEYS glob matching byte for byte like Redis' `stringmatchlen` (`*`, `?`,
+ *    `[...]` classes with ranges/negation, backslash escapes);
+ *  - ZRANGE by rank (no BY) vs BYSCORE (`(` exclusive bounds, REV swapping the
+ *    bound order), LIMIT only with BYSCORE, a negative count meaning "all";
+ *  - argument validation (integer ranks/LIMIT, positive integer EX/PX);
+ *  - WRONGTYPE when a string key is used as a sorted set or vice versa;
+ *  - MULTI without rollback (exec rejects after running every command);
+ *  - EVAL of exactly the scripts the store sends, atomically.
+ *
+ * Expiry is lazy (checked on access) and deterministic — tests can force a key
+ * to expire by rewriting its entry in {@link FakeRedisClient.expires}.
+ * Commands run synchronously inside their async wrappers, so a command (and a
+ * whole EVAL) is atomic while separate commands from concurrent callers still
+ * interleave, like requests from several connections.
  */
 import type { RedisLikeClient, RedisMulti, RedisZRangeOptions } from '../src/RedisStore.js'
+import { MERGE_CAS_SCRIPT, RELEASE_LOCK_SCRIPT } from '../src/scripts.js'
 
 interface ZEntry {
   score: number
   value: string
 }
 
-function bound(v: number | string): number {
-  if (typeof v === 'number') return v
-  if (v === '+inf' || v === 'inf' || v === '+Infinity' || v === 'Infinity') return Number.POSITIVE_INFINITY
-  if (v === '-inf' || v === '-Infinity') return Number.NEGATIVE_INFINITY
-  const n = Number(v)
-  if (Number.isNaN(n)) throw new Error(`FakeRedisClient: unsupported ZRANGE bound: ${v}`)
+const WRONGTYPE = 'WRONGTYPE Operation against a key holding the wrong kind of value'
+const NOT_INTEGER = 'ERR value is not an integer or out of range'
+
+/** How node-redis serializes a numeric argument (Infinity becomes `+inf`/`-inf`, the rest `toString()`). */
+function wireNumber(v: number | string): string {
+  if (typeof v === 'string') return v
+  if (v === Number.POSITIVE_INFINITY) return '+inf'
+  if (v === Number.NEGATIVE_INFINITY) return '-inf'
+  return v.toString()
+}
+
+/** Parse an argument Redis reads as a 64-bit integer (strict, like `string2ll`). */
+function parseInteger(v: number | string): number {
+  const s = typeof v === 'number' ? v.toString() : v
+  if (!/^-?\d+$/.test(s)) throw new Error(NOT_INTEGER)
+  const n = Number(s)
+  if (!Number.isSafeInteger(n)) throw new Error(NOT_INTEGER)
   return n
 }
 
-function globToRegExp(pattern: string): RegExp {
-  const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.')
-  return new RegExp(`^${escaped}$`)
+/** Parse a ZRANGE BYSCORE bound: a float, `±inf`, optionally prefixed with `(` (exclusive). */
+function parseScoreBound(v: number | string): { value: number; exclusive: boolean } {
+  let s = wireNumber(v)
+  const exclusive = s.startsWith('(')
+  if (exclusive) s = s.slice(1)
+  const lower = s.toLowerCase()
+  let value: number
+  if (lower === '+inf' || lower === 'inf' || lower === '+infinity' || lower === 'infinity') value = Number.POSITIVE_INFINITY
+  else if (lower === '-inf' || lower === '-infinity') value = Number.NEGATIVE_INFINITY
+  else {
+    value = s.trim() === s && s !== '' ? Number(s) : Number.NaN
+    if (Number.isNaN(value)) throw new Error('ERR min or max is not a float')
+  }
+  return { value, exclusive }
+}
+
+/** Positive integer expiry, as SET … EX/PX requires. */
+function parseExpire(v: number): number {
+  const n = parseInteger(v)
+  if (n <= 0) throw new Error("ERR invalid expire time in 'set' command")
+  return n
+}
+
+/**
+ * Redis' `stringmatchlen` (util.c), byte for byte: `pattern` and `str` are
+ * UTF-8 bytes, so `?` matches one byte and classes compare bytes.
+ */
+export function stringMatch(pattern: string, str: string): boolean {
+  const p = Buffer.from(pattern, 'utf8')
+  const s = Buffer.from(str, 'utf8')
+  const skipLonger = { value: false }
+  return matchFrom(p, 0, s, 0, skipLonger)
+}
+
+function matchFrom(p: Buffer, pi: number, s: Buffer, si: number, skipLonger: { value: boolean }): boolean {
+  let pLen = p.length - pi
+  let sLen = s.length - si
+  while (pLen > 0 && sLen > 0) {
+    switch (p[pi]) {
+      case 0x2a: { // '*'
+        while (pLen > 1 && p[pi + 1] === 0x2a) {
+          pi++
+          pLen--
+        }
+        if (pLen === 1) return true
+        while (sLen > 0) {
+          if (matchFrom(p, pi + 1, s, si, skipLonger)) return true
+          if (skipLonger.value) return false
+          si++
+          sLen--
+        }
+        skipLonger.value = true
+        return false
+      }
+      case 0x3f: // '?'
+        si++
+        sLen--
+        break
+      case 0x5b: { // '['
+        pi++
+        pLen--
+        const not = p[pi] === 0x5e // '^'
+        if (not) {
+          pi++
+          pLen--
+        }
+        let match = false
+        for (;;) {
+          if (p[pi] === 0x5c && pLen >= 2) { // '\' escapes the next class char
+            pi++
+            pLen--
+            if (p[pi] === s[si]) match = true
+          } else if (p[pi] === 0x5d) { // ']'
+            break
+          } else if (pLen === 0) { // unterminated class
+            pi--
+            pLen++
+            break
+          } else if (pLen >= 3 && p[pi + 1] === 0x2d) { // range 'a-z'
+            let start = p[pi]!
+            let end = p[pi + 2]!
+            const c = s[si]!
+            if (start > end) [start, end] = [end, start]
+            pi += 2
+            pLen -= 2
+            if (c >= start && c <= end) match = true
+          } else if (p[pi] === s[si]) {
+            match = true
+          }
+          pi++
+          pLen--
+        }
+        if (not) match = !match
+        if (!match) return false
+        si++
+        sLen--
+        break
+      }
+      case 0x5c: // '\'
+        if (pLen >= 2) {
+          pi++
+          pLen--
+        }
+      // falls through
+      default:
+        if (p[pi] !== s[si]) return false
+        si++
+        sLen--
+        break
+    }
+    pi++
+    pLen--
+    if (sLen === 0) {
+      while (pLen > 0 && p[pi] === 0x2a) {
+        pi++
+        pLen--
+      }
+      break
+    }
+  }
+  return pLen === 0 && sLen === 0
 }
 
 export class FakeRedisClient implements RedisLikeClient {
@@ -46,6 +189,20 @@ export class FakeRedisClient implements RedisLikeClient {
     return true
   }
 
+  /** The live string at `key` (null when absent); WRONGTYPE when it holds a sorted set. */
+  private readString(key: string): string | null {
+    this.live(key)
+    if (this.zsets.has(key)) throw new Error(WRONGTYPE)
+    return this.strings.get(key) ?? null
+  }
+
+  /** The live sorted set at `key` (undefined when absent); WRONGTYPE when it holds a string. */
+  private readZset(key: string): Map<string, number> | undefined {
+    this.live(key)
+    if (this.strings.has(key)) throw new Error(WRONGTYPE)
+    return this.zsets.get(key)
+  }
+
   async connect(): Promise<unknown> {
     this.isOpen = true
     return this
@@ -56,8 +213,7 @@ export class FakeRedisClient implements RedisLikeClient {
   }
 
   async get(key: string): Promise<string | null> {
-    this.live(key)
-    return this.strings.get(key) ?? null
+    return this.readString(key)
   }
 
   async set(
@@ -65,34 +221,43 @@ export class FakeRedisClient implements RedisLikeClient {
     value: string,
     options?: { NX?: true; XX?: true; EX?: number; PX?: number },
   ): Promise<string | null> {
+    return this.setSync(key, value, options)
+  }
+
+  private setSync(key: string, value: string, options?: { NX?: true; XX?: true; EX?: number; PX?: number }): string | null {
+    if (options?.NX && options.XX) throw new Error('ERR syntax error')
+    // node-redis sends EX when given, PX only otherwise; validated before anything is written.
+    const ttlMs = options?.EX !== undefined ? parseExpire(options.EX) * 1000 : options?.PX !== undefined ? parseExpire(options.PX) : undefined
     this.live(key)
-    const exists = this.strings.has(key)
+    const exists = this.strings.has(key) || this.zsets.has(key)
     if (options?.NX && exists) return null
     if (options?.XX && !exists) return null
+    this.zsets.delete(key) // SET replaces a key of any type
     this.strings.set(key, value)
-    if (options?.PX != null) this.expires.set(key, Date.now() + options.PX)
-    else if (options?.EX != null) this.expires.set(key, Date.now() + options.EX * 1000)
+    if (ttlMs !== undefined) this.expires.set(key, Date.now() + ttlMs)
     else this.expires.delete(key)
     return 'OK'
   }
 
   async del(key: string | string[]): Promise<number> {
+    return this.delSync(key)
+  }
+
+  private delSync(key: string | string[]): number {
     const keys = Array.isArray(key) ? key : [key]
     let removed = 0
     for (const k of keys) {
-      if (this.strings.delete(k)) removed++
-      if (this.zsets.delete(k)) removed++
+      if (!this.live(k)) continue
+      if (this.strings.delete(k) || this.zsets.delete(k)) removed++
       this.expires.delete(k)
     }
     return removed
   }
 
   async keys(pattern: string): Promise<string[]> {
-    const re = globToRegExp(pattern)
     const out: string[] = []
     for (const k of new Set([...this.strings.keys(), ...this.zsets.keys()])) {
-      this.live(k)
-      if ((this.strings.has(k) || this.zsets.has(k)) && re.test(k)) out.push(k)
+      if (this.live(k) && stringMatch(pattern, k)) out.push(k)
     }
     return out
   }
@@ -102,8 +267,16 @@ export class FakeRedisClient implements RedisLikeClient {
     members: ZEntry | ZEntry[],
     options?: { NX?: true; XX?: true },
   ): Promise<number> {
+    return this.zAddSync(key, members, options)
+  }
+
+  private zAddSync(key: string, members: ZEntry | ZEntry[], options?: { NX?: true; XX?: true }): number {
+    if (options?.NX && options.XX) throw new Error('ERR XX and NX options at the same time are not compatible')
     const list = Array.isArray(members) ? members : [members]
-    let set = this.zsets.get(key)
+    for (const m of list) {
+      if (Number.isNaN(m.score)) throw new Error('ERR value is not a valid float')
+    }
+    let set = this.readZset(key)
     if (!set) {
       set = new Map()
       this.zsets.set(key, set)
@@ -116,14 +289,15 @@ export class FakeRedisClient implements RedisLikeClient {
       if (!exists) added++
       set.set(m.value, m.score)
     }
+    if (set.size === 0) this.zsets.delete(key)
     return added
   }
 
-  private sorted(key: string, rev: boolean): ZEntry[] {
-    const set = this.zsets.get(key)
+  /** Members ordered by (score, member bytes), ascending; reversed with `rev`. */
+  private sorted(set: Map<string, number> | undefined, rev: boolean): ZEntry[] {
     if (!set) return []
     const entries = [...set.entries()].map(([value, score]) => ({ score, value }))
-    entries.sort((a, b) => a.score - b.score || (a.value < b.value ? -1 : a.value > b.value ? 1 : 0))
+    entries.sort((a, b) => a.score - b.score || Buffer.compare(Buffer.from(a.value), Buffer.from(b.value)))
     if (rev) entries.reverse()
     return entries
   }
@@ -143,63 +317,111 @@ export class FakeRedisClient implements RedisLikeClient {
     max: number | string,
     options?: RedisZRangeOptions,
   ): Promise<ZEntry[]> {
-    if (options?.BY && options.BY !== 'SCORE') {
-      throw new Error('FakeRedisClient only supports ZRANGE BY SCORE')
-    }
+    if (options?.BY === 'LEX') throw new Error('FakeRedisClient does not model ZRANGE BYLEX')
     const rev = options?.REV === true
-    // REV swaps the bound order: the first argument is then the MAX bound.
-    const lo = bound(rev ? max : min)
-    const hi = bound(rev ? min : max)
-    let entries = this.sorted(key, rev).filter((e) => e.score >= lo && e.score <= hi)
-    if (options?.LIMIT) {
-      entries = entries.slice(options.LIMIT.offset, options.LIMIT.offset + options.LIMIT.count)
+    const limit = options?.LIMIT
+    if (limit && !options?.BY) {
+      throw new Error('ERR syntax error, LIMIT is only supported in combination with either BYSCORE or BYLEX')
     }
-    return entries
+
+    if (!options?.BY) {
+      // By rank: inclusive 0-based indices over the (possibly reversed) order; negatives count from the end.
+      let start = parseInteger(wireNumber(min))
+      let stop = parseInteger(wireNumber(max))
+      const entries = this.sorted(this.readZset(key), rev)
+      const n = entries.length
+      if (start < 0) start = n + start
+      if (stop < 0) stop = n + stop
+      if (start < 0) start = 0
+      if (start > stop || start >= n) return []
+      if (stop >= n) stop = n - 1
+      return entries.slice(start, stop + 1)
+    }
+
+    // BYSCORE: REV swaps the bound order, so the first argument is then the MAX bound.
+    const lo = parseScoreBound(rev ? max : min)
+    const hi = parseScoreBound(rev ? min : max)
+    const offset = limit ? parseInteger(wireNumber(limit.offset)) : 0
+    const count = limit ? parseInteger(wireNumber(limit.count)) : -1
+    const entries = this.sorted(this.readZset(key), rev).filter(
+      (e) =>
+        (lo.exclusive ? e.score > lo.value : e.score >= lo.value) &&
+        (hi.exclusive ? e.score < hi.value : e.score <= hi.value),
+    )
+    if (offset < 0) return []
+    return count < 0 ? entries.slice(offset) : entries.slice(offset, offset + count)
   }
 
   async zRem(key: string, member: string | string[]): Promise<number> {
-    const set = this.zsets.get(key)
+    return this.zRemSync(key, member)
+  }
+
+  private zRemSync(key: string, member: string | string[]): number {
+    const set = this.readZset(key)
     if (!set) return 0
     const members = Array.isArray(member) ? member : [member]
     let removed = 0
     for (const m of members) if (set.delete(m)) removed++
+    if (set.size === 0) {
+      this.zsets.delete(key)
+      this.expires.delete(key)
+    }
     return removed
   }
 
   async zCard(key: string): Promise<number> {
-    return this.zsets.get(key)?.size ?? 0
+    return this.readZset(key)?.size ?? 0
   }
 
   /**
-   * MULTI — queue commands and apply them on exec(). The fake is single-threaded
-   * so sequential application on exec() is atomic enough to model a transaction.
+   * MULTI — queue commands and run them back to back on exec() (nothing
+   * interleaves). Like Redis there is no rollback: a failing command does not
+   * undo the others, and exec() then rejects (node-redis' MultiErrorReply).
    */
   multi(): RedisMulti {
-    const ops: Array<() => Promise<unknown>> = []
+    const ops: Array<() => unknown> = []
     const tx: RedisMulti = {
-      set: (key, value, options) => { ops.push(() => this.set(key, value, options)); return tx },
-      del: (key) => { ops.push(() => this.del(key)); return tx },
-      zAdd: (key, members, options) => { ops.push(() => this.zAdd(key, members, options)); return tx },
-      zRem: (key, member) => { ops.push(() => this.zRem(key, member)); return tx },
+      set: (key, value, options) => { ops.push(() => this.setSync(key, value, options)); return tx },
+      del: (key) => { ops.push(() => this.delSync(key)); return tx },
+      zAdd: (key, members, options) => { ops.push(() => this.zAddSync(key, members, options)); return tx },
+      zRem: (key, member) => { ops.push(() => this.zRemSync(key, member)); return tx },
       exec: async () => {
         const results: unknown[] = []
-        for (const op of ops) results.push(await op())
+        const errors: Error[] = []
+        for (const op of ops) {
+          try {
+            results.push(op())
+          } catch (e) {
+            errors.push(e as Error)
+            results.push(e)
+          }
+        }
+        if (errors.length) throw new Error(`MultiErrorReply: ${errors.map((e) => e.message).join('; ')}`)
         return results
       },
     }
     return tx
   }
 
-  /** Implements the single script RedisStore sends: Lua compare-and-delete. */
-  async eval(_script: string, options?: { keys?: string[]; arguments?: string[] }): Promise<number> {
-    const key = options?.keys?.[0]
-    const token = options?.arguments?.[0]
-    if (key == null) return 0
-    const current = await this.get(key)
-    if (current != null && current === token) {
-      await this.del(key)
+  /** Runs exactly the scripts RedisStore sends (atomically); any other script is rejected. */
+  async eval(script: string, options?: { keys?: string[]; arguments?: string[] }): Promise<number> {
+    const keys = options?.keys ?? []
+    const args = options?.arguments ?? []
+    if (script === RELEASE_LOCK_SCRIPT) {
+      const [key] = keys
+      if (key == null) throw new Error('ERR release-lock script needs one key')
+      if (this.readString(key) === args[0]) return this.delSync(key)
+      return 0
+    }
+    if (script === MERGE_CAS_SCRIPT) {
+      const [key] = keys
+      const [hasExpected, expected, next] = args
+      if (key == null || hasExpected == null || next == null) throw new Error('ERR merge-cas script needs one key and three arguments')
+      const current = this.readString(key)
+      if (hasExpected === '0' ? current !== null : current !== expected) return 0
+      this.setSync(key, next)
       return 1
     }
-    return 0
+    throw new Error('NOSCRIPT FakeRedisClient: unknown script (only the scripts RedisStore sends are modelled)')
   }
 }

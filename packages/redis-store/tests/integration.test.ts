@@ -2,8 +2,9 @@
  * RedisStore — integration tests against a REAL Redis server.
  *
  * The hermetic suites (redis-store.test.ts, conformance.test.ts) run against an
- * in-memory fake that only models the commands the store sends; real Redis
- * never executes them there. This file does.
+ * in-memory fake; real Redis never executes them there. This file does, and it
+ * also runs the fake's behaviour probes (redis-probes.ts) against the server so
+ * the fake cannot drift from real Redis semantics.
  *
  * Skipped unless BOTWA_TEST_REDIS_URL is set, so `pnpm test` stays hermetic:
  *
@@ -20,7 +21,8 @@ import net from 'node:net'
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { createClient } from 'redis'
 import type { FlowCheckpoint, StoredMessage } from '@bot-wa/core'
-import { RedisStore, type NativeRedisClient, type RedisStoreOptions } from '../src/index.js'
+import { RedisStore, type NativeRedisClient, type RedisLikeClient, type RedisStoreOptions } from '../src/index.js'
+import { PROBES, meets, outcome } from './redis-probes.js'
 import { runStoreConformance } from '../../../test-utils/store-conformance.js'
 import { runUserDataConformance } from '../../../test-utils/user-data-conformance.js'
 
@@ -164,6 +166,21 @@ describe.skipIf(!REDIS_URL)('RedisStore against a real Redis server', { timeout:
         return { store, teardown: () => store.stop() }
       },
     })
+  })
+
+  /* The hermetic fake's expectations ------------------------------------- */
+
+  describe('the in-memory fake models this server (shared probes)', () => {
+    for (const probe of PROBES) {
+      it(probe.name, async () => {
+        const prefix = nextPrefix('probe')
+        const actual = await outcome(probe, admin as unknown as RedisLikeClient, {
+          k: (name) => `${prefix}:${name}`,
+          ns: `${globLiteral(prefix)}:`,
+        })
+        expect(meets(actual, probe.expected), `got ${JSON.stringify(actual)}`).toBe(true)
+      })
+    }
   })
 
   /* Lifecycle ------------------------------------------------------------- */
@@ -473,6 +490,50 @@ describe.skipIf(!REDIS_URL)('RedisStore against a real Redis server', { timeout:
         store.upsertContact({ id: 'u', phoneNumber: '+57' }),
       ])
       expect(await store.getContact('u')).toEqual({ id: 'u', name: 'Ana', username: 'ana', phoneNumber: '+57' })
+    })
+
+    it('replicas on separate connections upserting one record concurrently never lose fields', async () => {
+      const prefix = nextPrefix('merge-replicas')
+      // One store per field, each its own connection — separate processes as far as Redis can tell.
+      const fields = ['tenantId', 'environmentId', 'botId', 'providerId', 'connectionId', 'name'] as const
+      const replicas = fields.map(() => own({ prefix }))
+      await Promise.all(replicas.map((r) => r.start()))
+      const ROUNDS = 30
+      await Promise.all(
+        replicas.map(async (replica, i) => {
+          const field = fields[i]!
+          for (let round = 0; round < ROUNDS; round++) {
+            await Promise.all([
+              replica.upsertChat({ id: 'c', [field]: `${field}-${round}` }),
+              replica.upsertContact({ id: 'u', ...(i % 2 ? { name: `n-${i}` } : {}), updatedAt: round }),
+            ])
+          }
+        }),
+      )
+      const expected = Object.fromEntries(fields.map((f) => [f, `${f}-${ROUNDS - 1}`]))
+      expect(await replicas[0]!.getChat('c')).toEqual({ id: 'c', ...expected })
+      const contact = await replicas[1]!.getContact('u')
+      expect(contact?.updatedAt).toBe(ROUNDS - 1)
+      expect(contact?.name).toMatch(/^n-\d$/)
+    })
+
+    it('an explicit undefined from one replica removes the field another replica wrote', async () => {
+      const prefix = nextPrefix('merge-undef')
+      const [a, b] = [own({ prefix }), own({ prefix })]
+      await Promise.all([a.start(), b.start()])
+      await a.upsertContact({ id: 'u', name: 'Ana', phoneNumber: '+1' })
+      await b.upsertContact({ id: 'u', phoneNumber: undefined })
+      const raw = JSON.parse((await admin.get(`${prefix}:contact:u`)) ?? 'null') as Record<string, unknown>
+      expect(raw).toEqual({ id: 'u', name: 'Ana' })
+    })
+
+    it('merging keeps JSON values byte-exact (empty arrays, floats, slashes survive the upsert)', async () => {
+      const prefix = nextPrefix('merge-exact')
+      const store = new RedisStore({ client: admin, prefix })
+      const raw = { arr: [], obj: {}, float: 0.1 + 0.2, big: Number.MAX_SAFE_INTEGER, url: 'https://x/y', tiny: 5e-324 }
+      await store.upsertChat({ id: 'c', raw })
+      await store.upsertChat({ id: 'c', name: 'n' })
+      expect(await admin.get(`${prefix}:chat:c`)).toBe(JSON.stringify({ id: 'c', raw, name: 'n' }))
     })
 
     it('round-trips unicode / emoji ids and values (keys, JSON, listings)', async () => {
