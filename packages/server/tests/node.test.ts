@@ -300,3 +300,48 @@ describe('createNodeHandler fallthrough', () => {
     expect(res.status).toBe(418)
   })
 })
+
+describe('serveNode never leaks a rejection', () => {
+  function trackUnhandled() {
+    const seen: unknown[] = []
+    const onRejection = (err: unknown) => { seen.push(err) }
+    process.on('unhandledRejection', onRejection)
+    return { seen, stop: () => process.off('unhandledRejection', onRejection) }
+  }
+
+  it('answers 500 when a user onNotFound throws, without an unhandled rejection', async () => {
+    const tracker = trackUnhandled()
+    try {
+      const ingress = createIngress({ routes: [] })
+      running = await listen(createNodeHandler(ingress, { onNotFound: () => { throw new Error('boom') } }))
+      const res = await fetch(`${running.url}/other`)
+      expect(res.status).toBe(500)
+      await tick(20)
+      expect(tracker.seen).toEqual([])
+    } finally { tracker.stop() }
+  })
+
+  it('answers 500 when writing the response throws (invalid header from a custom ingress)', async () => {
+    const tracker = trackUnhandled()
+    try {
+      const real = createIngress({ routes: [] })
+      const ingress = { ...real, handle: async () => ({ status: 200, headers: { 'x-a': 'a\r\nb' }, body: 'ok' }) } as typeof real
+      running = await listen(createNodeHandler(ingress))
+      const res = await fetch(`${running.url}/webhook`, { signal: AbortSignal.timeout(3000) })
+      expect(res.status).toBe(500)
+      await tick(20)
+      expect(tracker.seen).toEqual([])
+    } finally { tracker.stop() }
+  })
+
+  it('drops invalid header names/values returned by ingest instead of failing the response', async () => {
+    const provider = new FakeWebhookProvider()
+    provider.result = { status: 200, headers: { 'x-a': 'a\r\nb', 'bad name': 'v', 'x-ok': 'fine' }, body: 'ok' }
+    const { url } = await serve({ routes: [{ path: '/webhook', provider }] })
+    const res = await fetch(`${url}/webhook`, { method: 'POST', body: '{}', signal: AbortSignal.timeout(3000) })
+    expect(res.status).toBe(200)
+    expect(res.headers.get('x-ok')).toBe('fine')
+    expect(res.headers.get('x-a')).toBeNull()
+    expect(await res.text()).toBe('ok')
+  })
+})

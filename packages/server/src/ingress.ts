@@ -38,6 +38,14 @@ function positive(name: string, value: number | undefined, fallback: number): nu
   return value
 }
 
+// RFC 9110 token for header names; values may not contain CR, LF or NUL (nor other controls but HTAB).
+const HEADER_NAME = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/
+const HEADER_VALUE = /^[\t\x20-\x7e\x80-\xff]*$/
+
+function validHeader([name, value]: [string, unknown]): boolean {
+  return typeof value === 'string' && HEADER_NAME.test(name) && HEADER_VALUE.test(value)
+}
+
 /** Map whatever `ingest` returned to a response. */
 function fromIngestResult(result: unknown): IngressResponse {
   if (isStatus(result)) return text(result, '')
@@ -45,7 +53,7 @@ function fromIngestResult(result: unknown): IngressResponse {
     const { status, body, headers } = result as { status?: unknown; body?: unknown; headers?: unknown }
     const code = isStatus(status) ? status : 200
     const extraHeaders = headers && typeof headers === 'object' ? Object.fromEntries(
-      Object.entries(headers as Record<string, unknown>).filter(([, v]) => typeof v === 'string'),
+      Object.entries(headers as Record<string, unknown>).filter(validHeader),
     ) as Record<string, string> : {}
     let res: IngressResponse
     if (body === undefined || body === null) res = text(code, '')

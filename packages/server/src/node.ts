@@ -57,9 +57,15 @@ export function serveNode(ingress: Ingress, req: NodeRequestLike, res: ServerRes
     if (response) { write(req, res, response); return }
     if (opts.next) { opts.next(); return }
     write(req, res, { status: 404, headers: { 'content-type': 'text/plain; charset=utf-8' }, body: '' })
-  }, () => {
-    // handle() never rejects by contract; this is a last-resort guard.
-    write(req, res, { status: 500, headers: {}, body: '', closeConnection: true })
+  }).catch(() => {
+    // handle() never rejects by contract, but write() (e.g. an invalid header),
+    // `next()` or a user `onNotFound` can throw: never let that become an
+    // unhandled rejection that crashes the process or leaves the client hanging.
+    try {
+      write(req, res, { status: 500, headers: {}, body: '', closeConnection: true })
+    } catch {
+      res.destroy()
+    }
   })
 }
 
