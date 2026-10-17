@@ -3,21 +3,33 @@
 Entiende cómo el **Dispatcher** decide qué pasa con cada mensaje entrante, y
 las piezas con las que compones un bot.
 
-## El pipeline del Dispatcher
+## El pipeline de entrada
 
-Todo mensaje entrante pasa por el mismo pipeline, en este orden. Lo primero
-que **consume** el mensaje gana y detiene el pipeline:
+Todo mensaje entrante pasa por el mismo pipeline, en este orden. Los cuatro
+primeros pasos corren en el `Bot` en cuanto el provider emite el evento; el
+resto corre dentro del Dispatcher, en una **cola FIFO por chat** (dos
+mensajes del mismo chat nunca se procesan en paralelo). Lo primero que
+**consume** el mensaje gana y detiene el enrutado:
 
 ```mermaid
 flowchart TD
-    A[Entra un mensaje] --> B["hooks before('message')"]
-    B --> C{"¿Es un comando? ej. /reset"}
+    A[Entra un mensaje] --> DD{"¿Ya visto?<br/>(dedupe: chatId + id)"}
+    DD -->|Sí| X0[Descartado]
+    DD -->|No| ACL{"¿En la blacklist /<br/>fuera de la whitelist?"}
+    ACL -->|Sí| X1[Descartado: sin persistir, sin hooks]
+    ACL -->|No| P[Persistir chat, contacto, mensaje]
+    P --> GM{"Filtro groupMode"}
+    GM -->|Ignorado| X2[Se detiene aquí]
+    GM -->|OK| B["hooks before('message')"]
+    B --> HO{"¿Chat en handoff<br/>con un humano?"}
+    HO -->|"Sí (salvo allowCommands)"| J
+    HO -->|No| C{"¿Es un comando? ej. /reset"}
     C -->|Sí| D[Handler del comando]
     C -->|No| E{¿Hay una conversación activa<br/>para este participante?}
     E -->|Sí| F[Continúa el paso de la conversación / flujo]
     E -->|No| R{¿Checkpoint dormido de un<br/>flujo persistente?}
     R -->|Sí| F
-    R -->|No| G{¿Coincide con when/onType,<br/>por especificidad?}
+    R -->|No| G{"Matchers por especificidad<br/>(WELCOME primero)"}
     G -->|Sí| H[Se ejecuta el handler]
     G -->|"Sin match / ctx.pass()"| I[onMessage catch-all]
     D --> J["hooks after('message')"]
@@ -27,19 +39,49 @@ flowchart TD
     J --> K["se emite el evento 'message'"]
 ```
 
-1. **Los comandos** (`/reset`, `/help`, ...) siempre ganan — incluso sobre
+1. **Dedupe de entrada**: un mensaje o interacción re-entregado (mismo
+   `chatId` + id, por reintentos de webhook o por la resincronización
+   offline de Baileys) se descarta antes que nada. Activado por defecto;
+   ver [Dedupe de entrada](#dedupe-de-entrada).
+2. **Blacklist / whitelist**: un remitente o chat bloqueado se descarta en
+   silencio. No se persiste, no corren hooks y no se emite `'message'`. Ver
+   [Handoff y listas de acceso](./handoff#blacklist-y-whitelist).
+3. **Persistencia**: se guardan el chat, el contacto y el mensaje en el store.
+4. **Filtro `groupMode`**: un mensaje de grupo que el bot debe ignorar se
+   detiene aquí (sí se persiste).
+5. **Hooks `before('message')`**: pueden hacer `abort()` del mensaje.
+6. **Gate de handoff**: mientras un chat está [en manos de un humano](./handoff),
+   se saltan los pasos 7–11 (salvo los comandos de `handoff.allowCommands`).
+   El mensaje se sigue persistiendo, los hooks siguen corriendo y
+   `'message'` se sigue emitiendo.
+7. **Los comandos** (`/reset`, `/help`, ...) siempre ganan, incluso sobre
    una conversación activa. Eso es lo que le permite a `/reset` escapar de
    un flujo atascado.
-2. **Conversación activa** — si este participante ya inició un `flow` o un
+8. **Conversación activa**: si este participante ya inició un `flow` o un
    `bot.conversation` que está esperando una respuesta, el mensaje va ahí.
-3. **Reanudación dormida** — si un flujo `.persistent()` quedó guardado como
+9. **Reanudación dormida**: si un flujo `.persistent()` quedó guardado como
    checkpoint en el store (p. ej. antes de un reinicio), el flujo se reanuda
    en el paso guardado.
-4. **Matchers** registrados con `bot.when(...)`, probados por especificidad
-   (una coincidencia exacta de string/`equals` gana sobre un regex amplio o
-   un handler de tipo de media como `onImage`).
-5. **`bot.onMessage()`** — el catch-all, se ejecuta **solo** si nada de lo
-   anterior consumió el mensaje.
+10. **Matchers** registrados con `bot.when(...)`, por especificidad: primero
+    [`WELCOME`](./triggers#welcome) (solo el primer contacto), luego los
+    triggers de texto (una coincidencia exacta/`equals` gana a
+    `startsWith`, a un regex o a `contains`), luego las funciones
+    predicado, luego los triggers de un tipo (`IMAGE`, `onImage`...) y por
+    último los multi-tipo (`MEDIA`). Con la misma especificidad gana el
+    registrado primero.
+11. **`bot.onMessage()`**: el catch-all (también `aiPlugin`). Se ejecuta
+    **solo** si nada de lo anterior consumió el mensaje.
+12. **Cierre**: hooks `after('message')` y luego el evento `'message'` (aquí
+    se rearman los temporizadores de `bot.onIdle`).
+
+Las **llamadas** entrantes siguen un camino aparte: los mismos gates de
+listas de acceso y handoff, y después solo los
+[triggers `CALL`](./triggers#call). Sin hooks de mensaje, comandos ni
+evento `'message'`.
+
+Si un handler lanza, corren los hooks `onError('message')` y el error se
+emite siempre en `bot.on('error', ({ error, ctx }) => ...)`, aunque no haya
+ningún hook de error registrado.
 
 Los handlers **consumen por defecto**: una vez que uno se ejecuta, el
 pipeline se detiene ahí. Llama a `ctx.pass()` dentro de un handler para
@@ -145,6 +187,44 @@ Un plugin es un paquete reutilizable que puede registrar hooks, handlers y
 herramientas. `bot.plug()` devuelve una función `unplug()` que revierte
 todo lo que registró.
 
+## Dedupe de entrada
+
+Los transportes por webhook (Cloud API, Messenger, Instagram, Telegram en
+modo webhook) reintentan una entrega cuando no reciben un 2xx a tiempo, y
+Baileys puede reenviar mensajes recientes al reconectar. Sin protección, un
+mismo mensaje arrancaría un flujo dos veces o se consumiría como la
+respuesta a la *siguiente* pregunta de una conversación. El `Bot` descarta
+las re-entregas antes de que lleguen a ningún handler. Viene **activado por
+defecto**:
+
+```ts
+new Bot({ provider })                                     // por defecto: { size: 1000 }, sin TTL
+new Bot({ provider, dedupe: { size: 5000, ttl: '1h' } })  // ajustar
+new Bot({ provider, dedupe: false })                      // desactivar
+```
+
+- La clave de un mensaje es `chatId` + `ref.id`, porque algunos transportes
+  solo garantizan ids únicos por chat (p. ej. el `message_id` de Telegram).
+  La de una interacción (pulsar un botón o una fila de lista) es su
+  `interactionId`, así que dos pulsaciones en el mismo menú son dos eventos.
+- Ediciones: el mismo id con **otro** cuerpo (`edited_message` de Telegram)
+  se procesa; un reintento idéntico se descarta. Solo se guarda un hash del
+  cuerpo, nunca el texto.
+- Los eventos con id vacío nunca se deduplican.
+- Si falla la persistencia antes de los handlers (store caído), la clave se
+  libera y el reintento del transporte sí se procesa.
+- `size` es un LRU; `ttl` (ms o `'30s'`/`'10m'`/`'1h'`) cuenta desde la
+  primera aceptación.
+- **Límite:** vive en la memoria del proceso. No deduplica entre réplicas
+  ni tras un reinicio.
+
+Los providers deben dar a cada evento entrante un id que nombre exactamente
+un evento lógico, que no cambie cuando se re-entrega y que sea `''` cuando
+el transporte no pueda garantizarlo. Es el **contrato de ids de entrada**,
+documentado en `IProvider`. Avanzado: `@bot-wa/core` exporta
+`InboundDeduper`, `createInboundDeduper`, `inboundDedupeKey` y
+`DEFAULT_DEDUPE_SIZE`.
+
 ## El evento `'message'` vs `onMessage()`
 
 Se parecen pero no son lo mismo:
@@ -185,6 +265,7 @@ bot.when('hola', async (ctx) => {
   await ctx.react('👍')
 
   const db = ctx.tools.db  // herramienta inyectada
+  await ctx.user.set('lang', 'es')   // perfil persistente por usuario
 })
 ```
 
@@ -210,4 +291,6 @@ citarlo/editarlo/borrarlo con llamadas del provider), usa `ctx.ref`
 - [Mensajes y media](./mensajes) — todos los tipos de respuesta
 - [Flujos conversacionales](./flujos) — conversaciones complejas
 - [Hooks](./hooks) — middleware y logging
+- [Triggers especiales](./triggers) — WELCOME, tipos de mensaje y CALL
+- [Handoff y listas de acceso](./handoff) — pausar el bot para un humano, bloquear remitentes
 - [Ejemplos](/es/ejemplos/mensajes) — recetas prácticas

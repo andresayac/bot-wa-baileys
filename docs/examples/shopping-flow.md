@@ -25,7 +25,7 @@ const buy = flow('buy')
     clothing: 'Clothing 👕',
     home: 'Home 🏠',
   }, 'category')
-  .say((_ctx, c) => catalog[c.state.category])
+  .say((_ctx, c) => catalog[String(c.state.category)])
   .say('✅ Thanks for your interest! Anything else?')
 
 bot.use(buy)
@@ -96,7 +96,7 @@ const buy = flow('buy')
     clothing: 'Clothing 👕',
     home: 'Home 🏠',
   }, 'category')
-  .say((_ctx, c) => catalog[c.state.category])
+  .say((_ctx, c) => catalog[String(c.state.category)])
 
 bot.use(buy)
 ```

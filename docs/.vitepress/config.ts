@@ -92,6 +92,9 @@ export default defineConfig({
               items: [
                 { text: 'Messages & media', link: '/guide/messages' },
                 { text: 'Conversation flows', link: '/guide/flows' },
+                { text: 'Special triggers', link: '/guide/triggers' },
+                { text: 'Persistent user data', link: '/guide/user-data' },
+                { text: 'Handoff & access lists', link: '/guide/handoff' },
                 { text: 'Hooks (middleware)', link: '/guide/hooks' },
                 { text: 'Plugins', link: '/guide/plugins' },
                 { text: 'AI plugin', link: '/guide/ai' },
@@ -101,6 +104,14 @@ export default defineConfig({
                 { text: 'Persistent store', link: '/guide/store' },
                 { text: 'Control plane', link: '/guide/control-plane' },
                 { text: 'Operations', link: '/guide/operations' },
+              ],
+            },
+            {
+              text: 'Develop & test',
+              items: [
+                { text: 'Terminal simulator', link: '/guide/dev-simulator' },
+                { text: 'Testing', link: '/guide/testing' },
+                { text: 'Inspect & lint flows', link: '/guide/flow-tools' },
               ],
             },
             {
@@ -160,6 +171,9 @@ export default defineConfig({
               items: [
                 { text: 'Mensajes y media', link: '/es/guide/mensajes' },
                 { text: 'Flujos conversacionales', link: '/es/guide/flujos' },
+                { text: 'Triggers especiales', link: '/es/guide/triggers' },
+                { text: 'Datos por usuario', link: '/es/guide/datos-usuario' },
+                { text: 'Handoff y listas de acceso', link: '/es/guide/handoff' },
                 { text: 'Hooks (middleware)', link: '/es/guide/hooks' },
                 { text: 'Plugins', link: '/es/guide/plugins' },
                 { text: 'Plugin de IA', link: '/es/guide/ai' },
@@ -169,6 +183,14 @@ export default defineConfig({
                 { text: 'Store persistente', link: '/es/guide/store' },
                 { text: 'Control plane', link: '/es/guide/control-plane' },
                 { text: 'Operación', link: '/es/guide/operations' },
+              ],
+            },
+            {
+              text: 'Desarrollo y tests',
+              items: [
+                { text: 'Simulador en la terminal', link: '/es/guide/simulador' },
+                { text: 'Testing', link: '/es/guide/testing' },
+                { text: 'Inspeccionar y validar flujos', link: '/es/guide/inspeccion-flujos' },
               ],
             },
             {

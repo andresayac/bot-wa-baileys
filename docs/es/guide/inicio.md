@@ -143,4 +143,5 @@ y [`@bot-wa/discord`](https://github.com/andresayac/bot-wa-baileys/tree/main/pac
 
 - [Tu primer bot](./primer-bot) — un bot completo con comandos, media y flujos
 - [Conceptos básicos](./conceptos) — entiende cómo funciona todo
+- [Simulador en la terminal](./simulador) — chatea con tu bot sin teléfono (`npx bot-wa dev src/bot.js`)
 - [Ejemplos](/es/ejemplos/mensajes) — recetas listas para copiar

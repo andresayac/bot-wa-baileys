@@ -108,6 +108,10 @@ bot.before('message', async (ctx, next) => {
 })
 ```
 
+Para una lista de bloqueo de verdad usa `bot.blacklist` / `bot.whitelist`:
+descartan el mensaje antes incluso de persistirlo y también cubren botones y
+llamadas. Ver [Handoff y listas de acceso](./handoff#blacklist-y-whitelist).
+
 ## Transformar o bloquear mensajes salientes
 
 `'send'` se dispara en **cada** envío saliente, ya sea que venga de

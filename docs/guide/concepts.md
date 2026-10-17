@@ -3,21 +3,33 @@
 Understand how the **Dispatcher** decides what happens to each incoming
 message, and the pieces you compose a bot from.
 
-## The Dispatcher pipeline
+## The inbound pipeline
 
 Every incoming message goes through the same pipeline, in this order. The
-first thing that **consumes** the message wins and stops the pipeline:
+first four steps run in the `Bot` as soon as the provider emits the event;
+the rest run inside the Dispatcher, on a **FIFO queue per chat** (two
+messages from the same chat are never processed in parallel). The first
+thing that **consumes** the message wins and stops the routing:
 
 ```mermaid
 flowchart TD
-    A[Message in] --> B["before('message') hooks"]
-    B --> C{"Command? e.g. /reset"}
+    A[Message in] --> DD{"Already seen?<br/>(dedupe: chatId + id)"}
+    DD -->|Yes| X0[Dropped]
+    DD -->|No| ACL{"Blacklisted /<br/>not whitelisted?"}
+    ACL -->|Yes| X1[Dropped: not persisted, no hooks]
+    ACL -->|No| P[Persist chat, contact, message]
+    P --> GM{"groupMode filter"}
+    GM -->|Ignored| X2[Stops here]
+    GM -->|OK| B["before('message') hooks"]
+    B --> HO{"Chat handed off<br/>to a human?"}
+    HO -->|"Yes (except allowCommands)"| J
+    HO -->|No| C{"Command? e.g. /reset"}
     C -->|Yes| D[Command handler]
     C -->|No| E{Active conversation<br/>for this participant?}
     E -->|Yes| F[Conversation / flow step continues]
     E -->|No| R{Dormant persistent-flow<br/>checkpoint?}
     R -->|Yes| F
-    R -->|No| G{Matches when/onType,<br/>by specificity?}
+    R -->|No| G{"Matchers by specificity<br/>(WELCOME first)"}
     G -->|Yes| H[Handler runs]
     G -->|"No match / ctx.pass()"| I[onMessage catch-all]
     D --> J["after('message') hooks"]
@@ -27,17 +39,44 @@ flowchart TD
     J --> K["'message' event emitted"]
 ```
 
-1. **Commands** (`/reset`, `/help`, ...) always win — even over an active
+1. **Inbound dedupe**: a redelivered message or interaction (same `chatId`
+   + id, from webhook retries or a Baileys offline resync) is dropped before
+   anything else. On by default; see [Inbound dedupe](#inbound-dedupe).
+2. **Blacklist / whitelist**: a blocked sender or chat is dropped silently.
+   It is not persisted, no hooks run and no `'message'` event fires. See
+   [Handoff & access lists](./handoff#blacklist-and-whitelist).
+3. **Persistence**: the chat, contact and message are upserted in the store.
+4. **`groupMode` filter**: a group message the bot must ignore stops here
+   (it is still persisted).
+5. **`before('message')` hooks**: they may `abort()` the message.
+6. **Handoff gate**: while a chat is [handed off to a human](./handoff),
+   steps 7–11 are skipped (except the commands in `handoff.allowCommands`).
+   The message is still persisted, hooks still run and `'message'` still
+   fires.
+7. **Commands** (`/reset`, `/help`, ...) always win, even over an active
    conversation. That's what lets `/reset` escape a stuck flow.
-2. **Active conversation** — if this participant already started a `flow`
+8. **Active conversation**: if this participant already started a `flow`
    or `bot.conversation` that's waiting for a reply, the message goes there.
-3. **Dormant resume** — if a `.persistent()` flow was checkpointed in the
+9. **Dormant resume**: if a `.persistent()` flow was checkpointed in the
    store (e.g. before a restart), the flow resumes at the saved step.
-4. **Matchers** registered with `bot.when(...)`, tried by specificity
-   (an exact string/`equals` match beats a broad regex or a media-type
-   handler like `onImage`).
-5. **`bot.onMessage()`** — the catch-all, runs **only** if nothing above
-   consumed the message.
+10. **Matchers** registered with `bot.when(...)`, tried by specificity:
+    [`WELCOME`](./triggers#welcome) (first contact only), then text triggers
+    (an exact string/`equals` match beats `startsWith`, a regex or
+    `contains`), then predicate functions, then single-type triggers
+    (`IMAGE`, `onImage`...), then multi-type triggers (`MEDIA`). With equal
+    specificity, the one registered first wins.
+11. **`bot.onMessage()`**: the catch-all (also `aiPlugin`). It runs **only**
+    if nothing above consumed the message.
+12. **Finish**: `after('message')` hooks, then the `'message'` event
+    (`bot.onIdle` timers re-arm here).
+
+Incoming **calls** take a separate path: the same access-list and handoff
+gates, then only [`CALL` triggers](./triggers#call). No message hooks,
+commands or `'message'` event.
+
+If a handler throws, the `onError('message')` hooks run and the error is
+always emitted on `bot.on('error', ({ error, ctx }) => ...)`, even when no
+error hook is registered.
 
 Handlers **consume by default**: once one runs, the pipeline stops there.
 Call `ctx.pass()` inside a handler to yield to the next matching handler
@@ -140,6 +179,43 @@ A plugin is a reusable package that can register hooks, handlers and tools.
 `bot.plug()` returns an `unplug()` function that reverts everything it
 registered.
 
+## Inbound dedupe
+
+Webhook transports (Cloud API, Messenger, Instagram, Telegram webhook) retry
+a delivery when they don't get a 2xx in time, and Baileys can redeliver
+recent messages after a reconnect. Without protection, the same message
+would start a flow twice, or be consumed as the answer to the *next*
+question of a conversation. The `Bot` drops redeliveries before they reach
+any handler. It is **on by default**:
+
+```ts
+new Bot({ provider })                                     // default: { size: 1000 }, no TTL
+new Bot({ provider, dedupe: { size: 5000, ttl: '1h' } })  // tune it
+new Bot({ provider, dedupe: false })                      // turn it off
+```
+
+- A message is keyed by `chatId` + `ref.id`, because some transports only
+  make ids unique per chat (e.g. Telegram `message_id`). An interaction
+  (button or list tap) is keyed by its `interactionId`, so two taps on the
+  same menu are two events.
+- Edits: the same id with a **different** body (Telegram `edited_message`) is
+  processed; an identical retry is dropped. Only a hash of the body is kept,
+  never the text.
+- Events with an empty id are never deduplicated.
+- If persistence fails before the handlers run (store down), the key is
+  released so the transport's retry is processed.
+- `size` is an LRU; `ttl` (ms or `'30s'`/`'10m'`/`'1h'`) counts from the
+  first acceptance.
+- **Limit:** it lives in process memory. It does not deduplicate across
+  replicas or after a restart.
+
+Providers must give each inbound event an id that names exactly one logical
+event, stays the same when it is redelivered, and is `''` when the
+transport cannot guarantee that. This is the **inbound id contract**,
+documented on `IProvider`. Advanced: `InboundDeduper`,
+`createInboundDeduper`, `inboundDedupeKey` and `DEFAULT_DEDUPE_SIZE` are
+exported from `@bot-wa/core`.
+
 ## `'message'` event vs `onMessage()`
 
 These look similar but are not the same:
@@ -180,6 +256,7 @@ bot.when('hola', async (ctx) => {
   await ctx.react('👍')
 
   const db = ctx.tools.db  // injected tool
+  await ctx.user.set('lang', 'en')   // persistent per-user profile
 })
 ```
 
@@ -205,4 +282,6 @@ message (to quote/edit/delete it with provider calls), use `ctx.ref`
 - [Messages & media](./messages) — all reply types
 - [Conversation flows](./flows) — complex conversations
 - [Hooks](./hooks) — middleware and logging
+- [Special triggers](./triggers) — WELCOME, message types and CALL
+- [Handoff & access lists](./handoff) — pause the bot for a human, block senders
 - [Examples](/examples/messages) — practical recipes

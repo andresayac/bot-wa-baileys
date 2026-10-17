@@ -125,6 +125,38 @@ bot.onPoll(async (ctx) => { await ctx.reply('📊 Got your poll') })
 
 `onImage`/`onAudio`/etc. are low-specificity matchers: a more specific
 `bot.when(...)` that also matches wins first, unless it calls `ctx.pass()`.
+The same tier is available as trigger constants (`IMAGE`, `VOICE_NOTE`,
+`MEDIA`, `LOCATION`, `CALL`...): see [Special triggers](./triggers).
+
+## Poll votes
+
+`ctx.poll(question, options, multiSelect?)` sends a native poll. Votes
+arrive on the `poll` event with the full, current tally:
+
+```ts
+await ctx.poll('Pizza or sushi?', ['Pizza', 'Sushi'])
+
+bot.on('poll', (vote) => {
+  // vote.ref.id      → the poll's message id
+  // vote.ref.chatId  → the chat where it was voted (same chatId its messages use)
+  // vote.senderId    → who just voted, with the canonical id of their messages
+  // vote.options     → current tally: [{ name, votes, voters }]
+  const picked = vote.options.filter((o) => o.voters?.includes(vote.senderId)).map((o) => o.name)
+  console.log(picked.length ? `Picked: ${picked.join(', ')}` : 'Vote withdrawn')
+})
+```
+
+On **Baileys**, WhatsApp encrypts every vote end to end; the provider
+decrypts it itself. It remembers the 500 most recent polls it saw (the
+bot's own and the ones others create in chats it listens to), only accepts
+a vote that arrives in the poll's own chat and names its creator, keeps
+each person's latest vote, and counts each vote message once (Baileys'
+offline redelivery is not re-emitted). Limits: only polls seen by **this
+process** can be decrypted (after a restart, votes on older polls are
+dropped with a `debug` log), and the bot cannot vote. A poll someone else
+creates still arrives as a `poll` message (`bot.onPoll`, the
+[`POLL` trigger](./triggers#message-type-triggers)); the encrypted vote no
+longer does. Details in the `@bot-wa/baileys` README.
 
 ## Access media content
 
@@ -150,7 +182,32 @@ participant in groups), `ctx.senderInfo`, `ctx.pushName`, `ctx.chat`
 `ctx.isGroup` / `ctx.isPrivate` / `ctx.isFromMe`, `ctx.mentions`,
 `ctx.quoted?`, `ctx.media?`, `ctx.timestamp`, `ctx.tools` (DI registry),
 `ctx.raw` (provider-native payload), `ctx.ref` (the message reference —
-`{ id, chatId, native? }`, replaces v1's `ctx.key`).
+`{ id, chatId, native? }`, replaces v1's `ctx.key`), `ctx.user` (the
+sender's [persistent profile](./user-data)), `ctx.handoff()` (pass the chat
+to a [human](./handoff)) and `ctx.call` (the `CallEvent`, on
+[`CALL`](./triggers#call) contexts only).
+
+## Identity per transport
+
+Every provider resolves aliases before emitting, so `ctx.sender` is the
+same for the same person (the identity contract):
+
+- **Baileys:** LID and PN (phone) forms of a user are merged into one
+  canonical id (the PN when known). Messages, reactions, poll votes, calls,
+  group and presence events, `ctx.mentions` and the bot's own `selfId` all
+  use it, so `groupMode: 'mentions'` works whether the mention used the LID
+  or the PN.
+- **Cloud API (`@bot-wa/meta`):** users who turned on a WhatsApp
+  **username** may arrive without a phone number, only with a
+  business-scoped user id (**BSUID**, e.g. `US.13491208655302741918`). The
+  provider keeps one stable id per person (the phone when known, otherwise
+  the BSUID), learns phone ↔ BSUID pairs (persist them with an
+  `identityMap`), and sends to a BSUID through the `recipient` field
+  automatically. `senderInfo.username` and
+  `senderInfo.platformData.bsuid` expose the details. Authentication
+  templates require a phone: sending one to a BSUID fails with Graph error
+  `131062`, mapped to `UnsupportedContentError`. See the `@bot-wa/meta`
+  README.
 
 ## Sending outside a handler
 
@@ -165,6 +222,7 @@ await bot.send('573001234567@s.whatsapp.net', {
   media: { url },
   caption: 'hi',
 })
+await bot.sendTo(chatId, 'Hi, I am Ana from support')  // same path; a string is sent as text
 await bot.broadcast(
   ['573001234567@s.whatsapp.net', '573001112233@s.whatsapp.net'],
   { kind: 'text', text: 'Announcement!' },

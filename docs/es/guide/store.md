@@ -127,6 +127,24 @@ const bot = new Bot({
 })
 ```
 
+## Tablas de datos de usuario
+
+Los perfiles de [`ctx.user`](./datos-usuario) se guardan junto al resto del
+estado del bot, respetando `tablePrefix` / `collectionPrefix`:
+
+| Store | Dónde |
+| --- | --- |
+| `MemoryStore` | en memoria; el `file` JSON suma el campo `userData` (los archivos antiguos siguen cargando) |
+| `SQLiteStore` | tabla `user_data` (`user_id`, `namespace`, `key`, `value_json`, `expires_at`, `updated_at`) + índice sobre `expires_at` |
+| `PostgresStore` | tabla `{prefix}user_data` (valor como `TEXT`, no JSONB, para conservar el JSON exacto) + índice de expiración |
+| `MysqlStore` | tabla `{prefix}user_data`: ids, namespace y clave como `VARBINARY` (exactos byte a byte), valor `MEDIUMTEXT` (16 MiB) |
+| `MongoStore` | colección `{prefix}user_data`, índices sobre `{ userId, namespace }` y `expiresAt` |
+| `RedisStore` | una clave por entrada, `{prefix}:ud:{user}:{ns}:{key}`, con expiración nativa `PX`; para listar y borrar namespaces usa `KEYS`, como `listChats` |
+
+Postgres y MySQL crean ahora siete tablas en `start()`. Las filas expiradas
+se borran de forma perezosa con `bot.purgeExpiredUserData()` (Redis las
+expira por sí mismo).
+
 ## Stores personalizados
 
 Implementa la interfaz `IStore` para conectar cualquier otro backend (MongoDB, PostgreSQL y MySQL ya tienen stores experimentales en el monorepo):
@@ -147,6 +165,13 @@ const bot = new Bot({
 ```
 
 La interfaz completa está documentada en la [referencia de API](/api/interfaces/IStore.html). `MemoryStore` es la implementación de referencia del contrato; dentro del monorepo, todos los stores corren la suite de conformidad compartida (`test-utils/store-conformance.ts`).
+
+Los métodos de datos de usuario (`getUserData`, `setUserData`,
+`deleteUserData`, `listUserData`, `purgeExpiredUserData`) son opcionales:
+sin ellos `ctx.user` rechaza con `UNSUPPORTED_STORE`. Si los añades, pasa
+también `runUserDataConformance` de `test-utils/user-data-conformance.ts`.
+Un store con `getCursor`/`setCursor` también persiste las marcas de
+[`WELCOME`](./triggers#welcome) y el índice de [handoff](./handoff).
 
 ## Docker + SQLiteStore
 

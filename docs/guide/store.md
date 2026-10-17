@@ -126,6 +126,24 @@ const bot = new Bot({
 })
 ```
 
+## User data tables
+
+[`ctx.user`](./user-data) profiles are stored next to the rest of the bot
+state, honouring `tablePrefix` / `collectionPrefix`:
+
+| Store | Where |
+| --- | --- |
+| `MemoryStore` | in memory; the JSON `file` gains a `userData` field (older files still load) |
+| `SQLiteStore` | table `user_data` (`user_id`, `namespace`, `key`, `value_json`, `expires_at`, `updated_at`) + index on `expires_at` |
+| `PostgresStore` | table `{prefix}user_data` (value as `TEXT`, not JSONB, to keep the exact JSON) + expiry index |
+| `MysqlStore` | table `{prefix}user_data`: ids, namespace and key as `VARBINARY` (byte-exact), value `MEDIUMTEXT` (16 MiB) |
+| `MongoStore` | collection `{prefix}user_data`, indexes on `{ userId, namespace }` and `expiresAt` |
+| `RedisStore` | one key per entry, `{prefix}:ud:{user}:{ns}:{key}`, with native `PX` expiry; listing and namespace deletes use `KEYS`, like `listChats` |
+
+Postgres and MySQL now create seven tables in `start()`. Expired rows are
+removed lazily by `bot.purgeExpiredUserData()` (Redis expires them by
+itself).
+
 ## Custom stores
 
 Implement the `IStore` interface to plug in any other backend (MongoDB, PostgreSQL and MySQL already have experimental stores in the monorepo):
@@ -146,6 +164,13 @@ const bot = new Bot({
 ```
 
 The full interface is documented in the [API reference](/api/interfaces/IStore.html). `MemoryStore` is the reference implementation of the contract; inside the monorepo, every store runs the shared conformance suite (`test-utils/store-conformance.ts`).
+
+The user-data methods (`getUserData`, `setUserData`, `deleteUserData`,
+`listUserData`, `purgeExpiredUserData`) are optional: without them
+`ctx.user` rejects with `UNSUPPORTED_STORE`. If you add them, also pass
+`runUserDataConformance` from `test-utils/user-data-conformance.ts`. A
+store with `getCursor`/`setCursor` also persists the [`WELCOME`](./triggers#welcome)
+markers and the [handoff](./handoff) index.
 
 ## Docker + SQLiteStore
 

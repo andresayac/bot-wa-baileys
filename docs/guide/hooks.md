@@ -107,6 +107,10 @@ bot.before('message', async (ctx, next) => {
 })
 ```
 
+For a real block list prefer the built-in `bot.blacklist` / `bot.whitelist`:
+they drop the message before it is even persisted and also cover button
+taps and calls. See [Handoff & access lists](./handoff#blacklist-and-whitelist).
+
 ## Transform or block outgoing messages
 
 `'send'` fires on **every** outbound send, whether it comes from

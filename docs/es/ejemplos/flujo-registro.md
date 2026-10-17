@@ -49,6 +49,8 @@ Combina `.do()` (ejecuta una acción sin enviar mensaje) con `bot.provide()`
 para persistir los datos capturados:
 
 ```ts
+import type { MessageContext } from '@bot-wa/core'
+
 bot.provide('db', {
   users: new Map<string, { name: string; email: string }>(),
   async save(jid: string, data: { name: string; email: string }) {
@@ -62,10 +64,11 @@ const register = flow('register')
     validate: (body) => (body.includes('@') ? true : '❌ Invalid email'),
   })
   .do(async (ctx, c) => {
-    const { db } = ctx.tools as {
+    // flow steps type ctx as RuntimeMessage; the bot passes its full MessageContext
+    const { db } = (ctx as MessageContext).tools as {
       db: { save(jid: string, data: { name: string; email: string }): Promise<void> }
     }
-    await db.save(ctx.from, { name: c.state.name, email: c.state.email })
+    await db.save(ctx.from, { name: String(c.state.name), email: String(c.state.email) })
   })
   .say('✅ Registered!')
 

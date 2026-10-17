@@ -101,11 +101,19 @@ const bot = new Bot({
 })
 ```
 
+Un sub-flujo `then:` usa su propio `.timeout()`; **no** hereda el del
+flujo padre. Si no tiene, se aplica el `conversation.timeout` del bot (o el
+valor por defecto de 5 minutos).
+
 ### goto — saltar a otro flow
 
 ```ts
 flow('a').say('Redirecting you...').goto('b')
 ```
+
+El destino también tiene que estar registrado (`bot.use(flow('b')...)` o
+`bot.conversation('b', ...)`); `bot.lint()` avisa de un `goto` a un flujo
+inexistente con `goto-target-missing`.
 
 ### persistent — sobrevive reinicios
 
@@ -168,8 +176,155 @@ conversación directamente con `bot.conversation(name, async (c, ctx) =>
 {...})`, usando `c.ask`/`c.waitText`/`c.waitMedia`/`c.choose`/`c.goto`/`c.end`.
 Los flows construidos con `flow()` compilan exactamente a este runtime.
 
+## `ctx` en `bot.conversation()` es un `MessageContext` completo
+
+El segundo argumento de un handler de `bot.conversation()` es el
+`MessageContext` completo, tipado a través de `DefaultTools`: `ctx.tools`
+(incluidas augmentations como `ctx.tools.ai` o `ctx.tools.nlu`),
+`ctx.user`, `ctx.handoff()`, `ctx.photo`, `ctx.poll`, `ctx.react`,
+`ctx.quote`, `ctx.senderInfo`... Sin casts.
+
+```ts
+bot.conversation('foto', async (c, ctx) => {
+  const img = await c.waitMedia(['image'], { timeout: '2m' })
+  await ctx.react('📸')
+  await ctx.reply(`Recibida (${img.type})`)
+})
+```
+
+El tipo público es `ConversationHandler<TTools = DefaultTools>`; los
+handlers tipados con el antiguo `ConversationFn<ConversationControls>`
+siguen compilando. En el DSL (`flow().do((ctx, c) => ...)`) `ctx` sigue
+siendo un `RuntimeMessage`; ahí usa `userOf(ctx)` y `bot.handoff(ctx.from)`.
+
+## `c.retry()`: repetir la última espera
+
+`c.retry(message?)` repite la espera más reciente (`ask`, `waitText`,
+`waitMedia`, `choose`, `waitAny`) con las mismas opciones (`validate`,
+`filter`, `timeout`, `otherwise`, `retries`). Antes de esperar reenvía la
+pregunta del `ask` o el menú del `choose`, o `message` en su lugar. En
+`choose`, `message` solo reemplaza el encabezado; las opciones numeradas se
+mantienen. `waitText`/`waitMedia`/`waitAny` no tienen pregunta, así que solo
+envían `message` si lo pasas. `c.retry('')` vuelve a esperar sin enviar
+nada.
+
+En una conversación async devuelve el valor nuevo:
+
+```ts
+bot.conversation('ahorcado', async (c, ctx) => {
+  let letra = await c.ask('Escribe una letra')
+  while (letra.length !== 1) letra = await c.retry('❌ Solo una letra')
+  await ctx.reply(`✅ ${letra}`)
+})
+```
+
+Para `waitMedia`/`waitAny`, tipa el valor: `await c.retry<RuntimeMessage>('Envía otra foto')`.
+
+En un **paso de flujo** (`.do()` o una acción `then` de `.choose()`) cuya
+última espera es de un paso anterior, `c.retry()` rebobina el flujo hasta
+ese paso: lo vuelve a preguntar (con `message` en lugar de la pregunta, si
+lo pasas), guarda la respuesta nueva en su clave de estado y vuelve a
+ejecutar los pasos siguientes, incluido el `.do()` que lo llamó. Lanza una
+señal de control síncrona, así que el código posterior del paso no corre
+(como con `c.end()`):
+
+```ts
+flow('juego')
+  .ask('Escribe una letra', 'letra')
+  .do((_ctx, c) => {
+    if (String(c.state.letra).length !== 1) c.retry('❌ Solo una letra')
+  })
+  .say((_ctx, c) => `✅ ${c.state.letra}`)
+```
+
+- Funciona en sub-flujos (`then: subFlow`) y en flujos `.persistent()`
+  reanudados tras un reinicio. Si la espera se hizo en el mismo `.do()`
+  (`await c.waitText()`), reintenta en el sitio.
+- **Límite:** cada `c.retry()` cuenta como un intento inválido de esa
+  espera, sumado a los rechazos de `validate`. Al llegar a `retries` (por
+  defecto 3) se lanza `RetriesExceeded` y la conversación termina con
+  `retriesMessage`. Cada espera nueva empieza en cero. Para reintentos
+  ilimitados usa `retries: Infinity`.
+- Sin una espera previa falla con `RetryUnavailableError` (va al evento
+  `'error'` y se envía `errorMessage`).
+- Haz siempre `await` (o `return`). Una conversación tiene un solo hueco de
+  espera pendiente: una espera nueva iniciada mientras un retry sin `await`
+  sigue esperando falla con `ConcurrentWaitError`.
+- No lo llames dentro de `validate` (ahí devuelve un string de error). Si
+  envuelves un paso en `try/catch`, relanza `ConversationError`
+  (`if (e instanceof ConversationError) throw e`).
+
+## `c.idle()`: inactividad dentro de una conversación
+
+```ts
+bot.conversation('juego', async (c, ctx) => {
+  c.idle('2m', async () => {
+    await ctx.reply('⏰ Te desconecté por inactividad')
+    c.end('👋 ¡Hasta luego!')          // termina la conversación (envía la despedida)
+  })
+  await ctx.reply('Escribe una letra')
+  const letra = await c.waitText({ timeout: '10m' })
+  c.idleClear()                         // lo desarma cuando respondió
+})
+```
+
+- El callback corre una vez cuando pasa `duración` (`'30s'`, `'2m'`, `'1h'`,
+  `'1d'`, `'10 minutes'` o ms, hasta unos 24,8 días) sin mensajes del
+  usuario de la conversación. Cada mensaje entrante lo reprograma, aunque
+  la espera pendiente lo filtre; tras dispararse, el siguiente mensaje lo
+  vuelve a armar.
+- Llamar otra vez a `c.idle()` reemplaza el anterior. Se desarma al
+  terminar la conversación, con `/reset` o `bot.abortConversation`, con
+  `goto` y con `bot.stop()`, así que no deja temporizadores colgados.
+- Dentro del callback: `c.end(despedida?)` o `c.goto('menu')` terminan o
+  redirigen la conversación en la espera pendiente. `c.retry(msg?)` reenvía
+  la pregunta pendiente como recordatorio y sigue esperando la misma
+  respuesta (cuenta para `retries`; para un recordatorio que no cuente, usa
+  `ctx.reply`). Si no hay espera pendiente no hace nada. El callback no
+  puede iniciar esperas nuevas. Otros errores van al evento `'error'` y la
+  conversación sigue.
+- Es independiente del `timeout` de la espera, que termina la conversación
+  con `timeoutMessage`. Funciona en los `.do()` de un flujo y sigue activo
+  entre pasos. Los comandos que atiende el dispatcher no cuentan como
+  actividad. No se persiste (no sobrevive a un reinicio ni a un `goto`).
+
+## `bot.onIdle()`: inactividad por chat
+
+```ts
+bot.onIdle('10m', async (ctx, { chatId, idleMs, lastActivityAt }) => {
+  await ctx.reply('¿Sigues ahí? 👀')       // ctx = el último mensaje procesado de ese chat
+})
+const off = bot.onIdle('1h', (ctx) => bot.sendText(ctx.from, 'Cerramos tu sesión por inactividad'))
+off()                                       // deja de vigilar y cancela sus temporizadores
+bot.clearIdle(chatId)                       // cancela los temporizadores de un chat (de todos sin argumento)
+```
+
+- Por chat (`ctx.from`); en un grupo cuenta cualquier participante.
+- Se dispara una vez por periodo, contado desde el último mensaje entrante
+  que el bot terminó de procesar. Cada mensaje nuevo lo reprograma y lo
+  vuelve a armar.
+- Los mensajes descartados antes de terminar el pipeline (un hook
+  `before('message')` que aborta, el filtro `groupMode`) no cuentan como
+  actividad.
+- `bot.stop()` lo cancela todo; los registros sobreviven a stop/start.
+- [Handoff humano](./handoff): los temporizadores de un chat en handoff se
+  cancelan y quedan suspendidos (sus mensajes no los rearman) hasta el
+  resume, también para los handoffs restaurados del store al arrancar.
+- Los errores del handler (síncronos o async) van al evento `'error'` con
+  el `ctx`.
+- Usa el `Scheduler` del bot. Una duración inválida (≤ 0, no finita o mayor
+  que 2^31 − 1 ms) lanza `RangeError`. Dentro de un plugin, pasa el
+  unsubscribe devuelto a `ctx.onDispose`.
+
+## Revisar tus flujos
+
+`bot.describe()` dibuja tus flujos como un diagrama Mermaid y `bot.lint()`
+avisa de `goto` rotos, pasos inalcanzables, triggers duplicados y más. Ver
+[Inspeccionar y validar flujos](./inspeccion-flujos).
+
 ## Siguientes pasos
 
 - [Ejemplos de flujos](/es/ejemplos/flujo-registro) — recetas completas
+- [Triggers especiales](./triggers) — WELCOME, tipos de mensaje y CALL
 - [Hooks](./hooks) — interceptar mensajes
 - [Plugins](./plugins) — empaquetar funcionalidad

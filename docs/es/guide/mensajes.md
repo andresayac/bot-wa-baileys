@@ -126,7 +126,39 @@ bot.onPoll(async (ctx) => { await ctx.reply('📊 Got your poll') })
 
 `onImage`/`onAudio`/etc. son matchers de baja especificidad: un
 `bot.when(...)` más específico que también coincida gana primero, a menos
-que llame a `ctx.pass()`.
+que llame a `ctx.pass()`. El mismo nivel está disponible como constantes de
+trigger (`IMAGE`, `VOICE_NOTE`, `MEDIA`, `LOCATION`, `CALL`...): ver
+[Triggers especiales](./triggers).
+
+## Votos de encuestas
+
+`ctx.poll(pregunta, opciones, multiSelect?)` envía una encuesta nativa. Los
+votos llegan por el evento `poll` con el recuento completo y actual:
+
+```ts
+await ctx.poll('¿Pizza o sushi?', ['Pizza', 'Sushi'])
+
+bot.on('poll', (vote) => {
+  // vote.ref.id      → id del mensaje de la encuesta
+  // vote.ref.chatId  → chat donde se votó (el mismo chatId que usan sus mensajes)
+  // vote.senderId    → quien acaba de votar, con el id canónico de sus mensajes
+  // vote.options     → recuento actual: [{ name, votes, voters }]
+  const elegidas = vote.options.filter((o) => o.voters?.includes(vote.senderId)).map((o) => o.name)
+  console.log(elegidas.length ? `Eligió: ${elegidas.join(', ')}` : 'Retiró su voto')
+})
+```
+
+En **Baileys**, WhatsApp cifra cada voto de extremo a extremo; el provider
+lo descifra por su cuenta. Recuerda las 500 encuestas más recientes que vio
+(las del bot y las que crean otros en los chats que escucha), solo acepta
+un voto que llega por el chat de la encuesta y nombra a su creador, guarda
+el último voto de cada persona y cuenta cada mensaje de voto una sola vez
+(la re-entrega offline de Baileys no se vuelve a emitir). Límites: solo se
+descifran las encuestas que vio **este proceso** (tras un reinicio, los
+votos de encuestas anteriores se descartan con un log `debug`) y el bot no
+puede votar. Una encuesta que crea otra persona sigue llegando como mensaje
+`poll` (`bot.onPoll`, el [trigger `POLL`](./triggers#triggers-por-tipo-de-mensaje));
+el voto cifrado ya no. Detalles en el README de `@bot-wa/baileys`.
 
 ## Acceder al contenido del media
 
@@ -153,7 +185,30 @@ Además de los helpers de respuesta, cada handler recibe campos de datos en
 `ctx.mentions`, `ctx.quoted?`, `ctx.media?`, `ctx.timestamp`, `ctx.tools`
 (registro de DI), `ctx.raw` (payload nativo del provider), `ctx.ref` (la
 referencia al mensaje — `{ id, chatId, native? }`, reemplaza el `ctx.key`
-de v1).
+de v1), `ctx.user` (el [perfil persistente](./datos-usuario) del remitente),
+`ctx.handoff()` (pasar el chat a un [humano](./handoff)) y `ctx.call` (el
+`CallEvent`, solo en contextos [`CALL`](./triggers#call)).
+
+## Identidad por transporte
+
+Cada provider resuelve los alias antes de emitir, así que `ctx.sender` es
+el mismo para la misma persona (el contrato de identidad):
+
+- **Baileys:** las formas LID y PN (teléfono) de un usuario se unen en un id
+  canónico (el PN cuando se conoce). Lo usan los mensajes, las reacciones,
+  los votos, las llamadas, los eventos de grupo y presencia, `ctx.mentions`
+  y el propio `selfId` del bot, así que `groupMode: 'mentions'` funciona
+  tanto si la mención usó el LID como el PN.
+- **Cloud API (`@bot-wa/meta`):** los usuarios que activaron un **username**
+  de WhatsApp pueden llegar sin teléfono, solo con un id propio de tu
+  negocio (**BSUID**, p. ej. `US.13491208655302741918`). El provider
+  mantiene un id estable por persona (el teléfono si se conoce y, si no, el
+  BSUID), aprende los pares teléfono ↔ BSUID (persístelos con un
+  `identityMap`) y envía a un BSUID con el campo `recipient` de forma
+  automática. `senderInfo.username` y `senderInfo.platformData.bsuid` dan
+  los detalles. Las plantillas de autenticación exigen teléfono: enviarlas a
+  un BSUID falla con el error de Graph `131062`, mapeado a
+  `UnsupportedContentError`. Ver el README de `@bot-wa/meta`.
 
 ## Enviar fuera de un handler
 
@@ -168,6 +223,7 @@ await bot.send('573001234567@s.whatsapp.net', {
   media: { url },
   caption: 'hi',
 })
+await bot.sendTo(chatId, 'Hola, soy Ana de soporte')  // mismo camino; un string se envía como texto
 await bot.broadcast(
   ['573001234567@s.whatsapp.net', '573001112233@s.whatsapp.net'],
   { kind: 'text', text: 'Announcement!' },
