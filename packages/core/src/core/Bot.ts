@@ -81,6 +81,8 @@ import { lintFlows, type LintDiagnostic, type LintOptions } from '../flows/lint.
 import { AccessList, Whitelist, checkAccess, type AccessListSnapshot, type AccessListsSnapshot, type WhitelistSnapshot } from '../gates/accessList.js'
 import { KeyedQueue } from '../utils/keyedQueue.js'
 import { HANDOFF_INDEX_KEY, HandoffRegistry, type HandoffEvent, type HandoffOptions, type HandoffState, type ResumeEvent, type ResumeOptions, type StoredHandoff } from '../gates/handoff.js'
+import { WelcomeTracker } from './welcome.js'
+import { callToInbound, RecentIds } from './calls.js'
 
 /** A user message handler — receives the full inbound {@link MessageContext}. */
 export type MessageHandler = (ctx: MessageContext) => unknown | Promise<unknown>
@@ -179,6 +181,10 @@ export class Bot extends EventEmitter {
   private inflightSends = new Set<Promise<unknown>>()
   /** Trigger routes, kept for `describe()` / `lint()` introspection. */
   private flowRoutes = new FlowRouteLog()
+  /** Store-backed first-contact state for the `WELCOME` trigger. */
+  private welcome: WelcomeTracker
+  /** Call ids already handed to `CALL` triggers (fire once per call). */
+  private seenCalls = new RecentIds()
 
   /** Resolves when the bot reaches the `'ready'` connection state. */
   readonly ready: Promise<void>
@@ -259,10 +265,13 @@ export class Bot extends EventEmitter {
       this.runtime.attachStore(this.store as CheckpointStore)
     }
 
+    this.welcome = new WelcomeTracker({ store: this.store, onError: (error) => this.emitError({ error }) })
+
     this.dispatcher = new Dispatcher({
       hooks: this.hooks,
       runtime: this.runtime,
       commandPrefix: this.config.commandPrefix,
+      firstContact: (ctx) => this.welcome.isFirstContact(ctx),
       logger: this.logger.child({ module: 'dispatcher' }),
       emit: (event, payload) => {
         if (event === 'error') {
@@ -638,6 +647,31 @@ export class Bot extends EventEmitter {
     return this.runtime.abort(target)
   }
 
+  /**
+   * Re-arm the `WELCOME` trigger so the subject's next message is treated as a
+   * first contact again (persisted in the store, so it survives restarts).
+   *
+   * - `resetWelcome(dmChatId)` — the user of that DM.
+   * - `resetWelcome(groupId, userId)` — one participant of a group.
+   * - `resetWelcome(groupId)` — every participant of that group.
+   *
+   * Called from a handler of the same chat it is ordered with that chat's
+   * messages (the dispatcher's FIFO); called from elsewhere it races like any
+   * last-writer-wins store write. Rejects if the store write fails (the
+   * in-process state is re-armed regardless). `slashCommandsPlugin` calls it on `/reset`.
+   *
+   * @example
+   * ```ts
+   * bot.command('bienvenida', async (ctx) => {
+   *   await bot.resetWelcome(ctx.from, ctx.isGroup ? ctx.sender : undefined)
+   *   await ctx.reply('Listo: tu próximo mensaje recibirá la bienvenida otra vez.')
+   * })
+   * ```
+   */
+  resetWelcome(chatId: ChatId, userId?: UserId): Promise<void> {
+    return this.welcome.reset(chatId, userId)
+  }
+
   /* =========================================================================
    * HOOKS
    * ====================================================================== */
@@ -840,6 +874,8 @@ export class Bot extends EventEmitter {
       await this.store.clearCheckpoint(key)
       result.checkpoints++
     }
+    // WELCOME markers (hashed keys): a returning erased subject is a first contact again.
+    await this.welcome.forget(userId, chats.map((chat) => chat.id))
     return result
   }
 
@@ -930,7 +966,8 @@ export class Bot extends EventEmitter {
   }
 
   private registerEnterMatcher(trigger: Trigger, target: string): () => void {
-    const unmatch = this.dispatcher.matcher(trigger, (ctx) => {
+    // conversationMatcher: a projected event (a call) must never replace a conversation in progress.
+    const unmatch = this.dispatcher.conversationMatcher(trigger, (ctx) => {
       void this.runtime.enter(target, ctx).catch((error) => this.emitError({ error, ctx: ctx as unknown as MessageContext }))
     })
     const unroute = this.flowRoutes.add(trigger, target)
@@ -966,7 +1003,7 @@ export class Bot extends EventEmitter {
       }
       case 'reaction': await this.dispatchHookEvent('reaction', event.reaction); return
       case 'poll-vote': await this.dispatchHookEvent('poll', event.vote); return
-      case 'call': await this.dispatchHookEvent('call', event.event); return
+      case 'call': await this.handleCall(event.event); return
       case 'group': await this.dispatchHookEvent('group', event.event); return
       case 'presence': await this.dispatchHookEvent('presence', event.event); return
       case 'status':
@@ -1145,15 +1182,40 @@ export class Bot extends EventEmitter {
     await this.dispatcher.dispatch(ctx as unknown as DispatchContext)
   }
 
-  private async dispatchHookEvent(event: HookEvent, payload: unknown): Promise<void> {
+  /** Run hooks + emit for a provider event. Resolves `false` if a before-hook aborted or it threw. */
+  private async dispatchHookEvent(event: HookEvent, payload: unknown): Promise<boolean> {
     try {
-      await this.hooks.runBefore(event, payload as { abort(): void })
+      const proceed = await this.hooks.runBefore(event, payload as { abort(): void })
       await this.hooks.runAfter(event, payload)
       this.emit(event, payload)
+      return proceed
     } catch (error) {
       try { await this.hooks.runError(event, payload, error) } catch { /* no error hook registered */ }
       this.emitError({ error })
+      return false
     }
+  }
+
+  /**
+   * A call event: hooks + `'call'` event as before, then — only when a `CALL`
+   * type trigger is registered — the first event of each call id is projected
+   * into a `type: 'call'` context and dispatched to the type-trigger matchers.
+   * Group calls follow `groupMode`: anything but `'all'` keeps them away from triggers.
+   */
+  private async handleCall(call: CallEvent): Promise<void> {
+    const proceed = await this.dispatchHookEvent('call', call)
+    if (!proceed || !this.acceptingInbound || !this.dispatcher.hasTypeMatcher('call')) return
+    // A call can never mention the bot nor be a command: a restrictive groupMode keeps group calls out.
+    if (call.isGroup === true && this.config.groupMode && this.config.groupMode !== 'all') return
+    if (call.id && !this.seenCalls.add(call.id)) return
+    const ctx = buildMessageContext({
+      inbound: callToInbound(call),
+      tools: this.tools,
+      send: (chatId, content, opts) => this.dispatchSend(chatId, content, opts),
+      typing: async (chatId, state) => { await this.provider.typing?.(chatId, state) },
+    })
+    ctx.call = call
+    await this.dispatcher.dispatchEvent(ctx as unknown as DispatchContext)
   }
 }
 

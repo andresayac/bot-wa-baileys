@@ -127,7 +127,7 @@ describe('call', () => {
   it('emits the caller as the canonical PN when Baileys provides callerPn', async () => {
     const h = await connect(BaileysProvider)
     await h.emit({ call: [{ id: 'C1', chatId: USER_LID, from: USER_LID, callerPn: USER_PN, date: new Date(), offline: false, status: 'offer' }] })
-    expect(h.ofKind('call')[0]?.event).toEqual({ id: 'C1', from: USER_PN, status: 'offer' })
+    expect(h.ofKind('call')[0]?.event).toEqual({ id: 'C1', from: USER_PN, status: 'offer', chatId: USER_PN, isGroup: false, offline: false })
   })
 
   it('canonicalises a device-qualified LID caller with a learned mapping', async () => {

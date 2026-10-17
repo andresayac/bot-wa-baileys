@@ -1,5 +1,8 @@
 import type { Trigger } from './types.js'
+import type { MessageType } from './provider.js'
 import { matchTrigger, triggerSpecificity, normalizeText } from './matching.js'
+import { isTypeTrigger, isWelcomeTrigger, typeTrigger } from './triggers.js'
+import { WelcomeTracker } from './welcome.js'
 import type { ConversationRuntime, RuntimeMessage } from '../conversations/ConversationRuntime.js'
 
 export interface DispatchContext extends RuntimeMessage {
@@ -31,9 +34,22 @@ export interface DispatcherDeps {
    * event still run.
    */
   gate?: (ctx: DispatchContext) => boolean
+  /**
+   * Decides whether a message is its subject's first contact, for `WELCOME` matchers.
+   * Called only when a WELCOME matcher is reached, inside the per-chat FIFO. The Bot
+   * wires a store-backed `WelcomeTracker`; when omitted, an in-memory one is used.
+   */
+  firstContact?: (ctx: DispatchContext) => Promise<boolean>
 }
 
-interface MatcherEntry { seq: number; trigger: Trigger; specificity: number; handler: MessageHandler }
+interface MatcherEntry {
+  seq: number
+  trigger: Trigger
+  specificity: number
+  handler: MessageHandler
+  /** The handler starts a conversation (registered through {@link Dispatcher.conversationMatcher}). */
+  startsConversation?: boolean
+}
 
 export class Dispatcher {
   private commands = new Map<string, CommandHandler>()
@@ -62,19 +78,41 @@ export class Dispatcher {
   }
 
   matcher(trigger: Trigger, handler: MessageHandler, specificityOverride?: number): () => void {
-    const entry: MatcherEntry = {
+    return this.addMatcher({
       seq: this.seq++,
       trigger,
       specificity: specificityOverride ?? triggerSpecificity(trigger),
       handler,
-    }
+    })
+  }
+
+  /**
+   * Same as {@link matcher}, for a handler that STARTS a conversation (a flow or a
+   * `bot.conversation` trigger). Messages treat it like any matcher — they only reach
+   * the matcher stage when the subject has no active/dormant conversation. A projected
+   * event ({@link dispatchEvent}, e.g. a call) skips it while the subject has an active
+   * conversation or a dormant checkpoint, so an event can never replace (and wipe the
+   * checkpoint of) a conversation in progress; the next matching handler runs instead.
+   */
+  conversationMatcher(trigger: Trigger, handler: MessageHandler): () => void {
+    return this.addMatcher({
+      seq: this.seq++,
+      trigger,
+      specificity: triggerSpecificity(trigger),
+      handler,
+      startsConversation: true,
+    })
+  }
+
+  private addMatcher(entry: MatcherEntry): () => void {
     this.matchers.push(entry)
     this.matchers.sort((a, b) => b.specificity - a.specificity || a.seq - b.seq)
     return () => { this.matchers = this.matchers.filter((m) => m !== entry) }
   }
 
+  /** Same as `matcher(typeTrigger(type), handler)` — the single-kind type-trigger tier. */
   onType(type: string, handler: MessageHandler): () => void {
-    return this.matcher((c) => (c as unknown as DispatchContext).type === type, handler, 1)
+    return this.matcher(typeTrigger(type as MessageType), handler)
   }
 
   catchAll(handler: MessageHandler): () => void {
@@ -84,9 +122,13 @@ export class Dispatcher {
 
   /** Serializa por chat-key: nunca dos mensajes del mismo chat en paralelo. */
   dispatch(ctx: DispatchContext): Promise<void> {
+    return this.enqueue(ctx, () => this.run(ctx))
+  }
+
+  private enqueue(ctx: DispatchContext, job: () => Promise<void>): Promise<void> {
     const key = this.deps.runtime.keyFor(ctx)
     const tail = this.queues.get(key) ?? Promise.resolve()
-    const next = tail.then(() => this.run(ctx)).catch(() => {})
+    const next = tail.then(job).catch(() => {})
     this.queues.set(key, next)
     void next.finally(() => { if (this.queues.get(key) === next) this.queues.delete(key) })
     return next
@@ -130,6 +172,7 @@ export class Dispatcher {
       // 4. matchers por especificidad
       for (const m of this.matchers) {
         if (!matchTrigger(m.trigger, ctx)) continue
+        if (isWelcomeTrigger(m.trigger) && !(await this.isFirstContact(ctx))) continue
         ctx._passed = false
         await m.handler(ctx)
         if (ctx._aborted) return this.finish(ctx)
@@ -153,5 +196,56 @@ export class Dispatcher {
   private async finish(ctx: DispatchContext): Promise<void> {
     await this.deps.hooks.runAfter('message', ctx)
     this.deps.emit('message', ctx)
+  }
+
+  /* -------------------------------------------------------------------------
+   * Special triggers (WELCOME / type triggers / projected events such as calls)
+   * ---------------------------------------------------------------------- */
+
+  private fallbackWelcome?: WelcomeTracker
+
+  private isFirstContact(ctx: DispatchContext): Promise<boolean> {
+    if (this.deps.firstContact) return this.deps.firstContact(ctx)
+    this.fallbackWelcome ??= new WelcomeTracker()
+    return this.fallbackWelcome.isFirstContact(ctx)
+  }
+
+  /** True when a type trigger accepting `type` is registered (e.g. `CALL` for `'call'`). */
+  hasTypeMatcher(type: string): boolean {
+    return this.matchers.some((m) => isTypeTrigger(m.trigger) && m.trigger.types.includes(type as MessageType))
+  }
+
+  /**
+   * Dispatch a projected non-message event (a call, `ctx.type === 'call'`) through the
+   * same per-chat FIFO, running ONLY the type-trigger matchers that accept `ctx.type`
+   * (by specificity; `ctx.pass()` cascades). Message hooks, commands, conversations,
+   * text/function triggers and catch-alls are skipped and `'message'` is not emitted.
+   * A matcher that starts a conversation is skipped while the subject already has an
+   * active conversation or a dormant checkpoint (see {@link conversationMatcher}).
+   * A handler error goes to the `error` hooks of `ctx.type` and to the `'error'` event.
+   */
+  dispatchEvent(ctx: DispatchContext): Promise<void> {
+    return this.enqueue(ctx, () => this.runEvent(ctx))
+  }
+
+  private async runEvent(ctx: DispatchContext): Promise<void> {
+    const { runtime } = this.deps
+    const key = runtime.keyFor(ctx)
+    try {
+      for (const m of this.matchers) {
+        if (!isTypeTrigger(m.trigger) || !matchTrigger(m.trigger, ctx)) continue
+        // Never let an event replace a conversation in progress: enter() would abort it and
+        // its persistent checkpoint would be cleared. Re-checked per matcher (a plain handler
+        // earlier in the cascade may itself have started one).
+        if (m.startsConversation && (runtime.hasActive(key) || runtime.hasDormant(key))) continue
+        ctx._passed = false
+        await m.handler(ctx)
+        if (ctx._aborted || !ctx._passed) return
+      }
+    } catch (error) {
+      this.deps.logger?.error?.('event dispatch error', error)
+      try { await this.deps.hooks.runError(ctx.type, ctx, error) } catch { /* no error hook registered */ }
+      this.deps.emit('error', { error, ctx })
+    }
   }
 }

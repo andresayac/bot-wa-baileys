@@ -12,6 +12,7 @@ import type { Logger } from 'pino'
 import type { RuntimeMessage } from '../conversations/ConversationRuntime.js'
 import type { Bot } from './Bot.js'
 import type { DefaultTools, SentMessage, ChatId } from './provider.js'
+import type { TypeTrigger, WelcomeTrigger } from './triggers.js'
 
 /* ============================================================================
  * SHARED CONTRACT (re-exported from core/provider.ts)
@@ -170,6 +171,10 @@ export type Trigger =
   | Array<string | RegExp>
   | TriggerObject
   | ((ctx: { body: string; isGroup: boolean }) => boolean)
+  /** `IMAGE`, `MEDIA`, `CALL`, … or `typeTrigger(...)` — see `core/triggers.ts`. */
+  | TypeTrigger
+  /** The first-contact `WELCOME` trigger — see `core/triggers.ts`. */
+  | WelcomeTrigger
 
 /* ============================================================================
  * CONVERSATIONS — CONTROLS

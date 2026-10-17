@@ -76,6 +76,11 @@ export type MessageType =
   | 'text' | 'image' | 'video' | 'audio' | 'voice' | 'document'
   | 'sticker' | 'location' | 'contact' | 'poll' | 'buttons' | 'list'
   | 'unknown'
+  /**
+   * Not a message a provider emits: the Bot projects an inbound {@link CallEvent}
+   * into a context of this type so the `CALL` trigger can handle it (see `core/triggers.ts`).
+   */
+  | 'call'
 
 /**
  * Opaque, lazy media reference on an inbound event. The bytes are NOT inline;
@@ -85,7 +90,7 @@ export type MessageType =
  *  - Discord (plain HTTPS GET).
  */
 export interface MediaRef {
-  kind: Exclude<MessageType, 'text' | 'poll' | 'buttons' | 'list' | 'unknown'>
+  kind: Exclude<MessageType, 'text' | 'poll' | 'buttons' | 'list' | 'unknown' | 'call'>
   mimetype?: string
   filename?: string
   size?: number
@@ -236,10 +241,33 @@ export interface PresenceEvent {
   chatId: ChatId
   presences: Record<UserId, { lastKnownPresence?: string; lastSeen?: number }>
 }
+/**
+ * An inbound call notification. Transports may emit several per call (one per
+ * status update) with the same `id`.
+ */
 export interface CallEvent {
   id: string
+  /**
+   * The caller, resolved to the SAME canonical id their messages carry as
+   * `senderId` (the identity-stability contract applies to calls too).
+   */
   from: UserId
+  /** Transport status, e.g. WhatsApp `offer` / `ringing` / `reject` / `timeout` / `terminate`. */
   status: string
+  /**
+   * The chat the call belongs to: the group for a group call. Omitted → the DM
+   * with the caller (`from`).
+   */
+  chatId?: ChatId
+  /** `true` when `chatId` is a group (a group call). Provider-set, like `ChatInfo.isGroup`. */
+  isGroup?: boolean
+  /** `true` for a video call, when the transport says so. */
+  isVideo?: boolean
+  /**
+   * `true` when the notification was delivered late (e.g. replayed after the bot
+   * reconnected) rather than while the call was ringing.
+   */
+  offline?: boolean
 }
 
 /* ============================================================================
@@ -511,6 +539,12 @@ export interface MessageContext<TTools extends object = DefaultTools, TRaw = unk
    */
   interaction?: { id: string; data: string; respondBy?: number }
   acknowledge?(text?: string): Promise<void>
+
+  /**
+   * Present only on the context the `CALL` trigger receives (`type === 'call'`):
+   * the provider's normalized call notification.
+   */
+  call?: CallEvent
 
   /* Reply helpers — every reply targets `this.from` (unchanged surface) */
   say(text: string): Promise<SentMessage>

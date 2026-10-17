@@ -50,6 +50,7 @@ import { IdentityStore, canonicalKey, type IdentityKey } from './identity.js'
 import { normalize, isLidUser, isPnUser } from './jid.js'
 import { PollTracker, POLL_CACHE_MAX, decryptVote, pollUpdateOf, recordVote, tally } from './polls.js'
 import { toInbound } from './toInbound.js'
+import { toCallEvent } from './toCallEvent.js'
 import { toOutbound } from './toOutbound.js'
 import { RateLimiter, type RateLimitConfig } from './RateLimiter.js'
 import {
@@ -155,6 +156,8 @@ export class BaileysProvider implements IProvider<WAMessage> {
   /** Polls seen by this process (sent or received), so their votes can be decrypted. */
   private polls = new PollTracker(POLL_CACHE_MAX)
   private identity = new IdentityStore()
+  /** Call id → group JID of group calls in progress (see {@link toCallEvent}). */
+  private callGroups = new Map<string, string>()
   private rateLimiter: RateLimiter
   private listeners = new Set<(e: InboundEvent<WAMessage>) => void | Promise<void>>()
 
@@ -490,7 +493,8 @@ export class BaileysProvider implements IProvider<WAMessage> {
   private async onCalls(calls: BaileysEventMap['call']): Promise<void> {
     for (const call of calls) {
       const from = await this.canonicalId(call.from, call.callerPn)
-      this.fan({ kind: 'call', event: { id: call.id, from, status: String(call.status) } })
+      const groupId = call.groupJid ? await this.canonicalId(call.groupJid) : undefined
+      this.fan({ kind: 'call', event: toCallEvent(call, from, groupId, this.callGroups) })
     }
   }
 

@@ -210,3 +210,23 @@ export type {
   ResumeOptions,
   StoredHandoff,
 } from './gates/handoff.js'
+
+// triggers
+export {
+  WELCOME,
+  MEDIA,
+  IMAGE,
+  VIDEO,
+  AUDIO,
+  VOICE_NOTE,
+  DOCUMENT,
+  STICKER,
+  LOCATION,
+  CONTACT,
+  POLL,
+  CALL,
+  typeTrigger,
+  isTypeTrigger,
+  isWelcomeTrigger,
+} from './core/triggers.js'
+export type { TypeTrigger, WelcomeTrigger } from './core/triggers.js'

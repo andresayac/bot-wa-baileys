@@ -13,6 +13,7 @@ import type { IStore } from '../store/IStore.js'
 import { MemoryStore } from '../store/MemoryStore.js'
 import { NamespacedStore } from '../store/NamespacedStore.js'
 import { FlowBuilder, type CompiledFlow } from './FlowBuilder.js'
+import { isTypeTrigger, isWelcomeTrigger } from '../core/triggers.js'
 
 /** One trigger → handler registration, in registration order. */
 export interface FlowRoute {
@@ -66,8 +67,13 @@ export interface TriggerInfo {
   match: MatchStrategy
   /** Chat scope the trigger is restricted to (default `all`). */
   scope: TriggerScope
-  /** `true` for a predicate-function trigger — opaque to static analysis. */
+  /**
+   * `true` for a trigger that is opaque to static text analysis: a predicate function, and
+   * the special `WELCOME` / type triggers (`IMAGE`, `MEDIA`, `CALL`, …; see `special`).
+   */
   predicate: boolean
+  /** Set for the special triggers of `core/triggers.ts`: first contact, or the accepted `ctx.type` kinds. */
+  special?: { kind: 'welcome' } | { kind: 'type'; types: string[] }
 }
 
 /** A conversation as seen by introspection: the live definition of one registered name. */
@@ -176,6 +182,16 @@ export function functionName(fn: unknown): string | undefined {
  * // → 'contains "factura" (dm only)'
  */
 export function describeTrigger(trigger: Trigger): TriggerInfo {
+  if (isWelcomeTrigger(trigger)) {
+    const scope = trigger.scope ?? 'all'
+    return { label: `WELCOME${scopeSuffix(scope)}`, patterns: [], match: 'equals', scope, predicate: true, special: { kind: 'welcome' } }
+  }
+  if (isTypeTrigger(trigger)) {
+    const scope = trigger.scope ?? 'all'
+    const types = [...trigger.types]
+    const kinds = types.length === 0 ? '(none, never matches)' : types.join(' | ')
+    return { label: `type: ${kinds}${scopeSuffix(scope)}`, patterns: [], match: 'equals', scope, predicate: true, special: { kind: 'type', types } }
+  }
   if (typeof trigger === 'function') {
     const name = functionName(trigger)
     return { label: name ? `(predicate: ${name})` : '(predicate)', patterns: [], match: 'equals', scope: 'all', predicate: true }
@@ -194,8 +210,11 @@ function triggerLabel(patterns: TriggerPatternInfo[], match: MatchStrategy, scop
   if (patterns.length === 0) return '[] (never matches)'
   const body = patterns.map((p) => (p.type === 'regex' ? `/${p.source}/${p.flags}` : JSON.stringify(p.value))).join(', ')
   const prefix = match !== 'equals' && patterns.some((p) => p.type === 'text') ? `${match} ` : ''
-  const suffix = scope !== 'all' ? ` (${scope} only)` : ''
-  return `${prefix}${body}${suffix}`
+  return `${prefix}${body}${scopeSuffix(scope)}`
+}
+
+function scopeSuffix(scope: TriggerScope): string {
+  return scope !== 'all' ? ` (${scope} only)` : ''
 }
 
 /**
