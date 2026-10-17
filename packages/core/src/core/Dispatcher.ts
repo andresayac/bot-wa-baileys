@@ -24,6 +24,13 @@ export interface DispatcherDeps {
   logger?: { debug?: (...a: unknown[]) => void; error?: (...a: unknown[]) => void }
   /** Emit an event; returns `true` when the event had listeners (mirrors `EventEmitter.emit`). */
   emit: (event: string, payload: unknown) => boolean
+  /**
+   * Optional routing gate (human handoff). Evaluated AFTER `before('message')` hooks and
+   * BEFORE any routing stage; returning `false` skips commands, the active conversation,
+   * dormant resume, matchers and the catch-all, while after-hooks and the `'message'`
+   * event still run.
+   */
+  gate?: (ctx: DispatchContext) => boolean
 }
 
 interface MatcherEntry { seq: number; trigger: Trigger; specificity: number; handler: MessageHandler }
@@ -47,6 +54,11 @@ export class Dispatcher {
     const key = normalizeText(name)
     this.commands.set(key, handler)
     return () => { this.commands.delete(key) }
+  }
+
+  /** Is a command handler registered under `name` (compared normalized, without prefix)? */
+  hasCommand(name: string): boolean {
+    return this.commands.has(normalizeText(name))
   }
 
   matcher(trigger: Trigger, handler: MessageHandler, specificityOverride?: number): () => void {
@@ -85,6 +97,9 @@ export class Dispatcher {
     const prefix = this.deps.commandPrefix ?? '/'
     try {
       if (!(await hooks.runBefore('message', ctx))) return
+
+      // 0. routing gate (human handoff): skip every routing stage, still finish()
+      if (this.deps.gate && !this.deps.gate(ctx)) return this.finish(ctx)
 
       // 1. comandos — SIEMPRE antes que la conversación activa
       if (ctx.body?.startsWith(prefix)) {

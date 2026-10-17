@@ -188,3 +188,25 @@ export type { ConversationHandler } from './conversations/handler.js'
 export type { IdleCallback } from './conversations/idle.js'
 export type { ConversationObserver } from './conversations/ConversationRuntime.js'
 export type { IdleHandler, IdleEvent } from './core/idle.js'
+
+// handoff-gates
+export { AccessList, Whitelist, checkAccess } from './gates/accessList.js'
+export type {
+  AccessDecision,
+  AccessListAction,
+  AccessListChange,
+  AccessListName,
+  AccessListSnapshot,
+  AccessListsSnapshot,
+  WhitelistSnapshot,
+} from './gates/accessList.js'
+export { HANDOFF_INDEX_KEY, validateHandoffConfig } from './gates/handoff.js'
+export type {
+  HandoffConfig,
+  HandoffEvent,
+  HandoffOptions,
+  HandoffState,
+  ResumeEvent,
+  ResumeOptions,
+  StoredHandoff,
+} from './gates/handoff.js'

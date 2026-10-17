@@ -11,6 +11,8 @@
  *  - ESM, zero runtime deps in core (only structural / type-only references).
  */
 
+import type { HandoffConfig, HandoffOptions, StoredHandoff } from '../gates/handoff.js'
+
 /* ============================================================================
  * 1. IDENTITY PRIMITIVES  (opaque — no shape grammar)
  * ========================================================================== */
@@ -537,6 +539,14 @@ export interface MessageContext<TTools extends object = DefaultTools, TRaw = unk
   recording(): Promise<void>
   delete(): Promise<void>
 
+  /**
+   * Hand this chat (`from`) over to a human: the bot stops routing its messages until
+   * `bot.resume(chatId)`, and any conversation in the chat is cancelled silently.
+   * Resolves `true` if the chat was not already handed off. Safe to call without
+   * awaiting (the state flips synchronously). See `bot.handoff()`.
+   */
+  handoff(opts?: HandoffOptions): Promise<boolean>
+
   /* Dispatch control (unchanged) */
   pass(): void
   abort(): void
@@ -574,6 +584,8 @@ export interface BuildContextDeps<TRaw = unknown> {
   deleteMessage?(ref: MessageRef): Promise<void>
   acknowledgeInteraction?(id: string, text?: string): Promise<void>
   downloadMedia?(ref: MediaRef): Promise<Buffer | NodeJS.ReadableStream>
+  /** Backs `ctx.handoff()`; without it `ctx.handoff()` resolves `false`. */
+  handoff?(chatId: ChatId, opts?: HandoffOptions): Promise<boolean>
   /** Set when this context projects an interaction (button/slash/callback). */
   interaction?: { id: string; data: string; respondBy?: number }
 }
@@ -619,6 +631,11 @@ export interface StoredChat {
   lastMessageAt?: number
   updatedAt?: number
   raw?: unknown
+  /**
+   * Human-handoff state; `null` once resumed. Written by the Bot; `bot.start()` restores
+   * the chats listed in the bot's handoff index (`HANDOFF_INDEX_KEY` store cursor).
+   */
+  handoff?: StoredHandoff | null
 }
 export interface StoredContact {
   id: UserId
@@ -727,6 +744,8 @@ export interface BotConfig {
     cancelledMessage?: string
   }
   groupMode?: 'all' | 'mentions' | 'commands'
+  /** Human handoff behaviour (escape commands, persistence). See `bot.handoff()`. */
+  handoff?: HandoffConfig
   /** Pluggable pacing policy; a transport may also own its own limiter. */
   rateLimit?: unknown
   debug?: boolean
