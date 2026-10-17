@@ -11,11 +11,37 @@
  * await chat.send('hola')
  * await chat.expectReply('👋')
  * ```
+ *
+ * Pass `{ chaos }` to put a seeded {@link ChaosProvider} between the mock and
+ * the bot (duplicates, reordering, latency, send failures, drops, aliases):
+ *
+ * ```ts
+ * const { bot, provider, chaos } = await createTestBot({}, { chaos: { seed: 7, duplicates: 1 } })
+ * provider.incoming('hola')   // drive the mock as usual; chaos sits in between
+ * await chaos.settle()
+ * ```
  */
 
 import { Bot } from '../core/Bot.js'
 import { MockProvider, type MockOutgoing } from './MockProvider.js'
+import { ChaosProvider, type ChaosOptions } from './chaos.js'
 import type { BotConfig } from '../core/provider.js'
+
+/** Extra knobs for {@link createTestBot}. */
+export interface CreateTestBotOptions {
+  /** Wrap the MockProvider in a {@link ChaosProvider} with these options. */
+  chaos?: ChaosOptions
+}
+
+/** What {@link createTestBot} returns. */
+export interface TestBot {
+  bot: Bot
+  /** The MockProvider (drive inbound traffic and read `outbox` here). */
+  provider: MockProvider
+  chat: TestChat
+  /** The chaos wrapper the bot talks to — present only when `options.chaos` was given. */
+  chaos?: ChaosProvider<MockProvider>
+}
 
 export interface TestChat {
   jid: string
@@ -35,11 +61,18 @@ function textOf(m: MockOutgoing): string {
   return ''
 }
 
+export async function createTestBot(config?: Omit<BotConfig, 'provider'>, options?: CreateTestBotOptions & { chaos?: undefined }): Promise<TestBot>
+export async function createTestBot(
+  config: Omit<BotConfig, 'provider'> | undefined,
+  options: CreateTestBotOptions & { chaos: ChaosOptions },
+): Promise<TestBot & { chaos: ChaosProvider<MockProvider> }>
 export async function createTestBot(
   config: Omit<BotConfig, 'provider'> = {},
-): Promise<{ bot: Bot; provider: MockProvider; chat: TestChat }> {
+  options: CreateTestBotOptions = {},
+): Promise<TestBot> {
   const provider = new MockProvider()
-  const bot = new Bot({ ...config, provider })
+  const chaos = options.chaos ? new ChaosProvider(provider, options.chaos) : undefined
+  const bot = new Bot({ ...config, provider: chaos ?? provider })
   await bot.start()
 
   const jid = 'user@s.whatsapp.net'
@@ -74,5 +107,5 @@ export async function createTestBot(
       })
     },
   }
-  return { bot, provider, chat }
+  return chaos ? { bot, provider, chat, chaos } : { bot, provider, chat }
 }

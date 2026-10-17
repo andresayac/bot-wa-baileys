@@ -87,6 +87,18 @@ const ATTACH_MEDIA: Record<string, { type: MessageType; kind: MediaRef['kind'] }
   story_mention: { type: 'image', kind: 'image' },
 }
 
+/**
+ * Id for a payload that arrived without a `mid`. Core dedupes inbound events by
+ * `chatId` + id, so the id must be unique per logical event and stable across
+ * redelivery: `ig_<timestamp>` (epoch ms, identical on a Meta retry) is both.
+ * Without a timestamp there is nothing per-event to key on, so return `''`
+ * (never deduplicated) instead of a shared constant like `ig_0`, which would
+ * drop every later id-less event of the chat as a duplicate.
+ */
+function fallbackId(ev: IgMessagingEvent): string {
+  return typeof ev.timestamp === 'number' && Number.isFinite(ev.timestamp) ? `ig_${ev.timestamp}` : ''
+}
+
 function toMessage(ev: IgMessagingEvent): InboundMessage<IgMessagingEvent> {
   const chatId = ev.sender?.id ?? ''
   const msg = ev.message!
@@ -114,7 +126,7 @@ function toMessage(ev: IgMessagingEvent): InboundMessage<IgMessagingEvent> {
   }
 
   return {
-    ref: { id: msg.mid ?? `ig_${ev.timestamp ?? 0}`, chatId, native: ev },
+    ref: { id: msg.mid ?? fallbackId(ev), chatId, native: ev },
     chat: { id: chatId, kind: 'dm', isGroup: false, isBroadcast: false },
     senderInfo: { id: chatId },
     from: chatId,
@@ -136,7 +148,7 @@ function toMessage(ev: IgMessagingEvent): InboundMessage<IgMessagingEvent> {
 
 function toInteraction(ev: IgMessagingEvent, data: string, mid?: string): InboundInteraction<IgMessagingEvent> {
   const chatId = ev.sender?.id ?? ''
-  const interactionId = mid ?? `ig_${ev.timestamp ?? 0}`
+  const interactionId = mid ?? fallbackId(ev)
   return {
     interactionId,
     ref: { id: interactionId, chatId, native: ev },

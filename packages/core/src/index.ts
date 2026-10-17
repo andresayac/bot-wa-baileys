@@ -238,3 +238,9 @@ export type { TypeTrigger, WelcomeTrigger } from './core/triggers.js'
 export { defineBot, isBotFactory, isMainModule } from './dev/defineBot.js'
 export type { BotFactory } from './dev/defineBot.js'
 export type { ConversationSnapshot } from './conversations/ConversationRuntime.js'
+
+// chaos-mock
+// Inbound idempotency (BotConfig.dedupe). The chaos kit and the identity
+// contract helpers live under '@bot-wa/core/testing'.
+export { InboundDeduper, createInboundDeduper, inboundDedupeKey, DEFAULT_DEDUPE_SIZE } from './core/dedupe.js'
+export type { InboundDedupeOptions, InboundDeduperOptions, InboundDedupeKey } from './core/dedupe.js'

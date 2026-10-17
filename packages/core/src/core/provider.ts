@@ -12,6 +12,7 @@
  */
 
 import type { HandoffConfig, HandoffOptions, StoredHandoff } from '../gates/handoff.js'
+import type { InboundDedupeOptions } from './dedupe.js'
 
 /* ============================================================================
  * 1. IDENTITY PRIMITIVES  (opaque — no shape grammar)
@@ -143,6 +144,12 @@ export interface QuotedRef {
  * the dispatcher/runtime unchanged.
  */
 export interface InboundMessage<TRaw = unknown> {
+  /**
+   * `ref.id` MUST be unique per logical inbound message within its chat and
+   * stable across redelivery (webhook retry, reconnect replay), or `''` when the
+   * transport cannot guarantee that. Core dedupes on `chatId` + `ref.id`
+   * (`BotConfig.dedupe`, on by default); see the INBOUND ID CONTRACT on {@link IProvider}.
+   */
   ref: MessageRef
   chat: ChatInfo
   senderInfo: SenderInfo
@@ -176,6 +183,13 @@ export interface InboundMessage<TRaw = unknown> {
  * Telegram spinner); the core must call `acknowledgeInteraction` before it.
  */
 export interface InboundInteraction<TRaw = unknown> {
+  /**
+   * MUST be unique per logical interaction within its chat and stable across
+   * redelivery, or `''` when the transport cannot guarantee that. Never a
+   * per-user or per-control constant (sender id, payload): core dedupes on
+   * `chatId` + `interactionId`, so a reused id silently drops the user's next
+   * interaction. See the INBOUND ID CONTRACT on {@link IProvider}.
+   */
   interactionId: string
   ref: MessageRef
   chat: ChatInfo
@@ -446,6 +460,16 @@ export class OutsideSessionWindowError extends ProviderError {
  * entity MUST yield the same `senderId` and the same chat the same `chatId` on
  * every emitted event. All transport-internal aliasing is resolved inside the
  * provider before emission. The core performs no identity reconciliation.
+ *
+ * INBOUND ID CONTRACT (normative): a message's `ref.id` and an interaction's
+ * `interactionId` identify ONE logical inbound event within its chat: distinct
+ * events get distinct ids, and a redelivery of the same event (webhook retry,
+ * reconnect replay) carries the same id. Core relies on this for inbound
+ * idempotency (`BotConfig.dedupe`, keyed by `chatId` + id). When the transport
+ * provides no such id, synthesize one from per-event data that a redelivery
+ * repeats (e.g. kind + event timestamp) or emit `''`, which opts the event out
+ * of deduplication. Never fall back to a per-user constant (sender id,
+ * `user_ref`) or a shared placeholder (`'<prefix>_0'`).
  */
 export interface IProvider<TRaw = unknown> {
   /** Stable transport tag (e.g. 'baileys', 'telegram') — used to namespace
@@ -764,6 +788,14 @@ export interface BotConfig {
   connectionId?: string
   /** Persist provider-native payloads. Disabled by default to minimize PII. */
   persistRaw?: boolean
+  /**
+   * Inbound idempotency: a redelivered message/interaction (webhook retry,
+   * reconnect replay) never runs handlers twice. Keyed by `chatId` + `ref.id`
+   * (interactions: `interactionId`), bounded LRU with optional TTL. Enabled by
+   * default (`{ size: 1000 }`); `false` disables it. Relies on the providers'
+   * INBOUND ID CONTRACT (see `IProvider`). See `InboundDeduper`.
+   */
+  dedupe?: InboundDedupeOptions | false
   store?: StoreKind | IStore
   storeConfig?: Record<string, unknown>
   /** REQUIRED in v2: the constructed transport provider (BaileysProvider, ...). */
