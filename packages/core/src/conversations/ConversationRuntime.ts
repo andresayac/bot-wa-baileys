@@ -126,6 +126,25 @@ export class ConversationRuntime {
   register(name: string, fn: ConversationFn): void { this.define({ name, fn }, fn) }
   has(name: string): boolean { return this.registry.has(name) }
 
+  /** The live conversation function registered under `name` (dynamic flow registry). */
+  lookup(name: string): ConversationFn | undefined { return this.registry.get(name) }
+
+  /**
+   * Forget the registration `name`. Running conversations keep the function they entered
+   * with; new `enter(name)` calls fail. Its history is dropped from {@link listRegistrations}.
+   */
+  unregister(name: string): boolean {
+    if (!this.registry.delete(name)) return false
+    this.compiled.delete(name)
+    this.registrations = this.registrations.filter((r) => r.name !== name)
+    return true
+  }
+
+  /** Snapshots of every live conversation (diagnostics / manager API). */
+  listActive(): ConversationSnapshot[] {
+    return [...this.active.keys()].map((key) => this.inspect(key)!)
+  }
+
   /**
    * Every `register`/`registerCompiled` call so far, oldest first. A name registered twice
    * appears twice; the LAST entry for a name is the live one. Read by `Bot.describe()`/`Bot.lint()`.

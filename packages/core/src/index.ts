@@ -252,3 +252,7 @@ export { UserDataError } from './user/errors.js'
 export type { UserDataErrorCode } from './user/errors.js'
 export type { UserData, UserSetOptions } from './user/types.js'
 export type { UserDataEntry } from './core/provider.js'
+
+// manager
+// Dynamic flow registry: bot.registerFlow/unregisterFlow/replaceFlow/listFlows/triggerFlow.
+export type { FlowTriggerOptions, FlowTriggerTarget, RegisteredFlowInfo } from './core/flowRegistry.js'

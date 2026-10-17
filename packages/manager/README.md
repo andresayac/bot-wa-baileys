@@ -123,6 +123,59 @@ curl -H "$H" -X POST localhost:3000/api/bots/acme/start
 curl -H "$H" -X POST localhost:3000/api/bots/acme/stop
 ```
 
+## API REST `/v1` completa (`createRestApi`)
+
+`createRestApi(manager, { tokens })` es la API recomendada para plataformas: `node:http` puro, sin dependencias, con documento **OpenAPI 3.1** en `GET /v1/openapi.json`.
+
+```ts
+import { createServer } from 'node:http'
+import { Bot } from '@bot-wa/core'
+import { BaileysProvider } from '@bot-wa/baileys'
+import { BotManager, createRestApi } from '@bot-wa/manager'
+
+const manager = new BotManager({
+  // Construye un bot a partir de su config serializable (nunca guardes secretos crudos en provider.options).
+  factory: (cfg) => new Bot({
+    provider: new BaileysProvider({ session: `${cfg.tenantId}-${cfg.id}` }),
+    tenantId: cfg.tenantId,
+    botId: cfg.id,
+  }),
+  persistence: { dir: './data/bots' },          // <dir>/<tenantId>/<botId>.json (escritura atómica, 0600)
+  autoReconnect: { maxRetries: 5, initialDelay: 1000, maxDelay: 30_000, jitter: 0.2 },
+})
+await manager.restore()                          // reconstruye los bots guardados y arranca los que estaban "running"
+
+createServer(createRestApi(manager, {
+  tokens: [
+    { id: 'ops', token: process.env.OPS_TOKEN!, scopes: ['*'] },                                  // todos los tenants
+    { id: 'acme', token: process.env.ACME_TOKEN!, tenantId: 'acme', scopes: ['bots:read', 'messages:send'] },
+  ],
+})).listen(3000)
+process.on('SIGTERM', () => void manager.shutdown())   // para todo sin tocar el desiredState persistido
+```
+
+| Ruta (`/v1/...`) | Scope |
+| --- | --- |
+| `GET /health`, `GET /openapi.json`, `GET /flows/schema` | público (`publicDocs: false` exige token para docs) |
+| `GET/POST /bots`, `GET/PUT/DELETE /bots/{id}` | `bots:read` / `bots:write` |
+| `POST /bots/{id}/start\|stop\|restart` | `bots:operate` |
+| `GET /bots/{id}/connection` (estado + QR/código de emparejamiento) | `connections:read` |
+| `POST /bots/{id}/send` | `messages:send` |
+| `GET /bots/{id}/messages?chatId=&limit=&cursor=` | `messages:read` |
+| `POST /bots/{id}/trigger`, `GET /bots/{id}/conversations`, `POST /bots/{id}/conversations/{key}/cancel` | `conversations:*` |
+| `GET/POST /bots/{id}/flows`, `GET/PUT/DELETE /bots/{id}/flows/{flowId}` | `flows:*` |
+| `GET /metrics`, `GET /bots/{id}/metrics` | `metrics:read` |
+
+Además: `X-Request-Id` en todas las respuestas, rate limiting por token (`RateLimit-*`, `Retry-After`), `Idempotency-Key` en rutas que mutan (replay 24 h, `422` si se reutiliza con otro cuerpo), límite de cuerpo (`413`), `415` si no es JSON, aislamiento por tenant (un token de tenant no ve bots ajenos: `404`). Los errores siguen `{ error: { code, message, requestId, details? } }`.
+
+## Flows JSON dinámicos
+
+`compileFlowDocument(doc)` convierte un documento JSON (sin código) en un `CompiledFlow` que se registra con `bot.registerFlow()` / `bot.replaceFlow()`. Pasos: `say`, `ask` (con `validate.expr`), `choose`, `delay`, `goto`, `end`, `condition`; plantillas `{{ path }}` y expresiones seguras (`len(name) > 2 && oneOf(plan, "pro", "max")`). Esquema JSON versionado: `FLOW_DOCUMENT_SCHEMA` (`GET /v1/flows/schema`).
+
+## Reconexión automática
+
+Con `autoReconnect`, si la conexión se cae (`connection: closed`, salvo `sessionTakenOver`) y el provider no se recupera solo en `graceMs`, o si un arranque falla, el manager reinicia el bot con backoff exponencial + jitter hasta `maxRetries` (eventos `reconnecting`, `reconnected`, `reconnectFailed`). Los bots con config se recrean con la factory (provider nuevo).
+
 ## Logging
 
 The manager logs lifecycle events through pino at `debug`/`warn`. Inject your
