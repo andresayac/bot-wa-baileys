@@ -49,4 +49,23 @@ describe('ctx.tools.ai typing (DefaultTools augmentation)', () => {
     await chat.send('otra cosa')
     await chat.expectReply('catch-all: IA responde')
   })
+
+  it('types ctx.tools.ai inside bot.conversation (README example)', async () => {
+    const { bot, chat } = await createTestBot()
+    bot.plug(aiPlugin({ __provider: new MockAIProvider({ reply: 'resumen' }), autoReply: false }))
+    // Same shape as the packages/ai/README.md conversation example.
+    bot.conversation('reclamo', async (c, ctx) => {
+      expectTypeOf(ctx.tools.ai).toEqualTypeOf<AIClient>()
+      await ctx.reply('📝 Cuéntanos qué pasó con tu pedido:')
+      const texto = await c.waitText()
+      const resumen = await ctx.tools.ai.ask(
+        `Resume en 3 líneas este reclamo de un cliente para el equipo de soporte: ${texto}`,
+      )
+      await ctx.reply(`✅ Registramos tu reclamo:\n${resumen}`)
+    })
+    await chat.send('reclamo')
+    await chat.expectReply('📝 Cuéntanos qué pasó con tu pedido:')
+    await chat.send('llegó roto')
+    await chat.expectReply('✅ Registramos tu reclamo:\nresumen')
+  })
 })

@@ -1,5 +1,4 @@
 import { describe, it, expect } from 'vitest'
-import type { MessageContext, RuntimeMessage } from '@bot-wa/core'
 import { createTestBot } from '@bot-wa/core/testing'
 import { MockAIProvider } from '../src/MockAIProvider.js'
 import { LazyProvider } from '../src/providers/LazyProvider.js'
@@ -14,19 +13,6 @@ async function botWithAI(cfg: AIPluginConfig = {}, mock: AIProvider = new MockAI
   return { bot, chat, mock, unplug }
 }
 
-/**
- * Conversation contexts only. `when`/`onMessage`/`command` handlers get a typed
- * `ctx.tools.ai` from the DefaultTools augmentation, but `bot.conversation` still
- * types its ctx as `RuntimeMessage` (no `tools`) although at runtime it is the
- * full MessageContext. Drop this once core types the conversation ctx as
- * MessageContext.
- */
-function aiToolOf(ctx: RuntimeMessage): AIClient {
-  const ai = (ctx as Partial<MessageContext>).tools?.ai
-  expect(ai, 'ctx.tools.ai').toBeInstanceOf(AIClient)
-  if (!ai) throw new Error('ctx.tools.ai is missing')
-  return ai
-}
 
 describe('aiPlugin', () => {
   it('auto-replies to unhandled messages', async () => {
@@ -45,7 +31,8 @@ describe('aiPlugin', () => {
   it('exposes ctx.tools.ai.ask inside a conversation', async () => {
     const { bot, chat } = await botWithAI({ autoReply: false })
     bot.conversation('q', async (c, ctx) => {
-      const a = await aiToolOf(ctx).ask('algo')
+      expect(ctx.tools.ai).toBeInstanceOf(AIClient)
+      const a = await ctx.tools.ai.ask('algo')
       await ctx.reply(`ai dijo: ${a}`)
     })
     await chat.send('q')
