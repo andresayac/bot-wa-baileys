@@ -22,7 +22,7 @@
  * from this run.
  */
 import { randomBytes } from 'node:crypto'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { createPool } from 'mysql2/promise'
 import type { Pool, RowDataPacket } from 'mysql2/promise'
 import type { AIMessage, FlowCheckpoint, StoredMessage } from '@bot-wa/core'
@@ -48,12 +48,18 @@ const msg = (chatId: string, id: string, body: string, ts: number, extra: Partia
 
 const bodies = (list: StoredMessage[]): Array<string | undefined> => list.map((m) => m.body)
 
+// Every conformance test provisions (and drops) a fresh seven-table schema. MySQL DDL
+// is slow on some hosts (Docker on Windows: ~1 s per test), and slower still while the
+// other store suites run in parallel, so the default 10 s hook/test budget is too tight.
+if (enabled) vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 })
+
 describe.skipIf(!enabled)('MysqlStore — real MySQL integration', () => {
   /** Out-of-band connection used for setup, raw assertions and cleanup. */
   let admin: Pool
 
   async function dropTables(prefix: string): Promise<void> {
-    for (const t of TABLES) await admin.query(`DROP TABLE IF EXISTS \`${prefix}${t}\``)
+    // One statement for all seven tables: DDL dominates this suite's run time.
+    await admin.query(`DROP TABLE IF EXISTS ${TABLES.map((t) => `\`${prefix}${t}\``).join(', ')}`)
   }
 
   async function rowCount(prefix: string, table: string, where = '1 = 1', params: unknown[] = []): Promise<number> {
