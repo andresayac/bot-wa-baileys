@@ -252,3 +252,8 @@ export { UserDataError } from './user/errors.js'
 export type { UserDataErrorCode } from './user/errors.js'
 export type { UserData, UserSetOptions } from './user/types.js'
 export type { UserDataEntry } from './core/provider.js'
+
+// voice
+// Lazily download an inbound message's media (populates `ctx.media`); used by
+// plugins such as @bot-wa/voice that need the bytes before routing.
+export { loadMediaOf } from './core/context.js'
