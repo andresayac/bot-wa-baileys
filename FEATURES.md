@@ -20,6 +20,8 @@ Cada feature tiene:
 
 ### 1. `ctx.user` — Perfiles persistentes con namespaces + TTL
 
+> **Estado: implementado** (`@bot-wa/core`, 2026-10). `ctx.user.get/set/update/delete/all/clear` con paths con puntos, `ctx.user.ns(name)` y `{ ttl }`; `bot.user(id)`, `userOf(ctx)`, `bot.purgeExpiredUserData()`; soportado por los 6 stores (métodos opcionales de `IStore` + `test-utils/user-data-conformance.ts`). Guía: `docs/guide/user-data.md`.
+
 Estado persistente por usuario que sobrevive entre conversaciones. Con namespaces para evitar colisiones entre plugins y TTL para auto-cleanup.
 
 **Por qué pertenece:** Requiere extensión del `IStore` (5 implementaciones) + inyección en `MessageContext`. Un usuario no puede hacerlo limpio sin tocar internals.
@@ -61,6 +63,8 @@ bot.when('hola', async (ctx) => {
 
 ### 2. `c.retry()` / `c.fallBack()` en conversaciones async
 
+> **Estado: implementado** (`@bot-wa/core`, 2026-10) como `c.retry(message?)`: repite la última espera en conversaciones async y rebobina el flujo en `.do()`; cuenta para `retries`. No hay alias `fallBack`. Guía: `docs/guide/flows.md`.
+
 Reintentar la misma espera sin armar un loop manual.
 
 **Por qué pertenece:** Es parte del runtime de conversaciones. `loopWait` ya tiene `retries` pero no hay forma de reintentar manualmente mid-conversation.
@@ -100,6 +104,8 @@ bot.conversation('juego', async (c, ctx) => {
 ---
 
 ### 3. Trigger `WELCOME` — primera interacción
+
+> **Estado: implementado** (`@bot-wa/core`, 2026-10): `WELCOME`, `MEDIA`, `IMAGE`, `VIDEO`, `AUDIO`, `VOICE_NOTE`, `DOCUMENT`, `STICKER`, `LOCATION`, `CONTACT`, `POLL`, `CALL`, `typeTrigger()` y `bot.resetWelcome()`. Guía: `docs/guide/triggers.md`.
 
 Trigger especial que dispara solo la primera vez que un usuario escribe al bot (o después de un `/reset`).
 
@@ -171,6 +177,8 @@ flow('menu-juegos')
 
 ### 5. Human handoff — pausar bot, atiende humano
 
+> **Estado: implementado** (`@bot-wa/core`, 2026-10): `ctx.handoff()`, `bot.handoff/resume/isHandedOff/getHandoff/listHandoffs`, `bot.sendTo()`, eventos `'handoff'`/`'resume'`, `BotConfig.handoff.allowCommands`, persistido en el store. Guía: `docs/guide/handoff.md`.
+
 El dispatcher ignora un chat hasta que se retoma. El agente humano envía mensajes vía API.
 
 **Por qué pertenece:** Requiere un flag en el Dispatcher + evento + API para enviar mensajes fuera del pipeline.
@@ -230,6 +238,8 @@ const results = await bot.broadcast(chatIds, { text: '🎉 Nueva promo!' }, {
 
 ### 7. Blacklist / Whitelist dinámica
 
+> **Estado: implementado** (`@bot-wa/core`, 2026-10): `bot.blacklist` / `bot.whitelist` (`AccessList`, `Whitelist`, `checkAccess`), `bot.exportAccessLists()` / `loadAccessLists()`. Ids exactos (sin normalizar números). Guía: `docs/guide/handoff.md`.
+
 Bloquear o permitir números específicos en runtime.
 
 **Por qué pertenece:** Requiere acceso al Dispatcher antes de matchear. Un usuario no puede hacerlo sin tocar el pipeline.
@@ -262,6 +272,8 @@ flow('bloquear')
 ---
 
 ### 8. Idle / Timeout por inactividad
+
+> **Estado: implementado** (`@bot-wa/core`, 2026-10): `c.idle(duration, cb)` / `c.idleClear()` dentro de una conversación y `bot.onIdle(duration, handler)` / `bot.clearIdle()` por chat (suspendido durante un handoff). Guía: `docs/guide/flows.md`.
 
 Si el usuario no responde en X tiempo, ejecutar un callback (recordatorio, cancelar flow, etc.).
 
@@ -438,6 +450,8 @@ await ctx.reply('Te explico...', { delay: '2s' })  // espera 2s antes de enviar
 ---
 
 ### 15. `endFlow()` / `c.end()` con mensaje de cierre
+
+> **Estado: implementado.** `c.end(farewell?)` funciona en conversaciones async, en `.do()` de flujos (también tras un `c.retry()`) y desde callbacks de `c.idle()`.
 
 **Por qué pertenece:** Requiere integración en el runtime de conversaciones.
 
@@ -871,6 +885,8 @@ bot.useContext(dialogflowContext({
 
 ### 32. Plugin Chatwoot (human handoff + CRM)
 
+> **Estado: base lista en el core.** El handoff (#5) ya da `bot.on('handoff'|'resume')`, `bot.sendTo()` y el evento `'message'` durante el handoff; falta el plugin Chatwoot en sí.
+
 **Por qué pertenece:** Integración profunda con el pipeline (handoff, sync de mensajes, contactos).
 
 **Evidencia:**
@@ -1020,6 +1036,8 @@ bot.on('conversation:ended', ({ name, durationMs, completed, chatId }) => {
 
 ### 38. `createTestBot` mejorado — aserciones de conversación
 
+> **Estado: parcial** (`@bot-wa/core/testing`). Ya existen `createTestBot()` con `chat.send()`, `chat.expectReply()` y `chat.replies()`, `MockProvider.call()`, el kit de caos (`createTestBot(config, { chaos })`, `withChaos`) y `assertStableIdentity`. Faltan `expectNoReply`, `sendMedia`/`sendReaction` en el chat de test y `transcript()`. Guía: `docs/guide/testing.md`.
+
 **Por qué pertenece:** Requiere acceso al MockProvider + outbox.
 
 ```ts
@@ -1076,6 +1094,8 @@ create-bot-wa my-bot --template=ai-full    // AI + NLU + store + scheduler
 
 ### 40. ESLint plugin propio
 
+> **Estado: parcial.** `bot.lint()` / `lintFlows()` ya detectan en runtime gotos rotos, pasos inalcanzables, triggers duplicados y `.persistent()` sin store durable (ver la sección de ideas implementadas). Un plugin de ESLint estático sigue pendiente.
+
 **Por qué pertenece:** Reglas específicas de la librería que ningún linter genérico cubre.
 
 **Evidencia:**
@@ -1091,6 +1111,20 @@ create-bot-wa my-bot --template=ai-full    // AI + NLU + store + scheduler
 ```
 
 **Requiere:** nuevo paquete `eslint-plugin-bot-wa` con reglas custom.
+
+---
+
+## ✅ Implementado a partir del análisis (fuera del catálogo)
+
+Ideas que salieron del análisis de bots reales y de los fallos de entrega/identidad, sin número propio en el catálogo:
+
+| Idea | Estado y API |
+|---|---|
+| **MockProvider adversario** (caos) | `ChaosProvider` / `withChaos` y `createTestBot(config, { chaos })` en `@bot-wa/core/testing`: duplicados, reordenación, latencia, fallos de envío tipados, desconexiones con replay y alias de identidad, deterministas por `seed`. Guía: `docs/guide/testing.md`. |
+| **Contrato de identidad verificable** | `assertStableIdentity`, `checkIdentityContract` y `recordEvents` en `@bot-wa/core/testing`; usado por `baileys-provider/tests/identity-contract.test.ts`. |
+| **Idempotencia de entrada** | `BotConfig.dedupe` (activado por defecto): descarta re-entregas por `chatId` + id; contrato de ids de entrada documentado en `IProvider`. Guía: `docs/guide/concepts.md`. |
+| **Describe / lint de flujos** | `bot.describe()` (Mermaid o JSON), `bot.lint()` con 13 reglas, `describeFlows` / `lintFlows` sin Bot. Guía: `docs/guide/flow-tools.md`. |
+| **`bot-wa dev`** (simulador en la terminal) | CLI `bot-wa dev src/bot.js` con recarga en caliente, `defineBot` + `isMainModule`, API programática en `@bot-wa/core/dev`; `create-bot-wa` genera `npm run dev`. Guía: `docs/guide/dev-simulator.md`. |
 
 ---
 

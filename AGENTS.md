@@ -90,7 +90,8 @@ Son los errores que más caro han salido. Respétalos aunque un cambio "parezca"
 - El contrato completo está documentado en `packages/core/src/core/provider.ts`. Si cambias `IProvider`, revisa los seis canales y `MockProvider`.
 
 ### Dispatcher y conversaciones
-- El dispatcher procesa una **cola FIFO por chat**. Un mensaje lo consume el primer handler que lo maneja (`ctx.pass()` para dejarlo pasar al siguiente). Orden: before-hooks → comando → conversación activa → reanudación dormida → matchers (por especificidad) → catch-all. Los comandos siempre ganan a una conversación activa (por eso `/reset` funciona como escape).
+- El dispatcher procesa una **cola FIFO por chat**. Un mensaje lo consume el primer handler que lo maneja (`ctx.pass()` para dejarlo pasar al siguiente). Orden completo de entrada (doc comment de `Dispatcher.run`): en el `Bot`, dedupe de entrada → blacklist/whitelist → persistencia → filtro `groupMode`; en el dispatcher, before-hooks → gate de handoff → comando → conversación activa → reanudación dormida → matchers por especificidad (`WELCOME` primero; texto; función; tipo único; multi-tipo) → catch-all → after-hooks + evento `'message'`. Los comandos siempre ganan a una conversación activa (por eso `/reset` funciona como escape). Las llamadas (`CALL`) van por `dispatchEvent`: mismos gates de acceso y handoff y solo triggers de tipo.
+- Un chat en handoff sigue persistiendo, corriendo hooks y emitiendo `'message'`, pero no enruta nada (salvo `handoff.allowCommands`). Un mensaje bloqueado por las listas de acceso se descarta antes de persistir. Si cambias el orden, actualiza ese doc comment, `docs/guide/concepts.md` y `docs/es/guide/conceptos.md`.
 - **Un handler que inicia una conversación debe lanzarla sin esperarla:** `void runtime.enter(...).catch(...)`. `enter()` resuelve cuando la conversación **termina**, así que hacerle `await` bloquea la cola del chat.
 - Las entradas del `ConversationRuntime` van ligadas a su identidad (`ConversationHandle`). No vuelvas a buscarlas por string de clave en cleanup/wait: así se arregló un bug de conversaciones zombi al re-entrar.
 - En grupos, las conversaciones son **por participante** por defecto (`conversationScope: 'participant'`).
@@ -103,7 +104,7 @@ Son los errores que más caro han salido. Respétalos aunque un cambio "parezca"
 - `aiPlugin` es un catch-all: se instala **después** de `slashCommandsPlugin`.
 
 ### Stores
-- `MemoryStore` es la **referencia del contrato** de `IStore`. Todos los stores pasan la misma suite compartida, `test-utils/store-conformance.ts` (`runStoreConformance`). Un store nuevo debe incluir su `tests/conformance.test.ts` y, si cambias la semántica del contrato, actualiza la suite y los seis stores a la vez.
+- `MemoryStore` es la **referencia del contrato** de `IStore`. Todos los stores pasan la misma suite compartida, `test-utils/store-conformance.ts` (`runStoreConformance`). Un store nuevo debe incluir su `tests/conformance.test.ts` y, si cambias la semántica del contrato, actualiza la suite y los seis stores a la vez. Los métodos opcionales de datos de usuario (`ctx.user`) tienen su propia suite compartida, `test-utils/user-data-conformance.ts` (`runUserDataConformance`).
 - Semántica uniforme: `deleteChat` borra también el log de mensajes del chat; `upsertChat`/`upsertContact` hacen merge superficial sobre lo existente; `maxMessagesPerChat` es opt-in (por defecto, sin límite).
 - Los tests unitarios de stores no necesitan servidores reales: usan fakes en memoria (p. ej. `FakePool` en postgres) o, en sqlite, un archivo temporal que se borra al final.
 - Los `tests/integration.test.ts` de `postgres-store`, `mysql-store`, `mongo-store` y `redis-store` corren contra un servidor real y leen `BOTWA_TEST_POSTGRES_URL`, `BOTWA_TEST_MYSQL_URL`, `BOTWA_TEST_MONGO_URL` y `BOTWA_TEST_REDIS_URL`; sin la variable, la suite se salta (`describe.skipIf`). En local, levanta los servidores con Docker (comandos en [`CONTRIBUTING.md`](CONTRIBUTING.md#tests-de-integración-de-stores-docker)); CI no los ejecuta, así que córrelos en local si tocas un store.
@@ -118,7 +119,8 @@ Son los errores que más caro han salido. Respétalos aunque un cambio "parezca"
 
 - **Nada de red ni de credenciales reales.** Inyecta `fetch`, sockets y clientes falsos (como hacen los tests de cada provider). La única excepción son las suites de integración de stores, opt-in por `BOTWA_TEST_*_URL`.
 - Para probar bots, usa `createTestBot` y `MockProvider` de `@bot-wa/core/testing`. Para IA, `MockAIProvider` de `@bot-wa/ai`.
-- `MockProvider` usa un `from` estable. Si tocas identidad, añade casos con identidades que cambian (mira el patrón de `baileys-provider/tests/lid-identity.test.ts`).
+- `MockProvider` usa un `from` estable. Si tocas identidad, añade casos con identidades que cambian (mira el patrón de `baileys-provider/tests/lid-identity.test.ts`), usa `aliases` del kit de caos (`ChaosProvider`/`withChaos`) y comprueba el contrato con `assertStableIdentity`/`checkIdentityContract` de `@bot-wa/core/testing` (ejemplo en `baileys-provider/tests/identity-contract.test.ts`).
+- Los ids de entrada forman parte del contrato: el core deduplica por `chatId` + `ref.id` / `interactionId` (activado por defecto). Un provider nunca emite un id constante por usuario o un placeholder compartido; si no puede garantizar un id único y estable, emite `''`.
 
 ## Datos sensibles y zonas fuera de alcance
 

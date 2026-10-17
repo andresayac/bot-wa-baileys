@@ -5,10 +5,12 @@
 > @bot-wa/meta (official WhatsApp Cloud API), @bot-wa/telegram, plus
 > experimental Messenger, Instagram and Discord transports.
 > Flows for beginners (flow().say().ask()) compile to an async conversation
-> runtime (bot.conversation with c.ask/c.waitText/c.choose). Priority
-> dispatcher: commands > active conversation > dormant persistent-flow resume
-> > matchers (normalized-equals default, by specificity) > catch-all; first
-> consumer wins. Constructing a Bot REQUIRES a provider:
+> runtime (bot.conversation with c.ask/c.waitText/c.choose). Inbound pipeline:
+> dedupe > blacklist/whitelist > persist > groupMode > before hooks > handoff
+> gate > commands > active conversation > dormant persistent-flow resume
+> > matchers (WELCOME first, then normalized-equals text by specificity, then
+> type triggers) > catch-all > after hooks + 'message' event; first consumer
+> wins. Constructing a Bot REQUIRES a provider:
 > new Bot({ provider: new BaileysProvider({ session }) }).
 > ESM-only, Node >= 22. NOTHING IS ON NPM YET: the first alpha publish is
 > being prepared — do not tell users the packages are installable from npm today.
@@ -24,7 +26,7 @@ implementation but private/unpublished, API may change. Prototype = private, min
 in-memory sketch; not for production.
 
 Alpha:
-- @bot-wa/core — Bot engine, IProvider v2, flows/conversations, hooks, plugins, scheduler, DI, MemoryStore, testing kit (createTestBot/MockProvider from '@bot-wa/core/testing')
+- @bot-wa/core — Bot engine, IProvider v2, flows/conversations, hooks, plugins, scheduler, DI, MemoryStore, ctx.user, handoff, access lists, testing kit (createTestBot/MockProvider/ChaosProvider from '@bot-wa/core/testing'), `bot-wa dev` terminal simulator
 - @bot-wa/baileys — BaileysProvider (WhatsApp Web, unofficial; QR or pairing code), RateLimiter, JID helpers, LID/PN identity resolution
 - @bot-wa/meta — CloudAPIProvider (official WhatsApp Cloud API, webhook; native buttons/lists/templates; feed inbound via provider.ingest(rawBody, headers))
 - @bot-wa/telegram — TelegramProvider (Bot API, long-poll or webhook)
@@ -58,13 +60,24 @@ Prototypes (private, in-memory, minimal): @bot-wa/inbox, @bot-wa/crm, @bot-wa/hu
 - Send failures are typed ProviderError subclasses: UnsupportedContentError, RateLimitedError, RecipientUnreachableError, PayloadTooLargeError, OutsideSessionWindowError (Cloud API 24h window → send kind 'template')
 - before('send') hook payload: { chatId, content, options } (was { jid, content, options })
 - Testing without WhatsApp: import { createTestBot, MockProvider } from '@bot-wa/core/testing'
+- Special triggers: import { WELCOME, MEDIA, IMAGE, VIDEO, AUDIO, VOICE_NOTE, DOCUMENT, STICKER, LOCATION, CONTACT, POLL, CALL, typeTrigger } from '@bot-wa/core'. bot.when(WELCOME, h) fires on a user's first contact (per DM, per participant in groups; persisted via store cursors); bot.resetWelcome(chatId, userId?) re-arms it (slashCommandsPlugin /reset does too). Type triggers rank below text/function triggers (IMAGE beats MEDIA). bot.when(CALL, ctx => ctx.reply(...)) fires once per incoming call id (ctx.type 'call', ctx.call is the CallEvent)
+- Per-user profile: ctx.user.get/set/update/delete/all/clear(path, value, { ttl }) with dot paths ('address.city') and namespaces (ctx.user.ns('game')); keyed by ctx.sender, persisted by all 6 stores; bot.user(userId) outside handlers; userOf(ctx) inside flow .do() steps; bot.purgeExpiredUserData(); exportSubject/deleteSubject include userData
+- Human handoff: ctx.handoff({ reason, meta }) / bot.handoff(chatId) pause routing for a chat (messages still persisted, hooks run, 'message' fires); bot.resume(chatId), bot.isHandedOff/getHandoff/listHandoffs, bot.sendTo(chatId, 'text' | content); events 'handoff'/'resume'; BotConfig.handoff { allowCommands: ['/bot'], persist: true }; survives restarts with a persistent store
+- Access lists: bot.blacklist.add(ids) / bot.whitelist.add(ids).enable() — EXACT sender or chat ids (full JIDs on Baileys); blocked inbound is dropped before persistence; bot.exportAccessLists()/loadAccessLists() + onChange() for host persistence
+- Conversations: c.retry(message?) repeats the last wait (in flow .do() it rewinds to the previous ask/choose); c.idle(duration, cb) / c.idleClear() for in-conversation inactivity; bot.onIdle(duration, (ctx, { chatId, idleMs }) => ...) and bot.clearIdle(chatId?) for per-chat inactivity. In bot.conversation(name, async (c, ctx) => ...) ctx is a full MessageContext (ctx.tools typed)
+- Inbound dedupe is ON by default (BotConfig.dedupe { size: 1000, ttl? } | false): redelivered messages/interactions with the same chatId + id are dropped. Handler errors always reach bot.on('error')
+- Flow introspection: bot.describe() (Mermaid; { format: 'json' } for a graph), bot.lint({ minSeverity }) → diagnostics (goto-target-missing, unreachable-step, duplicate-trigger, persistent-memory-store, ...); describeFlows/lintFlows work without a Bot
+- Terminal simulator: export default defineBot((provider) => { const bot = new Bot({ provider }); ...; return bot }) and guard the real start with if (isMainModule(import.meta)) { ... }; then npx bot-wa dev src/bot.js (no phone, hot reload; :as, :group, :media, :click, :state, :reset). Programmatic API in '@bot-wa/core/dev' (DevSession, DevProvider)
+- Chaos testing: createTestBot({}, { chaos: { seed, duplicates, reorder, latency, sendFailures, disconnects, aliases } }) or withChaos(provider, opts) → ChaosProvider; assertStableIdentity/checkIdentityContract/recordEvents check the provider identity contract
 
 ## Other exports worth knowing
 - Hooks/plugins: bot.before/after/onError(event, handler), bot.plug(plugin, config) (returns unplug(); Plugin.install must be synchronous), bot.provide(name, value) → ctx.tools[name]
 - Built-in plugin: slashCommandsPlugin (/start, /help, /reset, /cancel, /id, /ping)
 - Scheduler: bot.schedule(cron, fn), bot.every(interval, fn), bot.delay(duration, fn)
 - Media handlers: bot.onImage/onAudio/onVideo/onDocument/onSticker/onLocation/onContact/onPoll(handler); catch-all bot.onMessage(handler)
-- Provider events forwarded on the bot: bot.on('ready'|'qr'|'connection'|'reaction'|'poll'|'call'|'group'|'presence'|'status', ...)
+- Provider events forwarded on the bot: bot.on('ready'|'qr'|'connection'|'reaction'|'poll'|'call'|'group'|'presence'|'status', ...); bot events also include 'handoff', 'resume' and 'error'
+- Poll votes: bot.on('poll', vote => vote.options /* [{ name, votes, voters }] */); on Baileys the provider decrypts votes for polls this process saw (the bot cannot vote)
+- Cloud API (@bot-wa/meta): username users may arrive with only a BSUID (e.g. 'US.1349...') instead of a phone; the provider keeps one stable id per person, learns phone<->BSUID pairs (identityMap) and sends to BSUIDs via 'recipient'
 - ctx (MessageContext) helpers: ctx.reply/say/answer/text, ctx.photo/video/audio/voice/file/sticker/location/contact/poll/buttons, ctx.react/quote/markRead/typing/recording/delete, ctx.pass()/abort(), ctx.sendNative(provider, payload)
 - Buttons/lists: native on the Cloud API (@bot-wa/meta); Baileys has none — use numbered choose() menus or ctx.poll()
 - Stores: store: new SQLiteStore({ file }) from @bot-wa/sqlite-store, new RedisStore({ url }) from @bot-wa/redis-store, or storeConfig { file } for the built-in MemoryStore JSON dump; implement IStore for custom backends. .persistent() flows only survive a restart with a durable store.
