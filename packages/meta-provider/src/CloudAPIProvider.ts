@@ -131,7 +131,7 @@ export class CloudAPIProvider implements IProvider<unknown> {
         const pricing = this.usage ? pricingOf(st.platformData) : undefined
         if (pricing && st.ref.id) this.usage?.record(st.ref.chatId, st.ref.id, pricing)
         if (sw && st.status === 'failed' && st.ref.id) {
-          void sw.noteFailedStatus(st.ref.chatId, st.ref.id, st.error?.code, this.rawSend)
+          void sw.noteFailedStatus(st.ref.chatId, st.ref.id, st.error?.code, this.rawSend, st.timestamp > 0 ? st.timestamp * 1000 : undefined)
             .catch((err: unknown) => this.logger.error({ err }, 'session window status handling failed'))
         }
         return

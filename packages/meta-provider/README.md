@@ -86,7 +86,7 @@ const provider = new CloudAPIProvider({
 await provider.sessionWindow!.isOpen('573001112233')
 ```
 
-`send()` rechaza con `SessionWindowReopenedError` (subclase de `OutsideSessionWindowError`) cuando reabre y encola; con `onReopened: 'resolve'` devuelve el resultado del envío de la plantilla. La cola de reintentos vive en memoria (puede contener buffers) y está acotada (`maxPendingPerChat`, `maxPendingChats`, `pendingTtlMs`).
+`send()` rechaza con `SessionWindowReopenedError` (subclase de `OutsideSessionWindowError`) cuando reabre y encola; con `onReopened: 'resolve'` devuelve el resultado del envío de la plantilla. La cola de reintentos vive en memoria (puede contener buffers) y está acotada (`maxPendingPerChat`, `maxPendingChats`, `pendingTtlMs`). Si la propia plantilla falla (`reopen-failed`), `send()` rechaza y el mensaje **no** queda en cola. Los envíos simultáneos a un chat cerrado comparten una sola plantilla, y un 131047 tardío sobre un mensaje enviado antes de la última respuesta del usuario no cierra la ventana (el mensaje se reenvía en el momento).
 
 ## Costos (pricing)
 

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import type { DeliveryStatus, InboundEvent } from '@bot-wa/core'
 import { CloudAPIProvider } from '../src/CloudAPIProvider.js'
-import { SessionWindowManager, SessionWindowReopenedError, type SessionReport } from '../src/sessionWindow.js'
+import { SessionWindowManager, SessionWindowReopenedError, type SessionReport, type SessionWindowState } from '../src/sessionWindow.js'
 import { UsageTracker } from '../src/pricing.js'
 import { rawFixture } from './support-fixtures.js'
 
@@ -97,6 +97,35 @@ describe('CloudAPIProvider: session window', () => {
     await flush()
     expect(calls.map((c) => c.body.type)).toEqual(['text', 'template'])
     expect(reports.at(-1)).toMatchObject({ outcome: 'queued', reason: 'status', chatId: USER })
+  })
+})
+
+describe('CloudAPIProvider: session window with an async store', () => {
+  it('a handler replying to the reopening message is not rejected while the store write is pending', async () => {
+    const closed = new Set([USER])
+    const calls = mockGraph(closed)
+    const data = new Map<string, SessionWindowState>()
+    const tick = (): Promise<void> => new Promise((r) => setTimeout(r, 5))
+    const store = {
+      get: async (id: string) => { await tick(); const s = data.get(id); return s ? { ...s } : undefined },
+      set: async (id: string, st: SessionWindowState) => { await tick(); data.set(id, { ...st }) },
+      delete: async (id: string) => { await tick(); data.delete(id) },
+    }
+    const now = (): number => 1751400290_000
+    const p = new CloudAPIProvider({ ...baseCfg, sessionWindow: { reopenTemplate: TEMPLATE, store, now } })
+    await expect(p.send(USER, { kind: 'text', text: 'queued' })).rejects.toBeInstanceOf(SessionWindowReopenedError)
+    closed.delete(USER)
+
+    const replies: Array<Promise<unknown>> = []
+    p.onEvent((e) => {
+      if (e.kind === 'message') replies.push(p.send(e.message.chatId, { kind: 'text', text: 'reply' }))
+    })
+    p.ingest(rawFixture('message-text'))
+    await expect(replies[0]).resolves.toMatchObject({ ref: { chatId: USER } })
+    await flush()
+    await new Promise((r) => setTimeout(r, 50))
+    expect(calls.map((c) => c.body.type === 'template' ? 'T' : (c.body.text as { body: string }).body))
+      .toEqual(['queued', 'T', 'queued', 'reply'])
   })
 })
 

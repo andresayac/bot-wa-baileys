@@ -208,6 +208,19 @@ interface PendingSend {
   queuedAt: number
 }
 
+interface TrackedSend {
+  chatId: ChatId
+  content: OutboundContent
+  options?: SendOptions
+  /** When the message was accepted by the transport (epoch ms). */
+  sentAt: number
+}
+
+interface InflightReopen {
+  promise: Promise<SendResult<unknown>>
+  template: SessionTemplate
+}
+
 interface PendingChat {
   items: PendingSend[]
   /** Set while a reopen template awaits the user's reply. */
@@ -224,7 +237,11 @@ export class SessionWindowManager {
   private readonly now: () => number
   private readonly pendingChats = new Map<ChatId, PendingChat>()
   private readonly flushing = new Map<ChatId, Promise<void>>()
-  private readonly recentSends = new Map<string, { chatId: ChatId; content: OutboundContent; options?: SendOptions }>()
+  /** Tail of each chat's serialised window-state updates (read-modify-write). */
+  private readonly writes = new Map<ChatId, Promise<unknown>>()
+  /** Reopen template currently being sent per chat (shared by concurrent reopens). */
+  private readonly reopening = new Map<ChatId, InflightReopen>()
+  private readonly recentSends = new Map<string, TrackedSend>()
 
   constructor(options: SessionWindowOptions = {}) {
     this.opts = options
@@ -240,7 +257,7 @@ export class SessionWindowManager {
    * so) or `unknown` (never saw an inbound for this chat).
    */
   async state(chatId: ChatId): Promise<'open' | 'closed' | 'unknown'> {
-    return this.classify(await this.store.get(chatId))
+    return this.classify(await this.read(chatId))
   }
 
   /** True only when the window is known open. */
@@ -250,7 +267,7 @@ export class SessionWindowManager {
 
   /** When the current window closes (epoch ms), or undefined if not known open. */
   async expiresAt(chatId: ChatId): Promise<number | undefined> {
-    const s = await this.store.get(chatId)
+    const s = await this.read(chatId)
     return this.classify(s) === 'open' && s?.lastInboundAt !== undefined ? s.lastInboundAt + this.windowMs : undefined
   }
 
@@ -273,9 +290,53 @@ export class SessionWindowManager {
     return this.now() - s.lastInboundAt < this.windowMs ? 'open' : 'closed'
   }
 
-  private async markClosed(chatId: ChatId): Promise<void> {
-    const s = (await this.store.get(chatId)) ?? {}
-    await this.store.set(chatId, { ...s, closedAt: this.now() })
+  /** Clamp an optional epoch-ms time to a sane value not in the future. */
+  private at(t: number | undefined): number {
+    const now = this.now()
+    return t !== undefined && Number.isFinite(t) && t > 0 ? Math.min(t, now) : now
+  }
+
+  /**
+   * Read a chat's window state after any update already in flight for it, so
+   * a send issued right after an inbound (whose store write is still pending
+   * on an async store) sees the window that inbound opened.
+   */
+  private async read(chatId: ChatId): Promise<SessionWindowState | undefined> {
+    const pending = this.writes.get(chatId)
+    if (pending) await pending.catch(() => undefined)
+    return this.store.get(chatId)
+  }
+
+  /**
+   * Serialised read-modify-write of a chat's window state. `after` runs inside
+   * the same critical section, once the new state is stored.
+   */
+  private update(
+    chatId: ChatId,
+    fn: (s: SessionWindowState | undefined) => SessionWindowState,
+    after?: (next: SessionWindowState) => void,
+  ): Promise<SessionWindowState> {
+    const prev = this.writes.get(chatId) ?? Promise.resolve()
+    const run = prev.catch(() => undefined).then(async () => {
+      const next = fn(await this.store.get(chatId))
+      await this.store.set(chatId, next)
+      after?.(next)
+      return next
+    })
+    this.writes.set(chatId, run)
+    const clear = (): void => { if (this.writes.get(chatId) === run) this.writes.delete(chatId) }
+    run.then(clear, clear)
+    return run
+  }
+
+  /**
+   * Record that Meta reported the window closed. `at` is when it was closed
+   * (epoch ms): a 131047 about a message sent before the user's latest reply
+   * must not close the window that reply opened.
+   */
+  private markClosed(chatId: ChatId, at?: number): Promise<SessionWindowState> {
+    const closedAt = this.at(at)
+    return this.update(chatId, (s) => ({ ...s, closedAt: Math.max(closedAt, s?.closedAt ?? 0) }))
   }
 
   /**
@@ -283,15 +344,21 @@ export class SessionWindowManager {
    * chat's queued sends through `rawSend`. `at` is epoch ms (default now).
    */
   async noteInbound(chatId: ChatId, rawSend: RawSend, at?: number): Promise<void> {
-    const when = at !== undefined && Number.isFinite(at) && at > 0 ? Math.min(at, this.now()) : this.now()
-    const s = await this.store.get(chatId)
-    const next: SessionWindowState = { lastInboundAt: Math.max(when, s?.lastInboundAt ?? 0) }
-    // A replayed/out-of-order webhook clearly older than Meta's 131047 must not
-    // reopen the window. Webhook timestamps have 1 s precision, so a live reply
-    // can look slightly older than the close it answers: allow some skew.
-    if (s?.closedAt !== undefined && s.closedAt - INBOUND_SKEW_MS > when) next.closedAt = s.closedAt
-    await this.store.set(chatId, next)
-    if (this.classify(next) === 'open') await this.flush(chatId, rawSend)
+    const when = this.at(at)
+    let flushed: Promise<void> | undefined
+    // Registered synchronously (before any await) so a send issued right after
+    // this call waits for it.
+    await this.update(chatId, (s) => {
+      const next: SessionWindowState = { lastInboundAt: Math.max(when, s?.lastInboundAt ?? 0) }
+      // A replayed/out-of-order webhook clearly older than Meta's 131047 must not
+      // reopen the window. Webhook timestamps have 1 s precision, so a live reply
+      // can look slightly older than the close it answers: allow some skew.
+      if (s?.closedAt !== undefined && s.closedAt - INBOUND_SKEW_MS > when) next.closedAt = s.closedAt
+      return next
+    }, (next) => {
+      if (this.classify(next) === 'open') flushed = this.flush(chatId, rawSend)
+    })
+    if (flushed) await flushed
   }
 
   private flush(chatId: ChatId, rawSend: RawSend): Promise<void> {
@@ -329,9 +396,14 @@ export class SessionWindowManager {
     // Templates are allowed outside the window; they are the way back in.
     if (content.kind === 'template') return rawSend(chatId, content, options)
 
+    const s = await this.read(chatId)
+    // Queued sends of a just-reopened chat go out before this one.
+    const flushing = this.flushing.get(chatId)
+    if (flushing) await flushing.catch(() => undefined)
+
     if (this.opts.proactive !== false) {
-      const s = await this.store.get(chatId)
-      if (this.classify(s) === 'closed' || this.pendingChats.get(chatId)?.reopenedAt !== undefined) {
+      const state = this.classify(s)
+      if (state === 'closed' || (state === 'unknown' && this.pendingChats.get(chatId)?.reopenedAt !== undefined)) {
         const template = await this.resolveTemplate({ chatId, content, reason: 'proactive', lastInboundAt: s?.lastInboundAt })
         if (template) return this.reopen(chatId, content, options, 'proactive', template, rawSend)
       }
@@ -343,9 +415,8 @@ export class SessionWindowManager {
       return result
     } catch (err) {
       if (!(err instanceof OutsideSessionWindowError)) throw err
-      await this.markClosed(chatId)
-      const s = await this.store.get(chatId)
-      const template = await this.resolveTemplate({ chatId, content, reason: 'error', lastInboundAt: s?.lastInboundAt })
+      const closed = await this.markClosed(chatId)
+      const template = await this.resolveTemplate({ chatId, content, reason: 'error', lastInboundAt: closed.lastInboundAt })
       if (!template) {
         this.report({ chatId, outcome: 'no-template', reason: 'error', content, error: err })
         throw err
@@ -358,15 +429,31 @@ export class SessionWindowManager {
    * React to a `failed` status webhook: when it is a 131047 for a free-form
    * message this manager sent, mark the window closed, reopen and queue the
    * content (reported through `onReport`, since `send()` already resolved).
+   *
+   * `at` is the status timestamp (epoch ms). The window is considered closed
+   * as of the earlier of `at` and the failed message's send time, so a late or
+   * replayed 131047 about a message sent before the user's latest reply does
+   * not close the window that reply opened; that content is resent right away.
    */
-  async noteFailedStatus(chatId: ChatId, messageId: string, code: number | string | undefined, rawSend: RawSend): Promise<void> {
+  async noteFailedStatus(chatId: ChatId, messageId: string, code: number | string | undefined, rawSend: RawSend, at?: number): Promise<void> {
     if (Number(code) !== SESSION_WINDOW_ERROR_CODE) return
-    await this.markClosed(chatId)
     const sent = this.recentSends.get(messageId)
+    if (sent) this.recentSends.delete(messageId)
+    const closedAt = Math.min(this.at(at), sent?.sentAt ?? Infinity)
+    const s = await this.markClosed(sent?.chatId ?? chatId, closedAt)
     if (!sent) return
-    this.recentSends.delete(messageId)
-    const s = await this.store.get(sent.chatId)
-    const template = await this.resolveTemplate({ chatId: sent.chatId, content: sent.content, reason: 'status', lastInboundAt: s?.lastInboundAt })
+    if (this.classify(s) === 'open') {
+      // The user wrote after this message went out: the window is open again.
+      try {
+        const result = await rawSend(sent.chatId, sent.content, sent.options)
+        this.track(result, sent.chatId, sent.content, sent.options)
+        this.report({ chatId: sent.chatId, outcome: 'sent', reason: 'status', content: sent.content, result })
+      } catch (error) {
+        this.report({ chatId: sent.chatId, outcome: 'failed', reason: 'status', content: sent.content, error })
+      }
+      return
+    }
+    const template = await this.resolveTemplate({ chatId: sent.chatId, content: sent.content, reason: 'status', lastInboundAt: s.lastInboundAt })
     if (!template) {
       this.report({ chatId: sent.chatId, outcome: 'no-template', reason: 'status', content: sent.content })
       return
@@ -396,21 +483,28 @@ export class SessionWindowManager {
     cause?: unknown,
   ): Promise<SendResult<unknown>> {
     const queue = this.opts.retryOnReply !== false
-    if (queue) this.enqueue(chatId, { content, options, queuedAt: this.now() })
+    const item: PendingSend = { content, options, queuedAt: this.now() }
+    if (queue) this.enqueue(chatId, item)
     const chat = this.pendingChats.get(chatId)
     const awaitingReply = chat?.reopenedAt !== undefined && this.now() - chat.reopenedAt < this.windowMs
 
     let templateResult: SendResult<unknown> | undefined
     if (!awaitingReply) {
+      // Concurrent reopens of the same chat share one in-flight template, so a
+      // closed window is paid for once. Checked and set with no await between.
+      let inflight = this.reopening.get(chatId)
+      const owner = inflight === undefined
+      if (!inflight) inflight = this.startReopen(chatId, template, rawSend)
+      template = inflight.template
       try {
-        templateResult = await rawSend(chatId, template)
+        const result = await inflight.promise
+        if (owner) templateResult = result
       } catch (error) {
+        // The caller gets a rejection: do not deliver this content later.
+        if (queue) this.dequeue(chatId, item)
         this.report({ chatId, outcome: 'reopen-failed', reason, content, template, error })
         throw cause ?? error
       }
-      const target = this.touchChat(chatId)
-      target.reopenedAt = this.now()
-      target.template = template
     }
 
     this.report({ chatId, outcome: queue ? 'queued' : 'reopened', reason, content, template, ...(templateResult ? { result: templateResult } : {}) })
@@ -421,6 +515,29 @@ export class SessionWindowManager {
       }
     }
     throw new SessionWindowReopenedError(chatId, template, queue, templateResult)
+  }
+
+  private startReopen(chatId: ChatId, template: SessionTemplate, rawSend: RawSend): InflightReopen {
+    const promise = (async () => {
+      const result = await rawSend(chatId, template)
+      const target = this.touchChat(chatId)
+      target.reopenedAt = this.now()
+      target.template = template
+      return result
+    })()
+    const inflight: InflightReopen = { promise, template }
+    this.reopening.set(chatId, inflight)
+    const clear = (): void => { if (this.reopening.get(chatId) === inflight) this.reopening.delete(chatId) }
+    promise.then(clear, clear)
+    return inflight
+  }
+
+  private dequeue(chatId: ChatId, item: PendingSend): void {
+    const chat = this.pendingChats.get(chatId)
+    if (!chat) return
+    const i = chat.items.indexOf(item)
+    if (i >= 0) chat.items.splice(i, 1)
+    if (chat.items.length === 0 && chat.reopenedAt === undefined) this.pendingChats.delete(chatId)
   }
 
   private touchChat(chatId: ChatId): PendingChat {
@@ -451,7 +568,7 @@ export class SessionWindowManager {
   private track(result: SendResult<unknown>, chatId: ChatId, content: OutboundContent, options?: SendOptions): void {
     const id = result.ref.id
     if (!id || content.kind === 'template') return
-    this.recentSends.set(id, { chatId, content, ...(options ? { options } : {}) })
+    this.recentSends.set(id, { chatId, content, sentAt: this.now(), ...(options ? { options } : {}) })
     const max = Math.max(0, this.opts.maxTrackedSends ?? 500)
     while (this.recentSends.size > max) this.recentSends.delete(this.recentSends.keys().next().value as string)
   }

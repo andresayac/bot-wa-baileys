@@ -8,6 +8,7 @@ import {
   type SessionReport,
   type SessionTemplate,
   type SessionWindowOptions,
+  type SessionWindowState,
 } from '../src/sessionWindow.js'
 
 const HOUR = 3_600_000
@@ -191,7 +192,7 @@ describe('SessionWindowManager: reopen and retry', () => {
     expect(reports[0].outcome).toBe('reopened')
   })
 
-  it('reports a failing reopen template and keeps the content queued', async () => {
+  it('reports a failing reopen template and does not keep the rejected content queued', async () => {
     const { manager, reports } = setup({ reopenTemplate: TEMPLATE })
     const t = fakeTransport()
     t.rawSend.mockImplementation(async (chatId, content) => {
@@ -200,7 +201,83 @@ describe('SessionWindowManager: reopen and retry', () => {
     })
     await expect(manager.send('A', text('x'), undefined, t.rawSend)).rejects.toBeInstanceOf(OutsideSessionWindowError)
     expect(reports[0]).toMatchObject({ outcome: 'reopen-failed', error: expect.objectContaining({ message: 'template paused' }) })
+    // The caller saw a rejection: the content must not be delivered later behind its back.
+    expect(manager.pending('A')).toBe(0)
+    t.rawSend.mockImplementation(async (chatId, content) => ({ ref: { id: 'wamid.x', chatId }, raw: content }))
+    await manager.noteInbound('A', t.rawSend)
+    expect(t.rawSend.mock.calls.filter((c) => c[1].kind === 'text')).toHaveLength(1)
+  })
+
+  it('a failing reopen keeps earlier queued sends (only the rejected content is dropped)', async () => {
+    const { manager, advance } = setup({ reopenTemplate: TEMPLATE })
+    const t = fakeTransport()
+    t.state.closed.add('A')
+    await manager.send('A', text('first'), undefined, t.rawSend).catch(ignore)
     expect(manager.pending('A')).toBe(1)
+    // The pending reopen expires without a reply; the next reopen template fails.
+    advance(25 * 3_600_000)
+    t.rawSend.mockImplementation(async (chatId, content) => {
+      if (content.kind === 'template') throw new Error('template paused')
+      throw new OutsideSessionWindowError(chatId)
+    })
+    await expect(manager.send('A', text('second'), undefined, t.rawSend)).rejects.toThrow('template paused')
+    expect(manager.pending('A')).toBe(1)
+  })
+
+  it('concurrent sends to a closed chat share a single reopen template', async () => {
+    const { manager, reports } = setup({ reopenTemplate: TEMPLATE })
+    const t = fakeTransport()
+    t.state.closed.add('A')
+    const results = await Promise.allSettled([
+      manager.send('A', text('1'), undefined, t.rawSend),
+      manager.send('A', text('2'), undefined, t.rawSend),
+      manager.send('A', text('3'), undefined, t.rawSend),
+    ])
+    expect(results.every((r) => r.status === 'rejected' && r.reason instanceof SessionWindowReopenedError)).toBe(true)
+    expect(t.sent.filter((s) => s.content.kind === 'template')).toHaveLength(1)
+    expect(manager.pending('A')).toBe(3)
+    expect(reports.map((r) => r.outcome)).toEqual(['queued', 'queued', 'queued'])
+  })
+
+  it('concurrent proactive reopens wait for the in-flight template', async () => {
+    const { manager, advance } = setup({ reopenTemplate: TEMPLATE })
+    const t = fakeTransport()
+    await manager.noteInbound('A', t.rawSend)
+    advance(25 * HOUR)
+    let release!: () => void
+    const gate = new Promise<void>((r) => { release = r })
+    const base = t.rawSend.getMockImplementation()!
+    t.rawSend.mockImplementation(async (chatId, content, options) => {
+      if (content.kind === 'template') await gate
+      return base(chatId, content, options)
+    })
+    const all = Promise.allSettled([1, 2].map((n) => manager.send('A', text(String(n)), undefined, t.rawSend)))
+    await new Promise((r) => setImmediate(r))
+    release()
+    await all
+    expect(t.rawSend.mock.calls.filter((c) => c[1].kind === 'template')).toHaveLength(1)
+    expect(manager.pending('A')).toBe(2)
+  })
+
+  it('a shared reopen template that fails rejects every waiter and queues nothing', async () => {
+    const { manager, reports, advance } = setup({ reopenTemplate: TEMPLATE })
+    const t = fakeTransport()
+    await manager.noteInbound('A', t.rawSend)
+    advance(25 * HOUR)
+    let release!: () => void
+    const gate = new Promise<void>((r) => { release = r })
+    t.rawSend.mockImplementation(async (chatId, content) => {
+      if (content.kind === 'template') { await gate; throw new Error('template paused') }
+      throw new OutsideSessionWindowError(chatId)
+    })
+    const all = Promise.allSettled([1, 2].map((n) => manager.send('A', text(String(n)), undefined, t.rawSend)))
+    await new Promise((r) => setImmediate(r))
+    release()
+    const results = await all
+    expect(results.every((r) => r.status === 'rejected' && (r.reason as Error).message === 'template paused')).toBe(true)
+    expect(t.rawSend.mock.calls.filter((c) => c[1].kind === 'template')).toHaveLength(1)
+    expect(manager.pending('A')).toBe(0)
+    expect(reports.map((r) => r.outcome)).toEqual(['reopen-failed', 'reopen-failed'])
   })
 
   it('discards expired entries and reports retries that fail again', async () => {
@@ -247,6 +324,51 @@ describe('SessionWindowManager: reopen and retry', () => {
     expect(manager.pending('A')).toBe(1)
   })
 
+  it('a stale 131047 (message sent before the latest reply) does not close the window', async () => {
+    const { manager, reports, advance, now } = setup({ reopenTemplate: TEMPLATE })
+    const t = fakeTransport()
+    await manager.noteInbound('A', t.rawSend)
+    const res = await manager.send('A', text('old'), undefined, t.rawSend)
+    const sentAt = now()
+    advance(HOUR)
+    await manager.noteInbound('A', t.rawSend) // the user writes again
+    advance(1000)
+    // The failure webhook for the older message arrives late.
+    await manager.noteFailedStatus('A', res.ref.id, 131047, t.rawSend, sentAt)
+    expect(await manager.state('A')).toBe('open')
+    // The window is open again: the failed content is resent right away, no template.
+    expect(t.sent.filter((s) => s.content.kind === 'template')).toHaveLength(0)
+    expect(t.sent.map((s) => (s.content as { text?: string }).text)).toEqual(['old', 'old'])
+    expect(reports.at(-1)).toMatchObject({ outcome: 'sent', reason: 'status', chatId: 'A' })
+  })
+
+  it('a stale 131047 without a status timestamp uses the tracked send time', async () => {
+    const { manager, advance } = setup({ reopenTemplate: TEMPLATE })
+    const t = fakeTransport()
+    await manager.noteInbound('A', t.rawSend)
+    const res = await manager.send('A', text('old'), undefined, t.rawSend)
+    advance(HOUR)
+    await manager.noteInbound('A', t.rawSend)
+    advance(1000)
+    await manager.noteFailedStatus('A', res.ref.id, 131047, t.rawSend)
+    expect(await manager.state('A')).toBe('open')
+  })
+
+  it('a stale 131047 for an untracked message uses the status timestamp', async () => {
+    const { manager, advance, now } = setup({ reopenTemplate: TEMPLATE })
+    const t = fakeTransport()
+    const failedAt = now()
+    advance(HOUR)
+    await manager.noteInbound('A', t.rawSend)
+    advance(1000)
+    await manager.noteFailedStatus('A', 'wamid.unknown', 131047, t.rawSend, failedAt)
+    expect(await manager.state('A')).toBe('open')
+    // A fresh failure after the reply still closes it.
+    advance(1000)
+    await manager.noteFailedStatus('A', 'wamid.unknown2', 131047, t.rawSend, now())
+    expect(await manager.state('A')).toBe('closed')
+  })
+
   it('serialises concurrent flushes so nothing is sent twice', async () => {
     const { manager } = setup({ reopenTemplate: TEMPLATE })
     const t = fakeTransport()
@@ -262,6 +384,50 @@ describe('SessionWindowManager: reopen and retry', () => {
     const t = fakeTransport()
     t.state.closed.add('A')
     await expect(manager.send('A', text('x'), undefined, t.rawSend)).rejects.toBeInstanceOf(SessionWindowReopenedError)
+  })
+})
+
+describe('SessionWindowManager: async store', () => {
+  function slowStore() {
+    const data = new Map<string, SessionWindowState>()
+    const tick = (): Promise<void> => new Promise((r) => setTimeout(r, 5))
+    return {
+      data,
+      get: async (id: string) => { await tick(); const s = data.get(id); return s ? { ...s } : undefined },
+      set: async (id: string, s: SessionWindowState) => { await tick(); data.set(id, { ...s }) },
+      delete: async (id: string) => { await tick(); data.delete(id) },
+    }
+  }
+
+  it('a send right after a not-yet-persisted inbound sees the window open and goes after the queue', async () => {
+    const store = slowStore()
+    const { manager } = setup({ reopenTemplate: TEMPLATE, store })
+    const t = fakeTransport()
+    t.state.closed.add('A')
+    await manager.send('A', text('queued'), undefined, t.rawSend).catch(ignore)
+    expect(manager.pending('A')).toBe(1)
+    t.state.closed.delete('A')
+    // Inbound recorded fire-and-forget, then the handler replies immediately.
+    const inbound = manager.noteInbound('A', t.rawSend)
+    const reply = manager.send('A', text('reply'), undefined, t.rawSend)
+    await expect(reply).resolves.toMatchObject({ ref: { chatId: 'A' } })
+    await inbound
+    expect(t.sent.map((s) => s.content.kind === 'template' ? 'T' : (s.content as { text: string }).text)).toEqual(['T', 'queued', 'reply'])
+  })
+
+  it('serialises read-modify-write of window state per chat', async () => {
+    const store = slowStore()
+    const { manager, advance, now } = setup({ reopenTemplate: TEMPLATE, store })
+    const t = fakeTransport()
+    const closedAt = now()
+    advance(1000)
+    await Promise.all([
+      manager.noteInbound('A', t.rawSend),
+      manager.noteFailedStatus('A', 'wamid.none', 131047, t.rawSend, closedAt),
+    ])
+    // Neither write lost the other's field.
+    expect(store.data.get('A')).toEqual({ lastInboundAt: now(), closedAt })
+    expect(await manager.state('A')).toBe('open')
   })
 })
 
