@@ -66,18 +66,21 @@ export function toInbound(message: WAMessage, identity: IdentityStore): InboundM
   }
 
   const qc = m.extendedTextMessage?.contextInfo
+  // Every user id below is canonical like `senderId`: a LID-addressed group
+  // quotes and mentions LIDs, so a known LID (the bot's own included) maps to
+  // its PN and matches selfId, and device suffixes are stripped.
+  const canonicalUser = (jid: string) => identity.canonical(normalize(jid) || jid)
+  const quotedAuthor = qc?.participant as string | null | undefined
   const quoted = qc?.quotedMessage
     ? {
         body:
           ((qc.quotedMessage as { conversation?: string }).conversation) ??
           ((qc.quotedMessage as { extendedTextMessage?: { text?: string } }).extendedTextMessage?.text) ??
           '',
-        senderId: (qc.participant as string | undefined) ?? undefined,
+        senderId: quotedAuthor ? canonicalUser(quotedAuthor) : undefined,
       }
     : undefined
-  // Canonical like every other user id: a LID-addressed group mentions LIDs, so
-  // a known LID (the bot's own included) maps to its PN and matches selfId.
-  const mentions = ((qc?.mentionedJid ?? []) as string[]).map((jid) => identity.canonical(normalize(jid) || jid))
+  const mentions = ((qc?.mentionedJid ?? []) as string[]).map(canonicalUser)
 
   return {
     ref: { id: key.id ?? '', chatId: from, native: message },

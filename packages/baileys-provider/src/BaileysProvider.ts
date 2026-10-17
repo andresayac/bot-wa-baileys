@@ -48,7 +48,10 @@ import { putBounded } from './boundedMap.js'
 import { resolveBrowser, type BrowserConfig } from './browser.js'
 import { IdentityStore, canonicalKey, type IdentityKey } from './identity.js'
 import { normalize, isLidUser, isPnUser } from './jid.js'
-import { PollTracker, POLL_CACHE_MAX, decryptVote, pollUpdateOf, recordVote, tally } from './polls.js'
+import {
+  PollTracker, POLL_CACHE_MAX, decryptVote, fromStoredPoll, pollCreationOf, pollUpdateOf, recordVote, tally, toStoredPoll,
+  type PollStore, type TrackedPoll,
+} from './polls.js'
 import { toInbound } from './toInbound.js'
 import { toCallEvent } from './toCallEvent.js'
 import { toOutbound } from './toOutbound.js'
@@ -61,6 +64,8 @@ import {
 
 const LID_CACHE_MAX = 2000
 const MSG_CACHE_MAX = 2000
+/** LID lookups per message for mentioned users (the quoted author is always looked up). */
+const MAX_MENTION_LOOKUPS = 64
 
 /** Terminal/file QR rendering options. */
 export interface QrConfig {
@@ -96,6 +101,13 @@ export interface BaileysProviderConfig {
   qr?: QrConfig
   /** Phone number (international format) for pairing-code login instead of QR. */
   pairingCode?: string
+  /**
+   * Persistence for polls, so votes cast after a restart can still be
+   * decrypted and tallied (vote decryption needs each poll's secret). Without
+   * it, only polls seen by the running process are known (a bounded in-memory
+   * cache of {@link POLL_CACHE_MAX} polls). See {@link PollStore}.
+   */
+  pollStore?: PollStore
   /** Anti-ban outbound pacing. */
   rateLimit?: RateLimitConfig
   debug?: boolean
@@ -155,6 +167,10 @@ export class BaileysProvider implements IProvider<WAMessage> {
   private msgCache = new Map<string, WAMessage>()
   /** Polls seen by this process (sent or received), so their votes can be decrypted. */
   private polls = new PollTracker(POLL_CACHE_MAX)
+  /** One pending {@link PollStore} read per poll id, shared by concurrent votes. */
+  private pollLoads = new Map<string, Promise<TrackedPoll | undefined>>()
+  /** Tail of each poll's save chain, so writes reach the store in order. */
+  private pollSaves = new Map<string, Promise<void>>()
   private identity = new IdentityStore()
   /** Call id → group JID of group calls in progress (see {@link toCallEvent}). */
   private callGroups = new Map<string, string>()
@@ -264,7 +280,7 @@ export class BaileysProvider implements IProvider<WAMessage> {
       if (!this.sock) throw new ProviderError('Provider not connected')
       const sent = (await this.sock.sendMessage(resolvedJid, waContent, waOptions)) as WAMessage
       // Serve retry requests (getMessage) and decrypt votes on polls we send.
-      if (sent?.key) { this.rememberMessage(sent); this.polls.remember(sent) }
+      if (sent?.key) { this.rememberMessage(sent); await this.rememberPoll(sent) }
       return { ref: { id: sent.key.id ?? '', chatId, native: sent }, raw: sent }
     } catch (err) {
       throw mapSendError(err, chatId)
@@ -393,21 +409,25 @@ export class BaileysProvider implements IProvider<WAMessage> {
     // Learn the bot's own LID↔PN pair so mentions of its LID canonicalise to selfId.
     this.self()
     for (const message of messages) {
-      // Cache every upsert, `append` included: Baileys emits the bot's own sends
-      // (and offline deliveries) as `append`, and getMessage() retries plus poll
-      // vote decryption both need them.
-      this.rememberMessage(message)
       const jid = message.key?.remoteJidAlt ?? message.key?.remoteJid ?? ''
       const accepted = this.acceptsChat(jid)
-      // Only polls whose votes can reach the bot take a slot in the bounded poll
-      // cache: those from chats it listens to, plus its own wherever they are.
-      if (accepted || message.key?.fromMe) this.polls.remember(message)
+      // Cache upserts, `append` included (Baileys emits the bot's own sends and
+      // offline deliveries as `append`): getMessage() retries and poll vote
+      // decryption both need them. Only messages from chats the bot listens to,
+      // plus its own wherever they are, take a slot in these bounded caches, so
+      // a flood from ignored chats (status, broadcasts, newsletters) cannot
+      // evict the ones that matter.
+      if (accepted || message.key?.fromMe) {
+        this.rememberMessage(message)
+        await this.rememberPoll(message)
+      }
       if (!accepted) continue
       // An encrypted vote is a poll-vote event, never a message.
       if (pollUpdateOf(message)) { await this.onPollVote(message); continue }
       if (type !== 'notify' || message.key?.fromMe) continue
       // Seed identity from the authoritative mapping for bare-LID keys.
       await this.seedIdentity(message.key)
+      await this.seedQuotedIdentity(message)
       this.fan({ kind: 'message', message: toInbound(message, this.identity) })
     }
   }
@@ -416,9 +436,9 @@ export class BaileysProvider implements IProvider<WAMessage> {
     const update = pollUpdateOf(message)
     const creationKey = update?.pollCreationMessageKey
     const pollId = creationKey?.id ?? undefined
-    const poll = pollId ? this.polls.get(pollId) : undefined
+    const poll = update && pollId ? this.polls.get(pollId) ?? await this.loadPoll(pollId) : undefined
     if (!update || !creationKey || !poll) {
-      // Typically a poll sent before a restart, or evicted from the bounded cache.
+      // Typically a poll sent before a restart (no pollStore), or evicted from the bounded cache.
       this.logger.debug({ pollId }, 'poll vote for a poll this process has not seen; cannot decrypt it')
       return
     }
@@ -466,10 +486,106 @@ export class BaileysProvider implements IProvider<WAMessage> {
     if (!recordVote(poll, voterId, decrypted.hashes, at, (id) => this.identity.canonical(id))) return
     if (key.id) this.polls.markVote(poll, key.id)
     this.polls.touch(poll)
+    await this.savePoll(poll)
     this.fan({
       kind: 'poll-vote',
       vote: { ref: { id: poll.id, chatId, native: poll.message }, senderId: voterId, options: tally(poll) },
     })
+  }
+
+  /* Poll cache + optional persistence ----------------------------------- */
+
+  /**
+   * Track a poll creation message so its votes can be decrypted, persisting it
+   * when a {@link PollStore} is configured. A poll id already in the store keeps
+   * the stored poll: like the in-memory cache, a later poll reusing an id (ids
+   * are chosen by the sending client) never replaces the first one.
+   */
+  private async rememberPoll(message: WAMessage): Promise<void> {
+    const id = message.key?.id
+    if (!id || this.polls.get(id) || !pollCreationOf(message)?.secret?.length) return
+    const store = this.config.pollStore
+    if (!store) { this.polls.remember(message); return }
+    let stored: TrackedPoll | undefined
+    try {
+      stored = await this.loadPoll(id, true)
+    } catch {
+      // The store is unreachable: track in memory only, never overwrite blindly.
+      this.polls.remember(message)
+      return
+    }
+    if (stored) return
+    const tracked = this.polls.track(message)
+    if (tracked?.isNew) await this.savePoll(tracked.poll)
+  }
+
+  /**
+   * Load a poll from the {@link PollStore} into the in-memory cache. A
+   * malformed entry is deleted. Store failures are logged and read as a miss,
+   * unless `rethrow` is set.
+   */
+  private async loadPoll(id: string, rethrow = false): Promise<TrackedPoll | undefined> {
+    if (!this.config.pollStore) return undefined
+    // Concurrent votes (separate upsert batches run in parallel) share one read,
+    // so they all record on the same object and no vote is lost.
+    let pending = this.pollLoads.get(id)
+    if (!pending) {
+      pending = this.readPoll(id).finally(() => this.pollLoads.delete(id))
+      this.pollLoads.set(id, pending)
+    }
+    try {
+      return await pending
+    } catch (err) {
+      if (rethrow) throw err
+      return undefined
+    }
+  }
+
+  private async readPoll(id: string): Promise<TrackedPoll | undefined> {
+    const store = this.config.pollStore!
+    let raw: unknown
+    try {
+      raw = await store.get(id)
+    } catch (err) {
+      this.logger.warn({ err, pollId: id }, 'poll store get failed')
+      throw err
+    }
+    // A poll tracked while the read was pending (e.g. its own send) wins.
+    const cached = this.polls.get(id)
+    if (cached) return cached
+    if (raw === undefined || raw === null) return undefined
+    const poll = fromStoredPoll(id, raw)
+    if (!poll) {
+      this.logger.warn({ pollId: id }, 'poll store entry is malformed; deleting it')
+      await store.delete(id).catch((err: unknown) => this.logger.warn({ err, pollId: id }, 'poll store delete failed'))
+      return undefined
+    }
+    this.polls.adopt(poll)
+    return poll
+  }
+
+  /**
+   * Persist a poll (creation or new tally). Saves of one poll run one after
+   * another and each serialises the poll when it runs, so the last write always
+   * holds the latest tally. Failures are logged, never thrown.
+   */
+  private async savePoll(poll: TrackedPoll): Promise<void> {
+    const store = this.config.pollStore
+    if (!store) return
+    const write = async (): Promise<void> => {
+      try {
+        await store.set(poll.id, toStoredPoll(poll))
+      } catch (err) {
+        this.logger.warn({ err, pollId: poll.id }, 'poll store set failed')
+      }
+    }
+    const next = (this.pollSaves.get(poll.id) ?? Promise.resolve()).then(write)
+    this.pollSaves.set(poll.id, next)
+    try {
+      await next
+    } finally {
+      if (this.pollSaves.get(poll.id) === next) this.pollSaves.delete(poll.id)
+    }
   }
 
   private async onReactions(reactions: BaileysEventMap['messages.reaction']): Promise<void> {
@@ -534,6 +650,22 @@ export class BaileysProvider implements IProvider<WAMessage> {
     for (const jid of candidates) {
       if (!jid || !jid.endsWith('@lid') || this.identity.knowsPnFor(jid)) continue
       await this.getPNForLID(jid).catch(() => undefined)
+    }
+  }
+
+  /**
+   * Look up the PN of bare-LID users a message quotes or mentions, so
+   * `quoted.senderId` and `mentions` canonicalise like the sender does.
+   */
+  private async seedQuotedIdentity(message: WAMessage): Promise<void> {
+    const ctx = message.message?.extendedTextMessage?.contextInfo
+    if (!ctx) return
+    // Bounded: a mention-everyone message can name hundreds of members.
+    const jids = [ctx.participant, ...(ctx.mentionedJid ?? []).slice(0, MAX_MENTION_LOOKUPS)]
+    for (const jid of jids) {
+      const lid = jid ? normalize(jid) : ''
+      if (!isLidUser(lid) || this.identity.knowsPnFor(lid)) continue
+      await this.getPNForLID(lid).catch(() => undefined)
     }
   }
 

@@ -56,6 +56,7 @@ interface BaileysProviderConfig {
   syncFullHistory?: boolean     // por defecto false
   ignoreBroadcasts?: boolean    // por defecto true (status@broadcast se ignora siempre)
   ignoreNewsletters?: boolean   // por defecto true
+  pollStore?: PollStore         // persistencia de encuestas para leer votos tras un reinicio (ver Encuestas y votos)
   debug?: boolean               // nivel 'debug' en el logger por defecto (si no, 'error')
   logger?: Logger               // logger compatible con pino
 }
@@ -148,7 +149,7 @@ El provider lo resuelve con un `IdentityStore` **antes** de emitir cada evento:
 - `ctx.senderInfo.platformData` lleva `{ phoneNumber?, lid? }`: el PN si se conoce y el LID crudo tal como llegó.
 - Los demás eventos pasan por la **misma** canonicalización, así que una persona tiene el mismo id en todos: el autor de una reacción o de un voto, los participantes y el autor (`actor`) de un cambio de grupo, quien llama (`call.from`) y el chat y las claves de `presences`. El provider aprovecha el PN que Baileys trae en cada evento (`participantAlt`, `authorPn`, `callerPn`, `phoneNumber` del participante) y, si no lo trae, consulta el almacén de mapeos.
 - En una reacción, `senderId` es **quien reacciona** y `ref.id` el mensaje reaccionado (antes se informaba, por error, el autor de ese mensaje).
-- Las menciones (`mentions`) también son canónicas: en un grupo direccionado por LID, WhatsApp menciona LIDs, y el provider los cambia por el PN si lo conoce.
+- Las menciones (`mentions`) y el autor del mensaje citado (`quoted.senderId`) también son canónicos: en un grupo direccionado por LID, WhatsApp menciona y cita con LIDs, y el provider los cambia por el PN si lo conoce (consultando el almacén de mapeos si hace falta). Así, `ctx.quoted?.senderId === provider.selfId` detecta una respuesta a un mensaje del bot.
 - `provider.selfId` es el PN normalizado del bot (`573000000000@s.whatsapp.net`, sin el sufijo de dispositivo `:12` que guarda `creds.me.id`), el mismo id que llevan sus propias reacciones y votos. Con `groupMode: 'mentions'`, el core compara las menciones con `selfId`, así que el bot responde tanto si lo mencionan por su número como por su LID.
 - En `group`, el provider traduce la acción `modify` de Baileys (cambio de número) a `action: 'update'`, pero la rc14 no llega a emitirla: al procesar el cambio de número, Baileys intenta `JSON.parse` sobre los JID crudos del aviso y lanza antes de emitir el evento. En la práctica, con la rc14 un cambio de número no produce ningún evento `group`.
 - Al enviar a un LID, el provider usa el PN si lo conoce y, si no, envía directamente al LID.
@@ -192,8 +193,35 @@ WhatsApp cifra cada voto de extremo a extremo con una clave derivada del secreto
 
 Limitaciones:
 
-- Solo se descifran los votos de encuestas que **este proceso** vio. Tras un reinicio la memoria empieza vacía, así que los votos de encuestas anteriores (o desalojadas de la caché) se descartan con un log de nivel `debug`. Un voto que no se descifra deja un `warn` con el id de la encuesta, sin JID ni contenido.
+- Sin `pollStore`, solo se descifran los votos de encuestas que **este proceso** vio. Tras un reinicio la memoria empieza vacía, así que los votos de encuestas anteriores (o desalojadas de la caché) se descartan con un log de nivel `debug`. Para conservarlas, configura un [`pollStore`](#persistir-encuestas-pollstore). Un voto que no se descifra deja un `warn` con el id de la encuesta, sin JID ni contenido.
 - **El bot no puede votar.** Baileys 7 no tiene API para construir un voto cifrado (ni contenido de voto en `sendMessage` ni un equivalente de `decryptPollVote` para cifrar); habría que reimplementar el cifrado y enviarlo con `relayMessage`. Por eso no hay `ctx.vote()`.
+
+### Persistir encuestas (`pollStore`)
+
+Para descifrar los votos que llegan **después de un reinicio**, pasa un `pollStore`: una interfaz async mínima, con clave el id del mensaje de la encuesta, que puedes respaldar con Redis, SQL o un archivo.
+
+```ts
+import type { PollStore, StoredPoll } from '@bot-wa/baileys'
+
+const pollStore: PollStore = {
+  get: async (id) => {
+    const raw = await redis.get(`poll:${id}`)
+    return raw ? (JSON.parse(raw) as StoredPoll) : undefined
+  },
+  set: async (id, poll) => { await redis.set(`poll:${id}`, JSON.stringify(poll), 'EX', 30 * 24 * 3600) },
+  delete: async (id) => { await redis.del(`poll:${id}`) },
+}
+
+new BaileysProvider({ session: 'mi-bot', pollStore })
+```
+
+- `StoredPoll` es JSON plano: la clave de la encuesta (chat y creador, con sus formas LID/PN), la pregunta, el `messageSecret` en base64, las opciones con su hash y el último voto de cada persona. No guarda otros mensajes.
+- El provider llama a `set` al ver una encuesta nueva y tras cada voto contado; a `get` cuando llega un voto de una encuesta que no está en memoria (o una encuesta nueva reutiliza un id); y a `delete` si una entrada está mal formada. La caché en memoria de 500 encuestas sigue delante del store.
+- Tras un reinicio, el recuento continúa donde se quedó y se mantienen las mismas reglas: el voto tiene que llegar por el mismo chat y nombrar al mismo creador, y una encuesta posterior con el mismo id no sobrescribe la guardada.
+- La retención (TTL, limpieza) la decides tú. Si el store falla, el provider lo registra como `warn` y sigue con la caché en memoria: nunca rompe un envío ni la recepción.
+- **La entrada contiene el secreto de la encuesta**, con el que se descifran sus votos: trata el store con el mismo cuidado que la carpeta de la sesión.
+
+`vote.ref.native` de una encuesta cargada del store es un mensaje de encuesta reconstruido (clave, pregunta, opciones y secreto), suficiente para citarla.
 
 ## Seguridad de la sesión
 
@@ -242,12 +270,13 @@ La carpeta de la sesión (`creds.json` y las claves Signal) **es** la cuenta: qu
 ## Limitaciones
 
 - **Sin botones ni listas nativos.** WhatsApp Web dejó de soportarlos para clientes no oficiales. Usa menús numerados con `choose()` (en el DSL `flow().choose(...)` o en conversaciones `c.choose(...)`) o una encuesta nativa con `ctx.poll(pregunta, opciones)`. `ctx.buttons(...)` y el contenido `list` siguen funcionando, pero llegan como texto numerado.
-- **Votos de encuestas:** solo se leen los de encuestas que el proceso vio desde que arrancó, y el bot no puede votar (ver [Encuestas y votos](#encuestas-y-votos)). Si la respuesta tiene que sobrevivir a un reinicio, usa `choose()`.
+- **Votos de encuestas:** sin `pollStore`, solo se leen los de encuestas que el proceso vio desde que arrancó, y el bot no puede votar (ver [Encuestas y votos](#encuestas-y-votos)). Si la respuesta tiene que sobrevivir a un reinicio, configura un `pollStore` o usa `choose()`.
 - Sin plantillas ni ventana de 24 h: eso es de la Cloud API.
 - No se pueden editar mensajes enviados (`edit: false`).
 
 ## Notas
 
 - ESM only (`"type": "module"`); los imports relativos llevan extensión `.js`.
+- Para responder a las peticiones de reenvío de WhatsApp (`getMessage`), el provider guarda en memoria los últimos 2000 mensajes de los chats que escucha y los del propio bot. Los de chats ignorados (estados, listas de difusión, canales) no ocupan sitio.
 - Los errores se registran bajo la clave `err` de pino, así que el log muestra mensaje y stack. Si inyectas tu propio `logger`, mantén el serializer de errores de pino.
 - `provider.socket` expone el socket de Baileys para operaciones que el `IProvider` no cubre (grupos, perfil…). Úsalo con cuidado: lo que hagas ahí se salta el rate limiter y el mapeo de errores.

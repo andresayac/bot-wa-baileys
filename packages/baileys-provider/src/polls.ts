@@ -33,6 +33,49 @@ export interface PollOption {
   hash: string
 }
 
+/**
+ * The JSON-safe record a {@link PollStore} keeps for one poll: what a later
+ * process needs to decrypt, bind and tally its votes. No message bodies beyond
+ * the poll question and option names.
+ */
+export interface StoredPoll {
+  /** The poll message id (the store key). */
+  id: string
+  /** The poll message key: its chat and creator, as Baileys delivered it. */
+  key: {
+    remoteJid: string
+    remoteJidAlt?: string
+    participant?: string
+    participantAlt?: string
+    fromMe: boolean
+  }
+  /** The poll question. */
+  name: string
+  /** Base64 of the poll's 32-byte messageSecret (the vote decryption key material). */
+  secret: string
+  /** Option names with their hex SHA-256, in the poll's order. */
+  options: PollOption[]
+  /** Latest selection per canonical voter id (empty `hashes` = retracted). */
+  votes: Array<{ voter: string; hashes: string[]; at: number }>
+  /** Poll creation time, unix seconds, when known. */
+  timestamp?: number
+}
+
+/**
+ * Pluggable persistence for polls, so votes cast after a restart can still be
+ * decrypted and tallied. Keyed by poll message id. The provider calls `set`
+ * when it first sees a poll and after every counted vote, `get` when a vote
+ * names a poll missing from its in-memory cache (or a new poll reuses an id),
+ * and `delete` when a stored entry is malformed. Retention (TTL, cleanup) is up
+ * to the host. A rejecting call is logged and never breaks sends or ingress.
+ * The entry holds the poll's secret: keep the store as private as the session.
+ */
+export interface PollStore {
+  get(pollId: string): Promise<StoredPoll | null | undefined>
+  set(pollId: string, poll: StoredPoll): Promise<void>
+  delete(pollId: string): Promise<void>
+}
+
 export interface TrackedPoll {
   id: string
   /** The poll creation message (the `native` of a poll-vote `ref`). */
@@ -86,24 +129,40 @@ export class PollTracker {
    * never replaces it; its votes fail the caller's creator check.
    */
   remember(message: WAMessage): boolean {
+    return !!this.track(message)
+  }
+
+  /**
+   * Like {@link remember}, returning the tracked poll and whether this call
+   * added it (`isNew`), so a caller can persist new polls only.
+   */
+  track(message: WAMessage): { poll: TrackedPoll; isNew: boolean } | undefined {
     const id = message.key?.id
-    if (!id) return false
-    if (this.polls.has(id)) return true
+    if (!id) return undefined
+    const existing = this.polls.get(id)
+    if (existing) return { poll: existing, isNew: false }
     const creation = pollCreationOf(message)
-    if (!creation?.secret?.length) return false
-    this.polls.set(id, {
+    if (!creation?.secret?.length) return undefined
+    const poll: TrackedPoll = {
       id,
       message,
       secret: creation.secret,
       options: creation.options.map((name) => ({ name, hash: optionHash(name) })),
       votes: new Map(),
-    })
+    }
+    this.adopt(poll)
+    return { poll, isNew: true }
+  }
+
+  /** Insert an already-built poll (e.g. loaded from a {@link PollStore}), evicting the oldest. */
+  adopt(poll: TrackedPoll): void {
+    this.polls.delete(poll.id)
+    this.polls.set(poll.id, poll)
     while (this.polls.size > this.max) {
       const oldest = this.polls.keys().next()
       if (oldest.done) break
       this.polls.delete(oldest.value)
     }
-    return true
   }
 
   get(id: string): TrackedPoll | undefined { return this.polls.get(id) }
@@ -193,4 +252,62 @@ export function tally(poll: TrackedPoll): Array<{ name: string; votes: number; v
     const voters = [...poll.votes].filter(([, v]) => v.hashes.includes(option.hash)).map(([id]) => id)
     return { name: option.name, votes: voters.length, voters }
   })
+}
+
+/** Optional key fields kept beside `remoteJid`/`fromMe`: the twins and the group creator. */
+const KEY_FIELDS = ['remoteJidAlt', 'participant', 'participantAlt'] as const
+
+/** The JSON-safe {@link StoredPoll} for a tracked poll. */
+export function toStoredPoll(poll: TrackedPoll): StoredPoll {
+  const raw = poll.message.key ?? {}
+  const key: StoredPoll['key'] = { remoteJid: raw.remoteJid ?? '', fromMe: !!raw.fromMe }
+  for (const field of KEY_FIELDS) {
+    const value = raw[field]
+    if (typeof value === 'string' && value) key[field] = value
+  }
+  const timestamp = Number(poll.message.messageTimestamp ?? 0)
+  return {
+    id: poll.id,
+    key,
+    name: pollCreationOf(poll.message)?.name ?? '',
+    secret: Buffer.from(poll.secret).toString('base64'),
+    options: poll.options.map((o) => ({ name: o.name, hash: o.hash })),
+    votes: [...poll.votes].map(([voter, v]) => ({ voter, hashes: [...v.hashes], at: v.at })),
+    ...(Number.isFinite(timestamp) && timestamp > 0 ? { timestamp } : {}),
+  }
+}
+
+const isString = (v: unknown): v is string => typeof v === 'string'
+const HEX_HASH = /^[0-9a-f]{64}$/
+
+/**
+ * Rebuild a tracked poll from a stored record, or `undefined` when the record
+ * is malformed (wrong id, missing chat, secret not 32 bytes, bad options or
+ * votes). `message` is a minimal poll creation message carrying the stored key,
+ * usable as the `native` of a poll-vote ref (e.g. to quote the poll).
+ */
+export function fromStoredPoll(id: string, stored: unknown): TrackedPoll | undefined {
+  if (!stored || typeof stored !== 'object') return undefined
+  const s = stored as Partial<StoredPoll>
+  if (s.id !== id || !s.key || typeof s.key !== 'object' || !isString(s.key.remoteJid) || !s.key.remoteJid) return undefined
+  if (!isString(s.secret)) return undefined
+  const secret = new Uint8Array(Buffer.from(s.secret, 'base64'))
+  if (secret.length !== 32) return undefined
+  if (!Array.isArray(s.options) || !s.options.every((o) => o && isString(o.name) && isString(o.hash) && HEX_HASH.test(o.hash))) return undefined
+  const votes = new Map<string, { hashes: string[]; at: number }>()
+  for (const v of Array.isArray(s.votes) ? s.votes : []) {
+    if (!v || !isString(v.voter) || !Array.isArray(v.hashes) || !v.hashes.every(isString) || typeof v.at !== 'number') return undefined
+    votes.set(v.voter, { hashes: [...v.hashes], at: v.at })
+  }
+  const key: Record<string, unknown> = { remoteJid: s.key.remoteJid, fromMe: !!s.key.fromMe, id }
+  for (const field of KEY_FIELDS) if (isString(s.key[field]) && s.key[field]) key[field] = s.key[field]
+  const message = {
+    key,
+    message: {
+      pollCreationMessage: { name: isString(s.name) ? s.name : '', options: s.options.map((o) => ({ optionName: o.name })) },
+      messageContextInfo: { messageSecret: secret },
+    },
+    ...(typeof s.timestamp === 'number' ? { messageTimestamp: s.timestamp } : {}),
+  } as unknown as WAMessage
+  return { id, message, secret, options: s.options.map((o) => ({ name: o.name, hash: o.hash })), votes }
 }

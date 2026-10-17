@@ -25,12 +25,14 @@ export interface FakeSocket {
   signalRepository: { lidMapping: { getPNForLID: ReturnType<typeof vi.fn> } }
   /** LID → device-qualified PN answers for `lidMapping.getPNForLID`. */
   lidMap: Map<string, string>
+  /** The config the provider passed to `makeWASocket` (e.g. its `getMessage`). */
+  config: Record<string, unknown>
   handler?: ProcessHandler
 }
 
 const sockets: FakeSocket[] = []
 
-export function fakeMakeWASocket(): FakeSocket {
+export function fakeMakeWASocket(config: Record<string, unknown> = {}): FakeSocket {
   const lidMap = new Map<string, string>()
   const sock: FakeSocket = {
     ev: { process: (handler) => { sock.handler = handler } },
@@ -40,6 +42,7 @@ export function fakeMakeWASocket(): FakeSocket {
       lidMapping: { getPNForLID: vi.fn(async (lid: string) => lidMap.get(lid) ?? null) },
     },
     lidMap,
+    config,
   }
   sockets.push(sock)
   return sock
