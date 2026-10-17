@@ -242,6 +242,85 @@ configurado en vez de tumbar el bot.
 | `errorMessage` | `string` | `'⚠️ Ahora no puedo responder, intenta luego.'` | respuesta si el proveedor falla |
 | `refusalMessage` | `string` | `'No puedo ayudar con eso.'` | respuesta cuando el proveedor rehúsa (`stopReason === 'refusal'`) |
 | `humanizeTyping` | `boolean` | `true` | envía "escribiendo…" (`ctx.typing()`) antes de responder |
+| `tools` | `Record<string, AITool>` | — | herramientas que el modelo puede llamar (ver [Tool calling](#tool-calling)) |
+| `maxSteps` | `number` | `5` | máximo de llamadas al modelo por turno en el bucle de tools |
+| `toolTimeoutMs` | `number` | `15000` | timeout por defecto de cada tool (`0` lo desactiva) |
+| `maxStepsMessage` | `string` | `'No pude completar la solicitud…'` | respuesta si se agota `maxSteps` |
+| `toolConfirm` | `{ yes?: string[]; timeout?: number \| string }` | `{ timeout: '2m' }` | diálogo de confirmación de las tools `confirm: true` |
+| `onToolEvent` | `(e: AIToolEvent) => void` | — | auditoría: recibe cada evento del bucle (también se emite como `bot.on('ai.tool')`) |
+
+## Tool calling
+
+El modelo puede ejecutar funciones del bot mediante el *tool/function calling*
+nativo de cada proveedor (Anthropic, OpenAI y presets compatibles, Gemini y
+Ollama). Declaras cada tool una vez:
+
+```ts
+import { aiPlugin, defineTool } from '@bot-wa/ai'
+import { z } from 'zod' // opcional: cualquier esquema con safeParse()
+
+bot.plug(aiPlugin({
+  provider: 'openai',
+  model: 'gpt-5-mini',
+  tools: {
+    buscar_producto: {
+      description: 'Busca productos del catálogo por texto',
+      schema: { type: 'object', properties: { q: { type: 'string' } }, required: ['q'] },
+      handler: async ({ q }: { q: string }) => db.products.search(q),
+    },
+    crear_pedido: defineTool({
+      description: 'Crea un pedido para el cliente',
+      schema: z.object({ items: z.array(z.string()), cliente: z.string() }),
+      confirm: true, // pide "sí/no" al usuario antes de ejecutar
+      confirmMessage: (a) => `¿Creo el pedido de ${a.items.join(', ')}? (sí/no)`,
+      timeoutMs: 10_000,
+      handler: async (args, { ctx }) => db.orders.create({ ...args, chat: ctx?.from }),
+    }),
+  },
+}))
+```
+
+- **Bucle multi-paso**: mientras el modelo pida tools se ejecutan y se le
+  devuelve el resultado, hasta `maxSteps` (default 5).
+- **Errores al modelo**: una excepción del handler, argumentos inválidos, una
+  tool desconocida, un timeout o una negativa del usuario se devuelven al
+  modelo como resultado fallido; nunca llegan al usuario como crash.
+- **Esquemas**: JSON Schema (validado con un subconjunto: `type`, `required`,
+  `properties`, `enum`, `items`, `additionalProperties: false`) o cualquier
+  validador con `safeParse()`. Con zod v4 se usa su `toJSONSchema()`; si no,
+  pasa `jsonSchema` a mano.
+- **Confirmación humana** (`confirm: true`): el autoresponder pregunta al
+  usuario dentro de una conversación del runtime y devuelve la cola FIFO del
+  chat, así que la respuesta llega sin bloqueos. `/reset` o el timeout
+  cancelan el turno en silencio. Dentro de tu propia conversación usa
+  `confirmWith(c)`:
+
+  ```ts
+  bot.conversation('soporte', async (c, ctx) => {
+    const texto = await c.ask('¿En qué te ayudo?')
+    await ctx.reply(await ctx.tools.ai.replyInChat(chatKeyOf(ctx), texto, { ctx, confirm: confirmWith(c) }))
+  })
+  ```
+
+  Sin confirmador (p. ej. `ctx.tools.ai.ask()` suelto), las tools
+  `confirm: true` se deniegan.
+- **Auditoría**: `bot.on('ai.tool', (e) => ...)` u `onToolEvent` reciben
+  `tool.call`, `tool.confirm.*`, `tool.result`, `tool.error`, `tool.timeout`,
+  `tool.invalid_args`, `tool.unknown` y `loop.max_steps`, con `step`,
+  `callId`, `chatKey` y `durationMs`. Los eventos incluyen `args`: trátalos
+  como datos personales. El logger solo registra metadatos.
+- El historial persistido sigue siendo texto plano usuario/asistente; los
+  turnos intermedios de tools no se guardan. El streaming no usa tools.
+
+Para tests, `MockAIProvider` acepta turnos con llamadas a tools:
+
+```ts
+new MockAIProvider({
+  reply: (input) => input.messages.at(-1)?.role === 'tool'
+    ? 'Listo'
+    : { toolCalls: [{ name: 'buscar_producto', args: { q: 'pan' } }] },
+})
+```
 
 ## `/reset` y `slashCommandsPlugin`
 
@@ -283,7 +362,6 @@ const respuesta = await client.ask('¿qué hora es?')
 No-objetivos de esta primera versión, ya contemplados en el diseño de
 `AIProvider`/`ContextManager` para poder añadirlos después sin romper la API:
 
-- **Function/tool calling** — que la IA pueda ejecutar acciones del bot.
 - **Auto-summarize / compaction** del historial (en vez de recortar por
   ventana fija de mensajes).
 - RAG / embeddings.

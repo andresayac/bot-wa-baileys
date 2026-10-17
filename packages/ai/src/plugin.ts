@@ -13,6 +13,11 @@
  * Unless disabled it also registers a catch-all autoresponder (`onMessage`,
  * text-only) and a `/reset` command that clears the chat's AI context.
  *
+ * With `tools`, the model can call bot functions natively (multi-step loop with
+ * `maxSteps`, per-tool timeout, errors fed back to the model, audit events on
+ * `bot.on('ai.tool')`). `confirm: true` tools ask the user first through a
+ * runtime conversation, so the chat's FIFO queue is never blocked while waiting.
+ *
  * @example
  * ```ts
  * import { aiPlugin } from '@bot-wa/ai'
@@ -28,6 +33,8 @@ import { AIClient } from './AIClient.js'
 import { resolveProvider } from './providers/resolve.js'
 import { LazyProvider } from './providers/LazyProvider.js'
 import { chatKeyOf } from './chatKey.js'
+import { AIToolCancelledError, type AIToolEvent } from './tools/types.js'
+import { suspendingConfirmer } from './tools/autoreplyConfirm.js'
 
 /** Public config for {@link aiPlugin}. */
 export type AIPluginConfig = AIConfig & {
@@ -37,6 +44,7 @@ export type AIPluginConfig = AIConfig & {
 
 const DEFAULT_ERROR_MESSAGE = '⚠️ Ahora no puedo responder, intenta luego.'
 const DEFAULT_RESET_REPLY = '✅ Conversación reiniciada.'
+const DEFAULT_CONFIRM_TIMEOUT = '2m'
 
 export function aiPlugin(config: AIPluginConfig = {}): PluginSpec<AIPluginConfig> {
   return definePlugin<AIPluginConfig>({
@@ -56,6 +64,16 @@ export function aiPlugin(config: AIPluginConfig = {}): PluginSpec<AIPluginConfig
         effort: cfg.effort,
         refusalMessage: cfg.refusalMessage,
         timeoutMs: cfg.timeoutMs,
+        tools: cfg.tools,
+        maxSteps: cfg.maxSteps,
+        toolTimeoutMs: cfg.toolTimeoutMs,
+        maxStepsMessage: cfg.maxStepsMessage,
+        onToolEvent: (event: AIToolEvent) => {
+          // Audit trail: metadata only in the log (no args / results), full event to sinks.
+          ctx.logger.debug({ tool: event.tool, type: event.type, step: event.step, durationMs: event.durationMs }, 'ai tool event')
+          bot.emit('ai.tool', event)
+          cfg.onToolEvent?.(event)
+        },
       })
       bot.provide('ai', client)
       // Remove the injected tool on unplug so `ctx.tools.ai` doesn't outlive the plugin.
@@ -68,14 +86,27 @@ export function aiPlugin(config: AIPluginConfig = {}): PluginSpec<AIPluginConfig
         bot.onMessage(async (mctx: MessageContext) => {
           if (mctx.type !== 'text' || !mctx.body) return
           const key = chatKeyOf(mctx)
-          try {
-            if (cfg.humanizeTyping !== false) await mctx.typing()
-            const text = await client.replyInChat(key, mctx.body)
-            await mctx.reply(text)
-          } catch (err) {
-            ctx.logger.warn({ err }, 'ai autoreply failed')
-            await mctx.reply(errorMessage)
-          }
+          const body = mctx.body
+          // With tools, a `confirm: true` call must wait for the user's answer. That wait
+          // happens in a runtime conversation, so the turn may outlive this handler: race
+          // the turn against "suspended" and return as soon as a confirmation is pending,
+          // releasing the chat's FIFO queue (awaiting here would deadlock it).
+          const confirmer = client.hasTools
+            ? suspendingConfirmer(bot, mctx, { yes: cfg.toolConfirm?.yes, timeout: cfg.toolConfirm?.timeout ?? DEFAULT_CONFIRM_TIMEOUT })
+            : undefined
+          const turn = (async () => {
+            try {
+              if (cfg.humanizeTyping !== false) await mctx.typing()
+              const text = await client.replyInChat(key, body, { ctx: mctx, confirm: confirmer?.confirm })
+              await mctx.reply(text)
+            } catch (err) {
+              // Cancelled confirmation (/reset, timeout): the runtime already answered.
+              if (err instanceof AIToolCancelledError) return
+              ctx.logger.warn({ err }, 'ai autoreply failed')
+              await mctx.reply(errorMessage).catch(() => {})
+            }
+          })()
+          await (confirmer ? Promise.race([turn, confirmer.suspended]) : turn)
         })
       }
 

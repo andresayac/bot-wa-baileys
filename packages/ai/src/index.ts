@@ -2,12 +2,12 @@ import type { AIClient } from './AIClient.js'
 
 export { aiPlugin } from './plugin.js'
 export { AIClient, AITimeoutError } from './AIClient.js'
-export type { AIClientOptions } from './AIClient.js'
+export type { AIClientOptions, AIToolCallOptions } from './AIClient.js'
 export { ContextManager } from './ContextManager.js'
 export type { ConvStore } from './ContextManager.js'
 export { chatKeyOf } from './chatKey.js'
 export { MockAIProvider } from './MockAIProvider.js'
-export type { MockOptions } from './MockAIProvider.js'
+export type { MockOptions, MockTurn } from './MockAIProvider.js'
 export { resolveProvider } from './providers/resolve.js'
 export { AnthropicProvider } from './providers/anthropic.js'
 export { OpenAIProvider } from './providers/openai.js'
@@ -17,7 +17,22 @@ export { GeminiProvider } from './providers/gemini.js'
 export { LazyProvider } from './providers/LazyProvider.js'
 export { PRESETS, isPreset } from './providers/presets.js'
 export type { Preset, PresetName } from './providers/presets.js'
-export type { AIProvider, AIMessage, AIConfig, AIProviderName, GenerateInput, GenerateResult, Effort } from './types.js'
+export type { AIProvider, AIMessage, AIChatMessage, AIConfig, AIProviderName, GenerateInput, GenerateResult, Effort } from './types.js'
+
+// ai-tools — native tool / function calling
+export { defineTool, AIToolCancelledError } from './tools/types.js'
+export type {
+  AITool, AIToolSet, AIToolContext, AIToolDefinition, AIToolCall, AIToolResult, AIToolEvent, AIToolEventType,
+  ToolConfirmer, ToolConfirmRequest, ToolConfirmation, JSONSchema, SafeParseSchema, SafeParseResult, BivariantFn,
+} from './tools/types.js'
+export { runToolLoop, defaultConfirmPrompt, DEFAULT_MAX_STEPS, DEFAULT_TOOL_TIMEOUT_MS } from './tools/runner.js'
+export type { ToolLoopOptions, ToolLoopResult } from './tools/runner.js'
+export { toolDefinitions, validateArgs, parametersOf } from './tools/schema.js'
+export type { ArgsValidation } from './tools/schema.js'
+export { confirmWith, isAffirmative, DEFAULT_YES } from './tools/confirm.js'
+export type { ConfirmWithOptions } from './tools/confirm.js'
+export { toGeminiSchema } from './providers/gemini.js'
+export type { OpenAIToolCall } from './providers/openai.js'
 
 /**
  * Augment `@bot-wa/core` so `ctx.tools.ai` is typed as {@link AIClient} in
