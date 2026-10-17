@@ -1,8 +1,8 @@
 /**
  * @bot-wa/hub — in-memory prototype of a tenant-scoped plugin registry.
  *
- * - {@link validateManifest} — checks id, semver, entry path and runtime
- *   major-version compatibility of a {@link PluginManifest}.
+ * - {@link validateManifest} — checks id, semver, entry path and that the
+ *   runtime version satisfies the manifest's `botwa` semver range.
  * - {@link PluginRegistry} — installs validated manifests per tenant and only
  *   enables a plugin once every declared permission has been granted.
  *
@@ -19,6 +19,8 @@
  * ```
  */
 
+import { parseRange, parseVersion, satisfies } from './semver.js'
+
 /** Capability a plugin must declare in its manifest and a tenant must grant. */
 export type PluginPermission =
   | 'messages:read'
@@ -32,11 +34,18 @@ export type PluginPermission =
 export interface PluginManifest {
   /** Lowercase kebab-case id, 2–63 characters. */
   id: string
-  /** Plugin version; must start with `MAJOR.MINOR.PATCH`. */
+  /** Plugin version; a full semver version (`MAJOR.MINOR.PATCH[-pre][+build]`). */
   version: string
-  /** Required BotWA runtime range; only its major version is checked (e.g. `^2.0.0`). */
+  /**
+   * Required BotWA runtime semver range (e.g. `^2.0.0`, `~2.1.0`, `>=2.0.0 <3.0.0`,
+   * `2.x`, `^1.0.0 || ^2.0.0`). Hyphen ranges and the `v` prefix are not supported.
+   */
   botwa: string
-  /** Relative path to the entry module (no `..` segments, no leading `/`). */
+  /**
+   * POSIX relative path to the entry module: `/`-separated, no `..` or empty
+   * segments, no leading `/`, no backslashes, colons (drive letters, URL
+   * schemes) or control characters.
+   */
   entry: string
   /** Permissions the plugin needs; all must be granted before it can be enabled. */
   permissions: readonly PluginPermission[]
@@ -63,7 +72,6 @@ export class PluginManifestError extends Error {
 }
 
 const PLUGIN_ID = /^[a-z0-9][a-z0-9-]{1,62}$/
-const SEMVER_PREFIX = /^\d+\.\d+\.\d+/
 
 /**
  * Validate a manifest against the running BotWA version and return a copy
@@ -74,13 +82,21 @@ export function validateManifest(manifest: PluginManifest, runtimeVersion: strin
   if (!PLUGIN_ID.test(manifest.id)) {
     throw new PluginManifestError('plugin id must be lowercase kebab-case')
   }
-  if (!SEMVER_PREFIX.test(manifest.version)) {
+  if (typeof manifest.version !== 'string' || !parseVersion(manifest.version)) {
     throw new PluginManifestError('plugin version must be semver')
   }
   if (!isRelativeEntry(manifest.entry)) {
     throw new PluginManifestError('plugin entry must be a relative path')
   }
-  if (!satisfiesMajor(runtimeVersion, manifest.botwa)) {
+  const runtime = typeof runtimeVersion === 'string' ? parseVersion(runtimeVersion) : undefined
+  if (!runtime) {
+    throw new PluginManifestError('runtime version must be semver')
+  }
+  const range = parseRange(manifest.botwa)
+  if (!range) {
+    throw new PluginManifestError('invalid botwa range')
+  }
+  if (!satisfies(runtime, range)) {
     throw new PluginManifestError('plugin is incompatible with this BotWA runtime')
   }
   return { ...manifest, permissions: [...new Set(manifest.permissions)] }
@@ -139,15 +155,19 @@ export class PluginRegistry {
   }
 }
 
-function isRelativeEntry(entry: string): boolean {
-  return !!entry && !entry.includes('..') && !entry.startsWith('/')
-}
-
-/** `true` when the runtime's leading major equals the first number found in `range`. */
-function satisfiesMajor(runtime: string, range: string): boolean {
-  const runtimeMajor = runtime.match(/^(\d+)/)?.[1]
-  const required = range.match(/\^?(\d+)/)?.[1]
-  return !!runtimeMajor && !!required && runtimeMajor === required
+/**
+ * `true` for a POSIX relative path that stays inside the plugin package: no
+ * absolute or drive/UNC paths, URLs, backslashes, control characters, empty
+ * segments or `..` segments. Names merely containing dots (`a..b.js`) are fine.
+ */
+function isRelativeEntry(entry: unknown): boolean {
+  if (typeof entry !== 'string' || !entry.trim()) return false
+  // Backslashes, colons (drive letters, URL schemes, NTFS streams) and control characters.
+  if (/[\\:\u0000-\u001f\u007f]/.test(entry)) return false
+  if (entry.startsWith('/')) return false
+  const segments = entry.split('/')
+  if (segments.some((segment) => segment === '' || segment === '..')) return false
+  return segments[segments.length - 1] !== '.'
 }
 
 /** Tenant-scoped map key (NUL-separated, so equal ids in different tenants never collide). */

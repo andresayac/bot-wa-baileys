@@ -16,6 +16,20 @@ const deliveries = planner.plan(
   { id: 'sale', tenantId: 'acme', requiredTags: ['vip'] },
   [{ id: 'person-1', tenantId: 'acme', channel: 'whatsapp', optedIn: true, tags: ['vip'] }],
 )
+
+for (const delivery of deliveries) {
+  if (delivery.state !== 'queued') continue
+  try {
+    await send(delivery.recipientId)
+    planner.markSent(delivery.deliveryId!)
+  } catch (error) {
+    planner.markFailed(delivery.deliveryId!, String(error))
+  }
+}
 ```
 
-`CampaignPlanner.plan()` devuelve envíos `queued` y descartes explicables (`opt_out`, `segment`, `duplicate`). Un worker durable debe consumir los `queued` y registrar los resultados reales de envío.
+`CampaignPlanner.plan()` devuelve envíos `queued` (con `deliveryId`) y descartes explicables (`opt_out`, `segment`, `duplicate`, `limit`). La planificación está separada del envío: el worker informa del resultado real con `markSent(deliveryId)` o `markFailed(deliveryId, error?)`.
+
+- `maxPerRecipient` (entero ≥ 0, por defecto `1`) cuenta solo los envíos confirmados con `markSent`. Un envío `queued` reserva su hueco hasta que se resuelve (así un re-plan no duplica envíos) y `markFailed` lo libera.
+- `maxPerRecipient: 0` pausa la campaña: los destinatarios elegibles se descartan con `limit`, no con `duplicate`.
+- `sentCount(tenantId, campaignId, recipientId)` devuelve los envíos confirmados.

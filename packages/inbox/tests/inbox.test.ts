@@ -48,7 +48,7 @@ describe('MemoryInbox', () => {
   it('bumps the version on every write and keeps unread unless provided', () => {
     const inbox = new MemoryInbox()
     const first = inbox.upsert({ tenantId: 'a', id: 'c', status: 'open', handoff: false, unread: 3 })
-    const second = inbox.upsert({ tenantId: 'a', id: 'c', status: 'pending', handoff: false })
+    const second = inbox.upsert({ tenantId: 'a', id: 'c', status: 'pending', handoff: false }, first.version)
 
     expect(first.version).toBe(1)
     expect(second).toMatchObject({ version: 2, unread: 3, status: 'pending' })
@@ -100,5 +100,65 @@ describe('MemoryInbox', () => {
       tenantId: 'acme',
       unread: 1,
     })
+  })
+
+  it('requires the current version to upsert an existing conversation', () => {
+    const inbox = new MemoryInbox()
+    const created = inbox.upsert({ tenantId: 'a', id: 'c', status: 'open', handoff: false })
+    const handedOff = inbox.handoff('a', 'c', true, created.version)
+
+    // Without a version, or with a stale one, upsert must not clobber the handoff.
+    expect(() => inbox.upsert({ tenantId: 'a', id: 'c', status: 'open', handoff: false })).toThrow(InboxConflictError)
+    expect(() => inbox.upsert({ tenantId: 'a', id: 'c', status: 'open', handoff: false }, created.version)).toThrow(
+      InboxConflictError,
+    )
+    expect(inbox.get('a', 'c')).toMatchObject({ handoff: true, version: handedOff.version })
+
+    expect(
+      inbox.upsert({ tenantId: 'a', id: 'c', status: 'resolved', handoff: false }, handedOff.version),
+    ).toMatchObject({ status: 'resolved', handoff: false, version: handedOff.version + 1 })
+  })
+
+  it('creates with no version or 0 and rejects a non-zero version for a missing conversation', () => {
+    const inbox = new MemoryInbox()
+
+    expect(() => inbox.upsert({ tenantId: 'a', id: 'c', status: 'open', handoff: false }, 3)).toThrow(InboxConflictError)
+    expect(inbox.get('a', 'c')).toBeUndefined()
+    expect(inbox.upsert({ tenantId: 'a', id: 'c', status: 'open', handoff: false }, 0)).toMatchObject({ version: 1 })
+    // 0 means "create only": a second create loses.
+    expect(() => inbox.upsert({ tenantId: 'a', id: 'c', status: 'open', handoff: false }, 0)).toThrow(InboxConflictError)
+  })
+
+  it('projects a message atomically on top of the latest state', () => {
+    const inbox = new MemoryInbox()
+    const created = inbox.projectMessage(message({ direction: 'inbound' }))
+    const assigned = inbox.assign('local', 'chat-1', 'agent', created.version)
+    const resolved = inbox.upsert(
+      { tenantId: 'local', id: 'chat-1', status: 'resolved', handoff: false, assigneeId: 'agent', slaDueAt: 99 },
+      assigned.version,
+    )
+
+    expect(inbox.projectMessage(message({ direction: 'inbound' }))).toMatchObject({
+      status: 'resolved',
+      assigneeId: 'agent',
+      slaDueAt: 99,
+      unread: 2,
+      version: resolved.version + 1,
+    })
+  })
+
+  it('derives a missing direction from fromMe and rejects messages with neither', () => {
+    const inbox = new MemoryInbox()
+
+    expect(inbox.projectMessage(message({ fromMe: false }))).toMatchObject({ unread: 1 })
+    expect(inbox.projectMessage(message({ fromMe: true }))).toMatchObject({ unread: 1 })
+    // An explicit direction wins over fromMe.
+    expect(inbox.projectMessage(message({ fromMe: true, direction: 'inbound' }))).toMatchObject({ unread: 2 })
+
+    const before = inbox.get('local', 'chat-1')
+    expect(() => inbox.projectMessage(message())).toThrow(/direction/)
+    expect(() => inbox.projectMessage(message({ chatId: 'chat-2' }))).toThrow(/direction/)
+    expect(inbox.get('local', 'chat-1')).toEqual(before)
+    expect(inbox.get('local', 'chat-2')).toBeUndefined()
   })
 })

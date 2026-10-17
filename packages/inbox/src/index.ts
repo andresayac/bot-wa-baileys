@@ -62,21 +62,34 @@ export class InboxConflictError extends Error {
 
 /**
  * In-memory, tenant-isolated inbox. Every read returns a copy, so callers
- * cannot mutate stored state. Mutations other than {@link MemoryInbox.upsert} require
- * the caller's `expectedVersion` and fail with {@link InboxConflictError} on
- * mismatch, which prevents two agents from overwriting each other's handoff.
+ * cannot mutate stored state. Every mutation of an existing conversation
+ * (including {@link MemoryInbox.upsert}) requires the caller's
+ * `expectedVersion` and fails with {@link InboxConflictError} on mismatch,
+ * which prevents two agents from overwriting each other's handoff.
+ * {@link MemoryInbox.projectMessage} applies its increment atomically.
  */
 export class MemoryInbox {
   private readonly conversations = new Map<string, InboxConversation>()
   private readonly notes = new Map<string, InboxNote[]>()
 
   /**
-   * Create or merge a conversation without a version check. `unread` keeps
-   * its previous value (or `0`) when omitted; `version` is bumped.
+   * Create or merge a conversation. `unread` keeps its previous value (or
+   * `0`) when omitted; `version` is bumped.
+   *
+   * Compare-and-set: merging into an existing conversation requires its
+   * current `expectedVersion`, so a stale form cannot overwrite another
+   * agent's handoff or assignment. Creating accepts `expectedVersion`
+   * omitted or `0` (`0` means "create only"). Any mismatch throws
+   * {@link InboxConflictError}.
    */
-  upsert(input: Omit<InboxConversation, 'version' | 'updatedAt' | 'unread'> & { unread?: number }): InboxConversation {
+  upsert(
+    input: Omit<InboxConversation, 'version' | 'updatedAt' | 'unread'> & { unread?: number },
+    expectedVersion?: number,
+  ): InboxConversation {
     const key = conversationKey(input.tenantId, input.id)
     const old = this.conversations.get(key)
+    const conflict = old ? expectedVersion !== old.version : (expectedVersion ?? 0) !== 0
+    if (conflict) throw new InboxConflictError()
     const value = {
       ...old,
       ...input,
@@ -149,19 +162,27 @@ export class MemoryInbox {
    * A missing `tenantId` maps to `'local'`. New conversations start `open`
    * without handoff; existing ones keep status, handoff, assignee and SLA.
    * Inbound messages increment `unread`; outbound ones leave it unchanged.
+   *
+   * The direction comes from `message.direction`, or from `fromMe` when the
+   * ledger entry predates `direction` (`fromMe: true` is outbound). A message
+   * with neither is rejected with a `TypeError` and nothing is written, so
+   * an unknown direction is never silently treated as outbound.
+   *
+   * The projection is atomic against the latest stored state (it only bumps
+   * `unread` and `version`), so it never reverts concurrent agent edits.
    */
   projectMessage(message: StoredMessage): InboxConversation {
+    const direction = messageDirection(message)
     const tenantId = message.tenantId ?? 'local'
-    const existing = this.get(tenantId, message.chatId)
-    return this.upsert({
-      tenantId,
-      id: message.chatId,
-      status: existing?.status ?? 'open',
-      handoff: existing?.handoff ?? false,
-      assigneeId: existing?.assigneeId,
-      slaDueAt: existing?.slaDueAt,
-      unread: (existing?.unread ?? 0) + (message.direction === 'inbound' ? 1 : 0),
-    })
+    const unreadDelta = direction === 'inbound' ? 1 : 0
+    const existing = this.conversations.get(conversationKey(tenantId, message.chatId))
+    if (!existing) {
+      return this.upsert({ tenantId, id: message.chatId, status: 'open', handoff: false, unread: unreadDelta }, 0)
+    }
+    return this.mutate(tenantId, message.chatId, existing.version, (conversation) => ({
+      ...conversation,
+      unread: conversation.unread + unreadDelta,
+    }))
   }
 
   /** Compare-and-set: apply `fn` only when the stored version equals `expected`. */
@@ -179,6 +200,14 @@ export class MemoryInbox {
     this.conversations.set(conversationKey(tenantId, id), value)
     return { ...value }
   }
+}
+
+/** Explicit direction, else derived from `fromMe`; throws when neither is set. */
+function messageDirection(message: StoredMessage): 'inbound' | 'outbound' {
+  if (message.direction === 'inbound' || message.direction === 'outbound') return message.direction
+  if (message.fromMe === true) return 'outbound'
+  if (message.fromMe === false) return 'inbound'
+  throw new TypeError('cannot project a message without direction or fromMe')
 }
 
 function matchesFilter(
