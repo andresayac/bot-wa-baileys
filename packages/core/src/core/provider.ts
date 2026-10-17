@@ -14,6 +14,7 @@
 import type { HandoffConfig, HandoffOptions, StoredHandoff } from '../gates/handoff.js'
 import type { InboundDedupeOptions } from './dedupe.js'
 import type { UserData } from '../user/types.js'
+import type { EditOptions, EditResult, MessagingFeature, MessagingSupport, ReplyOptions, TypingConfig } from './messaging.js'
 
 /* ============================================================================
  * 1. IDENTITY PRIMITIVES  (opaque — no shape grammar)
@@ -572,10 +573,11 @@ export interface MessageContext<TTools extends object = DefaultTools, TRaw = unk
   call?: CallEvent
 
   /* Reply helpers — every reply targets `this.from` (unchanged surface) */
-  say(text: string): Promise<SentMessage>
-  reply(text: string): Promise<SentMessage>
-  answer(text: string): Promise<SentMessage>
-  text(t: string): Promise<SentMessage>
+  /* Text helpers accept {@link ReplyOptions}: `{ typing }` overrides `BotConfig.typing`, `{ delay }` pauses first. */
+  say(text: string, opts?: ReplyOptions): Promise<SentMessage>
+  reply(text: string, opts?: ReplyOptions): Promise<SentMessage>
+  answer(text: string, opts?: ReplyOptions): Promise<SentMessage>
+  text(t: string, opts?: ReplyOptions): Promise<SentMessage>
   photo(source: MediaSource, caption?: string): Promise<SentMessage>
   video(source: MediaSource, caption?: string, opts?: { gifPlayback?: boolean; ptv?: boolean }): Promise<SentMessage>
   audio(source: MediaSource): Promise<SentMessage>
@@ -586,8 +588,23 @@ export interface MessageContext<TTools extends object = DefaultTools, TRaw = unk
   contact(phone: string, displayName?: string): Promise<SentMessage>
   poll(question: string, options: string[], multiSelect?: boolean): Promise<SentMessage>
   buttons(text: string, buttons: Button[]): Promise<SentMessage>
-  react(emoji: string): Promise<SentMessage>
-  quote(text: string): Promise<SentMessage>
+  /**
+   * React to the inbound message (or `target`). On a provider without
+   * `capabilities.reactions` it resolves a `skipped` result instead of rejecting.
+   * An empty `emoji` removes the reaction where the transport supports it.
+   */
+  react(emoji: string, target?: MessageRef): Promise<SentMessage>
+  quote(text: string, opts?: ReplyOptions): Promise<SentMessage>
+  /**
+   * Edit the bot's last message in this chat (`ctx.edit(content)`) or a given one
+   * (`ctx.edit(ref, content)`). Native when the provider has `capabilities.edit` and
+   * `editMessage`; otherwise (or when the kind is not editable there) it falls back
+   * to sending a new message — `{ fallback: 'skip' }` sends nothing instead.
+   */
+  edit(content: string | OutboundContent, opts?: EditOptions): Promise<EditResult>
+  edit(ref: MessageRef, content: string | OutboundContent, opts?: EditOptions): Promise<EditResult>
+  /** How the current provider supports a messaging feature (`native` / `degraded` / `unsupported`). */
+  supports(feature: MessagingFeature): MessagingSupport
   replyWithTyping(text: string, msPerChar?: number): Promise<SentMessage>
   /** Escape hatch for transport-native content (templates, components). */
   sendNative(provider: string, payload: unknown): Promise<SentMessage>
@@ -655,6 +672,14 @@ export interface BuildContextDeps<TRaw = unknown> {
   interaction?: { id: string; data: string; respondBy?: number }
   /** Sender profile exposed as `ctx.user`; when omitted every `ctx.user` call rejects with `UserDataError('UNAVAILABLE')`. */
   user?: UserData
+  /** Paces text replies (delay + typing indicator) around `send`; omitted → sent immediately. */
+  pace?<T>(chatId: ChatId, text: string, opts: ReplyOptions | undefined, send: () => Promise<T>): Promise<T>
+  /** Native edit; omitted → `ctx.edit` degrades to a new send. */
+  editMessage?(ref: MessageRef, content: OutboundContent): Promise<SendResult<TRaw>>
+  /** Latest message the bot sent to `chatId` (target of `ctx.edit(content)`). */
+  lastSent?(chatId: ChatId): MessageRef | undefined
+  /** Support level of a messaging feature; omitted → everything is attempted natively. */
+  supports?(feature: MessagingFeature): MessagingSupport
 }
 
 /* ============================================================================
@@ -883,6 +908,13 @@ export interface BotConfig {
   groupMode?: 'all' | 'mentions' | 'commands'
   /** Human handoff behaviour (escape commands, persistence). See `bot.handoff()`. */
   handoff?: HandoffConfig
+  /**
+   * Automatic typing indicator before every text reply sent through `ctx`
+   * (`reply`/`say`/`answer`/`text`/`quote`, and flow `.say`). `true` enables the
+   * defaults (`{ minMs: 800, maxMs: 3000, charsPerSecond: 20 }`). Disabled by default.
+   * Ignored (no indicator, no wait) on providers without `capabilities.typing`.
+   */
+  typing?: boolean | TypingConfig
   /** Pluggable pacing policy; a transport may also own its own limiter. */
   rateLimit?: unknown
   debug?: boolean

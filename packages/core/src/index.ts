@@ -252,3 +252,29 @@ export { UserDataError } from './user/errors.js'
 export type { UserDataErrorCode } from './user/errors.js'
 export type { UserData, UserSetOptions } from './user/types.js'
 export type { UserDataEntry } from './core/provider.js'
+
+// messaging
+// Automatic typing indicator (BotConfig.typing), reply delays, ctx.edit / ctx.react
+// capability resolution (native / degraded / unsupported).
+export {
+  DEFAULT_TYPING,
+  TYPING_REFRESH_MS,
+  LastSentTracker,
+  createPacer,
+  messagingSupport,
+  normalizeTypingConfig,
+  resolveReplyTyping,
+  typingDuration,
+  parseReplyDelay,
+} from './core/messaging.js'
+export type {
+  TypingConfig,
+  ResolvedTypingConfig,
+  ReplyOptions,
+  EditOptions,
+  EditResult,
+  MessagingFeature,
+  MessagingSupport,
+  Pacer,
+  PacerOptions,
+} from './core/messaging.js'

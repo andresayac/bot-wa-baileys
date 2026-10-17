@@ -16,6 +16,8 @@
 
 import { humanTypingDelay, sleep } from '../utils/timers.js'
 import { unavailableUserData } from '../user/UserDataService.js'
+import { isMessageRef, type EditOptions, type EditResult, type ReplyOptions } from './messaging.js'
+import { UnsupportedContentError } from './provider.js'
 import type {
   BuildContextDeps,
   Button,
@@ -24,6 +26,8 @@ import type {
   MediaRef,
   MediaSource,
   MessageContext as IMessageContext,
+  MessageRef,
+  OutboundContent,
   SendOptions,
   SentMessage,
 } from './provider.js'
@@ -38,6 +42,40 @@ export function buildMessageContext(deps: BuildContextDeps): IMessageContext {
   const sendOut = async (content: Parameters<typeof send>[1], opts?: SendOptions): Promise<SentMessage> => {
     const r = await send(from, content, opts)
     return { ref: r.ref, id: r.ref.id, chatId: r.ref.chatId, raw: r.raw, skipped: r.skipped }
+  }
+
+  // Text replies run through the pacer (delay + typing indicator) when the bot provides one.
+  const sendText = (t: string, opts?: ReplyOptions, sendOpts?: SendOptions): Promise<SentMessage> => {
+    const run = () => sendOut({ kind: 'text', text: t }, sendOpts)
+    return deps.pace ? deps.pace(from, t, opts, run) : run()
+  }
+
+  const skipped = (ref: MessageRef = { id: 'skipped', chatId: from }): SentMessage =>
+    ({ ref, id: ref.id, chatId: ref.chatId, skipped: true })
+
+  const edit = async (
+    a: MessageRef | string | OutboundContent,
+    b?: string | OutboundContent | EditOptions,
+    c?: EditOptions,
+  ): Promise<EditResult> => {
+    const explicit = isMessageRef(a)
+    const target = explicit ? a : deps.lastSent?.(from)
+    const raw = (explicit ? b : a) as string | OutboundContent
+    const opts = (explicit ? c : b as EditOptions | undefined) ?? {}
+    const content: OutboundContent = typeof raw === 'string' ? { kind: 'text', text: raw } : raw
+    const native = deps.editMessage && (deps.supports ? deps.supports('edit') === 'native' : true)
+    if (target && native) {
+      try {
+        const r = await deps.editMessage!(target, content)
+        const ref = r.ref ?? target
+        return { ref, id: ref.id, chatId: ref.chatId, raw: r.raw, edited: true }
+      } catch (error) {
+        if (!(error instanceof UnsupportedContentError)) throw error
+      }
+    }
+    if (opts.fallback === 'skip') return { ...skipped(target), edited: false }
+    const sent = await sendOut(content)
+    return { ...sent, edited: false }
   }
 
   const ctx: IMessageContext = {
@@ -67,10 +105,10 @@ export function buildMessageContext(deps: BuildContextDeps): IMessageContext {
     },
 
     /* Send helpers — build OutboundContent descriptors ------------------- */
-    async say(t: string) { return sendOut({ kind: 'text', text: t }) },
-    async reply(t: string) { return sendOut({ kind: 'text', text: t }) },
-    async answer(t: string) { return sendOut({ kind: 'text', text: t }) },
-    async text(t: string) { return sendOut({ kind: 'text', text: t }) },
+    async say(t: string, opts?: ReplyOptions) { return sendText(t, opts) },
+    async reply(t: string, opts?: ReplyOptions) { return sendText(t, opts) },
+    async answer(t: string, opts?: ReplyOptions) { return sendText(t, opts) },
+    async text(t: string, opts?: ReplyOptions) { return sendText(t, opts) },
     async photo(source: MediaSource, caption?: string) {
       return sendOut({ kind: 'image', media: source, caption })
     },
@@ -97,17 +135,22 @@ export function buildMessageContext(deps: BuildContextDeps): IMessageContext {
     async buttons(text: string, buttons: Button[]) {
       return sendOut({ kind: 'buttons', text, buttons })
     },
-    async react(emoji: string) {
-      return sendOut({ kind: 'reaction', emoji, target: inbound.ref })
+    async react(emoji: string, target?: MessageRef) {
+      // Degrade to a no-op where reactions cannot be sent (Messenger, Instagram).
+      if (deps.supports?.('react') === 'unsupported') return skipped()
+      return sendOut({ kind: 'reaction', emoji, target: target ?? inbound.ref })
     },
-    async quote(t: string) {
-      return sendOut({ kind: 'text', text: t }, { quoted: inbound.ref })
+    async quote(t: string, opts?: ReplyOptions) {
+      return sendText(t, opts, { quoted: inbound.ref })
     },
+    edit,
+    supports(feature) { return deps.supports ? deps.supports(feature) : 'native' },
     async replyWithTyping(t: string, msPerChar = 40) {
       const ms = humanTypingDelay(t, msPerChar)
       await ctx.typing()
       await sleep(ms)
-      return ctx.text(t)
+      // Straight to the send: replyWithTyping already paced itself (no BotConfig.typing on top).
+      return sendOut({ kind: 'text', text: t })
     },
     async sendNative(provider: string, payload: unknown) {
       return sendOut({ kind: 'native', provider, payload })

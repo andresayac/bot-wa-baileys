@@ -66,6 +66,8 @@ import { NamespacedStore, type StoreNamespace } from '../store/NamespacedStore.j
 import type { IStore } from '../store/IStore.js'
 import { Dispatcher, type DispatchContext } from './Dispatcher.js'
 import { buildMessageContext } from './context.js'
+import { LastSentTracker, createPacer, isEditableSend, messagingSupport, normalizeTypingConfig, type Pacer } from './messaging.js'
+import type { BuildContextDeps } from './provider.js'
 import { createInboundDeduper, type InboundDeduper } from './dedupe.js'
 import { ConversationRuntime, type CheckpointStore, type ConversationFn } from '../conversations/ConversationRuntime.js'
 import type { ConversationSnapshot } from '../conversations/ConversationRuntime.js'
@@ -218,6 +220,10 @@ export class Bot extends EventEmitter {
   private handoffs: HandoffRegistry
   /** Serializes this bot's chat upserts per chat (see {@link persistChat}). */
   private chatWrites = new KeyedQueue()
+  /** Latest bot message per chat — target of `ctx.edit(content)`. */
+  private lastSent = new LastSentTracker()
+  /** Delay + typing-indicator pacing for ctx text replies (`BotConfig.typing`). */
+  private pacer: Pacer
 
   constructor(config: BotConfig) {
     super()
@@ -238,6 +244,11 @@ export class Bot extends EventEmitter {
     })
 
     this.hooks = new HookSystem(this.logger.child({ module: 'hooks' }))
+    this.pacer = createPacer({
+      provider: this.provider,
+      typing: normalizeTypingConfig(config.typing),
+      logger: this.logger,
+    })
 
     // Store — injected instance, or the built-in MemoryStore. Every key is
     // namespaced so sharing one backend across bots cannot collide.
@@ -459,6 +470,7 @@ export class Bot extends EventEmitter {
     this.inflightSends.add(op)
     try {
       const res = await op
+      if (isEditableSend(payload.content)) this.lastSent.record(payload.chatId, res.ref)
       await this.hooks.runAfter('send', payload)
       await this.persistOutbound({
         ref: res.ref,
@@ -1243,6 +1255,7 @@ export class Bot extends EventEmitter {
       handoff: (chatId, opts) => this.handoff(chatId, opts),
       interaction,
       user: this.users.for(inbound.senderId),
+      ...this.messagingDeps(),
     })
 
     // Group mode filter.
@@ -1258,6 +1271,16 @@ export class Bot extends EventEmitter {
 
     this.logger.debug({ from: ctx.from, type: ctx.type }, 'dispatching message')
     await this.dispatcher.dispatch(ctx as unknown as DispatchContext)
+  }
+
+  /** Typing/delay pacing, edit and capability seams shared by every context this bot builds. */
+  private messagingDeps(): Pick<BuildContextDeps, 'pace' | 'editMessage' | 'lastSent' | 'supports'> {
+    return {
+      pace: (chatId, text, opts, send) => this.pacer.run(chatId, text, opts, send),
+      editMessage: this.provider.editMessage ? (ref, content) => this.provider.editMessage!(ref, content) : undefined,
+      lastSent: (chatId) => this.lastSent.get(chatId),
+      supports: (feature) => messagingSupport(this.provider, feature),
+    }
   }
 
   /** Run hooks + emit for a provider event. Resolves `false` if a before-hook aborted or it threw. */
@@ -1298,6 +1321,7 @@ export class Bot extends EventEmitter {
       typing: async (chatId, state) => { await this.provider.typing?.(chatId, state) },
       handoff: (chatId, opts) => this.handoff(chatId, opts),
       user: this.users.for(inbound.senderId),
+      ...this.messagingDeps(),
     })
     ctx.call = call
     await this.dispatcher.dispatchEvent(ctx as unknown as DispatchContext)
