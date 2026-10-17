@@ -1,0 +1,11 @@
+{
+  "event": "onreactionmessage",
+  "session": "my-bot",
+  "id": { "fromMe": false, "remote": "573001112233@c.us", "id": "3EB0REACT00000000006", "_serialized": "false_573001112233@c.us_3EB0REACT00000000006" },
+  "msgId": { "fromMe": true, "remote": "573001112233@c.us", "id": "3EB0SENT0000000001", "_serialized": "true_573001112233@c.us_3EB0SENT0000000001" },
+  "reactionText": "👍",
+  "read": false,
+  "orphan": 0,
+  "senderUserJid": "573001112233@c.us",
+  "timestamp": 1760700300
+}

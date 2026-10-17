@@ -1,0 +1,5 @@
+{
+  "status": 400,
+  "error": "Bad Request",
+  "response": { "message": [{ "jid": "570000000000@s.whatsapp.net", "exists": false, "number": "570000000000" }] }
+}

@@ -1,0 +1,15 @@
+{
+  "event": "messages.upsert",
+  "instance": "my-instance",
+  "data": {
+    "key": { "remoteJid": "120363041234567890@g.us", "fromMe": false, "id": "3EB0C0FFEE0000000005", "participant": "184523390222111@lid" },
+    "pushName": "Andrés",
+    "message": { "conversation": "ok" },
+    "messageType": "conversation",
+    "messageTimestamp": 1760700240,
+    "instanceId": "6f1c3a52-6e0b-4d1e-9a0c-0f4d6a7c1b11",
+    "source": "android"
+  },
+  "sender": "573009998877@s.whatsapp.net",
+  "apikey": "B6D711FCDE4D4FD5936544120E713976"
+}

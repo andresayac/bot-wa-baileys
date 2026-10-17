@@ -1,0 +1,19 @@
+{
+  "event": "messages.upsert",
+  "instance": "my-instance",
+  "data": {
+    "key": { "remoteJid": "573001112233@s.whatsapp.net", "fromMe": false, "id": "3EB0A1B2C3D4E5F60718" },
+    "pushName": "Andrés",
+    "status": "DELIVERY_ACK",
+    "message": { "conversation": "hola" },
+    "messageType": "conversation",
+    "messageTimestamp": 1760700000,
+    "instanceId": "6f1c3a52-6e0b-4d1e-9a0c-0f4d6a7c1b11",
+    "source": "android"
+  },
+  "destination": "https://bot.example.com/webhook/evolution",
+  "date_time": "2026-10-17T10:00:00.000Z",
+  "sender": "573009998877@s.whatsapp.net",
+  "server_url": "http://localhost:8080",
+  "apikey": "B6D711FCDE4D4FD5936544120E713976"
+}

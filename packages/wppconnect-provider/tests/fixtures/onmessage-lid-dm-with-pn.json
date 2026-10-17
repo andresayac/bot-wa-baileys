@@ -1,0 +1,15 @@
+{
+  "event": "onmessage",
+  "session": "my-bot",
+  "id": "false_184523390222111@lid_3EB0F00DBABE00000002",
+  "body": "quiero el menú",
+  "type": "chat",
+  "t": 1760700060,
+  "notifyName": "Andrés",
+  "from": "184523390222111@lid",
+  "to": "573009998877@c.us",
+  "chatId": "184523390222111@lid",
+  "fromMe": false,
+  "isGroupMsg": false,
+  "sender": { "id": "184523390222111@lid", "pushname": "Andrés", "phoneNumber": "573001112233@c.us", "isMe": false }
+}

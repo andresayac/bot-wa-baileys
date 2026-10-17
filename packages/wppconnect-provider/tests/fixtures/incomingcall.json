@@ -1,0 +1,10 @@
+{
+  "event": "incomingcall",
+  "session": "my-bot",
+  "id": "C0A1B2C3D4E5F6",
+  "isGroup": false,
+  "isVideo": true,
+  "offerTime": 1760700400,
+  "sender": "573001112233@c.us",
+  "peerJid": "573001112233@c.us"
+}

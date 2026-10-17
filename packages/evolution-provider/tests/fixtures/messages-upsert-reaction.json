@@ -1,0 +1,11 @@
+{
+  "event": "messages.upsert",
+  "instance": "my-instance",
+  "data": {
+    "key": { "remoteJid": "573001112233@s.whatsapp.net", "fromMe": false, "id": "3EB0REACT00000000006" },
+    "pushName": "Andrés",
+    "message": { "reactionMessage": { "key": { "remoteJid": "573001112233@s.whatsapp.net", "fromMe": true, "id": "BAE5SENT0000000001" }, "text": "👍", "senderTimestampMs": "1760700300000" } },
+    "messageType": "reactionMessage",
+    "messageTimestamp": 1760700300
+  }
+}

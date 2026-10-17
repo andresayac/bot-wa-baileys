@@ -1,0 +1,5 @@
+{
+  "event": "qrcode.updated",
+  "instance": "my-instance",
+  "data": { "qrcode": { "instance": "my-instance", "pairingCode": null, "code": "2@AbCdEf123,xyz,abc,def", "base64": "data:image/png;base64,iVBORw0KGgo=" } }
+}
