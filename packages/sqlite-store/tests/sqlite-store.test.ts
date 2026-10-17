@@ -2,17 +2,19 @@
  * SQLiteStore — unit tests (v2 IStore).
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { existsSync, unlinkSync } from 'fs'
+import { existsSync, mkdtempSync, rmSync, unlinkSync } from 'fs'
+import { tmpdir } from 'os'
+import { join } from 'path'
 import { SQLiteStore } from '../src/SQLiteStore.js'
 import type { FlowCheckpoint, StoredMessage } from '@bot-wa/core'
 
-const TEST_DB = './test-sqlite-store.db'
+// Each test gets its own temp directory: on Windows a just-closed SQLite file can stay
+// locked for a moment (EBUSY), so reusing one fixed path made the suite flaky.
+let dir = ''
+let TEST_DB = ''
 
 function cleanup() {
-  for (const suffix of ['', '-wal', '-shm']) {
-    const f = TEST_DB + suffix
-    if (existsSync(f)) unlinkSync(f)
-  }
+  if (dir) rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 })
 }
 
 const msg = (chatId: string, id: string, body: string, ts: number): StoredMessage => ({
@@ -22,7 +24,7 @@ const msg = (chatId: string, id: string, body: string, ts: number): StoredMessag
 describe('SQLiteStore', () => {
   let store: SQLiteStore
 
-  beforeEach(async () => { cleanup(); store = new SQLiteStore({ file: TEST_DB }); await store.start() })
+  beforeEach(async () => { dir = mkdtempSync(join(tmpdir(), 'botwa-sqlite-')); TEST_DB = join(dir, 'test.db'); store = new SQLiteStore({ file: TEST_DB }); await store.start() })
   afterEach(async () => { await store.stop(); cleanup() })
 
   it('saves and retrieves a message', async () => {
