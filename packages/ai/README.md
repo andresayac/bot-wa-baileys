@@ -278,6 +278,61 @@ const respuesta = await client.ask('¿qué hora es?')
 // respuesta === 'hola desde el mock'
 ```
 
+## Memoria a largo plazo por usuario
+
+Con `memory`, el plugin recuerda hechos de cada persona entre conversaciones y
+reinicios. Se guardan en el perfil persistente `ctx.user` (namespace
+`'ai.memory'`, clave `facts`), por `ctx.sender`: la misma persona comparte
+memoria entre su chat privado y los grupos.
+
+```ts
+bot.plug(aiPlugin({
+  provider: 'openai',
+  memory: {
+    maxFacts: 50,        // se descartan los más antiguos
+    ttl: '90d',          // cada hecho caduca a los 90 días (re-afirmarlo lo renueva)
+    autoExtract: true,   // tras cada respuesta, el modelo extrae hechos (JSON estricto)
+  },
+}))
+
+bot.when('qué sabes de mí', async (ctx) => {
+  const facts = await ctx.tools.ai.memory(ctx.sender)
+  // → ['Prefiere atención en español', 'Es de Bogotá']
+  await ctx.reply(facts.join('\n') || 'Aún nada')
+})
+
+await bot.injectTools.ai.remember(userId, 'Cliente VIP')  // a mano
+await bot.injectTools.ai.forget(userId, 'Cliente VIP')    // uno
+await bot.injectTools.ai.forget(userId)                   // todos
+await bot.deleteSubject(userId)                           // derecho al olvido: borra también la memoria
+```
+
+`autoExtract` corre **en segundo plano** (no bloquea la cola del chat) y solo
+acepta exactamente `{"facts": string[]}`; cualquier otra respuesta se descarta.
+Admite `{ model, maxTokens, maxFactsPerTurn, instructions, filter }`. `/reset`
+borra el contexto del chat, no la memoria a largo plazo.
+
+## RAG (respuestas con tus documentos)
+
+`rag` acepta cualquier objeto con `retrieve(query)`; el paquete
+[`@bot-wa/rag`](../rag) trae uno listo (loaders, chunking, embeddings e índice):
+
+```ts
+import { createRag } from '@bot-wa/rag'
+
+bot.plug(aiPlugin({
+  provider: 'openai',
+  rag: {
+    retriever: createRag({ documents: ['./docs/faq.md', './docs/productos.pdf'], embeddings: 'openai', chunkSize: 1000, topK: 3 }),
+    appendSources: true, // añade "Fuentes: faq.md › Envíos" a la respuesta
+  },
+}))
+```
+
+Los pasajes se inyectan numerados en el prompt de sistema y el modelo cita con
+`[1]`. `ctx.tools.ai.replyInChatDetailed()` devuelve además `citations` y
+`facts`. Si la recuperación falla, se registra y la respuesta sigue sin contexto.
+
 ## Roadmap
 
 No-objetivos de esta primera versión, ya contemplados en el diseño de
@@ -286,7 +341,6 @@ No-objetivos de esta primera versión, ya contemplados en el diseño de
 - **Function/tool calling** — que la IA pueda ejecutar acciones del bot.
 - **Auto-summarize / compaction** del historial (en vez de recortar por
   ventana fija de mensajes).
-- RAG / embeddings.
 - Multi-persona por número.
 
 ## Más documentación
