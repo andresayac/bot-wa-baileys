@@ -35,8 +35,12 @@ import type {
   StoredChat,
   StoredContact,
   StoredMessage,
+  UserDataEntry,
+  UserId,
 } from '@bot-wa/core'
 import { messageKey } from '@bot-wa/core'
+import { RedisUserData } from './userData.js'
+import { escapeGlob } from './glob.js'
 
 /** Lua compare-and-delete: only DEL the lock if the token still matches. */
 const RELEASE_LOCK_SCRIPT = `
@@ -170,15 +174,6 @@ function toStr(value: string | Buffer | null | undefined): string {
 }
 
 /**
- * Escape Redis glob metacharacters so `KEYS` matches a namespace literally.
- * Without it a prefix such as `bot[1]` matched `bot1:…` keys (another
- * tenant's) and missed its own, and a `*` in a prefix matched any sibling.
- */
-function escapeGlob(literal: string): string {
-  return literal.replace(/[*?[\]\\]/g, '\\$&')
-}
-
-/**
  * Unwrap node-redis' ReconnectStrategyError so start() rejects with the socket
  * error itself (e.g. `code: 'ECONNREFUSED'`), not the strategy wrapper.
  */
@@ -206,6 +201,7 @@ export class RedisStore implements IStore {
   private connecting?: Promise<void>
   /** Tail of the pending read-merge-write chain per record key (see {@link mergeRecord}). */
   private readonly mergeChains = new Map<string, Promise<void>>()
+  private readonly userData: RedisUserData
 
   constructor(opts: RedisStoreOptions = {}) {
     this.prefix = opts.prefix ?? 'botwa'
@@ -227,6 +223,7 @@ export class RedisStore implements IStore {
     // subset used here matches at runtime, so narrow at the boundary.
     this.client = (opts.client ?? this.createOwnClient(opts.url ?? 'redis://localhost:6379')) as RedisLikeClient
     this.ownsClient = !opts.client
+    this.userData = new RedisUserData(this.client, this.prefix)
   }
 
   private createOwnClient(url: string): NativeRedisClient {
@@ -254,6 +251,7 @@ export class RedisStore implements IStore {
    *   {prefix}:conv:{key}               JSON AIMessage[]      (ttl-aware)
    *   {prefix}:cursor:{key}             string
    *   {prefix}:lock:{key}               token (SET NX PX)
+   *   {prefix}:ud:{user}:{ns}:{key}     JSON user-data entry (native PX expiry; segments percent-encoded)
    * ---------------------------------------------------------------------- */
 
   private msgSetKey(chatId: string): string {
@@ -488,6 +486,25 @@ export class RedisStore implements IStore {
   }
   async clearConversation(key: string): Promise<void> {
     await this.client.del(this.conversationKey(key))
+  }
+
+  /* User data (ctx.user) — one key per entry, native expiry --------------- */
+
+  async getUserData(userId: UserId, namespace: string, key: string): Promise<UserDataEntry | undefined> {
+    return this.userData.get(userId, namespace, key, Date.now())
+  }
+  async setUserData(entry: UserDataEntry): Promise<void> {
+    await this.userData.set(entry, Date.now())
+  }
+  async deleteUserData(userId: UserId, namespace?: string, key?: string): Promise<void> {
+    await this.userData.delete(userId, namespace, key)
+  }
+  async listUserData(userId: UserId, namespace?: string): Promise<UserDataEntry[]> {
+    return this.userData.list(userId, namespace, Date.now())
+  }
+  /** Always resolves 0: user-data keys carry a native PX expiry, so Redis removes them itself. */
+  async purgeExpiredUserData(_now?: number): Promise<number> {
+    return 0
   }
 
   /* Distributed lock (building block; the core does not use it yet) -------- */

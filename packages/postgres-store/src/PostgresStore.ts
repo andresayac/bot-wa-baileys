@@ -2,8 +2,9 @@
  * PostgresStore — persistent / distributed {@link IStore} backed by PostgreSQL
  * (node-postgres, `pg`).
  *
- * All state lives in six tables (names optionally namespaced by `tablePrefix`):
- * messages, chats, contacts, checkpoints, conversations and cursors. Documents
+ * All state lives in seven tables (names optionally namespaced by `tablePrefix`):
+ * messages, chats, contacts, checkpoints, conversations, cursors and user_data
+ * (`ctx.user`). Documents
  * are stored as **JSONB**; per-chat message logs are ordered by a dedicated
  * `timestamp BIGINT` column, which makes "last N messages" a plain
  * `ORDER BY timestamp DESC LIMIT n` + reverse. Any number of bot replicas can
@@ -42,8 +43,12 @@ import type {
   StoredChat,
   StoredContact,
   StoredMessage,
+  UserDataEntry,
+  UserId,
 } from '@bot-wa/core'
 import { messageKey } from '@bot-wa/core'
+import { PostgresUserData } from './userData.js'
+import { jsonbSafeString, toJsonb } from './jsonb.js'
 
 /** The slice of a `pg` `QueryResult` this store consumes. */
 export interface PostgresQueryResult {
@@ -95,43 +100,6 @@ export interface PostgresStoreOptions {
 /** tablePrefix is interpolated into SQL identifiers — allow only plain identifiers. */
 const TABLE_PREFIX_RE = /^[A-Za-z_][A-Za-z0-9_]*$/
 
-/* JSONB encoding ------------------------------------------------------------- *
- * PostgreSQL's jsonb rejects two things a JS string can legally hold: U+0000
- * (the `\u0000` escape, SQLSTATE 22P05) and unpaired UTF-16 surrogates (e.g.
- * text truncated mid-emoji, 22P02). A single one anywhere in a message body or
- * raw payload would make the whole write throw, so both are replaced with
- * U+FFFD. Everything else round-trips unchanged.
- * --------------------------------------------------------------------------- */
-
-/** JSON.stringify emits NUL and lone surrogates as `\uXXXX` escapes (never raw). */
-const JSONB_UNSAFE_ESCAPE = /\\u(?:0000|d[89a-f][0-9a-f]{2})/i
-const JSONB_UNSAFE_CHAR = /\u0000|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g
-
-function jsonbSafeString(s: string): string {
-  return s.replace(JSONB_UNSAFE_CHAR, String.fromCharCode(0xfffd))
-}
-
-function jsonbSafeReplacer(_key: string, value: unknown): unknown {
-  if (typeof value === 'string') return jsonbSafeString(value)
-  if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
-    const keys = Object.keys(value)
-    if (keys.some((k) => jsonbSafeString(k) !== k)) {
-      const rec = value as Record<string, unknown>
-      return Object.fromEntries(keys.map((k) => [jsonbSafeString(k), rec[k]]))
-    }
-  }
-  return value
-}
-
-/** Serialize a document for a JSONB parameter (see the note above). */
-function toJsonb(value: unknown): string {
-  const text = JSON.stringify(value)
-  // Fast path: no escape that jsonb could reject. A false positive (a literal
-  // backslash followed by "u0000" in some string) only costs the slow path.
-  if (!JSONB_UNSAFE_ESCAPE.test(text)) return text
-  return JSON.stringify(value, jsonbSafeReplacer)
-}
-
 /**
  * The BIGINT sort key for a message timestamp. `StoredMessage.timestamp` is any
  * JS number, but the column only takes integers (a fractional value was a
@@ -165,6 +133,7 @@ export class PostgresStore implements IStore {
   private readonly logger?: { error?: (...args: unknown[]) => void }
   private pool?: PostgresPoolLike
   private started = false
+  private readonly userData: PostgresUserData
 
   constructor(opts: PostgresStoreOptions = {}) {
     this.connectionString = opts.connectionString ?? 'postgres://localhost:5432/botwa'
@@ -179,6 +148,11 @@ export class PostgresStore implements IStore {
     this.injectedPool = opts.pool as PostgresPoolLike | undefined
     this.pool = this.injectedPool
     this.logger = opts.logger
+    this.userData = new PostgresUserData(
+      <T>(text: string, values?: unknown[]) =>
+        this.query<T>(text, values) as Promise<{ rows: T[]; rowCount?: number | null }>,
+      `${this.prefix}user_data`,
+    )
   }
 
   /* Schema ------------------------------------------------------------------ *
@@ -188,6 +162,8 @@ export class PostgresStore implements IStore {
    *   {prefix}checkpoints   key TEXT PK, cp JSONB
    *   {prefix}conversations key TEXT PK, messages JSONB
    *   {prefix}cursors       key TEXT PK, value TEXT
+   *   {prefix}user_data     (user_id, namespace, key) PK, value TEXT (JSON),
+   *                         expires_at BIGINT NULL (indexed), updated_at BIGINT  — ctx.user
    * -------------------------------------------------------------------------- */
 
   private table(name: 'messages' | 'chats' | 'contacts' | 'checkpoints' | 'conversations' | 'cursors'): string {
@@ -203,6 +179,7 @@ export class PostgresStore implements IStore {
       `CREATE TABLE IF NOT EXISTS ${this.table('checkpoints')} (key TEXT PRIMARY KEY, cp JSONB NOT NULL)`,
       `CREATE TABLE IF NOT EXISTS ${this.table('conversations')} (key TEXT PRIMARY KEY, messages JSONB NOT NULL)`,
       `CREATE TABLE IF NOT EXISTS ${this.table('cursors')} (key TEXT PRIMARY KEY, value TEXT NOT NULL)`,
+      ...this.userData.schemaStatements(),
     ]
   }
 
@@ -400,6 +377,25 @@ export class PostgresStore implements IStore {
   }
   async clearConversation(key: string): Promise<void> {
     await this.query(`DELETE FROM ${this.table('conversations')} WHERE key = $1`, [key])
+  }
+
+  /* User data (ctx.user) — table {prefix}user_data, lazy expiry + purge ---- */
+
+  async getUserData(userId: UserId, namespace: string, key: string): Promise<UserDataEntry | undefined> {
+    return this.userData.get(userId, namespace, key, Date.now())
+  }
+  async setUserData(entry: UserDataEntry): Promise<void> {
+    await this.userData.set(entry)
+  }
+  async deleteUserData(userId: UserId, namespace?: string, key?: string): Promise<void> {
+    await this.userData.delete(userId, namespace, key)
+  }
+  async listUserData(userId: UserId, namespace?: string): Promise<UserDataEntry[]> {
+    return this.userData.list(userId, namespace, Date.now())
+  }
+  /** Delete every expired user-data row (all users); resolves with the count. */
+  async purgeExpiredUserData(now: number = Date.now()): Promise<number> {
+    return this.userData.purge(now)
   }
 
   /* Lifecycle ------------------------------------------------------------------- */

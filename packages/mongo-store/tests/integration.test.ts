@@ -24,6 +24,7 @@ import type { FlowCheckpoint, IStore, StoredChat, StoredContact, StoredMessage }
 import { MongoStore } from '../src/MongoStore.js'
 import type { MongoStoreOptions } from '../src/MongoStore.js'
 import { runStoreConformance } from '../../../test-utils/store-conformance.js'
+import { runUserDataConformance } from '../../../test-utils/user-data-conformance.js'
 
 const MONGO_URL = process.env.BOTWA_TEST_MONGO_URL
 const DB_NAME = `botwa_it_${randomUUID().replace(/-/g, '').slice(0, 12)}`
@@ -79,6 +80,25 @@ describe.skipIf(!MONGO_URL)('MongoStore — real MongoDB integration', () => {
       const { store } = await makeStore()
       return { store, teardown: () => store.stop() }
     },
+  })
+
+  runUserDataConformance('MongoStore (real MongoDB)', {
+    async make() {
+      const { store } = await makeStore()
+      return { store, teardown: () => store.stop() }
+    },
+  })
+
+  describe('user data (ctx.user)', () => {
+    it('keys with $ and dots, and values with U+0000 or lone surrogates, round-trip exactly', async () => {
+      const { store, prefix } = await makeStore()
+      const value = { $where: 1, 'a.b': 'a\u0000b', lone: 'x\ud83d' }
+      await store.setUserData({ userId: 'u.$x', namespace: 'n.s', key: '$k', value, updatedAt: 1 })
+      expect((await store.getUserData('u.$x', 'n.s', '$k'))?.value).toEqual(value)
+      const raw = await collection(prefix, 'user_data').findOne({})
+      expect(nullPaths(raw)).toEqual(['$.expiresAt']) // only the explicit "no expiry" marker
+      await store.stop()
+    })
   })
 
   /* Schema / indexes ------------------------------------------------------- */

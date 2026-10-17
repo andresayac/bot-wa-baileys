@@ -29,12 +29,13 @@ import type { AIMessage, FlowCheckpoint, StoredMessage } from '@bot-wa/core'
 import { MysqlStore } from '../src/MysqlStore.js'
 import type { MysqlQueryResult, MysqlStoreOptions, PoolLike } from '../src/MysqlStore.js'
 import { runStoreConformance } from '../../../test-utils/store-conformance.js'
+import { runUserDataConformance } from '../../../test-utils/user-data-conformance.js'
 import { FakePool } from './fakePool.js'
 
 const MYSQL_URL = process.env.BOTWA_TEST_MYSQL_URL?.trim() ?? ''
 const enabled = MYSQL_URL !== ''
 
-const TABLES = ['messages', 'chats', 'contacts', 'checkpoints', 'conversations', 'cursors'] as const
+const TABLES = ['messages', 'chats', 'contacts', 'checkpoints', 'conversations', 'cursors', 'user_data'] as const
 
 /** Unique per process run; every store gets `${RUN}_${n}_` as its table prefix. */
 const RUN = `it${Date.now().toString(36)}${randomBytes(3).toString('hex')}`
@@ -102,10 +103,48 @@ describe.skipIf(!enabled)('MysqlStore — real MySQL integration', () => {
     },
   })
 
+  runUserDataConformance('MysqlStore (real MySQL)', {
+    async make() {
+      const { store, teardown } = await makeStore()
+      return { store, teardown }
+    },
+  })
+
+  describe('user data (ctx.user)', () => {
+    it('user_data keys are byte-exact VARBINARY on InnoDB, like the other tables', async () => {
+      const { prefix, teardown } = await makeStore()
+      try {
+        const [cols] = await admin.query<RowDataPacket[]>(
+          'SELECT COLUMN_NAME AS col, DATA_TYPE AS type FROM information_schema.COLUMNS ' +
+            "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME IN ('user_id', 'namespace', 'key') ORDER BY COLUMN_NAME",
+          [`${prefix}user_data`],
+        )
+        expect(cols.map((r) => [String(r.col), String(r.type)])).toEqual([['key', 'varbinary'], ['namespace', 'varbinary'], ['user_id', 'varbinary']])
+        const [tables] = await admin.query<RowDataPacket[]>(
+          'SELECT ENGINE AS engine FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?',
+          [`${prefix}user_data`],
+        )
+        expect(String(tables[0]?.engine)).toBe('InnoDB')
+      } finally {
+        await teardown()
+      }
+    })
+
+    it('a value with a lone surrogate is stored like the JSON columns (toJson → U+FFFD)', async () => {
+      const { store, teardown } = await makeStore()
+      try {
+        await store.setUserData({ userId: 'u', namespace: 'default', key: 'k', value: { lone: 'x\ud83d', ok: '👍' }, updatedAt: 1 })
+        expect((await store.getUserData('u', 'default', 'k'))?.value).toEqual({ lone: 'x' + String.fromCharCode(0xfffd), ok: '👍' })
+      } finally {
+        await teardown()
+      }
+    })
+  })
+
   /* Schema provisioning ------------------------------------------------------ */
 
   describe('schema', () => {
-    it('provisions the six tables and the (chat_id, timestamp) index idempotently', async () => {
+    it('provisions the seven tables and the (chat_id, timestamp) index idempotently', async () => {
       const { store, prefix, teardown } = await makeStore()
       try {
         await store.saveMessage(msg('c', 'm1', 'survives re-provisioning', 1))
@@ -536,12 +575,18 @@ describe('MysqlStore — real-server regressions (hermetic pins)', () => {
     const store = new MysqlStore({ pool: fake })
     await store.start()
     const ddl = fake.queries.map((q) => q.sql).filter((s) => s.startsWith('CREATE TABLE IF NOT EXISTS'))
-    expect(ddl).toHaveLength(6)
+    expect(ddl).toHaveLength(7)
     for (const sql of ddl) {
       expect(sql).not.toMatch(/VARCHAR/i)
-      expect(sql).toMatch(/(id|`key`) VARBINARY\(1024\) NOT NULL PRIMARY KEY/)
       expect(sql).toMatch(/ENGINE=InnoDB DEFAULT CHARSET=utf8mb4$/)
     }
+    // The six state tables key on one id; user_data (ctx.user) on a composite VARBINARY key.
+    const stateDdl = ddl.filter((s) => !s.includes('user_data'))
+    expect(stateDdl).toHaveLength(6)
+    for (const sql of stateDdl) expect(sql).toMatch(/(id|`key`) VARBINARY\(1024\) NOT NULL PRIMARY KEY/)
+    const userDataDdl = ddl.find((s) => s.includes('user_data'))
+    expect(userDataDdl).toMatch(/user_id VARBINARY\(1024\) NOT NULL/)
+    expect(userDataDdl).toMatch(/PRIMARY KEY \(user_id, namespace, `key`\)/)
     const messagesDdl = ddl.find((s) => s.includes('`messages`'))
     expect(messagesDdl).toMatch(/chat_id VARBINARY\(1024\) NOT NULL/)
     expect(messagesDdl).toMatch(/KEY chat_ts \(chat_id, timestamp\)/)

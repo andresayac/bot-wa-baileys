@@ -244,3 +244,11 @@ export type { ConversationSnapshot } from './conversations/ConversationRuntime.j
 // contract helpers live under '@bot-wa/core/testing'.
 export { InboundDeduper, createInboundDeduper, inboundDedupeKey, DEFAULT_DEDUPE_SIZE } from './core/dedupe.js'
 export type { InboundDedupeOptions, InboundDeduperOptions, InboundDedupeKey } from './core/dedupe.js'
+
+// ctx-user
+export { UserDataService, userOf, supportsUserData, DEFAULT_USER_NAMESPACE } from './user/UserDataService.js'
+export type { UserDataServiceOptions } from './user/UserDataService.js'
+export { UserDataError } from './user/errors.js'
+export type { UserDataErrorCode } from './user/errors.js'
+export type { UserData, UserSetOptions } from './user/types.js'
+export type { UserDataEntry } from './core/provider.js'

@@ -20,13 +20,14 @@ import pg from 'pg'
 import { MemoryStore, type FlowCheckpoint, type StoredChat, type StoredContact, type StoredMessage } from '@bot-wa/core'
 import { PostgresStore, type PostgresStoreOptions } from '../src/PostgresStore.js'
 import { runStoreConformance } from '../../../test-utils/store-conformance.js'
+import { runUserDataConformance } from '../../../test-utils/user-data-conformance.js'
 
 const URL = process.env.BOTWA_TEST_POSTGRES_URL
 
 /** U+FFFD REPLACEMENT CHARACTER (what jsonb-unsafe characters are stored as). */
 const FFFD = String.fromCharCode(0xfffd)
 
-const TABLES = ['messages', 'chats', 'contacts', 'checkpoints', 'conversations', 'cursors'] as const
+const TABLES = ['messages', 'chats', 'contacts', 'checkpoints', 'conversations', 'cursors', 'user_data'] as const
 
 const msg = (chatId: string, id: string, body: string, ts: number, extra?: Partial<StoredMessage>): StoredMessage => ({
   ref: { id, chatId }, chatId, senderId: chatId, timestamp: ts, type: 'text', body, fromMe: false, ...extra,
@@ -114,10 +115,29 @@ describe.skipIf(!URL)('PostgresStore — real PostgreSQL integration', () => {
     },
   })
 
+  runUserDataConformance('PostgresStore (real PostgreSQL)', {
+    async make() {
+      const store = new PostgresStore({ connectionString, tablePrefix: nextPrefix() })
+      await store.start()
+      return { store, teardown: () => store.stop() }
+    },
+  })
+
+  describe('user data (ctx.user)', () => {
+    it('stores values with U+0000 and lone surrogates like every other document (toJsonb → U+FFFD)', async () => {
+      const store = makeStore()
+      await store.start()
+      const value = { nul: 'a\u0000b', lone: 'x\ud83d', ok: '👍', 'k\u0000': 1 }
+      await store.setUserData({ userId: 'u', namespace: 'default', key: 'k', value, updatedAt: 1 })
+      const got = await store.getUserData('u', 'default', 'k')
+      expect(got?.value).toEqual({ nul: `a${FFFD}b`, lone: `x${FFFD}`, ok: '👍', [`k${FFFD}`]: 1 })
+    })
+  })
+
   /* (b) Store-specific behaviour ---------------------------------------------- */
 
   describe('schema', () => {
-    it('creates the six tables and the (chat_id, timestamp) index', async () => {
+    it('creates the seven tables and the (chat_id, timestamp) index', async () => {
       const store = makeStore()
       await store.start()
       const prefix = prefixOf(store)

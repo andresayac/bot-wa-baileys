@@ -24,8 +24,11 @@ import type {
   StoredChat,
   StoredContact,
   StoredMessage,
+  UserDataEntry,
+  UserId,
 } from '@bot-wa/core'
 import { messageKey } from '@bot-wa/core'
+import { SqliteUserData } from './userData.js'
 
 export interface SQLiteStoreOptions {
   /** Path to the SQLite database file. Default: './bot.db' */
@@ -45,6 +48,7 @@ export class SQLiteStore implements IStore {
   private db: BetterSqlite3.Database
   private readonly maxMessagesPerChat?: number
   private readonly logger?: { error?: (...args: unknown[]) => void }
+  private readonly userData: SqliteUserData
 
   constructor(opts: SQLiteStoreOptions = {}) {
     this.logger = opts.logger
@@ -61,6 +65,7 @@ export class SQLiteStore implements IStore {
     if (opts.wal !== false) this.db.pragma('journal_mode = WAL')
     this.db.pragma('synchronous = NORMAL')
     this.migrate()
+    this.userData = new SqliteUserData(this.db)
   }
 
   private migrate(): void {
@@ -195,6 +200,25 @@ export class SQLiteStore implements IStore {
   }
   async clearConversation(key: string): Promise<void> {
     this.db.prepare('DELETE FROM conversations WHERE key = ?').run(key)
+  }
+
+  /* User data (ctx.user) — table `user_data`, lazy expiry + indexed purge -- */
+
+  async getUserData(userId: UserId, namespace: string, key: string): Promise<UserDataEntry | undefined> {
+    return this.userData.get(userId, namespace, key, Date.now())
+  }
+  async setUserData(entry: UserDataEntry): Promise<void> {
+    this.userData.set(entry)
+  }
+  async deleteUserData(userId: UserId, namespace?: string, key?: string): Promise<void> {
+    this.userData.delete(userId, namespace, key)
+  }
+  async listUserData(userId: UserId, namespace?: string): Promise<UserDataEntry[]> {
+    return this.userData.list(userId, namespace, Date.now())
+  }
+  /** Delete every expired user-data row (all users); resolves with the count. */
+  async purgeExpiredUserData(now: number = Date.now()): Promise<number> {
+    return this.userData.purge(now)
   }
 
   /* Lifecycle ------------------------------------------------------------- */

@@ -15,6 +15,7 @@
  */
 
 import { humanTypingDelay, sleep } from '../utils/timers.js'
+import { unavailableUserData } from '../user/UserDataService.js'
 import type {
   BuildContextDeps,
   Button,
@@ -124,6 +125,8 @@ export function buildMessageContext(deps: BuildContextDeps): IMessageContext {
     /* Dispatch control — `_passed`/`_aborted` are the Dispatcher's flags -- */
     pass() { (ctx as unknown as { _passed?: boolean })._passed = true },
     abort() { (ctx as unknown as { _aborted?: boolean })._aborted = true },
+
+    user: deps.user ?? unavailableUserData(inbound.senderId),
 
     tools: tools as DefaultTools,
   }

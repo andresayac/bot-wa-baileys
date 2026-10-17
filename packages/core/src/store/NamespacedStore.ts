@@ -7,6 +7,7 @@ import type {
   StoredChat,
   StoredContact,
   StoredMessage,
+  UserDataEntry,
   UserId,
 } from '../core/provider.js'
 
@@ -25,6 +26,17 @@ export interface StoreNamespace {
 export class NamespacedStore implements IStore {
   private readonly prefix: string
 
+  /* User data (ctx.user): defined ONLY when the inner store implements the
+   * contract, so `typeof store.getUserData === 'function'` stays an honest
+   * capability check. Subject ids are prefixed like contacts; namespace and key
+   * pass through. `purgeExpiredUserData` is store-wide (expired entries are
+   * logically gone for every bot sharing the backend). */
+  readonly getUserData?: (userId: UserId, namespace: string, key: string) => Promise<UserDataEntry | undefined>
+  readonly setUserData?: (entry: UserDataEntry) => Promise<void>
+  readonly deleteUserData?: (userId: UserId, namespace?: string, key?: string) => Promise<void>
+  readonly listUserData?: (userId: UserId, namespace?: string) => Promise<UserDataEntry[]>
+  readonly purgeExpiredUserData?: (now?: number) => Promise<number>
+
   constructor(
     readonly innerStore: IStore,
     readonly namespace: StoreNamespace,
@@ -35,6 +47,24 @@ export class NamespacedStore implements IStore {
       }
     }
     this.prefix = Object.values(namespace).map(encodeURIComponent).join('|') + '|'
+    this.bindUserData(innerStore)
+  }
+
+  /** Install the namespaced user-data methods when `inner` supports them. */
+  private bindUserData(inner: IStore): void {
+    const { getUserData, setUserData, deleteUserData, listUserData, purgeExpiredUserData } = inner
+    if (!getUserData || !setUserData || !deleteUserData || !listUserData) return
+    const self = this as { -readonly [K in UserDataMethod]: NamespacedStore[K] }
+    const publicEntry = (entry: UserDataEntry): UserDataEntry => ({ ...entry, userId: this.unprefix(entry.userId, 'user') })
+    self.getUserData = async (userId, namespace, key) => {
+      const entry = await getUserData.call(inner, this.user(userId), namespace, key)
+      return entry ? publicEntry(entry) : undefined
+    }
+    self.setUserData = (entry) => setUserData.call(inner, { ...entry, userId: this.user(entry.userId) })
+    self.deleteUserData = (userId, namespace, key) => deleteUserData.call(inner, this.user(userId), namespace, key)
+    self.listUserData = async (userId, namespace) =>
+      (await listUserData.call(inner, this.user(userId), namespace)).map(publicEntry)
+    if (purgeExpiredUserData) self.purgeExpiredUserData = (now) => purgeExpiredUserData.call(inner, now)
   }
 
   private chat(id: ChatId): ChatId { return `${this.prefix}chat|${id}` }
@@ -167,3 +197,5 @@ export class NamespacedStore implements IStore {
   async start(): Promise<void> { await this.innerStore.start() }
   async stop(): Promise<void> { await this.innerStore.stop() }
 }
+
+type UserDataMethod = 'getUserData' | 'setUserData' | 'deleteUserData' | 'listUserData' | 'purgeExpiredUserData'

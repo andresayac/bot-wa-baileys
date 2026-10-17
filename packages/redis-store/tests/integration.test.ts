@@ -22,6 +22,7 @@ import { createClient } from 'redis'
 import type { FlowCheckpoint, StoredMessage } from '@bot-wa/core'
 import { RedisStore, type NativeRedisClient, type RedisStoreOptions } from '../src/index.js'
 import { runStoreConformance } from '../../../test-utils/store-conformance.js'
+import { runUserDataConformance } from '../../../test-utils/user-data-conformance.js'
 
 const REDIS_URL = process.env.BOTWA_TEST_REDIS_URL
 const RUN = `botwa-it:${process.pid}-${randomUUID().slice(0, 8)}`
@@ -145,6 +146,14 @@ describe.skipIf(!REDIS_URL)('RedisStore against a real Redis server', { timeout:
         return { store, teardown: () => store.stop() }
       },
     })
+
+    runUserDataConformance('RedisStore (real server, injected client)', {
+      async make() {
+        const store = new RedisStore({ client: admin, prefix: nextPrefix('ud-inj') })
+        await store.start()
+        return { store, teardown: () => store.stop() }
+      },
+    })
   })
 
   describe('conformance — store-owned client', () => {
@@ -158,6 +167,33 @@ describe.skipIf(!REDIS_URL)('RedisStore against a real Redis server', { timeout:
   })
 
   /* Lifecycle ------------------------------------------------------------- */
+
+  describe('user data (ctx.user)', () => {
+    it('a glob-hostile prefix only scans its own user-data keys', async () => {
+      const base = nextPrefix('ud-glob')
+      const hostile = new RedisStore({ client: admin, prefix: `${base}[1]` })
+      const neighbour = new RedisStore({ client: admin, prefix: `${base}1` })
+      await hostile.start()
+      await neighbour.start()
+      await hostile.setUserData({ userId: 'u', namespace: 'default', key: 'a', value: 1, updatedAt: 1 })
+      await neighbour.setUserData({ userId: 'u', namespace: 'default', key: 'b', value: 2, updatedAt: 1 })
+      expect((await hostile.listUserData('u')).map((e) => e.key)).toEqual(['a'])
+      await hostile.deleteUserData('u')
+      expect((await neighbour.listUserData('u')).map((e) => e.key)).toEqual(['b'])
+      expect(await hostile.listUserData('u')).toEqual([])
+    })
+
+    it('an entry with a fractional remaining TTL is written with an integer PX and expires natively', async () => {
+      const prefix = nextPrefix('ud-px')
+      const store = new RedisStore({ client: admin, prefix })
+      await store.start()
+      await store.setUserData({ userId: 'u', namespace: 'default', key: 'k', value: 1, updatedAt: 1, expiresAt: Date.now() + 150.5 })
+      expect((await store.getUserData('u', 'default', 'k'))?.value).toBe(1)
+      await new Promise((r) => setTimeout(r, 300))
+      expect(await admin.keys(`${globLiteral(prefix)}:ud:*`)).toEqual([]) // Redis dropped it (PX), not just hidden
+      expect(await store.listUserData('u')).toEqual([])
+    })
+  })
 
   describe('lifecycle', () => {
     it('start() is idempotent: repeated and concurrent starts open a single connection', async () => {

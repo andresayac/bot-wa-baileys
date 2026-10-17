@@ -16,7 +16,10 @@ import type {
   StoredChat,
   StoredContact,
   StoredMessage,
+  UserDataEntry,
+  UserId,
 } from '../core/provider.js'
+import { MemoryUserDataTable } from './MemoryUserDataTable.js'
 
 /** Minimal logger surface — satisfied by pino and by a bare `console`. */
 export interface MemoryStoreLogger {
@@ -41,6 +44,7 @@ export class MemoryStore implements IStore {
   private checkpoints = new Map<string, FlowCheckpoint>()
   private conversations = new Map<string, AIMessage[]>()
   private cursors = new Map<string, string>()
+  private userData = new MemoryUserDataTable()
   private autoSaveTimer: NodeJS.Timeout | null = null
   /** Serializes persist() calls so a timer save and a stop() save never overlap. */
   private persistQueue: Promise<void> = Promise.resolve()
@@ -64,6 +68,7 @@ export class MemoryStore implements IStore {
         if (data.checkpoints) for (const [k, v] of Object.entries(data.checkpoints)) this.checkpoints.set(k, v as FlowCheckpoint)
         if (data.conversations) for (const [k, v] of Object.entries(data.conversations)) this.conversations.set(k, v as AIMessage[])
         if (data.cursors) for (const [k, v] of Object.entries(data.cursors)) this.cursors.set(k, v as string)
+        this.userData.load(data.userData, Date.now()) // absent in files written before ctx.user
         // Messages are intentionally NOT restored (privacy + size).
       } catch (err) {
         this.opts.logger?.error?.({ err, file: this.opts.file }, 'MemoryStore failed to load file')
@@ -103,6 +108,7 @@ export class MemoryStore implements IStore {
       checkpoints: Object.fromEntries(this.checkpoints),
       conversations: Object.fromEntries(this.conversations),
       cursors: Object.fromEntries(this.cursors),
+      userData: this.userData.snapshot(Date.now()),
     }
     try {
       // Atomic write: serialize to a UNIQUE temp file, then rename over the
@@ -241,5 +247,27 @@ export class MemoryStore implements IStore {
 
   async clearConversation(key: string): Promise<void> {
     this.conversations.delete(key)
+  }
+
+  /* User data (ctx.user) — lazy expiry; persisted in the JSON file -------- */
+
+  async getUserData(userId: UserId, namespace: string, key: string): Promise<UserDataEntry | undefined> {
+    return this.userData.get(userId, namespace, key, Date.now())
+  }
+
+  async setUserData(entry: UserDataEntry): Promise<void> {
+    this.userData.set(entry)
+  }
+
+  async deleteUserData(userId: UserId, namespace?: string, key?: string): Promise<void> {
+    this.userData.delete(userId, namespace, key)
+  }
+
+  async listUserData(userId: UserId, namespace?: string): Promise<UserDataEntry[]> {
+    return this.userData.list(userId, namespace, Date.now())
+  }
+
+  async purgeExpiredUserData(now: number = Date.now()): Promise<number> {
+    return this.userData.purge(now)
   }
 }
