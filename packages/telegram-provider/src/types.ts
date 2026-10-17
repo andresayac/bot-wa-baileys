@@ -121,7 +121,12 @@ export interface TelegramMessageEntity {
 }
 
 export interface TelegramMessage {
+  /** Unique per chat; always 0 for ephemeral messages (Bot API 10.2) — see `ephemeral_message_id`. */
   message_id: number
+  /** Bot API 10.2: id of an ephemeral message inside its chat (message_id is then 0). */
+  ephemeral_message_id?: number
+  /** Set on business_message / edited_business_message updates. */
+  business_connection_id?: string
   message_thread_id?: number
   from?: TelegramUser
   sender_chat?: TelegramChat
@@ -149,7 +154,13 @@ export interface TelegramMessage {
 export interface TelegramCallbackQuery {
   id: string
   from: TelegramUser
+  /**
+   * Present when the button was on a message sent by the bot. May be an
+   * InaccessibleMessage (only chat + message_id, `date` always 0).
+   */
   message?: TelegramMessage
+  /** Present instead of `message` for buttons on messages sent via the bot in inline mode. */
+  inline_message_id?: string
   chat_instance?: string
   data?: string
   game_short_name?: string
@@ -160,6 +171,9 @@ export interface TelegramUpdate {
   message?: TelegramMessage
   edited_message?: TelegramMessage
   channel_post?: TelegramMessage
+  edited_channel_post?: TelegramMessage
+  business_message?: TelegramMessage
+  edited_business_message?: TelegramMessage
   callback_query?: TelegramCallbackQuery
   [key: string]: unknown
 }

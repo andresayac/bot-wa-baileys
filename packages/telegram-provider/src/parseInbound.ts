@@ -4,9 +4,13 @@
  *
  * Identity resolution (done HERE so the core never re-derives it):
  *  - chatId   = String(message.chat.id)  (stable per chat, incl. negative group ids)
- *  - senderId = String(message.from.id), falling back to sender_chat.id
- *    (channel posts acting as sender), then chat.id. All aliasing is collapsed
- *    before emission.
+ *  - senderId = String(message.sender_chat.id) when the message was sent on
+ *    behalf of a chat (its `from` is then a shared placeholder user), else
+ *    String(message.from.id), else chat.id. All aliasing is collapsed before
+ *    emission.
+ *  - ref.id   = String(message_id); `eph:<id>` for ephemeral messages;
+ *    inline_message_id for inline-mode callbacks; `upd:<update_id>` when the
+ *    payload has no addressable message. Never ''. See refs.ts.
  *
  * Timestamps are emitted as epoch MILLISECONDS (Telegram sends seconds).
  */
@@ -17,6 +21,7 @@ import type {
   InboundMessage,
   InboundInteraction,
   MediaRef,
+  MessageRef,
   MessageType,
   SenderInfo,
 } from '@bot-wa/core'
@@ -27,6 +32,13 @@ import type {
   TelegramUpdate,
   TelegramUser,
 } from './types.js'
+
+type TelegramId = number | string
+
+/** A usable Bot API id: a finite number or a non-empty string. */
+function isId(v: unknown): v is TelegramId {
+  return (typeof v === 'number' && Number.isFinite(v)) || (typeof v === 'string' && v !== '')
+}
 
 function chatInfo(chat: TelegramChat): ChatInfo {
   const kind =
@@ -47,8 +59,21 @@ function chatInfo(chat: TelegramChat): ChatInfo {
   }
 }
 
+/** The private chat between the bot and `user` (inline-mode callbacks carry no chat). */
+function userChatInfo(user: TelegramUser): ChatInfo {
+  const name = [user.first_name, user.last_name].filter(Boolean).join(' ') || user.username
+  return {
+    id: String(user.id),
+    kind: 'dm',
+    name: name || undefined,
+    isGroup: false,
+    isBroadcast: false,
+    platformData: { chatType: 'private', username: user.username },
+  }
+}
+
 function senderInfo(user: TelegramUser | undefined, fallbackId: string): SenderInfo {
-  if (!user) return { id: fallbackId }
+  if (!user || !isId(user.id)) return { id: fallbackId }
   const displayName =
     [user.first_name, user.last_name].filter(Boolean).join(' ') || user.username
   return {
@@ -58,6 +83,44 @@ function senderInfo(user: TelegramUser | undefined, fallbackId: string): SenderI
     isBot: user.is_bot,
     platformData: { languageCode: user.language_code },
   }
+}
+
+/**
+ * Who sent `msg`. A message sent on behalf of a chat (anonymous group admin,
+ * linked-channel auto-forward, channel post) carries `sender_chat`; its `from`
+ * is then a shared placeholder user (e.g. GroupAnonymousBot / 777000), so the
+ * chat is the stable identity. Otherwise `from`, else the chat itself.
+ */
+function senderOf(msg: TelegramMessage, chatId: string): SenderInfo {
+  const sc = msg.sender_chat
+  if (sc && isId(sc.id)) {
+    const info = chatInfo(sc)
+    return {
+      id: info.id,
+      displayName: info.name,
+      username: sc.username,
+      isBot: false,
+      platformData: { senderChat: true, chatType: sc.type },
+    }
+  }
+  return senderInfo(msg.from, chatId)
+}
+
+/**
+ * The opaque ref of `msg` (encoding documented in refs.ts), or undefined when
+ * the message carries no addressable id and no `updateId` fallback was given.
+ */
+function messageRef(msg: TelegramMessage, chatId: string, updateId?: number): MessageRef | undefined {
+  const nativeChat = isId(msg.chat?.id) ? msg.chat.id : chatId
+  if (typeof msg.ephemeral_message_id === 'number') {
+    return { id: `eph:${msg.ephemeral_message_id}`, chatId, native: { chat_id: nativeChat, ephemeral_message_id: msg.ephemeral_message_id } }
+  }
+  if (typeof msg.message_id === 'number' && msg.message_id > 0) {
+    return { id: String(msg.message_id), chatId, native: { chat_id: nativeChat, message_id: msg.message_id } }
+  }
+  // No usable id: update_id is unique per Update and repeated on webhook retries.
+  if (updateId != null) return { id: `upd:${updateId}`, chatId, native: { chat_id: nativeChat } }
+  return undefined
 }
 
 function mediaOf(msg: TelegramMessage): { type: MessageType; body: string; media?: MediaRef } {
@@ -106,10 +169,10 @@ function mentionsOf(msg: TelegramMessage): string[] {
   return [...ids]
 }
 
-function toMessage(msg: TelegramMessage, selfId?: string): InboundMessage<TelegramMessage> {
+function toMessage(msg: TelegramMessage, updateId: number, selfId?: string): InboundMessage<TelegramMessage> {
   const chat = chatInfo(msg.chat)
-  const sender = senderInfo(msg.from, msg.sender_chat ? String(msg.sender_chat.id) : chat.id)
   const chatId = chat.id
+  const sender = senderOf(msg, chatId)
   const senderId = sender.id
 
   let type: MessageType
@@ -128,14 +191,17 @@ function toMessage(msg: TelegramMessage, selfId?: string): InboundMessage<Telegr
   const replied = msg.reply_to?.message ?? msg.reply_to_message
   const quoted = replied
     ? {
-        ref: { id: String(replied.message_id), chatId, native: { chat_id: replied.chat.id, message_id: replied.message_id } },
+        ref: messageRef(replied, chatId),
         body: replied.text ?? replied.caption,
-        senderId: replied.from ? String(replied.from.id) : undefined,
+        senderId: replied.sender_chat && isId(replied.sender_chat.id)
+          ? String(replied.sender_chat.id)
+          : replied.from && isId(replied.from.id) ? String(replied.from.id) : undefined,
       }
     : undefined
 
   return {
-    ref: { id: String(msg.message_id), chatId, native: { chat_id: msg.chat.id, message_id: msg.message_id } },
+    // updateId is passed, so messageRef always returns a ref here.
+    ref: messageRef(msg, chatId, updateId) as MessageRef,
     chat,
     senderInfo: sender,
     from: chatId,
@@ -147,7 +213,7 @@ function toMessage(msg: TelegramMessage, selfId?: string): InboundMessage<Telegr
     fromMe: selfId != null && senderId === selfId,
     type,
     body,
-    timestamp: msg.date ? msg.date * 1000 : 0,
+    timestamp: msg.date ? msg.date * 1000 : Date.now(),
     mentions: mentionsOf(msg),
     quoted,
     media,
@@ -155,19 +221,36 @@ function toMessage(msg: TelegramMessage, selfId?: string): InboundMessage<Telegr
   }
 }
 
-function toInteraction(cb: TelegramCallbackQuery): InboundInteraction<TelegramCallbackQuery> {
-  const msg = cb.message
-  const chat = msg
-    ? chatInfo(msg.chat)
-    : { id: '', kind: 'dm' as const, isGroup: false, isBroadcast: false }
+/**
+ * callback_query -> interaction. Three shapes per the Bot API:
+ *  - `message` (possibly an InaccessibleMessage: chat + message_id, date 0):
+ *    the button's own chat/message;
+ *  - `inline_message_id` (button on a message sent via the bot in inline
+ *    mode): no chat is known, so the presser's private chat with the bot
+ *    (`from.id`) is used and the ref carries `native.inline_message_id`, which
+ *    editMessage turns into editMessageText({ inline_message_id }). Sending to
+ *    that chat fails (RecipientUnreachableError) if the user never started the
+ *    bot; acknowledgeInteraction (answerCallbackQuery) always works;
+ *  - neither (not expected; defensive): user chat + `upd:<update_id>` ref.
+ * The Bot API sends no press time: the original message date is used when
+ * known and non-zero, otherwise the receive time.
+ */
+function toInteraction(cb: TelegramCallbackQuery, updateId: number): InboundInteraction<TelegramCallbackQuery> | undefined {
+  if (typeof cb.id !== 'string' || cb.id === '' || !cb.from || !isId(cb.from.id)) return undefined
+  const msg = cb.message && cb.message.chat && isId(cb.message.chat.id) ? cb.message : undefined
+  const chat = msg ? chatInfo(msg.chat) : userChatInfo(cb.from)
+  let ref: MessageRef
+  if (msg) {
+    ref = messageRef(msg, chat.id, updateId) as MessageRef
+  } else if (typeof cb.inline_message_id === 'string' && cb.inline_message_id !== '') {
+    ref = { id: cb.inline_message_id, chatId: chat.id, native: { inline_message_id: cb.inline_message_id } }
+  } else {
+    ref = { id: `upd:${updateId}`, chatId: chat.id }
+  }
   const sender = senderInfo(cb.from, chat.id)
   return {
     interactionId: cb.id,
-    ref: {
-      id: msg ? String(msg.message_id) : '',
-      chatId: chat.id,
-      native: msg ? { chat_id: msg.chat.id, message_id: msg.message_id } : undefined,
-    },
+    ref,
     chat,
     senderInfo: sender,
     from: chat.id,
@@ -177,18 +260,29 @@ function toInteraction(cb: TelegramCallbackQuery): InboundInteraction<TelegramCa
     isGroup: chat.isGroup,
     kind: 'button',
     data: cb.data ?? '',
-    timestamp: msg?.date ? msg.date * 1000 : 0,
+    timestamp: msg?.date ? msg.date * 1000 : Date.now(),
     raw: cb,
   }
 }
 
 /**
  * Normalize one Update. Returns undefined for update kinds this provider does
- * not surface (channel_post, edited channel posts, pre_checkout, poll updates…).
+ * not surface (channel_post / edited_channel_post, business_message /
+ * edited_business_message (replying needs business_connection_id),
+ * guest_message (answered via answerGuestQuery), my_chat_member,
+ * pre_checkout, poll updates...) and for malformed payloads that lack the ids
+ * needed to route them (no chat id; no callback id or sender). Never emits an
+ * event with an empty chatId, senderId or ref.id.
  */
 export function parseUpdate(update: TelegramUpdate, selfId?: string): InboundEvent | undefined {
   const msg = update.message ?? update.edited_message
-  if (msg) return { kind: 'message', message: toMessage(msg, selfId) }
-  if (update.callback_query) return { kind: 'interaction', interaction: toInteraction(update.callback_query) }
+  if (msg) {
+    if (!msg.chat || !isId(msg.chat.id)) return undefined
+    return { kind: 'message', message: toMessage(msg, update.update_id, selfId) }
+  }
+  if (update.callback_query) {
+    const interaction = toInteraction(update.callback_query, update.update_id)
+    return interaction ? { kind: 'interaction', interaction } : undefined
+  }
   return undefined
 }

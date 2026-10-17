@@ -15,6 +15,7 @@
  */
 
 import { UnsupportedContentError, type OutboundContent } from '@bot-wa/core'
+import { targetOf } from './refs.js'
 
 /** How the provider resolved a MediaSource for the Bot API. */
 export interface ResolvedTelegramMedia {
@@ -117,11 +118,15 @@ export function toOutbound(content: OutboundContent, media?: ResolvedTelegramMed
       }
 
     case 'reaction':
+      const target = targetOf(content.target)
+      if (target.kind !== 'message') {
+        throw new UnsupportedContentError('reaction', `Telegram cannot react to this message (${target.kind === 'none' ? 'no message_id' : target.kind + ' message'})`)
+      }
       return {
         method: 'setMessageReaction',
         params: {
-          chat_id: content.target.chatId,
-          message_id: Number(content.target.id),
+          chat_id: target.chat_id,
+          message_id: target.message_id,
           reaction: content.emoji ? [{ type: 'emoji', emoji: content.emoji }] : [],
         },
       }

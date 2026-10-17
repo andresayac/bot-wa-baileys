@@ -46,6 +46,7 @@ import {
 } from '@bot-wa/core'
 import type { TelegramProviderConfig, TelegramResponse, TelegramUpdate, TelegramUser } from './types.js'
 import { parseUpdate } from './parseInbound.js'
+import { replyParametersOf, targetOf } from './refs.js'
 import { toOutbound, type ResolvedTelegramMedia } from './toOutbound.js'
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
@@ -311,10 +312,16 @@ export class TelegramProvider implements IProvider<unknown> {
     const out = toOutbound(content, media)
     const params: Record<string, unknown> = { chat_id: chatId, ...out.params }
     if (options?.quoted && REPLYABLE.has(out.method)) {
-      params.reply_parameters = { message_id: Number(options.quoted.id) }
+      // Inline-mode messages and synthetic refs cannot be replied to: send unquoted.
+      const reply = replyParametersOf(options.quoted)
+      if (reply) params.reply_parameters = reply
     }
     if (options?.platformData) Object.assign(params, options.platformData)
     const result = await this.callApi(out.method, params, { media, mediaField: out.mediaField })
+    // setMessageReaction answers `true`: the meaningful ref is the reacted-to message.
+    if (content.kind === 'reaction' && (typeof result !== 'object' || result === null)) {
+      return { ref: content.target, raw: result }
+    }
     return { ref: this.refFromResult(result, chatId), raw: result }
   }
 
@@ -387,14 +394,28 @@ export class TelegramProvider implements IProvider<unknown> {
     await this.callApi('sendChatAction', { chat_id: chatId, action: state === 'recording' ? 'record_voice' : 'typing' })
   }
 
+  /** deleteMessage — regular messages only (inline-mode and ephemeral messages are not deletable by id). */
   async deleteMessage(ref: MessageRef): Promise<void> {
-    await this.callApi('deleteMessage', { chat_id: ref.chatId, message_id: Number(ref.id) })
+    const t = targetOf(ref)
+    if (t.kind !== 'message') {
+      throw new ProviderError(`TelegramProvider.deleteMessage cannot delete ${t.kind === 'none' ? 'a ref without message_id' : `an ${t.kind} message`}`)
+    }
+    await this.callApi('deleteMessage', { chat_id: t.chat_id, message_id: t.message_id })
   }
 
-  /** editMessageText — text only; other kinds must throw per the edit capability. */
+  /**
+   * editMessageText — text only; other kinds must throw per the edit capability.
+   * Inline-mode messages (refs from an inline callback_query) are edited by
+   * `inline_message_id`; the Bot API then answers `true` instead of a Message.
+   */
   async editMessage(ref: MessageRef, content: OutboundContent): Promise<SendResult<unknown>> {
     if (content.kind !== 'text') throw new UnsupportedContentError(content.kind, 'TelegramProvider.editMessage supports text only (editMessageText)')
-    const result = await this.callApi('editMessageText', { chat_id: ref.chatId, message_id: Number(ref.id), text: content.text })
+    const t = targetOf(ref)
+    let target: Record<string, unknown>
+    if (t.kind === 'inline') target = { inline_message_id: t.inline_message_id }
+    else if (t.kind === 'message') target = { chat_id: t.chat_id, message_id: t.message_id }
+    else throw new UnsupportedContentError(content.kind, `TelegramProvider.editMessage cannot edit ${t.kind === 'none' ? 'a ref without message_id' : 'an ephemeral message'}`)
+    const result = await this.callApi('editMessageText', { ...target, text: content.text })
     return { ref, raw: result }
   }
 }

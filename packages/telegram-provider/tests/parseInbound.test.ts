@@ -181,3 +181,116 @@ describe('parseUpdate', () => {
     expect(parseUpdate({ update_id: 10, channel_post: { message_id: 1, date: 1, chat: { id: -1, type: 'channel' }, text: 'x' } })).toBeUndefined()
   })
 })
+
+describe('parseUpdate — never emits empty ids', () => {
+  const nonEmpty = (ev: ReturnType<typeof parseUpdate>) => {
+    if (!ev || (ev.kind !== 'message' && ev.kind !== 'interaction')) throw new Error('expected message/interaction')
+    const e = ev.kind === 'message' ? ev.message : ev.interaction
+    expect(e.chatId).not.toBe('')
+    expect(e.senderId).not.toBe('')
+    expect(e.ref.id).not.toBe('')
+    expect(e.ref.chatId).not.toBe('')
+    expect(e.chat.id).not.toBe('')
+    return e
+  }
+
+  it('inline-mode callback_query (inline_message_id, no message) routes to the user chat', () => {
+    const ev = parseUpdate({
+      update_id: 100,
+      callback_query: { id: 'cq-inline', from: ana, chat_instance: 'ci', data: 'vote:1', inline_message_id: 'AAQx-inline' },
+    })
+    expect(ev?.kind).toBe('interaction')
+    const i = nonEmpty(ev)
+    if (ev?.kind !== 'interaction') return
+    expect(i.chatId).toBe('77')
+    expect(i.senderId).toBe('77')
+    expect(i.chat.kind).toBe('dm')
+    expect(i.chat.name).toBe('Ana')
+    expect(i.ref).toEqual({ id: 'AAQx-inline', chatId: '77', native: { inline_message_id: 'AAQx-inline' } })
+    expect(ev.interaction.data).toBe('vote:1')
+    expect(ev.interaction.timestamp).toBeGreaterThan(0)
+  })
+
+  it('callback_query on an InaccessibleMessage (date 0) keeps its chat and a real timestamp', () => {
+    const before = Date.now()
+    const ev = parseUpdate({
+      update_id: 101,
+      callback_query: { id: 'cq-old', from: ana, data: 'x', message: { message_id: 5, date: 0, chat: { id: -100_5, type: 'supergroup', title: 'G' } } },
+    })
+    nonEmpty(ev)
+    if (ev?.kind !== 'interaction') return
+    expect(ev.interaction.chatId).toBe('-1005')
+    expect(ev.interaction.ref.id).toBe('5')
+    expect(ev.interaction.timestamp).toBeGreaterThanOrEqual(before)
+  })
+
+  it('callback_query without message or inline_message_id synthesizes a stable ref id from update_id', () => {
+    const ev = parseUpdate({ update_id: 102, callback_query: { id: 'cq-game', from: ana, game_short_name: 'g' } })
+    const i = nonEmpty(ev)
+    expect(i.chatId).toBe('77')
+    expect(i.ref.id).toBe('upd:102')
+  })
+
+  it('drops malformed callback_query without from / id, and messages without chat', () => {
+    expect(parseUpdate({ update_id: 103, callback_query: { id: 'cq', data: 'x' } as never })).toBeUndefined()
+    expect(parseUpdate({ update_id: 104, callback_query: { from: ana, data: 'x' } as never })).toBeUndefined()
+    expect(parseUpdate({ update_id: 105, message: { message_id: 1, date: 1, from: ana, text: 'x' } as never })).toBeUndefined()
+  })
+
+  it('ephemeral messages (message_id 0) use ephemeral_message_id, not a shared "0"', () => {
+    const ev = parseUpdate({
+      update_id: 106,
+      message: { message_id: 0, ephemeral_message_id: 55, date: 1, from: ana, chat: privateChat, text: 'psst' },
+    })
+    const m = nonEmpty(ev)
+    expect(m.ref.id).toBe('eph:55')
+    expect(m.ref.native).toEqual({ chat_id: 77, ephemeral_message_id: 55 })
+  })
+
+  it('a message with no usable message_id falls back to update_id', () => {
+    const ev = parseUpdate({ update_id: 107, message: { date: 1, from: ana, chat: privateChat, text: 'x' } as never })
+    expect(nonEmpty(ev).ref.id).toBe('upd:107')
+  })
+
+  it('edited_message keeps the original id (core dedupe fingerprints the edit)', () => {
+    const ev = parseUpdate({ update_id: 108, edited_message: { message_id: 12, date: 1, from: ana, chat: privateChat, text: 'fixed' } })
+    expect(nonEmpty(ev).ref.id).toBe('12')
+  })
+
+  it('a message sent on behalf of a chat (anonymous admin / linked channel) is keyed by sender_chat, not the fake from', () => {
+    const group = { id: -100_42, type: 'supergroup' as const, title: 'Team' }
+    const ev = parseUpdate({
+      update_id: 109,
+      message: {
+        message_id: 3, date: 1, chat: group, text: 'hi',
+        from: { id: 1087968824, is_bot: true, first_name: 'Group', username: 'GroupAnonymousBot' },
+        sender_chat: group,
+      },
+    })
+    const m = nonEmpty(ev)
+    expect(m.senderId).toBe('-10042')
+    expect(m.senderInfo.displayName).toBe('Team')
+  })
+
+  it('a message with neither from nor sender_chat falls back to the chat id', () => {
+    const ev = parseUpdate({ update_id: 110, message: { message_id: 4, date: 1, chat: { id: -100_7, type: 'channel', title: 'C' }, text: 'x' } })
+    expect(nonEmpty(ev).senderId).toBe('-1007')
+  })
+
+  it('a quoted ephemeral reply without a usable id is omitted rather than given an empty/zero id', () => {
+    const ev = parseUpdate({
+      update_id: 111,
+      message: { message_id: 9, date: 1, from: ana, chat: privateChat, text: 'ok', reply_to_message: { message_id: 0, chat: privateChat, text: 'e' } },
+    })
+    if (ev?.kind !== 'message') throw new Error('expected message')
+    expect(ev.message.quoted?.ref).toBeUndefined()
+  })
+
+  it('still ignores business_message / channel_post / my_chat_member / guest_message', () => {
+    const msg = { message_id: 1, date: 1, from: ana, chat: privateChat, text: 'x' }
+    expect(parseUpdate({ update_id: 112, business_message: { ...msg, business_connection_id: 'bc' } })).toBeUndefined()
+    expect(parseUpdate({ update_id: 113, edited_channel_post: msg })).toBeUndefined()
+    expect(parseUpdate({ update_id: 114, my_chat_member: { chat: privateChat, from: ana, date: 1 } })).toBeUndefined()
+    expect(parseUpdate({ update_id: 115, guest_message: msg })).toBeUndefined()
+  })
+})

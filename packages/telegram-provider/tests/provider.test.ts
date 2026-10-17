@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { createServer } from 'node:http'
 import {
   PayloadTooLargeError,
+  ProviderError,
   RateLimitedError,
   RecipientUnreachableError,
   UnsupportedContentError,
@@ -111,7 +112,8 @@ describe('TelegramProvider.send', () => {
     expect(JSON.parse(calls[0].init!.body as string)).toEqual({
       chat_id: '-1001', message_id: 55, reaction: [{ type: 'emoji', emoji: '👍' }],
     })
-    expect(res.ref.id).toBe('') // non-Message result
+    // setMessageReaction returns `true`: the ref is the reacted-to message, never an empty id
+    expect(res.ref).toEqual({ id: '55', chatId: '-1001' })
   })
 
   it('native content passes method + params through', async () => {
@@ -355,5 +357,67 @@ describe('TelegramProvider webhook ingest', () => {
       const p = new TelegramProvider({ token: 'TOK', polling: false, selfId: '9', allowUnsignedWebhooks: true })
       expect(p.ingest(update, { 'x-telegram-bot-api-secret-token': 'whatever' })).toBe(200)
     })
+  })
+})
+
+describe('TelegramProvider inline-mode and ephemeral refs', () => {
+  const inlineRef = { id: 'AAQx-inline', chatId: '77', native: { inline_message_id: 'AAQx-inline' } }
+  const ephRef = { id: 'eph:55', chatId: '77', native: { chat_id: 77, ephemeral_message_id: 55 } }
+
+  it('editMessage on an inline message uses inline_message_id (no chat_id/message_id) and keeps the ref', async () => {
+    const calls = mockFetch(() => ({ body: { ok: true, result: true } }))
+    const p = new TelegramProvider(baseCfg)
+    const res = await p.editMessage!(inlineRef, { kind: 'text', text: 'votado' })
+    expect(calls[0].url).toContain('/editMessageText')
+    expect(JSON.parse(calls[0].init!.body as string)).toEqual({ inline_message_id: 'AAQx-inline', text: 'votado' })
+    expect(res.ref).toEqual(inlineRef)
+  })
+
+  it('editMessage prefers native chat_id/message_id when present', async () => {
+    const calls = mockFetch(() => ({ body: { ok: true, result: { message_id: 30, chat: { id: -100 } } } }))
+    const p = new TelegramProvider(baseCfg)
+    await p.editMessage!({ id: '30', chatId: '-100', native: { chat_id: -100, message_id: 30 } }, { kind: 'text', text: 'n' })
+    expect(JSON.parse(calls[0].init!.body as string)).toEqual({ chat_id: -100, message_id: 30, text: 'n' })
+  })
+
+  it('acknowledgeInteraction works the same for inline-mode callbacks (callback_query_id only)', async () => {
+    const calls = mockFetch(() => ({ body: { ok: true, result: true } }))
+    const p = new TelegramProvider(baseCfg)
+    await p.acknowledgeInteraction!('cq-inline')
+    expect(JSON.parse(calls[0].init!.body as string)).toEqual({ callback_query_id: 'cq-inline' })
+  })
+
+  it('a quoted inline message is not sent as reply_parameters (inline messages cannot be replied to)', async () => {
+    const calls = mockFetch(() => ({ body: { ok: true, result: { message_id: 2, chat: { id: 77 } } } }))
+    const p = new TelegramProvider(baseCfg)
+    await p.send('77', { kind: 'text', text: 're' }, { quoted: inlineRef })
+    expect(JSON.parse(calls[0].init!.body as string).reply_parameters).toBeUndefined()
+  })
+
+  it('a quoted ephemeral message goes out unquoted (Bot API: a reply to an ephemeral message must itself be ephemeral)', async () => {
+    const calls = mockFetch(() => ({ body: { ok: true, result: { message_id: 2, chat: { id: 77 } } } }))
+    const p = new TelegramProvider(baseCfg)
+    await p.send('77', { kind: 'text', text: 're' }, { quoted: ephRef })
+    expect(calls[0].url).toContain('/sendMessage')
+    const body = JSON.parse(calls[0].init!.body as string)
+    expect(body.reply_parameters).toBeUndefined()
+    expect(body.text).toBe('re')
+  })
+
+  it('a quoted ref with a non-numeric id and no native target sends no reply_parameters', async () => {
+    const calls = mockFetch(() => ({ body: { ok: true, result: { message_id: 2, chat: { id: 77 } } } }))
+    const p = new TelegramProvider(baseCfg)
+    await p.send('77', { kind: 'text', text: 're' }, { quoted: { id: 'upd:9', chatId: '77' } })
+    expect(JSON.parse(calls[0].init!.body as string).reply_parameters).toBeUndefined()
+  })
+
+  it('deleteMessage / reactions on an inline message reject without calling the API', async () => {
+    const calls = mockFetch(() => ({ body: { ok: true, result: true } }))
+    const p = new TelegramProvider(baseCfg)
+    await expect(p.deleteMessage!(inlineRef)).rejects.toBeInstanceOf(ProviderError)
+    await expect(p.send('77', { kind: 'reaction', emoji: '👍', target: inlineRef })).rejects.toBeInstanceOf(UnsupportedContentError)
+    await expect(p.editMessage!(ephRef, { kind: 'text', text: 'x' })).rejects.toBeInstanceOf(UnsupportedContentError)
+    await expect(p.editMessage!({ id: 'upd:3', chatId: '77' }, { kind: 'text', text: 'x' })).rejects.toBeInstanceOf(UnsupportedContentError)
+    expect(calls).toHaveLength(0)
   })
 })
