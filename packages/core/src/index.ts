@@ -252,3 +252,29 @@ export { UserDataError } from './user/errors.js'
 export type { UserDataErrorCode } from './user/errors.js'
 export type { UserData, UserSetOptions } from './user/types.js'
 export type { UserDataEntry } from './core/provider.js'
+
+// golden-transcripts
+// Recording + redaction are usable in production (wrap the real provider); the
+// replay/diff helpers (replayTranscript, assertTranscript) live under '@bot-wa/core/testing'.
+export {
+  TRANSCRIPT_FORMAT,
+  TRANSCRIPT_VERSION,
+  TranscriptFormatError,
+  createTranscript,
+  parseTranscript,
+  serializeTranscript,
+  transcriptFromMessages,
+  transcriptFromStore,
+} from './testing/transcripts/format.js'
+export type {
+  Transcript,
+  TranscriptTurn,
+  TranscriptInbound,
+  TranscriptOutbound,
+  FromMessagesOptions,
+  TranscriptMessageSource,
+} from './testing/transcripts/format.js'
+export { recordTranscript, RecordingProvider } from './testing/transcripts/record.js'
+export type { RecordTranscriptOptions, TranscriptRecorder } from './testing/transcripts/record.js'
+export { redactTranscript, createRedactionMap } from './testing/transcripts/redact.js'
+export type { RedactOptions, RedactionRule, RedactionMap } from './testing/transcripts/redact.js'

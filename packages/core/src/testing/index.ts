@@ -40,3 +40,44 @@ export type {
   IdentityViolation,
   EventRecorder,
 } from './identityContract.js'
+
+// golden-transcripts: record, redact and replay conversations
+export {
+  TRANSCRIPT_FORMAT,
+  TRANSCRIPT_VERSION,
+  TranscriptFormatError,
+  createTranscript,
+  parseTranscript,
+  serializeTranscript,
+  serializeContent,
+  outboundText,
+  transcriptFromMessages,
+  transcriptFromStore,
+} from './transcripts/format.js'
+export type {
+  Transcript,
+  TranscriptTurn,
+  TranscriptInbound,
+  TranscriptOutbound,
+  JsonValue,
+  FromMessagesOptions,
+  TranscriptMessageSource,
+} from './transcripts/format.js'
+export { recordTranscript, RecordingProvider } from './transcripts/record.js'
+export type { RecordTranscriptOptions, TranscriptRecorder } from './transcripts/record.js'
+export { redactTranscript, createRedactionMap } from './transcripts/redact.js'
+export type { RedactOptions, RedactionRule, RedactionMap } from './transcripts/redact.js'
+export {
+  replayTranscript,
+  assertTranscript,
+  formatReplayReport,
+  TranscriptMismatchError,
+  REPLAY_MASKS,
+} from './transcripts/replay.js'
+export type {
+  ReplayOptions,
+  ReplayResult,
+  ReplayBotFactory,
+  ReplayMask,
+  TranscriptDiff,
+} from './transcripts/replay.js'
