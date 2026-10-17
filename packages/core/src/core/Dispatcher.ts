@@ -40,6 +40,12 @@ export interface DispatcherDeps {
    * wires a store-backed `WelcomeTracker`; when omitted, an in-memory one is used.
    */
   firstContact?: (ctx: DispatchContext) => Promise<boolean>
+  /**
+   * Per-context preparation run INSIDE the per-chat FIFO, before `before('message')`
+   * hooks (and before type matchers for projected events) — e.g. resolving `ctx.lang`
+   * from the store without reordering a chat's messages. Must not reject.
+   */
+  prepare?: (ctx: DispatchContext) => Promise<void>
 }
 
 interface MatcherEntry {
@@ -164,6 +170,7 @@ export class Dispatcher {
     const { hooks, runtime, emit } = this.deps
     const prefix = this.deps.commandPrefix ?? '/'
     try {
+      if (this.deps.prepare) await this.deps.prepare(ctx)
       if (!(await hooks.runBefore('message', ctx))) return
 
       // 0. routing gate (human handoff): skip every routing stage, still finish()
@@ -261,6 +268,7 @@ export class Dispatcher {
     const { runtime } = this.deps
     const key = runtime.keyFor(ctx)
     try {
+      if (this.deps.prepare) await this.deps.prepare(ctx)
       for (const m of this.matchers) {
         if (!isTypeTrigger(m.trigger) || !matchTrigger(m.trigger, ctx)) continue
         // Never let an event replace a conversation in progress: enter() would abort it and

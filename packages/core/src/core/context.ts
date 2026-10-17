@@ -16,6 +16,7 @@
 
 import { humanTypingDelay, sleep } from '../utils/timers.js'
 import { unavailableUserData } from '../user/UserDataService.js'
+import { defaultI18n, normalizeLocale } from '../i18n/I18n.js'
 import type {
   BuildContextDeps,
   Button,
@@ -127,6 +128,16 @@ export function buildMessageContext(deps: BuildContextDeps): IMessageContext {
     abort() { (ctx as unknown as { _aborted?: boolean })._aborted = true },
 
     user: deps.user ?? unavailableUserData(inbound.senderId),
+
+    /* i18n — ctx.lang is re-resolved by the Bot inside the per-chat queue */
+    lang: (deps.i18n ?? defaultI18n).defaultLocale,
+    t(key, params) { return (deps.i18n ?? defaultI18n).translate(ctx.lang, key, params) },
+    async setLang(code: string) {
+      const lang = normalizeLocale(code)
+      if (!lang) throw new TypeError('setLang() expects a non-empty locale code')
+      await ctx.user.set((deps.i18n ?? defaultI18n).userKey, lang)
+      ctx.lang = lang
+    },
 
     tools: tools as DefaultTools,
   }

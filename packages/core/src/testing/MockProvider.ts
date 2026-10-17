@@ -36,6 +36,10 @@ export interface IncomingOpts {
   id?: string
   pushName?: string
   mentions?: string[]
+  /** Provider-reported sender language (`SenderInfo.language`). */
+  language?: string
+  /** Transport extras on `SenderInfo.platformData` (e.g. `{ languageCode: 'en' }`). */
+  platformData?: Record<string, unknown>
 }
 
 export class MockProvider implements IProvider {
@@ -89,7 +93,7 @@ export class MockProvider implements IProvider {
     const message: InboundMessage = {
       ref: { id: opts.id ?? `in-${++counter}`, chatId: from },
       chat: { id: from, kind: isGroup ? 'group' : 'dm', isGroup, isBroadcast: false },
-      senderInfo: { id: senderId, displayName: opts.pushName ?? 'Test User' },
+      senderInfo: senderInfoOf(senderId, opts),
       from, sender: senderId, chatId: from, senderId,
       isGroup, isBroadcast: false, fromMe: false,
       type, body: type === 'text' ? text : text ?? '',
@@ -112,7 +116,7 @@ export class MockProvider implements IProvider {
         interactionId: `it-${++counter}`,
         ref: { id: opts.id ?? `in-${++counter}`, chatId: from },
         chat: { id: from, kind: isGroup ? 'group' : 'dm', isGroup, isBroadcast: false },
-        senderInfo: { id: senderId, displayName: opts.pushName ?? 'Test User' },
+        senderInfo: senderInfoOf(senderId, opts),
         from, sender: senderId, chatId: from, senderId,
         isGroup, kind: 'button', data,
         timestamp: Math.floor(Date.now() / 1000),
@@ -132,5 +136,14 @@ export class MockProvider implements IProvider {
       kind: 'call',
       event: { id: id ?? `call-${++counter}`, from: from ?? 'user-1', status: status ?? 'offer', ...extra },
     })
+  }
+}
+
+function senderInfoOf(id: string, opts: IncomingOpts): InboundMessage['senderInfo'] {
+  return {
+    id,
+    displayName: opts.pushName ?? 'Test User',
+    ...(opts.language !== undefined ? { language: opts.language } : {}),
+    ...(opts.platformData !== undefined ? { platformData: opts.platformData } : {}),
   }
 }

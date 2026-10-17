@@ -252,3 +252,21 @@ export { UserDataError } from './user/errors.js'
 export type { UserDataErrorCode } from './user/errors.js'
 export type { UserData, UserSetOptions } from './user/types.js'
 export type { UserDataEntry } from './core/provider.js'
+
+// i18n
+// Native i18n: `bot.locale()`, `ctx.t()` / `c.t()`, `ctx.setLang()` and the
+// localizable built-in core messages (`core.*`, `es` + `en`).
+export { I18n, normalizeLocale, providerLanguageOf } from './i18n/I18n.js'
+export type { I18nOptions, I18nLogger } from './i18n/I18n.js'
+export { CORE_MESSAGES, BUILTIN_LOCALES } from './i18n/builtins.js'
+export type { CoreMessageKey } from './i18n/builtins.js'
+export type {
+  I18nConfig,
+  LanguageDetector,
+  LocaleMessages,
+  PluralCategory,
+  PluralForms,
+  Translate,
+  TranslateParams,
+} from './i18n/types.js'
+export type { ContextI18n } from './core/provider.js'

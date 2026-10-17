@@ -18,16 +18,20 @@
  * `/xyz` with no registered handler) and answers with a help hint — only for
  * messages that actually used the command prefix.
  *
+ * Every reply is localized through `ctx.t` (`core.commands.*`, built-in `es`/`en`,
+ * overridable with `bot.locale()`); an explicit `greeting`/`unknownMessage` wins.
+ *
  * Designed to be intentionally tiny — users can disable + roll their own.
  */
 
 import { definePlugin } from './definePlugin.js'
 import type { MessageContext } from '../core/types.js'
+import { CORE_MESSAGES } from '../i18n/builtins.js'
 
 export interface SlashCommandsConfig {
-  /** Greeting/help text shown on /start and /help. Defaults to a Spanish command list. */
+  /** Greeting/help text shown on /start and /help. Defaults to the localized `core.commands.help`. */
   greeting?: string
-  /** Reply sent for an unrecognized `/command`. Defaults to a Spanish hint. */
+  /** Reply sent for an unrecognized `/command`. Defaults to the localized `core.commands.unknown`. */
   unknownMessage?: string
 }
 
@@ -43,22 +47,13 @@ export const slashCommandsPlugin = definePlugin<SlashCommandsConfig>({
 
   install(pluginCtx, config = {}) {
     const bot = pluginCtx.bot
-    const help =
-      config.greeting ??
-      [
-        '🤖 *Comandos*',
-        '',
-        '/help — este mensaje',
-        '/reset — cancelar conversación activa',
-        '/id — ID de este chat',
-        '/ping — comprobar vida',
-      ].join('\n')
+    const help = (ctx: MessageContext) => config.greeting ?? ctx.t(CORE_MESSAGES.commandsHelp)
 
     bot.command('start', async (ctx) => {
-      await ctx.reply(help)
+      await ctx.reply(help(ctx))
     })
     bot.command('help', async (ctx) => {
-      await ctx.reply(help)
+      await ctx.reply(help(ctx))
     })
     bot.command('reset', async (ctx) => {
       bot.abortConversation(ctx)
@@ -69,21 +64,21 @@ export const slashCommandsPlugin = definePlugin<SlashCommandsConfig>({
       } catch (err) {
         pluginCtx.logger.warn({ err }, 'could not re-arm WELCOME on /reset')
       }
-      await ctx.reply('✅ Conversación reiniciada.')
+      await ctx.reply(ctx.t(CORE_MESSAGES.commandsReset))
     })
     bot.command('cancel', async (ctx) => {
       bot.abortConversation(ctx)
-      await ctx.reply('✅ Conversación reiniciada.')
+      await ctx.reply(ctx.t(CORE_MESSAGES.commandsCancel))
     })
     bot.command('id', async (ctx) => {
-      await ctx.reply(`🆔 ${ctx.from}${ctx.isGroup ? ' (grupo)' : ''}`)
+      await ctx.reply(ctx.t(ctx.isGroup ? CORE_MESSAGES.commandsIdGroup : CORE_MESSAGES.commandsId, { id: ctx.from }))
     })
     bot.command('ping', async (ctx) => {
-      await ctx.reply('pong 🏓')
+      await ctx.reply(ctx.t(CORE_MESSAGES.commandsPing))
     })
 
     const onUnknown = ({ ctx }: CommandUnknownPayload) => {
-      void ctx.reply(config.unknownMessage ?? '🤔 Comando desconocido. Envía /help.')
+      void ctx.reply(config.unknownMessage ?? ctx.t(CORE_MESSAGES.commandsUnknown))
     }
     bot.on('command:unknown', onUnknown)
     pluginCtx.onDispose(() => bot.off('command:unknown', onUnknown))

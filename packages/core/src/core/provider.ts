@@ -14,6 +14,7 @@
 import type { HandoffConfig, HandoffOptions, StoredHandoff } from '../gates/handoff.js'
 import type { InboundDedupeOptions } from './dedupe.js'
 import type { UserData } from '../user/types.js'
+import type { I18nConfig, TranslateParams } from '../i18n/types.js'
 
 /* ============================================================================
  * 1. IDENTITY PRIMITIVES  (opaque — no shape grammar)
@@ -67,6 +68,12 @@ export interface SenderInfo {
   displayName?: string
   username?: string
   isBot?: boolean
+  /**
+   * Language the platform reports for the sender (BCP 47-ish code, e.g. `'en'`,
+   * `'pt-BR'`), when it has one. Used by i18n language resolution; providers
+   * that only expose it in `platformData.languageCode` work too.
+   */
+  language?: string
   platformData?: Record<string, unknown>
 }
 
@@ -617,6 +624,24 @@ export interface MessageContext<TTools extends object = DefaultTools, TRaw = unk
    */
   user: UserData
 
+  /**
+   * Resolved language of this message (normalized locale code, e.g. `'es'`, `'en'`).
+   * Order: `ctx.user` preference → provider-reported language → `i18n.detect` → default.
+   */
+  lang: string
+  /**
+   * Translate `key` (dot path) in {@link lang}, interpolating `{param}` placeholders;
+   * `params.count` picks plural forms. Missing keys fall back to the default locale,
+   * then to the key itself. See `bot.locale()`.
+   */
+  t(key: string, params?: TranslateParams): string
+  /**
+   * Switch the sender's language: persists it to `ctx.user` (key `'lang'` by default)
+   * and updates {@link lang} for this message. Rejects with `TypeError` on an empty code
+   * and with `UserDataError` when the profile cannot be written.
+   */
+  setLang(code: string): Promise<void>
+
   tools: TTools
 }
 
@@ -655,6 +680,17 @@ export interface BuildContextDeps<TRaw = unknown> {
   interaction?: { id: string; data: string; respondBy?: number }
   /** Sender profile exposed as `ctx.user`; when omitted every `ctx.user` call rejects with `UserDataError('UNAVAILABLE')`. */
   user?: UserData
+  /** Translator backing `ctx.t` / `ctx.setLang`; when omitted the built-in `es`/`en` core messages are used. */
+  i18n?: ContextI18n
+}
+
+/** What `buildMessageContext` needs to localize a context (implemented by the Bot's `I18n`). */
+export interface ContextI18n {
+  /** Initial `ctx.lang` (the bot re-resolves it inside the per-chat queue). */
+  readonly defaultLocale: string
+  /** `ctx.user` key `ctx.setLang()` writes. */
+  readonly userKey: string
+  translate(lang: string | undefined, key: string, params?: TranslateParams): string
 }
 
 /* ============================================================================
@@ -881,6 +917,8 @@ export interface BotConfig {
     cancelledMessage?: string
   }
   groupMode?: 'all' | 'mentions' | 'commands'
+  /** Native i18n options (default locale, detector, …). See `bot.locale()`. */
+  i18n?: I18nConfig
   /** Human handoff behaviour (escape commands, persistence). See `bot.handoff()`. */
   handoff?: HandoffConfig
   /** Pluggable pacing policy; a transport may also own its own limiter. */
