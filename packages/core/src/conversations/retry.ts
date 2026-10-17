@@ -127,6 +127,11 @@ export class WaitTracker {
     return outOfBand.getStore() === this
   }
 
+  /** Throw the conversation's control error if it was cancelled/replaced (interpreter hook). */
+  assertAlive(): void {
+    this.deps.assertAlive()
+  }
+
   /** Interpreter hook: a flow step (or a new phase of it, e.g. a choose's `then`) starts. */
   mark(flow: CompiledFlow, index: number): void {
     this.current = { flow, index, phase: ++this.phase }
@@ -296,6 +301,11 @@ export function bindTracker(controls: object, tracker: WaitTracker): void {
 /** Interpreter hook: step `index` of `flow` (or a new phase of it) starts. No-op for foreign controls. */
 export function markStep(controls: object, flow: CompiledFlow, index: number): void {
   trackers.get(controls)?.mark(flow, index)
+}
+
+/** Interpreter hook: throw if the conversation behind `controls` is no longer alive. No-op for foreign controls. */
+export function assertControlsAlive(controls: object): void {
+  trackers.get(controls)?.assertAlive()
 }
 
 /**

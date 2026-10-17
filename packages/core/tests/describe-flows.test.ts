@@ -189,7 +189,7 @@ describe('describeFlows — Mermaid', () => {
       id: 'z',
       trigger: 'z',
       steps: [
-        { kind: 'guard' } as unknown as CompiledStep,
+        { kind: 'teleport' } as unknown as CompiledStep,
         { kind: 'say', text: 'ok' },
         { kind: 'end' } as unknown as CompiledStep,
         { kind: 'say', text: 'after end' },
@@ -197,7 +197,7 @@ describe('describeFlows — Mermaid', () => {
       opts: {},
     }
     const out = describeFlows([compiled])
-    expect(out).toContain('    f0_s0["guard"]')
+    expect(out).toContain('    f0_s0["teleport"]')
     expect(out).toContain('    f0_s0 --> f0_s1')
     expect(out).toContain('    f0_s2(("end"))')
     expect(out).toContain('    f0_s1 --> f0_s2')
@@ -355,7 +355,7 @@ describe('flow inventory', () => {
 
   it('FlowBuilder.media() tags its step so introspection can tell it apart from .do()', () => {
     const step = flow('x').media('pic.png', 'cap').compile().steps[0]
-    expect(step).toMatchObject({ kind: 'do', media: { source: 'pic.png', caption: 'cap' } })
+    expect(step).toMatchObject({ kind: 'media', type: 'image', source: 'pic.png', caption: 'cap' })
   })
 
   it('describeTrigger mirrors the dispatcher matching semantics', () => {

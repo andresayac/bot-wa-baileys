@@ -252,3 +252,27 @@ export { UserDataError } from './user/errors.js'
 export type { UserDataErrorCode } from './user/errors.js'
 export type { UserData, UserSetOptions } from './user/types.js'
 export type { UserDataEntry } from './core/provider.js'
+
+// flow-dsl
+// Flow composition (.use), guards, schema validation, full .media(), per-step delays and typed state.
+export type {
+  EmptyFlowState,
+  FlowControls,
+  FlowStateWith,
+  FlowStateMerge,
+  FlowStateOf,
+  FlowGuard,
+  FlowDelay,
+  SayStepOptions,
+  AskStepOptions,
+  ChooseStepOptions,
+  ChooseOption,
+  GuardFailure,
+  CompiledAskOptions,
+  CompiledChooseOption,
+} from './flows/FlowBuilder.js'
+export { FLOW_MEDIA_KINDS, isFlowMediaKind } from './flows/media.js'
+export type { FlowMediaKind, FlowFileMediaKind, FlowLocation, FlowMediaOptions, FlowMediaSource, DynamicMediaSource } from './flows/media.js'
+export { isSchemaLike, DEFAULT_SCHEMA_MESSAGE } from './flows/schema.js'
+export type { SchemaLike, SchemaParseResult, SchemaIssueLike, InferSchema } from './flows/schema.js'
+export type { SchemaWaitOptions } from './conversations/controls.js'

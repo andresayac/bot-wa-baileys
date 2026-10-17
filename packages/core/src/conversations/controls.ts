@@ -5,12 +5,24 @@ import { normalizeText } from '../core/matching.js'
 import type { WaitOptions } from '../core/types.js'
 import { DEFAULT_RETRIES, WaitTracker, bindTracker, type WaitVerdict } from './retry.js'
 import { createIdleControls, type IdleCallback } from './idle.js'
+import { DEFAULT_SCHEMA_MESSAGE, parseWithSchema, type SchemaLike } from '../flows/schema.js'
+
+/** Wait options with a zod-compatible `schema`: the wait resolves with the schema's parsed value. */
+export type SchemaWaitOptions<T> = WaitOptions & { schema: SchemaLike<T> }
 
 const MEDIA_TYPES = ['image', 'video', 'audio', 'document', 'sticker'] as const
 type MediaType = (typeof MEDIA_TYPES)[number]
 
 export interface ConversationControls extends ConversationControlsBase {
+  /**
+   * Send `text` and wait for a text answer. With `{ schema }` (any zod-compatible `safeParse`)
+   * the answer is parsed and the PARSED value is returned (`z.coerce.number()` → `number`); a
+   * rejected answer re-prompts with `otherwise`, else the schema's first issue message.
+   */
+  ask<T>(text: string, opts: SchemaWaitOptions<T>): Promise<T>
   ask(text: string, opts?: WaitOptions): Promise<string>
+  /** Wait for a text message (no prompt). Accepts `{ schema }` like {@link ask}. */
+  waitText<T>(opts: SchemaWaitOptions<T>): Promise<T>
   waitText(opts?: WaitOptions): Promise<string>
   waitMedia(types?: MediaType[], opts?: WaitOptions): Promise<RuntimeMessage>
   choose(prompt: string, options: Record<string, string>, opts?: WaitOptions): Promise<string>
@@ -85,12 +97,16 @@ export function createControls(rt: ConversationRuntime, handle: ConversationHand
     return tracker.wait<T>(opts?.retries ?? DEFAULT_RETRIES, promptFor, async () => accept(await rawWait(opts)))
   }
 
-  const acceptText = (opts?: WaitOptions) => async (m: RuntimeMessage): Promise<WaitVerdict<string>> => {
+  const acceptText = (opts?: WaitOptions & { schema?: SchemaLike<unknown> }) => async (m: RuntimeMessage): Promise<WaitVerdict<unknown>> => {
     if (m.type !== 'text') return { ok: false, message: opts?.otherwise ?? '✍️ Escribe tu respuesta como texto.' }
     const v = opts?.validate ? await opts.validate(m.body, m) : true
-    return v === true
-      ? { ok: true, value: m.body }
-      : { ok: false, message: typeof v === 'string' ? v : '❌ Entrada inválida, intenta de nuevo.' }
+    if (v !== true) return { ok: false, message: typeof v === 'string' ? v : '❌ Entrada inválida, intenta de nuevo.' }
+    const schema = opts?.schema
+    if (!schema) return { ok: true, value: m.body }
+    const parsed = await parseWithSchema(schema, m.body)
+    return parsed.ok
+      ? { ok: true, value: parsed.value }
+      : { ok: false, message: opts?.otherwise ?? parsed.message ?? DEFAULT_SCHEMA_MESSAGE }
   }
 
   const idle = createIdleControls(rt, handle, ctx, (callback) => tracker.runOutOfBand(callback))
@@ -103,9 +119,10 @@ export function createControls(rt: ConversationRuntime, handle: ConversationHand
     waitAny: (o) => tracker.wait<RuntimeMessage>(DEFAULT_RETRIES, (message) => message,
       async () => ({ ok: true, value: await rt.wait(handle, o ?? {}) })),
 
-    waitText: (opts) => loopWait<string>(opts, acceptText(opts)),
+    waitText: ((opts?: WaitOptions) => loopWait<unknown>(opts, acceptText(opts))) as ConversationControls['waitText'],
 
-    ask: (text, opts) => loopWait<string>(opts, acceptText(opts), (message) => message ?? text),
+    ask: ((text: string, opts?: WaitOptions) =>
+      loopWait<unknown>(opts, acceptText(opts), (message) => message ?? text)) as ConversationControls['ask'],
 
     waitMedia: (types = [...MEDIA_TYPES], opts) => loopWait<RuntimeMessage>(opts, async (m) => {
       return (types as string[]).includes(m.type)

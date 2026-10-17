@@ -27,7 +27,7 @@ export type LintSeverity = 'error' | 'warning' | 'info'
  *
  * | code | severity | meaning |
  * | --- | --- | --- |
- * | `goto-target-missing` | error | `goto('x')` targets a conversation that is not registered |
+ * | `goto-target-missing` | error | `goto('x')` (or a `guard` redirect / `choose` option `goto`) targets a conversation that is not registered |
  * | `invalid-timeout` | error | a step `timeout` the runtime cannot parse (`'2 minutos'`) |
  * | `empty-choice` | error | `choose()` without options — every answer is rejected |
  * | `unreachable-step` | warning | steps after an unconditional `goto` (or an end step) |
@@ -141,8 +141,9 @@ export function lintFlows(source: FlowSource, options: LintOptions = {}): LintDi
     const flow = graph.flows.find((f) => f.name === name)
     if (flow?.kind !== 'flow') continue
     for (const node of graph.nodes) {
-      if (node.flow !== flow.id || node.kind !== 'goto' || !reachedNodes.has(node.id)) continue
-      const target = node.target!
+      if (node.flow !== flow.id || !reachedNodes.has(node.id)) continue
+      const target = node.kind === 'goto' ? node.target : node.kind === 'guard' ? node.redirect : undefined
+      if (target === undefined) continue
       if (names.has(target) && !reached.has(target)) { reached.add(target); queue.push(target) }
     }
   }
@@ -212,13 +213,18 @@ export function lintFlows(source: FlowSource, options: LintOptions = {}): LintDi
     }
 
     const step: CompiledStep = m.step
-    if (step.kind === 'goto' && !names.has(step.target)) {
+    const jump = step.kind === 'goto'
+      ? { target: step.target, what: `goto("${step.target}")` }
+      : step.kind === 'guard' && step.redirect !== undefined
+        ? { target: step.redirect, what: `guard redirect "${step.redirect}"` }
+        : undefined
+    if (jump && !names.has(jump.target)) {
       report({
         code: 'goto-target-missing', severity: 'error', ...at,
-        message: `goto("${step.target}") in flow "${m.conversation}" (${node.path}) targets a conversation that is not registered — ` +
+        message: `${jump.what} in flow "${m.conversation}" (${node.path}) targets a conversation that is not registered — ` +
           'the conversation fails with an error when it gets there.' +
-          (ANONYMOUS_ID.test(step.target)
-            ? ` "${step.target}" is an auto-generated id: the target flow has a regex/predicate trigger and no .id(), so every compile() ` +
+          (ANONYMOUS_ID.test(jump.target)
+            ? ` "${jump.target}" is an auto-generated id: the target flow has a regex/predicate trigger and no .id(), so every compile() ` +
               'gives it a new id. Give it a stable .id("…") and goto that name.'
             : ''),
       })
@@ -238,7 +244,7 @@ export function lintFlows(source: FlowSource, options: LintOptions = {}): LintDi
         report({
           code: 'missing-timeout', severity: 'info', ...at,
           message: `${cap(where)} has no timeout and the bot sets no conversation.timeout, so it falls back to the built-in 5m. ` +
-            (inherited ? `Inline then sub-flows do not inherit the parent flow's .timeout(): set one on "${m.owner.id}" too. ` : '') +
+            (inherited ? `Inline sub-flows (choose then / .use()) do not inherit the parent flow's .timeout(): set one on "${m.owner.id}" too. ` : '') +
             'Set .timeout() on the flow, a { timeout } on the step, or conversation.timeout on the Bot.',
         })
       } else if ((t.ms ?? 0) <= 0) {
