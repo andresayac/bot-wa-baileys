@@ -133,9 +133,20 @@ export function buildMessageContext(deps: BuildContextDeps): IMessageContext {
     lang: (deps.i18n ?? defaultI18n).defaultLocale,
     t(key, params) { return (deps.i18n ?? defaultI18n).translate(ctx.lang, key, params) },
     async setLang(code: string) {
-      const lang = normalizeLocale(code)
-      if (!lang) throw new TypeError('setLang() expects a non-empty locale code')
-      await ctx.user.set((deps.i18n ?? defaultI18n).userKey, lang)
+      const i18n = deps.i18n ?? defaultI18n
+      const requested = normalizeLocale(code)
+      if (!requested) throw new TypeError('setLang() expects a non-empty locale code')
+      // Without i18n turned on the next message would ignore the preference, so refuse
+      // instead of switching for a single reply.
+      if (!i18n.enabled) {
+        throw new Error('setLang(): i18n is not enabled; call bot.locale(...) or set BotConfig.i18n first')
+      }
+      const lang = i18n.supported(requested)
+      if (!lang) {
+        const shown = requested.length > 32 ? `${requested.slice(0, 32)}…` : requested
+        throw new TypeError(`setLang(): no registered locale serves "${shown}" (see bot.locale())`)
+      }
+      await ctx.user.set(i18n.userKey, lang)
       ctx.lang = lang
     },
 

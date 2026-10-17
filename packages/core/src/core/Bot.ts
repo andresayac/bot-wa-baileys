@@ -813,7 +813,10 @@ export class Bot extends EventEmitter {
    * bot.locale('en', { greeting: 'Hello, {name}!', cart: { one: '{count} item', other: '{count} items' } })
    * bot.locale({ defaultLocale: 'es' })
    * bot.when('hola', (ctx) => ctx.reply(ctx.t('greeting', { name: ctx.pushName ?? '' })))
-   * bot.command('lang', (ctx, [code]) => ctx.setLang(code))
+   * bot.command('lang', async (ctx, [code]) => {
+   *   if (!code || !bot.locales().includes(code.toLowerCase())) return ctx.reply(bot.locales().join(', '))
+   *   await ctx.setLang(code)
+   * })
    * ```
    */
   locale(code: string, messages: LocaleMessages): this
@@ -833,8 +836,10 @@ export class Bot extends EventEmitter {
   }
 
   /**
-   * The stored language preference of `userId` (`ctx.setLang`), else the default locale.
-   * A store read failure resolves the default (logged at debug level).
+   * The stored language preference of `userId` (`ctx.setLang`) when a registered locale
+   * serves it, else the default locale — the same language `ctx.lang` would resolve from
+   * the stored value (always the default while i18n is off). A store read failure
+   * resolves the default (logged at debug level).
    */
   async langOf(userId: UserId): Promise<string> {
     return this.i18n.languageOf(this.users.for(userId))

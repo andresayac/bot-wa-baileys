@@ -636,9 +636,12 @@ export interface MessageContext<TTools extends object = DefaultTools, TRaw = unk
    */
   t(key: string, params?: TranslateParams): string
   /**
-   * Switch the sender's language: persists it to `ctx.user` (key `'lang'` by default)
+   * Switch the sender's language: persists the registered locale serving `code`
+   * (`'en-GB'` → `'en'` when only `en` exists) to `ctx.user` (key `'lang'` by default)
    * and updates {@link lang} for this message. Rejects with `TypeError` on an empty code
-   * and with `UserDataError` when the profile cannot be written.
+   * or one no registered locale serves (nothing is stored), with `Error` while i18n is
+   * not enabled (no `bot.locale()` call and no `BotConfig.i18n`), and with
+   * `UserDataError` when the profile cannot be written.
    */
   setLang(code: string): Promise<void>
 
@@ -690,6 +693,10 @@ export interface ContextI18n {
   readonly defaultLocale: string
   /** `ctx.user` key `ctx.setLang()` writes. */
   readonly userKey: string
+  /** Whether per-message language resolution is on; `ctx.setLang()` refuses otherwise. */
+  readonly enabled: boolean
+  /** The registered locale serving `code` (itself or its base language), else `undefined`. */
+  supported(code: unknown): string | undefined
   translate(lang: string | undefined, key: string, params?: TranslateParams): string
 }
 

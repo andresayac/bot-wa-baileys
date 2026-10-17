@@ -251,13 +251,14 @@ export class I18n {
 
   /**
    * Resolve the language of an inbound context: the `ctx.user` preference →
-   * the provider-reported language (if a locale serves it) → the detector (if a
-   * locale serves its answer) → the default. Never rejects. Returns the default
+   * the provider-reported language → the detector's answer → the default. Each
+   * candidate only counts when a registered locale serves it ({@link supported}),
+   * so the result is always a registered locale or the default. Never rejects. Returns the default
    * immediately while i18n is not {@link enabled}.
    */
   async resolve(ctx: MessageContext): Promise<string> {
     if (!this.enabled) return this.defaultCode
-    const stored = await this.preferenceOf(ctx.user)
+    const stored = this.supported(await this.preferenceOf(ctx.user))
     if (stored) return stored
     if (this.useProviderLanguage) {
       const fromProvider = this.supported(providerLanguageOf(ctx.senderInfo))
@@ -274,9 +275,14 @@ export class I18n {
     return this.defaultCode
   }
 
-  /** The stored preference of a profile, or the default locale. Never rejects. */
+  /**
+   * The stored preference of a profile (the registered locale serving it), else
+   * the default locale. Agrees with {@link resolve}: while i18n is not
+   * {@link enabled} it is always the default. Never rejects.
+   */
   async languageOf(user: UserData): Promise<string> {
-    return (await this.preferenceOf(user)) ?? this.defaultCode
+    if (!this.enabled) return this.defaultCode
+    return this.supported(await this.preferenceOf(user)) ?? this.defaultCode
   }
 
   private async preferenceOf(user: UserData | undefined): Promise<string | undefined> {

@@ -286,6 +286,64 @@ describe('Bot i18n', () => {
     await bot.stop()
   })
 
+  it('ctx.setLang rejects a locale no one registered and stores nothing', async () => {
+    const { bot, provider } = await makeBot({ i18n: { defaultLocale: 'en' } })
+    bot.locale('en', EN)
+    let err: unknown
+    bot.command('lang', async (ctx, [code]) => { try { await ctx.setLang(code) } catch (e) { err = e } })
+    bot.onMessage(async (ctx) => { await ctx.reply(ctx.lang) })
+    await deliver(bot, provider, '/lang klingon')
+    expect(err).toBeInstanceOf(TypeError)
+    expect(await bot.user('user-1').get('lang')).toBeUndefined()
+    await deliver(bot, provider, 'hi')
+    expect(texts(provider)).toEqual(['en'])
+    await bot.stop()
+  })
+
+  it('ctx.setLang stores the registered locale serving a regional code', async () => {
+    const { bot, provider } = await makeBot()
+    bot.locale('es', ES).locale('en', EN)
+    bot.command('lang', async (ctx, [code]) => { await ctx.setLang(code); await ctx.reply(ctx.lang) })
+    await deliver(bot, provider, '/lang en-GB')
+    expect(await bot.user('user-1').get('lang')).toBe('en')
+    expect(texts(provider)).toEqual(['en'])
+    await bot.stop()
+  })
+
+  it('ignores a stored preference that is not a registered locale', async () => {
+    const { bot, provider } = await makeBot({ i18n: { defaultLocale: 'en' } })
+    bot.locale('en', EN)
+    await bot.user('user-1').set('lang', 'klingon')
+    bot.onMessage(async (ctx) => { await ctx.reply(ctx.lang) })
+    await deliver(bot, provider, 'hi', { language: 'es' })
+    // Falls through to the provider language (es is a built-in locale).
+    expect(texts(provider)).toEqual(['es'])
+    expect(await bot.langOf('user-1')).toBe('en')
+    await bot.stop()
+  })
+
+  it('ctx.setLang rejects while i18n is off (no bot.locale() / BotConfig.i18n), so it never half-works', async () => {
+    const { bot, provider } = await makeBot()
+    let err: unknown
+    bot.command('lang', async (ctx) => { try { await ctx.setLang('en') } catch (e) { err = e } })
+    bot.onMessage(async (ctx) => { await ctx.reply(ctx.lang) })
+    await deliver(bot, provider, '/lang en')
+    expect(err).toBeInstanceOf(Error)
+    expect(String((err as Error).message)).toMatch(/bot\.locale/)
+    expect(await bot.user('user-1').get('lang')).toBeUndefined()
+    await deliver(bot, provider, 'hi')
+    expect(texts(provider)).toEqual(['es'])
+    expect(await bot.langOf('user-1')).toBe('es')
+    await bot.stop()
+  })
+
+  it('bot.langOf agrees with ctx.lang while i18n is off', async () => {
+    const { bot } = await makeBot()
+    await bot.user('user-1').set('lang', 'en')
+    expect(await bot.langOf('user-1')).toBe('es')
+    await bot.stop()
+  })
+
   it('without any locale configuration the stored/provider language is not consulted (backward compatible)', async () => {
     const { bot, provider } = await makeBot()
     await bot.user('user-1').set('lang', 'en')
