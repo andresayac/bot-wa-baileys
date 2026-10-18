@@ -16,6 +16,8 @@ export interface VoiceRequest {
   headers: Record<string, string>
   body?: Buffer | string
   signal?: AbortSignal
+  /** Per-call timeout (`TranscribeOptions.timeoutMs` / `SynthesizeOptions.timeoutMs`). */
+  timeoutMs?: number
   /** Default response cap when the adapter options don't set one. */
   defaultMaxBytes: number
 }
@@ -31,7 +33,7 @@ export function joinUrl(base: string, path: string): string {
 }
 
 export async function voiceRequest(req: VoiceRequest, http: VoiceHttpOptions = {}): Promise<VoiceResponse> {
-  const timeoutMs = http.timeoutMs ?? DEFAULT_TIMEOUT_MS
+  const timeoutMs = effectiveTimeout(http.timeoutMs, req.timeoutMs)
   let result
   try {
     result = await secureFetch(req.url, {
@@ -61,6 +63,12 @@ export async function voiceRequest(req: VoiceRequest, http: VoiceHttpOptions = {
   }
   if (!response.ok) throw new VoiceHttpError(req.service, response.status, errorDetail(body))
   return { body, headers: response.headers }
+}
+
+/** The tighter of the adapter timeout and the per-call one; `60_000` when neither is set. */
+function effectiveTimeout(adapter: number | undefined, call: number | undefined): number {
+  const set = [adapter, call].filter((v): v is number => typeof v === 'number' && v > 0)
+  return set.length > 0 ? Math.min(...set) : DEFAULT_TIMEOUT_MS
 }
 
 /** Parse a JSON body or throw a `BAD_RESPONSE` VoiceError. */

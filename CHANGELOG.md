@@ -73,6 +73,8 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/). Versionado po
 - `ctx.user`: un lote inválido no escribe nada y un fallo del store no libera el lock con escrituras hermanas en vuelo; los TTL fraccionarios se redondean hacia arriba y los que desbordan `Number.MAX_SAFE_INTEGER` se rechazan.
 - `lintFlows()` ya no avisa de flujos a los que el código puede entrar con `c.goto()` (baja a info).
 - `bot-wa dev`: una factory que usa otro provider se detiene y nunca se vuelve a llamar; la entrada por pipe espera a que el bot termine de responder.
+- `loadMediaOf(ctx, { maxBytes, throwOnError })` es público: descarga la media entrante antes de enrutar con un tope de bytes (comprueba el tamaño declarado antes de descargar y corta la descarga al pasarse, con `MediaTooLargeError`) y, si se pide, rechaza con el error de descarga en vez de devolver `undefined`.
+- `bot.inspectConversation()` incluye `accepts`: qué acepta la espera pendiente (`'text'` en `ask`/`waitText`, la lista de tipos en `waitMedia`, `'any'` en `choose`/`waitAny`).
 
 ### @bot-wa/baileys (2026-10)
 
@@ -121,6 +123,7 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/). Versionado po
 - **`@bot-wa/mongo-store`** (privado): `limit: 0` ya no devuelve todo el log; `undefined` no se persiste como `null`; los campos `undefined` explícitos en un upsert se eliminan; los `Buffer` ya no vuelven como BSON `Binary`.
 
 ### Canales privados (2026-10)
+- **`@bot-wa/voice`** (nuevo, privado): `voicePlugin({ stt, tts, limits, autoTranscribe, autoReplyWithVoice })` con STT (OpenAI-compatible, Deepgram) y TTS (OpenAI, ElevenLabs) sobre `secureFetch`, transcripción de notas de voz en `ctx.body`/`ctx.transcript` (con `asText: 'auto'` una nota solo pasa a `'text'` si la conversación espera texto; `c.waitMedia(['voice'])` la sigue recibiendo como voz), `limits.timeoutMs` aplicado también al timeout HTTP de los adapters y `maxInputBytes` aplicado a la descarga.
 - **`@bot-wa/messenger`**: los eventos `referral` y `optin` usan ids únicos por evento (`referral:<timestamp>` / `optin:<timestamp>`) en vez del PSID, así que un segundo referral u opt-in del mismo usuario ya no se descarta como duplicado.
 - **`@bot-wa/instagram`**: un payload sin `mid` ni timestamp ya no recibe el id compartido `ig_0` (pasa a `''`, que nunca se deduplica).
 - **`@bot-wa/discord`, `@bot-wa/messenger`, `@bot-wa/instagram`**: las firmas de los métodos no-op coinciden con `IProvider`; en Discord, `typing(chatId, 'paused')` ya no inicia el indicador de escritura.

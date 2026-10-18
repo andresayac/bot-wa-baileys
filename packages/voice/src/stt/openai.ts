@@ -58,7 +58,7 @@ export function openaiStt(options: OpenAISttOptions = {}): SttAdapter {
       const headers: Record<string, string> = { authorization: `Bearer ${apiKey}`, 'content-type': form.contentType }
       if (options.organization) headers['openai-organization'] = options.organization
       const res = await voiceRequest(
-        { service: SERVICE, url: joinUrl(baseUrl, 'audio/transcriptions'), headers, body: form.body, signal: opts.signal, defaultMaxBytes: 1024 * 1024 },
+        { service: SERVICE, url: joinUrl(baseUrl, 'audio/transcriptions'), headers, body: form.body, signal: opts.signal, timeoutMs: opts.timeoutMs, defaultMaxBytes: 1024 * 1024 },
         options,
       )
       const json = parseJson(SERVICE, res.body) as { text?: unknown; language?: unknown; duration?: unknown }

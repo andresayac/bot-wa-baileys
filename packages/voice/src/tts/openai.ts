@@ -64,7 +64,7 @@ export function openaiTts(options: OpenAITtsOptions = {}): TtsAdapter {
       const headers: Record<string, string> = { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' }
       if (options.organization) headers['openai-organization'] = options.organization
       const res = await voiceRequest(
-        { service: SERVICE, url: joinUrl(baseUrl, 'audio/speech'), headers, body: JSON.stringify(payload), signal: opts.signal, defaultMaxBytes: 16 * 1024 * 1024 },
+        { service: SERVICE, url: joinUrl(baseUrl, 'audio/speech'), headers, body: JSON.stringify(payload), signal: opts.signal, timeoutMs: opts.timeoutMs, defaultMaxBytes: 16 * 1024 * 1024 },
         options,
       )
       return { buffer: res.body, mimetype: OPENAI_TTS_MIMETYPES[format], format, provider: 'openai' }

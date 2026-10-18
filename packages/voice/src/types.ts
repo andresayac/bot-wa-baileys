@@ -22,6 +22,11 @@ export interface TranscribeOptions {
   language?: string
   /** Free-text context that helps the model (OpenAI `prompt`). Ignored where unsupported. */
   prompt?: string
+  /**
+   * Per-call request timeout in ms. `VoiceClient` sets it to `limits.timeoutMs`;
+   * the built-in adapters apply the tighter of this and their own `timeoutMs`.
+   */
+  timeoutMs?: number
   /** Abort the request. */
   signal?: AbortSignal
 }
@@ -43,6 +48,11 @@ export interface SynthesizeOptions {
   voice?: string
   /** Extra style instructions (OpenAI `gpt-4o-mini-tts`). Ignored where unsupported. */
   instructions?: string
+  /**
+   * Per-call request timeout in ms. `VoiceClient` sets it to `limits.timeoutMs`;
+   * the built-in adapters apply the tighter of this and their own `timeoutMs`.
+   */
+  timeoutMs?: number
   /** Abort the request. */
   signal?: AbortSignal
 }
@@ -77,7 +87,11 @@ export interface TtsAdapter {
 export interface VoiceHttpOptions {
   /** Override the service base URL (proxies, Azure-compatible gateways, self-hosted servers). */
   baseUrl?: string
-  /** Per-request timeout in ms. Default `60_000`. */
+  /**
+   * Per-request timeout in ms. When a call also carries a per-call `timeoutMs`
+   * (`VoiceClient` passes `limits.timeoutMs`), the tighter one applies.
+   * Default: the per-call timeout, else `60_000`.
+   */
   timeoutMs?: number
   /** Max bytes accepted in the response. Default 16 MiB (TTS audio) / 1 MiB (STT JSON). */
   maxResponseBytes?: number

@@ -121,6 +121,16 @@ describe('openaiStt', () => {
     const stt = openaiStt({ apiKey: 'k', timeoutMs: 20, fetch, resolver: publicResolver })
     await expect(stt.transcribe({ buffer: makeOgg(1) })).rejects.toBeInstanceOf(VoiceTimeoutError)
   })
+
+  it('uses the per-call timeoutMs when the adapter sets none, and the tighter one when both do', async () => {
+    const fetch = ((_url: string, init: RequestInit) => new Promise<Response>((_, reject) => {
+      init.signal?.addEventListener('abort', () => reject(init.signal?.reason))
+    })) as unknown as typeof globalThis.fetch
+    const loose = openaiStt({ apiKey: 'k', fetch, resolver: publicResolver })
+    await expect(loose.transcribe({ buffer: makeOgg(1) }, { timeoutMs: 20 })).rejects.toMatchObject({ code: 'TIMEOUT', timeoutMs: 20 })
+    const tight = openaiStt({ apiKey: 'k', timeoutMs: 15, fetch, resolver: publicResolver })
+    await expect(tight.transcribe({ buffer: makeOgg(1) }, { timeoutMs: 90_000 })).rejects.toMatchObject({ code: 'TIMEOUT', timeoutMs: 15 })
+  })
 })
 
 describe('deepgramStt', () => {

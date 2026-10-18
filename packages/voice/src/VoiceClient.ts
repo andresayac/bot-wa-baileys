@@ -15,7 +15,7 @@
  * ```
  */
 
-import { loadMediaOf, type MediaPayload, type MessageContext, type SentMessage } from '@bot-wa/core'
+import { loadMediaOf, MediaTooLargeError, type MediaPayload, type MessageContext, type SentMessage } from '@bot-wa/core'
 import { estimateDurationSec } from './audio.js'
 import {
   AudioTooLargeError,
@@ -39,7 +39,11 @@ import type {
 
 /** Guard rails applied to every STT/TTS call. */
 export interface VoiceLimits {
-  /** Max input audio size for STT. Default 25 MiB (the OpenAI upload limit). */
+  /**
+   * Max input audio size for STT. Default 25 MiB (the OpenAI upload limit).
+   * For a message context it caps the media download itself (declared size
+   * first, then the bytes read), so an oversized file is never buffered whole.
+   */
   maxInputBytes?: number
   /**
    * Max input audio duration for STT, in seconds. Default `300`. Checked before
@@ -49,7 +53,11 @@ export interface VoiceLimits {
   maxDurationSec?: number
   /** Max characters per TTS request. Default `4096` (the OpenAI limit). */
   maxTextChars?: number
-  /** Hard timeout for each STT/TTS call, in ms. Default `60_000`. */
+  /**
+   * Hard timeout for each STT/TTS call, in ms. Default `60_000`. Also passed to
+   * the adapter as the per-call `timeoutMs`, so the built-in adapters' HTTP
+   * timeout follows it (an adapter-level `timeoutMs` can only tighten it).
+   */
   timeoutMs?: number
 }
 
@@ -111,7 +119,7 @@ export class VoiceClient {
     const stt = this.stt()
     const audio = await this.toAudioInput(source)
     this.checkInput(audio)
-    return this.withTimeout(stt.name, options.signal, (signal) => stt.transcribe(audio, { ...options, signal }))
+    return this.withTimeout(stt.name, options.signal, (signal) => stt.transcribe(audio, { ...options, signal, timeoutMs: this.limits.timeoutMs }))
   }
 
   /** Synthesize `text` and return the audio bytes (ready for `ctx.voice(buffer)`). */
@@ -125,7 +133,7 @@ export class VoiceClient {
     const input = text.trim()
     if (!input) throw new VoiceError('nothing to synthesize: text is empty', 'NO_MEDIA')
     if (input.length > this.limits.maxTextChars) throw new TextTooLongError(input.length, this.limits.maxTextChars)
-    return this.withTimeout(tts.name, options.signal, (signal) => tts.synthesize(input, { ...options, signal }))
+    return this.withTimeout(tts.name, options.signal, (signal) => tts.synthesize(input, { ...options, signal, timeoutMs: this.limits.timeoutMs }))
   }
 
   /** Synthesize `text` and send it as a voice note to the chat of `ctx`. */
@@ -149,11 +157,27 @@ export class VoiceClient {
     let input: AudioInput | undefined
     if (Buffer.isBuffer(source)) input = { buffer: source }
     else if (isMessageContext(source)) {
-      const media = await loadMediaOf(source)
+      const media = await this.download(source)
       if (media) input = { buffer: media.buffer, mimetype: media.mimetype, filename: media.filename }
     } else if (source && Buffer.isBuffer((source as AudioInput).buffer)) input = source as AudioInput
     if (!input || input.buffer.length === 0) throw new VoiceError('nothing to transcribe: no audio media', 'NO_MEDIA')
     return input
+  }
+
+  /**
+   * Download the message's media with `maxInputBytes` as a hard cap: the declared
+   * size is checked before downloading and the download is cut once it goes over,
+   * so an oversized file is never buffered whole. A failed download is a `NETWORK` error.
+   */
+  private async download(ctx: MessageContext): Promise<MediaPayload | undefined> {
+    const { maxInputBytes } = this.limits
+    try {
+      return await loadMediaOf(ctx, { maxBytes: maxInputBytes, throwOnError: true })
+    } catch (error) {
+      if (error instanceof MediaTooLargeError) throw new AudioTooLargeError(error.bytes, maxInputBytes)
+      const reason = error instanceof Error ? error.message : String(error)
+      throw new VoiceError(`could not download the audio: ${reason}`, 'NETWORK', { cause: error })
+    }
   }
 
   private checkInput(audio: AudioInput): void {

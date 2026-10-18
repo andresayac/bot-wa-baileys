@@ -1,4 +1,4 @@
-import type { ConversationRuntime, ConversationHandle, RuntimeMessage, ConversationControlsBase } from './ConversationRuntime.js'
+import type { ConversationRuntime, ConversationHandle, RuntimeMessage, ConversationControlsBase, WaitAccepts } from './ConversationRuntime.js'
 import { ConversationEnded, ConversationGoto } from './errors.js'
 import { parseDuration } from '../utils/duration.js'
 import { normalizeText } from '../core/matching.js'
@@ -6,8 +6,9 @@ import type { WaitOptions } from '../core/types.js'
 import { DEFAULT_RETRIES, WaitTracker, bindTracker, type WaitVerdict } from './retry.js'
 import { createIdleControls, type IdleCallback } from './idle.js'
 
+/** Types `c.waitMedia()` takes by default (voice notes only when asked for: `waitMedia(['voice'])`). */
 const MEDIA_TYPES = ['image', 'video', 'audio', 'document', 'sticker'] as const
-type MediaType = (typeof MEDIA_TYPES)[number]
+type MediaType = (typeof MEDIA_TYPES)[number] | 'voice'
 
 export interface ConversationControls extends ConversationControlsBase {
   ask(text: string, opts?: WaitOptions): Promise<string>
@@ -71,7 +72,8 @@ export interface ConversationControls extends ConversationControlsBase {
 export function createControls(rt: ConversationRuntime, handle: ConversationHandle, ctx: RuntimeMessage): ConversationControls {
   const timeoutOf = (o?: WaitOptions) => (o?.timeout !== undefined ? parseDuration(o.timeout) : undefined)
 
-  const rawWait = (o?: WaitOptions) => rt.wait(handle, { timeoutMs: timeoutOf(o), filter: o?.filter })
+  const rawWait = (o: WaitOptions | undefined, accepts: WaitAccepts) =>
+    rt.wait(handle, { timeoutMs: timeoutOf(o), filter: o?.filter, accepts })
 
   // Records every wait so c.retry() can re-run it (see retry.ts).
   const tracker = new WaitTracker({ assertAlive: () => rt.assertAlive(handle), reply: (text) => ctx.reply(text) })
@@ -79,10 +81,11 @@ export function createControls(rt: ConversationRuntime, handle: ConversationHand
   /** `promptFor(message?)`: text sent before waiting (and re-sent by c.retry()); default: just the retry message. */
   function loopWait<T>(
     opts: WaitOptions | undefined,
+    accepts: WaitAccepts,
     accept: (m: RuntimeMessage) => Promise<WaitVerdict<T>>,
     promptFor: (message?: string) => string | undefined = (message) => message,
   ): Promise<T> {
-    return tracker.wait<T>(opts?.retries ?? DEFAULT_RETRIES, promptFor, async () => accept(await rawWait(opts)))
+    return tracker.wait<T>(opts?.retries ?? DEFAULT_RETRIES, promptFor, async () => accept(await rawWait(opts, accepts)))
   }
 
   const acceptText = (opts?: WaitOptions) => async (m: RuntimeMessage): Promise<WaitVerdict<string>> => {
@@ -101,13 +104,13 @@ export function createControls(rt: ConversationRuntime, handle: ConversationHand
     end: (farewell) => { throw new ConversationEnded(farewell) },
     goto: (name, args) => { throw new ConversationGoto(name, args) },
     waitAny: (o) => tracker.wait<RuntimeMessage>(DEFAULT_RETRIES, (message) => message,
-      async () => ({ ok: true, value: await rt.wait(handle, o ?? {}) })),
+      async () => ({ ok: true, value: await rt.wait(handle, { accepts: 'any', ...o }) })),
 
-    waitText: (opts) => loopWait<string>(opts, acceptText(opts)),
+    waitText: (opts) => loopWait<string>(opts, 'text', acceptText(opts)),
 
-    ask: (text, opts) => loopWait<string>(opts, acceptText(opts), (message) => message ?? text),
+    ask: (text, opts) => loopWait<string>(opts, 'text', acceptText(opts), (message) => message ?? text),
 
-    waitMedia: (types = [...MEDIA_TYPES], opts) => loopWait<RuntimeMessage>(opts, async (m) => {
+    waitMedia: (types = [...MEDIA_TYPES], opts) => loopWait<RuntimeMessage>(opts, [...types], async (m) => {
       return (types as string[]).includes(m.type)
         ? { ok: true, value: m }
         : { ok: false, message: opts?.otherwise ?? '📎 Envía un archivo válido.' }
@@ -117,7 +120,7 @@ export function createControls(rt: ConversationRuntime, handle: ConversationHand
       const keys = Object.keys(options)
       const render = (header: string) => `${header}\n\n${keys.map((k, i) => `${i + 1}) ${options[k]}`).join('\n')}`
       const menu = render(prompt)
-      return loopWait<string>(opts, async (m) => {
+      return loopWait<string>(opts, 'any', async (m) => {
         const body = normalizeText(m.body)
         // Numeric input resolves by displayed 1-based menu position — intentionally,
         // byIndex wins over a key that happens to be a numeric string (e.g. key '2').

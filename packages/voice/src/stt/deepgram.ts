@@ -49,7 +49,7 @@ export function deepgramStt(options: DeepgramSttOptions = {}): SttAdapter {
           url: `${joinUrl(baseUrl, 'listen')}?${params.toString()}`,
           headers: { authorization: `Token ${apiKey}`, 'content-type': effectiveMimetype(audio.buffer, audio.mimetype) },
           body: audio.buffer,
-          signal: opts.signal,
+          signal: opts.signal, timeoutMs: opts.timeoutMs,
           defaultMaxBytes: 1024 * 1024,
         },
         options,

@@ -11,9 +11,10 @@
  *    that downloads each voice note, transcribes it and exposes the text as
  *    `ctx.transcript` and — by default — `ctx.body`, so text triggers, `c.ask()`
  *    answers, NLU and AI handlers all "hear" audio. `ctx.type` stays `'voice'`
- *    (so `VOICE_NOTE` triggers still fire) except while a conversation is
- *    active for the sender (`asText: 'auto'`), where it becomes `'text'` so
- *    `c.ask()` accepts the spoken answer.
+ *    (so `VOICE_NOTE` triggers still fire) except while a conversation of the
+ *    sender waits for text (`asText: 'auto'`), where it becomes `'text'` so
+ *    `c.ask()` accepts the spoken answer; `c.waitMedia(['voice'])` still gets
+ *    the voice note.
  *  - `autoReplyWithVoice` (default off): while a chat's latest inbound message is
  *    a voice note, outbound text to that chat is synthesized and sent as a voice
  *    note instead (a `before('send')` hook, so it covers `ctx.reply`, flows, `c.say`
@@ -54,9 +55,11 @@ export interface AutoTranscribeOptions {
   setBody?: boolean
   /**
    * Rewrite `ctx.type` to `'text'` when a transcript was produced:
-   *  - `'auto'` (default): only while a conversation is active for the sender,
-   *    so a voice note answers `c.ask()` / `c.waitText()` (which accept text
-   *    only) while `VOICE_NOTE` triggers keep matching everywhere else.
+   *  - `'auto'` (default): only while a conversation is active for the sender
+   *    and its pending wait does not take this message type, so a voice note
+   *    answers `c.ask()` / `c.waitText()` (which accept text only) while
+   *    `c.waitMedia(['voice'])`, `c.choose()`, `c.waitAny()` and `VOICE_NOTE`
+   *    triggers keep receiving it as a voice note.
    *  - `true`: always — text-only handlers (e.g. the `@bot-wa/ai` autoresponder)
    *    answer audio, but `VOICE_NOTE`/`AUDIO` triggers no longer match.
    *  - `false`: never.
@@ -172,7 +175,7 @@ export function voicePlugin(config: VoicePluginConfig = {}): PluginSpec<VoicePlu
           if (!body) return
           if (opts.setBody !== false) mctx.body = body
           const asText = opts.asText ?? 'auto'
-          if (asText === true || (asText === 'auto' && bot.inspectConversation(mctx) !== undefined)) mctx.type = 'text'
+          if (asText === true || (asText === 'auto' && conversationWantsText(mctx))) mctx.type = 'text'
         } catch (error) {
           mctx.transcriptError = error
           if (opts.onError) {
@@ -181,6 +184,22 @@ export function voicePlugin(config: VoicePluginConfig = {}): PluginSpec<VoicePlu
             logger.warn({ err: describe(error), type: mctx.type }, 'voice transcription failed')
           }
         }
+      }
+
+      /**
+       * `'auto'`: rewrite to text only while a conversation is active for the sender
+       * and its pending wait would reject this message's own type — `c.ask()` /
+       * `c.waitText()` take text only, while `c.waitMedia(['voice'])`, `c.choose()`
+       * (reads `body`) and `c.waitAny()` take the voice note as is. A conversation
+       * that is busy running a step (no pending wait yet) gets text, as before.
+       */
+      function conversationWantsText(mctx: MessageContext): boolean {
+        const snapshot = bot.inspectConversation(mctx)
+        if (!snapshot) return false
+        const accepts = snapshot.accepts
+        if (accepts === 'any') return false
+        if (Array.isArray(accepts)) return !accepts.includes(mctx.type)
+        return true
       }
 
       if (reply) {

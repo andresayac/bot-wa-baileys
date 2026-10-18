@@ -44,7 +44,7 @@ Un hook `before('message')` (prioridad 100) descarga cada nota de voz, la transc
 - `ctx.body`: el mismo texto sin la puntuación de los extremos (`¡Hola!` → `Hola`), para que los triggers por igualdad, `c.ask()`, la NLU y la IA "oigan" el audio.
 - `ctx.media`: el audio descargado (no se vuelve a descargar).
 - `ctx.transcriptError`: el error, si la transcripción falló. El mensaje **se sigue enrutando** (sin transcripción) y se registra un `warn`.
-- `ctx.type`: sigue siendo `'voice'`, así que `VOICE_NOTE` sigue disparando. Con el modo por defecto `asText: 'auto'` pasa a `'text'` **solo mientras hay una conversación activa** para ese usuario, para que una nota de voz responda a un `c.ask()` (que solo acepta texto).
+- `ctx.type`: sigue siendo `'voice'`, así que `VOICE_NOTE` sigue disparando. Con el modo por defecto `asText: 'auto'` pasa a `'text'` **solo mientras una conversación activa de ese usuario espera texto** (`c.ask()`, `c.waitText()`), para que la nota de voz responda a la pregunta. Si la conversación espera audio (`c.waitMedia(['voice'])`), un menú (`c.choose()`, que lee `body`) o cualquier mensaje (`c.waitAny()`), la nota llega como `'voice'` con su transcripción.
 
 | Opción | Tipo | Por defecto | Descripción |
 | --- | --- | --- | --- |
@@ -97,7 +97,7 @@ Si la síntesis falla o el canal no admite `voice` (`capabilities.contentKinds`)
 { provider: 'elevenlabs', apiKey, voiceId: '21m00Tcm4TlvDq8ikWAM', modelId: 'eleven_multilingual_v2', outputFormat: 'mp3_44100_128', voiceSettings, languageCode }
 ```
 
-Las api keys caen a `OPENAI_API_KEY`, `DEEPGRAM_API_KEY` y `ELEVENLABS_API_KEY`. Todos aceptan `timeoutMs`, `maxResponseBytes` y, para servidores propios en una red de confianza, `allowHttp` / `allowPrivateHosts` (p. ej. `faster-whisper-server` en `http://127.0.0.1:8000/v1`).
+Las api keys caen a `OPENAI_API_KEY`, `DEEPGRAM_API_KEY` y `ELEVENLABS_API_KEY`. Todos aceptan `timeoutMs` (solo puede acortar `limits.timeoutMs`), `maxResponseBytes` y, para servidores propios en una red de confianza, `allowHttp` / `allowPrivateHosts` (p. ej. `faster-whisper-server` en `http://127.0.0.1:8000/v1`).
 
 También puedes pasar un adapter propio (un modelo local, otro servicio):
 
@@ -125,10 +125,10 @@ bot.plug(voicePlugin({ stt: local }))
 voicePlugin({
   stt, tts,
   limits: {
-    maxInputBytes: 25 * 1024 * 1024, // tamaño máximo del audio a transcribir (límite de OpenAI)
+    maxInputBytes: 25 * 1024 * 1024, // tamaño máximo del audio; corta la descarga en cuanto se pasa (límite de OpenAI)
     maxDurationSec: 300,             // duración máxima; se lee del último page OGG antes de llamar al servicio
     maxTextChars: 4096,              // caracteres máximos por síntesis
-    timeoutMs: 60_000,               // tiempo máximo por llamada STT/TTS (aborta la petición)
+    timeoutMs: 60_000,               // tiempo máximo por llamada STT/TTS; también es el timeout HTTP de los adapters
   },
 })
 ```
@@ -149,7 +149,7 @@ Todos extienden `VoiceError` y llevan un `code` estable:
 | `VoiceTimeoutError` | `TIMEOUT` | Se agotó `timeoutMs`. |
 | `VoiceHttpError` | `HTTP` | Respuesta no 2xx (`status`, detalle del servicio). |
 | `VoiceRateLimitedError` | `RATE_LIMITED` | HTTP 429 (`retryAfterMs`). |
-| `VoiceError` | `NETWORK` / `BAD_RESPONSE` | Fallo de red, URL insegura o respuesta inesperada. |
+| `VoiceError` | `NETWORK` / `BAD_RESPONSE` | Fallo de red (también al descargar el audio del mensaje), URL insegura o respuesta inesperada. |
 
 Los mensajes de error y los logs nunca incluyen api keys, audio ni transcripciones.
 

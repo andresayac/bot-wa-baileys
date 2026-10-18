@@ -5,11 +5,15 @@ import {
   TextTooLongError,
   VoiceClient,
   VoiceConfigError,
+  VoiceError,
   VoiceTimeoutError,
   type AudioInput,
   type SttAdapter,
   type TtsAdapter,
 } from '../src/index.js'
+import { createTestBot } from '@bot-wa/core/testing'
+import type { MessageContext } from '@bot-wa/core'
+import { Readable } from 'node:stream'
 import { fakeFetch, json, makeOgg, publicResolver } from './helpers.js'
 
 function fakeStt(text = 'hola'): SttAdapter & { inputs: AudioInput[] } {
@@ -119,5 +123,52 @@ describe('VoiceClient', () => {
     const client = new VoiceClient({ stt: { provider: 'openai', apiKey: 'k', fetch, resolver: publicResolver } })
     expect(await client.transcribe(makeOgg(1))).toBe('desde whisper')
     expect(calls).toHaveLength(1)
+  })
+
+  it('forwards limits.timeoutMs to the adapter as the per-call timeout', async () => {
+    const seen: Array<number | undefined> = []
+    const stt: SttAdapter = { name: 's', async transcribe(_a, o) { seen.push(o?.timeoutMs); return { text: 'x', provider: 's' } } }
+    const tts: TtsAdapter = {
+      name: 't',
+      async synthesize(_t, o) { seen.push(o?.timeoutMs); return { buffer: Buffer.from('a'), mimetype: 'audio/ogg', format: 'opus', provider: 't' } },
+    }
+    const client = new VoiceClient({ stt, tts, limits: { timeoutMs: 180_000 } })
+    await client.transcribe(makeOgg(1))
+    await client.synthesize('hola')
+    expect(seen).toEqual([180_000, 180_000])
+  })
+
+  describe('transcribing a message context', () => {
+    async function capture(download: () => Promise<Buffer | NodeJS.ReadableStream>, limits = {}) {
+      const { bot, chat, provider } = await createTestBot()
+      let downloads = 0
+      provider.downloadMedia = (async () => { downloads++; return download() }) as unknown as typeof provider.downloadMedia
+      const client = new VoiceClient({ stt: fakeStt(), limits })
+      const results: unknown[] = []
+      bot.onMessage(async (ctx: MessageContext) => {
+        results.push(await client.transcribe(ctx).catch((e: unknown) => e))
+      })
+      await chat.send('', { type: 'voice' })
+      const start = Date.now()
+      while (results.length === 0 && Date.now() - start < 2000) await new Promise((r) => setTimeout(r, 5))
+      await bot.stop()
+      return { result: results[0], downloads: () => downloads }
+    }
+
+    it('cuts an oversized download at maxInputBytes instead of buffering all of it', async () => {
+      let pulled = 0
+      const stream = new Readable({ read() { pulled++; this.push(pulled > 1000 ? null : Buffer.alloc(1024, 1)) } })
+      const { result } = await capture(async () => stream, { maxInputBytes: 4096 })
+      expect(result).toBeInstanceOf(AudioTooLargeError)
+      expect((result as AudioTooLargeError).code).toBe('AUDIO_TOO_LARGE')
+      expect(pulled).toBeLessThan(20)
+    })
+
+    it('reports a failed download as a NETWORK error, not NO_MEDIA', async () => {
+      const { result } = await capture(async () => { throw new Error('socket hang up') })
+      expect(result).toBeInstanceOf(VoiceError)
+      expect(result).toMatchObject({ code: 'NETWORK' })
+      expect((result as Error).message).toMatch(/download/)
+    })
   })
 })

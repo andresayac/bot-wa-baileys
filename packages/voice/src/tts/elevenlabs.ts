@@ -69,7 +69,7 @@ export function elevenlabsTts(options: ElevenLabsTtsOptions = {}): TtsAdapter {
           url,
           headers: { 'xi-api-key': apiKey, 'content-type': 'application/json', accept: mimetype.split(';')[0]! },
           body: JSON.stringify(payload),
-          signal: opts.signal,
+          signal: opts.signal, timeoutMs: opts.timeoutMs,
           defaultMaxBytes: 16 * 1024 * 1024,
         },
         options,

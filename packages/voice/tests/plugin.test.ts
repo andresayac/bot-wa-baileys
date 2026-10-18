@@ -111,6 +111,35 @@ describe('voicePlugin — autoTranscribe', () => {
     await bot.stop()
   })
 
+  it("asText:'auto' keeps a voice note as voice when the pending wait asks for audio (c.waitMedia)", async () => {
+    const { bot, chat, voiceNote } = await setup({ stt: fakeStt('lo que sea') })
+    bot.conversation('rec', async (c) => {
+      await c.say('manda nota')
+      const m = await c.waitMedia(['voice'], { retries: 0 })
+      await c.say(`got:${m.type}:${m.body}`)
+    }, { trigger: 'start' })
+
+    await chat.send('start')
+    await chat.expectReply('manda nota')
+    await voiceNote()
+    await chat.expectReply('got:voice:lo que sea')
+    await bot.stop()
+  })
+
+  it("asText:'auto' lets c.choose() pick an option from a spoken answer without rewriting the type", async () => {
+    const { bot, chat, voiceNote } = await setup({ stt: fakeStt('Verde.') })
+    bot.conversation('menu', async (c) => {
+      const color = await c.choose('¿Color?', { r: 'Rojo', v: 'Verde' })
+      await c.say(`color:${color}`)
+    }, { trigger: 'menu' })
+
+    await chat.send('menu')
+    await chat.expectReply(/Color/)
+    await voiceNote()
+    await chat.expectReply('color:v')
+    await bot.stop()
+  })
+
   it('asText:false keeps ctx.type even inside a conversation (c.ask rejects the voice note)', async () => {
     const { bot, chat, voiceNote } = await setup({ stt: fakeStt((n) => (n === 1 ? 'pedido' : 'Bogotá')), autoTranscribe: { asText: false } })
     bot.use(flow('pedido').ask('¿Ciudad?', 'ciudad', { otherwise: 'solo texto' }))

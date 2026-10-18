@@ -98,6 +98,7 @@ export {
   RateLimitedError,
   RecipientUnreachableError,
   PayloadTooLargeError,
+  MediaTooLargeError,
   OutsideSessionWindowError,
 } from './core/types.js'
 
@@ -237,7 +238,7 @@ export type { TypeTrigger, WelcomeTrigger } from './core/triggers.js'
 // "./dev" subpath export (import from '@bot-wa/core/dev').
 export { defineBot, isBotFactory, isMainModule } from './dev/defineBot.js'
 export type { BotFactory } from './dev/defineBot.js'
-export type { ConversationSnapshot } from './conversations/ConversationRuntime.js'
+export type { ConversationSnapshot, WaitAccepts } from './conversations/ConversationRuntime.js'
 
 // chaos-mock
 // Inbound idempotency (BotConfig.dedupe). The chaos kit and the identity
@@ -257,3 +258,4 @@ export type { UserDataEntry } from './core/provider.js'
 // Lazily download an inbound message's media (populates `ctx.media`); used by
 // plugins such as @bot-wa/voice that need the bytes before routing.
 export { loadMediaOf } from './core/context.js'
+export type { LoadMediaOptions } from './core/context.js'
