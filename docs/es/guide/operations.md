@@ -27,11 +27,12 @@ const m = bot.metrics()
 ```
 
 - `messages.in` cuenta los mensajes e interacciones de entrada aceptados
-  tras el dedupe y las listas de acceso. `out` / `outFailed` cuentan los
+  tras las listas de acceso y el dedupe. `out` / `outFailed` cuentan los
   envíos que el provider aceptó o rechazó.
 - `dropped.duplicate` cuenta las reentregas que descarta el
-  [dedupe de entrada](./conceptos#dedupe-de-entrada), `blocked` la blacklist /
-  whitelist, y `handoff` los mensajes que no se enrutan porque el chat está
+  [dedupe de entrada](./conceptos#dedupe-de-entrada), `blocked` los mensajes,
+  interacciones y llamadas que descartan la blacklist / whitelist (cada
+  entrega, porque el dedupe nunca registra lo bloqueado), y `handoff` los mensajes que no se enrutan porque el chat está
   [en manos de un humano](./handoff).
 - `flows` va por nombre de conversación/flujo. `avgDurationMs` es la duración
   media de las conversaciones que ya terminaron (`0` si ninguna terminó).

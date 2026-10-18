@@ -1436,7 +1436,7 @@ export class Bot extends EventEmitter {
   }
 
   /**
-   * Route one provider event. Messages/interactions: dedupe (runInboundOnce) → access lists →
+   * Route one provider event. Messages/interactions: access lists → dedupe (runInboundOnce) →
    * persistence → groupMode → Dispatcher; the full order is documented on `Dispatcher.run`.
    */
   private async handleProviderEvent(event: InboundEvent): Promise<void> {
@@ -1444,12 +1444,14 @@ export class Bot extends EventEmitter {
       case 'message': {
         if (!this.acceptingInbound || event.message.fromMe) return
         const message = event.message
+        if (!this.admitsSender(message)) return
         await this.runInboundOnce(event, () => this.handleInbound(message))
         return
       }
       case 'interaction': {
         if (!this.acceptingInbound) return
         const interaction = event.interaction
+        if (!this.admitsSender(interaction)) return
         await this.runInboundOnce(event, () => this.handleInteraction(interaction))
         return
       }
@@ -1473,6 +1475,19 @@ export class Bot extends EventEmitter {
     }
   }
 
+  /**
+   * Access gate (blacklist/whitelist) for a message or interaction. Runs BEFORE inbound dedupe,
+   * so a blocked delivery is never recorded as seen (a redelivery after un-blocking is
+   * processed), and before persistence, hooks and routing. Counts and debug-logs the drop.
+   */
+  private admitsSender(ids: { chatId: ChatId; senderId: UserId }): boolean {
+    const access = checkAccess(this.blacklist, this.whitelist, ids)
+    if (access === 'allowed') return true
+    this.counters.blockedDropped()
+    this.logger.debug({ gate: access, chatId: ids.chatId, senderId: ids.senderId }, 'inbound dropped by access list')
+    return false
+  }
+
   /** Inbound idempotency gate: a redelivered message/interaction never reaches handlers twice. */
   private async runInboundOnce(event: InboundEvent, handle: () => Promise<void>): Promise<void> {
     if (!this.inboundDedupe) return handle()
@@ -1486,13 +1501,7 @@ export class Bot extends EventEmitter {
     inbound: InboundMessage,
     interaction?: { id: string; data: string; respondBy?: number },
   ): Promise<void> {
-    // Access gate (blacklist/whitelist): dropped before persistence, hooks and routing.
-    const access = checkAccess(this.blacklist, this.whitelist, inbound)
-    if (access !== 'allowed') {
-      this.counters.blockedDropped()
-      this.logger.debug({ gate: access, chatId: inbound.chatId, senderId: inbound.senderId }, 'inbound dropped by access list')
-      return
-    }
+    // The access lists already admitted this sender (admitsSender, before dedupe).
     this.counters.inbound()
     const timestamp = receiveTimestamp(inbound.timestamp)
     const stored: StoredMessage = {

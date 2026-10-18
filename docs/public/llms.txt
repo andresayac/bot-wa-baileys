@@ -7,7 +7,7 @@
 > (Evolution API, WPPConnect, Twilio, Gupshup) and GoHighLevel transports.
 > Flows for beginners (flow().say().ask()) compile to an async conversation
 > runtime (bot.conversation with c.ask/c.waitText/c.choose). Inbound pipeline:
-> dedupe > blacklist/whitelist > persist > groupMode > before hooks > handoff
+> blacklist/whitelist > dedupe > persist > groupMode > before hooks > handoff
 > gate > commands > active conversation > dormant persistent-flow resume
 > > matchers (WELCOME first, then normalized-equals text by specificity, then
 > type triggers) > catch-all > after hooks + 'message' event; first consumer
@@ -114,7 +114,7 @@ Prototypes (private, in-memory, minimal): @bot-wa/inbox, @bot-wa/crm, @bot-wa/hu
 - Human handoff: ctx.handoff({ reason, meta }) / bot.handoff(chatId) pause routing for a chat (messages still persisted, hooks run, 'message' fires); bot.resume(chatId), bot.isHandedOff/getHandoff/listHandoffs, bot.sendTo(chatId, 'text' | content); events 'handoff'/'resume'; BotConfig.handoff { allowCommands: ['/bot'], persist: true }; survives restarts with a persistent store
 - Access lists: bot.blacklist.add(ids) / bot.whitelist.add(ids).enable() — EXACT sender or chat ids (full JIDs on Baileys); blocked inbound is dropped before persistence; bot.exportAccessLists()/loadAccessLists() + onChange() for host persistence
 - Conversations: c.retry(message?) repeats the last wait (in flow .do() it rewinds to the previous ask/choose, or re-runs a preceding .use() sub-flow); c.idle(duration, cb) / c.idleClear() for in-conversation inactivity; bot.onIdle(duration, (ctx, { chatId, idleMs }) => ...) and bot.clearIdle(chatId?) for per-chat inactivity. In bot.conversation(name, async (c, ctx) => ...) ctx is a full MessageContext (ctx.tools typed)
-- Inbound dedupe is ON by default (BotConfig.dedupe { size: 1000, ttl? } | false): redelivered messages/interactions with the same chatId + id are dropped. Handler errors always reach bot.on('error')
+- Inbound dedupe is ON by default (BotConfig.dedupe { size: 1000, ttl? } | false): redelivered messages/interactions with the same chatId + id are dropped. Access lists run BEFORE dedupe: a blocked delivery is never recorded as seen, so a redelivery after un-blocking is processed. Handler errors always reach bot.on('error')
 - Flow introspection: bot.describe() (Mermaid; { format: 'json' } for a graph), bot.lint({ minSeverity }) → diagnostics (goto-target-missing, unreachable-step, duplicate-trigger, persistent-memory-store, ...); describeFlows/lintFlows work without a Bot
 - Terminal simulator: export default defineBot((provider) => { const bot = new Bot({ provider }); ...; return bot }) and guard the real start with if (isMainModule(import.meta)) { ... }; then npx bot-wa dev src/bot.js (no phone, hot reload; :as, :group, :media, :click, :state, :reset). Programmatic API in '@bot-wa/core/dev' (DevSession, DevProvider)
 - Forms: flow('signup').form({ id: 'signup', title, fields: [{ type: 'text'|'number'|'email'|'date'|'select'|'multiselect'|'optin', name, label, required, ... }] }, { stateKey, flatten, mode: 'auto'|'native'|'degraded', nativeId, timeout, retries }) stores validated answers in c.state[stateKey ?? id]. On @bot-wa/meta (capabilities.forms 'native') it is sent as a static WhatsApp Flow when one is mapped (CloudAPIProvider config.flows { signup: '<flow id>' }, provider.publishForm(def), or { nativeId }); otherwise, and on every other provider, the bot asks field by field. Endpoint (data_exchange) Flows are not supported yet

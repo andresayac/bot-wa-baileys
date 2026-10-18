@@ -180,8 +180,9 @@ export class Dispatcher {
    * The message routing pipeline. Full inbound order, Bot + Dispatcher:
    *
    *  Bot.handleProviderEvent / handleInbound / processMessage (per event, before the queue)
-   *   1. inbound dedupe — a redelivered message/interaction (same chatId + id) stops here
-   *   2. blacklist / whitelist — dropped silently: not persisted, no hooks, no 'message'
+   *   1. blacklist / whitelist — dropped silently: not persisted, no hooks, no 'message',
+   *      and NOT recorded by dedupe (a redelivery after un-blocking is processed)
+   *   2. inbound dedupe — a redelivered message/interaction (same chatId + id) stops here
    *   3. persistence — chat, contact and message upserts
    *   4. groupMode filter — a group message the bot must ignore stops here (still persisted)
    *  Dispatcher (per-chat FIFO queue, this method)
@@ -198,8 +199,9 @@ export class Dispatcher {
    *  11. catch-all (`onMessage`, aiPlugin)
    *  12. finish — after('message') hooks, then the 'message' event (onIdle re-arms here)
    *
-   * Why: dedupe and the access lists run first so neither a retry nor a blocked sender
-   * costs a store write or reaches hooks; a handed-off chat is still persisted, still
+   * Why: the access lists and dedupe run first so neither a blocked sender nor a retry
+   * costs a store write or reaches hooks; the access lists go before dedupe so a blocked
+   * delivery never burns its id (each counts as `dropped.blocked`, never `duplicate`); a handed-off chat is still persisted, still
    * runs hooks and still emits 'message' (inbox/agents see it) but nothing routes it;
    * WELCOME sits after commands/conversations so those never spend the welcome. Call
    * events take a separate path: access/handoff gates first in the Bot (a blocked call

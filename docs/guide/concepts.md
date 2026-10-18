@@ -13,11 +13,11 @@ thing that **consumes** the message wins and stops the routing:
 
 ```mermaid
 flowchart TD
-    A[Message in] --> DD{"Already seen?<br/>(dedupe: chatId + id)"}
+    A[Message in] --> ACL{"Blacklisted /<br/>not whitelisted?"}
+    ACL -->|Yes| X1[Dropped: not persisted, no hooks,<br/>not recorded as seen]
+    ACL -->|No| DD{"Already seen?<br/>(dedupe: chatId + id)"}
     DD -->|Yes| X0[Dropped]
-    DD -->|No| ACL{"Blacklisted /<br/>not whitelisted?"}
-    ACL -->|Yes| X1[Dropped: not persisted, no hooks]
-    ACL -->|No| P[Persist chat, contact, message]
+    DD -->|No| P[Persist chat, contact, message]
     P --> GM{"groupMode filter"}
     GM -->|Ignored| X2[Stops here]
     GM -->|OK| L["Resolve ctx.lang (i18n)"]
@@ -40,12 +40,14 @@ flowchart TD
     J --> K["'message' event emitted"]
 ```
 
-1. **Inbound dedupe**: a redelivered message or interaction (same `chatId`
-   + id, from webhook retries or a Baileys offline resync) is dropped before
-   anything else. On by default; see [Inbound dedupe](#inbound-dedupe).
-2. **Blacklist / whitelist**: a blocked sender or chat is dropped silently.
-   It is not persisted, no hooks run and no `'message'` event fires. See
+1. **Blacklist / whitelist**: a blocked sender or chat is dropped silently,
+   before anything else. It is not persisted, no hooks run, no `'message'`
+   event fires and it is **not recorded as seen** by dedupe, so a
+   redelivery after un-blocking is processed. See
    [Handoff & access lists](./handoff#blacklist-and-whitelist).
+2. **Inbound dedupe**: a redelivered message or interaction (same `chatId`
+   + id, from webhook retries or a Baileys offline resync) is dropped. On by
+   default; see [Inbound dedupe](#inbound-dedupe).
 3. **Persistence**: the chat, contact and message are upserted in the store.
 4. **`groupMode` filter**: a group message the bot must ignore stops here
    (it is still persisted).
@@ -221,6 +223,10 @@ new Bot({ provider, dedupe: false })                      // turn it off
   processed; an identical retry is dropped. Only a hash of the body is kept,
   never the text.
 - Events with an empty id are never deduplicated.
+- The access lists run first: a message or interaction from a blocked
+  sender or chat is never recorded, so the same id redelivered after
+  un-blocking is processed (and counts as `blocked`, not `duplicate`, while
+  still blocked).
 - If persistence fails before the handlers run (store down), the key is
   released so the transport's retry is processed.
 - `size` is an LRU; `ttl` (ms or `'30s'`/`'10m'`/`'1h'`) counts from the

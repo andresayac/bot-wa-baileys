@@ -294,3 +294,71 @@ describe('Bot inbound idempotency', () => {
     expect(() => new Bot({ provider: new MockProvider(), dedupe: false })).not.toThrow()
   })
 })
+
+describe('inbound dedupe × access lists (blocked input is never recorded as seen)', () => {
+  async function setup() {
+    const provider = new MockProvider()
+    const bot = new Bot({ provider })
+    const seen: string[] = []
+    bot.onMessage((ctx) => { seen.push(ctx.interaction ? `it:${ctx.interaction.id}` : `msg:${ctx.ref.id}`) })
+    await bot.start()
+    return { bot, provider, seen }
+  }
+
+  it('a message dropped by the blacklist is processed when redelivered after un-blocking', async () => {
+    const { bot, provider, seen } = await setup()
+    bot.blacklist.add('chat-1')
+    emit(provider, { kind: 'message', message: message() })
+    await tick(5)
+    expect(seen).toEqual([])
+    expect(await bot.getStore().getMessagesByChat('chat-1')).toEqual([])
+
+    bot.blacklist.remove('chat-1')
+    emit(provider, { kind: 'message', message: message() })
+    await tick(5)
+    expect(seen).toEqual(['msg:m-1'])
+    expect(bot.metrics().dropped).toEqual({ duplicate: 0, blocked: 1, handoff: 0 })
+
+    emit(provider, { kind: 'message', message: message() })   // now a real duplicate
+    await tick(5)
+    expect(seen).toEqual(['msg:m-1'])
+    expect(bot.metrics().dropped).toEqual({ duplicate: 1, blocked: 1, handoff: 0 })
+    await bot.stop()
+  })
+
+  it('a message from a sender outside the whitelist is processed when redelivered after whitelisting', async () => {
+    const { bot, provider, seen } = await setup()
+    bot.whitelist.enable()
+    emit(provider, { kind: 'message', message: message() })
+    await tick(5)
+    bot.whitelist.add('chat-1')
+    emit(provider, { kind: 'message', message: message() })
+    await tick(5)
+    expect(seen).toEqual(['msg:m-1'])
+    await bot.stop()
+  })
+
+  it('an interaction dropped by the blacklist is processed when redelivered after un-blocking', async () => {
+    const { bot, provider, seen } = await setup()
+    bot.blacklist.add('chat-1')
+    emit(provider, { kind: 'interaction', interaction: interaction({ interactionId: 'cb-1' }) })
+    await tick(5)
+    bot.blacklist.remove('chat-1')
+    emit(provider, { kind: 'interaction', interaction: interaction({ interactionId: 'cb-1' }) })
+    await tick(5)
+    expect(seen).toEqual(['it:cb-1'])
+    await bot.stop()
+  })
+
+  it('every redelivery of a still-blocked message counts as blocked, never as duplicate', async () => {
+    const { bot, provider, seen } = await setup()
+    bot.blacklist.add('chat-1')
+    emit(provider, { kind: 'message', message: message() })
+    emit(provider, { kind: 'message', message: message() })
+    await tick(5)
+    expect(seen).toEqual([])
+    expect(bot.metrics().dropped).toEqual({ duplicate: 0, blocked: 2, handoff: 0 })
+    expect(bot.metrics().messages.in).toBe(0)
+    await bot.stop()
+  })
+})

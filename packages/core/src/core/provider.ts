@@ -1079,7 +1079,9 @@ export interface BotConfig {
    * reconnect replay) never runs handlers twice. Keyed by `chatId` + `ref.id`
    * (interactions: `interactionId`), bounded LRU with optional TTL. Enabled by
    * default (`{ size: 1000 }`); `false` disables it. Relies on the providers'
-   * INBOUND ID CONTRACT (see `IProvider`). See `InboundDeduper`.
+   * INBOUND ID CONTRACT (see `IProvider`). Runs after the access lists: a
+   * blocked delivery is never recorded, so a redelivery after un-blocking is
+   * processed. See `InboundDeduper`.
    */
   dedupe?: InboundDedupeOptions | false
   store?: StoreKind | IStore

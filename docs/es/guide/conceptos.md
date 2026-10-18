@@ -13,11 +13,11 @@ mensajes del mismo chat nunca se procesan en paralelo). Lo primero que
 
 ```mermaid
 flowchart TD
-    A[Entra un mensaje] --> DD{"¿Ya visto?<br/>(dedupe: chatId + id)"}
+    A[Entra un mensaje] --> ACL{"¿En la blacklist /<br/>fuera de la whitelist?"}
+    ACL -->|Sí| X1[Descartado: sin persistir, sin hooks,<br/>no se marca como visto]
+    ACL -->|No| DD{"¿Ya visto?<br/>(dedupe: chatId + id)"}
     DD -->|Sí| X0[Descartado]
-    DD -->|No| ACL{"¿En la blacklist /<br/>fuera de la whitelist?"}
-    ACL -->|Sí| X1[Descartado: sin persistir, sin hooks]
-    ACL -->|No| P[Persistir chat, contacto, mensaje]
+    DD -->|No| P[Persistir chat, contacto, mensaje]
     P --> GM{"Filtro groupMode"}
     GM -->|Ignorado| X2[Se detiene aquí]
     GM -->|OK| L["Resolver ctx.lang (i18n)"]
@@ -40,13 +40,15 @@ flowchart TD
     J --> K["se emite el evento 'message'"]
 ```
 
-1. **Dedupe de entrada**: un mensaje o interacción re-entregado (mismo
-   `chatId` + id, por reintentos de webhook o por la resincronización
-   offline de Baileys) se descarta antes que nada. Activado por defecto;
-   ver [Dedupe de entrada](#dedupe-de-entrada).
-2. **Blacklist / whitelist**: un remitente o chat bloqueado se descarta en
-   silencio. No se persiste, no corren hooks y no se emite `'message'`. Ver
+1. **Blacklist / whitelist**: un remitente o chat bloqueado se descarta en
+   silencio, antes que nada. No se persiste, no corren hooks, no se emite
+   `'message'` y el dedupe **no lo marca como visto**, así que una
+   re-entrega después de desbloquearlo se procesa. Ver
    [Handoff y listas de acceso](./handoff#blacklist-y-whitelist).
+2. **Dedupe de entrada**: un mensaje o interacción re-entregado (mismo
+   `chatId` + id, por reintentos de webhook o por la resincronización
+   offline de Baileys) se descarta. Activado por defecto; ver
+   [Dedupe de entrada](#dedupe-de-entrada).
 3. **Persistencia**: se guardan el chat, el contacto y el mensaje en el store.
 4. **Filtro `groupMode`**: un mensaje de grupo que el bot debe ignorar se
    detiene aquí (sí se persiste).
@@ -231,6 +233,10 @@ new Bot({ provider, dedupe: false })                      // desactivar
   se procesa; un reintento idéntico se descarta. Solo se guarda un hash del
   cuerpo, nunca el texto.
 - Los eventos con id vacío nunca se deduplican.
+- Las listas de acceso van antes: un mensaje o interacción de un remitente
+  o chat bloqueado nunca se registra, así que el mismo id re-entregado
+  después de desbloquearlo se procesa (y, mientras siga bloqueado, cuenta
+  como `blocked`, no como `duplicate`).
 - Si falla la persistencia antes de los handlers (store caído), la clave se
   libera y el reintento del transporte sí se procesa.
 - `size` es un LRU; `ttl` (ms o `'30s'`/`'10m'`/`'1h'`) cuenta desde la

@@ -27,11 +27,12 @@ const m = bot.metrics()
 ```
 
 - `messages.in` counts inbound messages and interactions accepted after
-  dedupe and the access lists. `out` / `outFailed` count the sends the
+  the access lists and dedupe. `out` / `outFailed` count the sends the
   provider accepted or rejected.
 - `dropped.duplicate` counts redeliveries dropped by
-  [inbound dedupe](./concepts#inbound-dedupe), `blocked` the blacklist /
-  whitelist, and `handoff` the messages not routed because the chat is
+  [inbound dedupe](./concepts#inbound-dedupe), `blocked` the messages,
+  interactions and calls dropped by the blacklist / whitelist (every
+  delivery, since blocked input is never recorded by dedupe), and `handoff` the messages not routed because the chat is
   [handed off to a human](./handoff).
 - `flows` is keyed by conversation/flow name. `avgDurationMs` is the mean
   duration of the conversations that already ended (`0` when none did).
