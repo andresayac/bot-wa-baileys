@@ -81,6 +81,21 @@ export interface AITool<TArgs = unknown> {
    */
   confirmMessage?: string | BivariantFn<TArgs, string>
   /**
+   * Human labels of argument values for the default confirmation prompt, per
+   * argument key (also inside list items): `{ producto: { pan_de_bono: 'Pan de bono' } }`
+   * renders `• 2 × Pan de bono` instead of `• 2 × pan_de_bono`. Values without a
+   * label are shown as-is. Only what the user sees changes: the model and the
+   * handler keep the raw values.
+   */
+  labels?: AIToolLabels
+  /**
+   * Lines shown in the default confirmation prompt instead of the arguments,
+   * keeping its localized wrapper (`Voy a: {title}` … `¿Confirmas? (sí/no)`).
+   * Use it to show what your code computed (prices, the total) so the user
+   * confirms numbers the model never calculated. `confirmMessage` wins over it.
+   */
+  confirmLines?: BivariantFn<TArgs, string[]>
+  /**
    * Block repeated side effects: a call with the same (validated) arguments as
    * a successful run of this tool in the same chat within the window is not
    * run (nor confirmed); the model gets `{ executed: false, reason: 'duplicate', previous }`.
@@ -90,6 +105,9 @@ export interface AITool<TArgs = unknown> {
   /** Per-tool timeout in ms (overrides the client-wide `toolTimeoutMs`). */
   timeoutMs?: number
 }
+
+/** Human labels of argument values, per argument key: `{ producto: { pan_de_bono: 'Pan de bono' } }`. */
+export type AIToolLabels = Record<string, Record<string, string>>
 
 /** Map of tool name → definition, as passed to `aiPlugin({ tools })`. */
 export type AIToolSet = Record<string, AITool<unknown>>

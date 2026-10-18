@@ -23,7 +23,7 @@ export type { AIProvider, AIMessage, AIChatMessage, AIConfig, AIProviderName, Ge
 export { defineTool, AIToolCancelledError } from './tools/types.js'
 export type {
   AITool, AIToolSet, AIToolContext, AIToolDefinition, AIToolCall, AIToolResult, AIToolEvent, AIToolEventType,
-  ToolConfirmer, ToolConfirmRequest, ToolConfirmation, ToolConfirmReply, AIToolExecution, JSONSchema, SafeParseSchema, SafeParseResult, BivariantFn,
+  AIToolLabels, ToolConfirmer, ToolConfirmRequest, ToolConfirmation, ToolConfirmReply, AIToolExecution, JSONSchema, SafeParseSchema, SafeParseResult, BivariantFn,
 } from './tools/types.js'
 export { AI_MESSAGES, AI_LOCALES, aiText, type AIMessageKey, type AITranslatable } from './i18n.js'
 export { runToolLoop, defaultConfirmPrompt, DEFAULT_MAX_STEPS, DEFAULT_TOOL_TIMEOUT_MS } from './tools/runner.js'

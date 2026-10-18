@@ -131,6 +131,50 @@ describe('human-readable confirmation prompt', () => {
       .toBe('¿Seguro 3?')
   })
 
+  it('labels: argument values render with their human label (nested items, lists, top-level)', () => {
+    const tool: AITool<unknown> = {
+      description: 'd',
+      title: 'Crear pedido',
+      labels: {
+        producto: { torta_chocolate: 'Torta de chocolate', pan_queso: 'Pan de queso' },
+        entrega: { domicilio: 'A domicilio' },
+        extras: { velas: 'Velas' },
+      },
+      handler: () => 'ok',
+    }
+    expect(defaultConfirmPrompt('crear_pedido', tool, {
+      items: [{ producto: 'torta_chocolate', cantidad: 2 }, { producto: 'cafe', cantidad: 1 }],
+    })).toBe('Voy a: Crear pedido\n• 2 × Torta de chocolate\n• 1 × cafe\n¿Confirmas? (sí/no)')
+    expect(argLines({ cliente: 'Ana', entrega: 'domicilio', extras: ['velas', 'globos'], items: [{ producto: 'pan_queso', cantidad: 3 }] }, undefined, tool.labels))
+      .toEqual(['• Cliente: Ana', '• Entrega: A domicilio', '• Extras: Velas, globos', '• Items:', '   ◦ 3 × Pan de queso'])
+    // Labels only apply under their own key.
+    expect(argLines({ cliente: 'domicilio' }, undefined, tool.labels)).toEqual(['• Cliente: domicilio'])
+  })
+
+  it('confirmLines: code-computed lines replace the argument lines inside the localized prompt', () => {
+    const tool: AITool<{ items: Array<{ producto: string; cantidad: number }> }> = {
+      description: 'd',
+      title: 'Crear pedido',
+      labels: { producto: { cafe: 'Café' } },
+      confirmLines: (a) => [...a.items.map((i) => `• ${i.cantidad} × ${i.producto}`), `Total: $${a.items.length * 1000}`],
+      handler: () => 'ok',
+    }
+    const prompt = defaultConfirmPrompt('crear_pedido', tool as AITool<unknown>, { items: [{ producto: 'cafe', cantidad: 2 }] }, { lang: 'en' })
+    expect(prompt).toBe('About to: Crear pedido\n• 2 × cafe\nTotal: $1000\nDo you confirm? (yes/no)')
+    // confirmMessage still wins over everything.
+    expect(defaultConfirmPrompt('x', { ...tool, confirmMessage: 'custom' } as AITool<unknown>, { items: [] })).toBe('custom')
+    // An empty list renders the bare prompt.
+    expect(defaultConfirmPrompt('x', { description: 'd', confirmLines: () => [], handler: () => 0 }, {})).toBe('Voy a: X\n¿Confirmas? (sí/no)')
+  })
+
+  it('the plugin asks with labels applied', async () => {
+    const tools = orderTool([])
+    tools['crear_pedido'] = { ...tools['crear_pedido']!, labels: { producto: { torta_chocolate: 'Torta de chocolate' } } }
+    const { chat } = await bakeryBot(tools)
+    await chat.send('pide 2')
+    await chat.expectReply('Voy a: Crear pedido\n• 2 × Torta de chocolate\n¿Confirmas? (sí/no)')
+  })
+
   it('the plugin asks with the readable prompt', async () => {
     const ran: unknown[] = []
     const { chat } = await bakeryBot(orderTool(ran))
