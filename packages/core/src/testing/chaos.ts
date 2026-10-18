@@ -412,6 +412,7 @@ export class ChaosProvider<P extends IProvider = IProvider> implements IProvider
   deleteMessage?: IProvider['deleteMessage']
   editMessage?: IProvider['editMessage']
   acknowledgeInteraction?: IProvider['acknowledgeInteraction']
+  canRenderForm?: IProvider['canRenderForm']
 
   private readonly opts: ResolvedOptions
   private readonly rngInbound: () => number
@@ -454,6 +455,7 @@ export class ChaosProvider<P extends IProvider = IProvider> implements IProvider
     if (inner.deleteMessage) this.deleteMessage = inner.deleteMessage.bind(inner)
     if (inner.editMessage) this.editMessage = inner.editMessage.bind(inner)
     if (inner.acknowledgeInteraction) this.acknowledgeInteraction = inner.acknowledgeInteraction.bind(inner)
+    if (inner.canRenderForm) this.canRenderForm = inner.canRenderForm.bind(inner)
 
     inner.onEvent((event) => this.receive(event))
   }

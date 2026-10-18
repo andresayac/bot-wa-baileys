@@ -535,6 +535,15 @@ export interface IProvider<TRaw = unknown> {
   acknowledgeInteraction?(interactionId: string, opts?: { text?: string; defer?: boolean }): Promise<void>
 
   /**
+   * Whether a `form` OutboundContent for `form` (and `opts.nativeId`) can be
+   * rendered natively right now, e.g. whether a WhatsApp Flow is mapped to it.
+   * Only consulted when `capabilities.forms === 'native'`; when it returns
+   * `false`, an auto-mode `flow().form()` asks field by field without sending
+   * (and failing) a form message first. Absent = every form is renderable.
+   */
+  canRenderForm?(form: FormDefinition, opts?: { nativeId?: string }): boolean
+
+  /**
    * A single primary connection handle for DEBUGGING ONLY. Not a structural
    * guarantee of exactly one connection (Discord may hold many shard sockets).
    * Core must NOT reach through this for behavior.
@@ -615,6 +624,12 @@ export interface MessageContext<TTools extends object = DefaultTools, TRaw = unk
    * Set on contexts built by a Bot.
    */
   form?(definition: FormDefinition, opts?: { token?: string; nativeId?: string }): Promise<SentMessage>
+  /**
+   * Whether the provider can render `definition` natively right now (see
+   * `IProvider.canRenderForm`). Set on contexts built by a Bot whose provider
+   * implements it; absent = assume yes when `capabilities.forms === 'native'`.
+   */
+  canRenderForm?(definition: FormDefinition, opts?: { nativeId?: string }): boolean
   /** Capabilities of the provider this message came from (set on contexts built by a Bot). */
   capabilities?: ProviderCapabilities
 
@@ -683,6 +698,8 @@ export interface BuildContextDeps<TRaw = unknown> {
   user?: UserData
   /** Provider capabilities exposed as `ctx.capabilities` (drives `flow().form()` rendering). */
   capabilities?: ProviderCapabilities
+  /** Backs `ctx.canRenderForm()` (see `IProvider.canRenderForm`). */
+  canRenderForm?(definition: FormDefinition, opts?: { nativeId?: string }): boolean
 }
 
 /* ============================================================================

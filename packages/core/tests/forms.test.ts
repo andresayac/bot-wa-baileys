@@ -63,6 +63,20 @@ describe('answer parsing (degraded)', () => {
     expect(parseFieldAnswer(field('terms'), 'sí')).toEqual({ ok: true, value: true })
   })
 
+  it('rejects ambiguous grouped numbers instead of misreading them', () => {
+    const n = { type: 'number', name: 'n', label: 'N' } as const
+    expect(parseFieldAnswer(n, '1.500').ok).toBe(false)
+    expect(parseFieldAnswer(n, '1,500').ok).toBe(false)
+    expect(parseFieldAnswer(n, '12.345.678').ok).toBe(false)
+    expect(parseFieldAnswer(n, '1.5')).toEqual({ ok: true, value: 1.5 })
+    expect(parseFieldAnswer(n, '1,5')).toEqual({ ok: true, value: 1.5 })
+    expect(parseFieldAnswer(n, '1500')).toEqual({ ok: true, value: 1500 })
+    expect(parseFieldAnswer(n, '0,25')).toEqual({ ok: true, value: 0.25 })
+    expect(parseFieldAnswer(n, '1.5000')).toEqual({ ok: true, value: 1.5 })
+    expect(validateFormValues({ id: 'f', fields: [n] }, { n: '1.500' }).ok).toBe(false)
+    expect(validateFormValues({ id: 'f', fields: [n] }, { n: 1500 })).toMatchObject({ ok: true, values: { n: 1500 } })
+  })
+
   it('rejects invalid answers with a message', () => {
     expect(parseFieldAnswer(field('age'), '17').ok).toBe(false)
     expect(parseFieldAnswer(field('age'), '18.5').ok).toBe(false)
@@ -219,6 +233,36 @@ describe('flow().form() — native (capabilities.forms = native)', () => {
     await chat.send('b')
     await chat.expectReply('demasiados intentos')
     expect(chat.replies()).not.toContain('nunca')
+    await bot.stop()
+  })
+
+  it('asks field by field without sending when the provider has no native form for it (auto mode)', async () => {
+    const { bot, chat, provider } = await createTestBot()
+    provider.capabilities.forms = 'native'
+    const asked: Array<[string, string | undefined]> = []
+    ;(provider as { canRenderForm?: (d: FormDefinition, o?: { nativeId?: string }) => boolean }).canRenderForm =
+      (d, o) => { asked.push([d.id, o?.nativeId]); return false }
+    const sendSpy = vi.spyOn(provider, 'send')
+    bot.use(flow('pedido').form(contact, { nativeId: '9' }).say((_ctx, c) => `hola ${(c.state.contact as { name: string }).name}`))
+    await chat.send('pedido')
+    await chat.expectReply('Nombre')
+    await chat.send('Ana')
+    await chat.expectReply('Cantidad')
+    await chat.send('2')
+    await chat.expectReply('hola Ana')
+    expect(asked).toEqual([['contact', '9']])
+    expect(sendSpy.mock.calls.some(([, content]) => content.kind === 'form')).toBe(false)
+    expect(lastForm(provider.outbox)).toBeUndefined()
+    await bot.stop()
+  })
+
+  it('sends natively when the provider confirms it can render the form', async () => {
+    const { bot, chat, provider } = await createTestBot()
+    provider.capabilities.forms = 'native'
+    ;(provider as { canRenderForm?: () => boolean }).canRenderForm = () => true
+    bot.use(flow('pedido').form(contact).say('ok'))
+    await chat.send('pedido')
+    await vi.waitFor(() => expect(lastForm(provider.outbox)).toBeDefined())
     await bot.stop()
   })
 

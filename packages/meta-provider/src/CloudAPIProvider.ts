@@ -230,6 +230,16 @@ export class CloudAPIProvider implements IProvider<unknown> {
   /* WhatsApp Flows ------------------------------------------------------- */
 
   /**
+   * Whether `form` can go out as a WhatsApp Flow: a `nativeId` is given, or a
+   * Flow is mapped to `form.id` (`config.flows` or `publishForm()`). When it is
+   * `false`, an auto-mode `flow().form()` asks field by field without first
+   * sending a form message that would fail.
+   */
+  canRenderForm(form: FormDefinition, opts?: { nativeId?: string }): boolean {
+    return opts?.nativeId !== undefined || this.flowRefs.has(form.id)
+  }
+
+  /**
    * Create (and by default publish) a static WhatsApp Flow from a form definition
    * through the Flows API (`POST /{WABA-ID}/flows` with `flow_json`), then map
    * `definition.id` to it so `flow().form(definition)` sends it natively.

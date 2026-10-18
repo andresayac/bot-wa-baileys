@@ -187,10 +187,24 @@ describe('CloudAPIProvider + flow().form()', () => {
     const bot = new Bot({ provider })
     bot.use(flow('mini').form({ id: 'mini', fields: [{ type: 'text', name: 'city', label: 'Ciudad' }] }))
     await bot.start()
+    const sendSpy = vi.spyOn(provider, 'send')
     provider.ingest(textWebhook('mini', 'wamid.IN2'))
     await vi.waitFor(() => expect(sentBodies(calls).some((b) => b.text?.body === 'Ciudad')).toBe(true))
     expect(sentBodies(calls).some((b) => b.interactive?.type === 'flow')).toBe(false)
+    // Degrades before the send pipeline: no doomed form send (no 'failed' outbound in the store).
+    expect(sendSpy.mock.calls.some(([, content]) => content.kind === 'form')).toBe(false)
     await bot.stop()
+  })
+
+  it('canRenderForm() is true only for forms with a Flow mapped (config, publishForm or nativeId)', async () => {
+    mockFetch(() => ({ id: '42', validation_errors: [] }))
+    const provider = new CloudAPIProvider({ ...baseCfg, wabaId: 'W', flows: { signup: '998877' } })
+    const mini: FormDefinition = { id: 'mini', fields: [{ type: 'text', name: 'city', label: 'Ciudad' }] }
+    expect(provider.canRenderForm(signup)).toBe(true)
+    expect(provider.canRenderForm(mini)).toBe(false)
+    expect(provider.canRenderForm(mini, { nativeId: '123' })).toBe(true)
+    await provider.publishForm(mini)
+    expect(provider.canRenderForm(mini)).toBe(true)
   })
 
   it('publishForm() creates the Flow via the Flows API and maps it', async () => {

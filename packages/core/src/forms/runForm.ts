@@ -19,16 +19,25 @@ import { formOptionEntries, isFieldRequired, parseFieldAnswer, selectionBounds, 
 interface FormCapableContext {
   capabilities?: ProviderCapabilities
   form?(definition: FormDefinition, opts?: { token?: string; nativeId?: string }): Promise<unknown>
+  canRenderForm?(definition: FormDefinition, opts?: { nativeId?: string }): boolean
 }
 
 const DEFAULT_PENDING = '👆 Completa el formulario de arriba para continuar.'
 
-/** Whether a step with `opts` renders natively for `ctx`. */
-export function resolveFormMode(ctx: RuntimeMessage, opts: FormStepOptions = {}): 'native' | 'degraded' {
+/**
+ * Whether a step with `opts` renders natively for `ctx`. In auto mode, with
+ * `def`, a provider that says it cannot render that form right now
+ * (`canRenderForm() === false`, e.g. no WhatsApp Flow mapped to it) degrades
+ * up front instead of sending a form message that is bound to fail.
+ */
+export function resolveFormMode(ctx: RuntimeMessage, opts: FormStepOptions = {}, def?: FormDefinition): 'native' | 'degraded' {
   const mode = opts.mode ?? 'auto'
   if (mode !== 'auto') return mode
   const fc = ctx as RuntimeMessage & FormCapableContext
-  return fc.capabilities?.forms === 'native' && typeof fc.form === 'function' ? 'native' : 'degraded'
+  if (fc.capabilities?.forms !== 'native' || typeof fc.form !== 'function') return 'degraded'
+  if (def && typeof fc.canRenderForm === 'function'
+    && !fc.canRenderForm(def, opts.nativeId !== undefined ? { nativeId: opts.nativeId } : undefined)) return 'degraded'
+  return 'native'
 }
 
 /**
@@ -43,7 +52,7 @@ export async function runFormStep(
   flowTimeoutMs?: number,
 ): Promise<FormValues> {
   const timeout = opts.timeout ?? flowTimeoutMs
-  const mode = resolveFormMode(ctx, opts)
+  const mode = resolveFormMode(ctx, opts, def)
   let values: FormValues
   if (mode === 'native') {
     const native = await runNative(def, ctx, c, opts, timeout)

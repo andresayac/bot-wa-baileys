@@ -141,6 +141,13 @@ regex/predicado, dale un id explícito con `.id('registrar')`.
 flow('soporte').scope('dm').ask('Describe your issue', 'issue')
 ```
 
+### form — varios campos tipados en un paso
+
+`.form(definicion, opts)` recoge campos de texto, número, email, fecha, selección,
+selección múltiple y opt-in con validación. En la Cloud API de WhatsApp se envía
+como un WhatsApp Flow nativo; en el resto, el bot pregunta campo por campo. Más
+en [Formularios (WhatsApp Flows)](./formularios.md).
+
 ## `c.state` — memoria entre pasos
 
 `c.state` es un objeto plano y mutable, con alcance al flow en ejecución.

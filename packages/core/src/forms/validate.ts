@@ -168,12 +168,25 @@ export function parseFormDate(input: string): string | undefined {
   return isValidIsoDate(iso) ? iso : undefined
 }
 
-function parseNumber(input: string): number | undefined {
-  const s = input.trim().replace(/\s/g, '').replace(',', '.')
+/**
+ * `1.500` / `1,500` / `12.345.678`: the separator may be a thousands one
+ * (es/LatAm '.', en ',') or a decimal one; too ambiguous to guess, so it is
+ * rejected and the user is asked to retype it.
+ */
+const GROUPED = /^[-+]?\d{1,3}([.,]\d{3})+$/
+
+/** `'ambiguous'` = grouped digits (see {@link GROUPED}); `undefined` = not a number. */
+function parseNumber(input: string): number | 'ambiguous' | undefined {
+  const compact = input.trim().replace(/\s/g, '')
+  if (GROUPED.test(compact)) return 'ambiguous'
+  const s = compact.replace(',', '.')
   if (!/^[-+]?(\d+\.?\d*|\.\d+)$/.test(s)) return undefined
   const n = Number(s)
   return Number.isFinite(n) ? n : undefined
 }
+
+const AMBIGUOUS_NUMBER = (label: string): string =>
+  `❌ ${label}: escribe el número sin separador de miles (ej. 1500 o 1,5).`
 
 const YES = new Set(['si', 'yes', 'y', 's', 'acepto', 'ok', 'true', '1'])
 const NO = new Set(['no', 'n', 'false', '0', '2'])
@@ -206,6 +219,7 @@ export function parseFieldAnswer(field: FormField, input: string, skipWord = 'om
       return EMAIL.test(raw) ? { ok: true, value: raw } : fail(field, '❌ Escribe un correo válido (ej. nombre@dominio.com).')
     case 'number': {
       const n = parseNumber(raw)
+      if (n === 'ambiguous') return fail(field, AMBIGUOUS_NUMBER(field.label))
       return n === undefined ? fail(field, `❌ ${field.label}: escribe un número.`) : checkTyped(field, n)
     }
     case 'date': {
@@ -263,6 +277,7 @@ function checkNative(field: FormField, v: unknown): FieldCheck {
     }
     case 'number': {
       const n = typeof v === 'number' ? v : typeof v === 'string' ? parseNumber(v) : undefined
+      if (n === 'ambiguous') return fail(field, AMBIGUOUS_NUMBER(field.label))
       return n === undefined || !Number.isFinite(n) ? fail(field, `❌ ${field.label}: escribe un número.`) : checkTyped(field, n)
     }
     case 'multiselect': {

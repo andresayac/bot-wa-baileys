@@ -139,6 +139,13 @@ an explicit id with `.id('registrar')`.
 flow('soporte').scope('dm').ask('Describe your issue', 'issue')
 ```
 
+### form — several typed fields in one step
+
+`.form(definition, opts)` collects text, number, email, date, select,
+multi-select and opt-in fields with validation. On the WhatsApp Cloud API it is
+sent as a native WhatsApp Flow; elsewhere the bot asks field by field. See
+[Forms (WhatsApp Flows)](./forms.md).
+
 ## `c.state` — memory between steps
 
 `c.state` is a plain, mutable object scoped to the running flow. `.ask` and

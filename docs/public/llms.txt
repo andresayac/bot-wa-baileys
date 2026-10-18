@@ -28,7 +28,7 @@ in-memory sketch; not for production.
 Alpha:
 - @bot-wa/core — Bot engine, IProvider v2, flows/conversations, hooks, plugins, scheduler, DI, MemoryStore, ctx.user, handoff, access lists, testing kit (createTestBot/MockProvider/ChaosProvider from '@bot-wa/core/testing'), `bot-wa dev` terminal simulator
 - @bot-wa/baileys — BaileysProvider (WhatsApp Web, unofficial; QR or pairing code), RateLimiter, JID helpers, LID/PN identity resolution
-- @bot-wa/meta — CloudAPIProvider (official WhatsApp Cloud API, webhook; native buttons/lists/templates; feed inbound via provider.ingest(rawBody, headers))
+- @bot-wa/meta — CloudAPIProvider (official WhatsApp Cloud API, webhook; native buttons/lists/templates/WhatsApp Flows forms; feed inbound via provider.ingest(rawBody, headers))
 - @bot-wa/telegram — TelegramProvider (Bot API, long-poll or webhook)
 - @bot-wa/sqlite-store — SQLiteStore (better-sqlite3 peer dependency, WAL)
 - @bot-wa/redis-store — RedisStore (shared state across replicas + acquireLock/releaseLock)
@@ -68,6 +68,7 @@ Prototypes (private, in-memory, minimal): @bot-wa/inbox, @bot-wa/crm, @bot-wa/hu
 - Inbound dedupe is ON by default (BotConfig.dedupe { size: 1000, ttl? } | false): redelivered messages/interactions with the same chatId + id are dropped. Handler errors always reach bot.on('error')
 - Flow introspection: bot.describe() (Mermaid; { format: 'json' } for a graph), bot.lint({ minSeverity }) → diagnostics (goto-target-missing, unreachable-step, duplicate-trigger, persistent-memory-store, ...); describeFlows/lintFlows work without a Bot
 - Terminal simulator: export default defineBot((provider) => { const bot = new Bot({ provider }); ...; return bot }) and guard the real start with if (isMainModule(import.meta)) { ... }; then npx bot-wa dev src/bot.js (no phone, hot reload; :as, :group, :media, :click, :state, :reset). Programmatic API in '@bot-wa/core/dev' (DevSession, DevProvider)
+- Forms: flow('signup').form({ id: 'signup', title, fields: [{ type: 'text'|'number'|'email'|'date'|'select'|'multiselect'|'optin', name, label, required, ... }] }, { stateKey, flatten, mode: 'auto'|'native'|'degraded', nativeId, timeout, retries }) stores validated answers in c.state[stateKey ?? id]. On @bot-wa/meta (capabilities.forms 'native') it is sent as a static WhatsApp Flow when one is mapped (CloudAPIProvider config.flows { signup: '<flow id>' }, provider.publishForm(def), or { nativeId }); otherwise, and on every other provider, the bot asks field by field. Endpoint (data_exchange) Flows are not supported yet
 - Chaos testing: createTestBot({}, { chaos: { seed, duplicates, reorder, latency, sendFailures, disconnects, aliases } }) or withChaos(provider, opts) → ChaosProvider; assertStableIdentity/checkIdentityContract/recordEvents check the provider identity contract
 
 ## Other exports worth knowing

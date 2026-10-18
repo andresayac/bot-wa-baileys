@@ -118,6 +118,7 @@ export function buildMessageContext(deps: BuildContextDeps): IMessageContext {
       return sendOut({ kind: 'form', form: definition, token, ...(opts?.nativeId !== undefined ? { nativeId: opts.nativeId } : {}) })
     },
     capabilities: deps.capabilities,
+    ...(deps.canRenderForm ? { canRenderForm: deps.canRenderForm } : {}),
 
     /* Actions — degrade to no-op when the provider lacks the capability -- */
     async markRead() { await deps.markRead?.(inbound.ref) },
