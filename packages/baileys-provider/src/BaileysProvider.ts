@@ -153,6 +153,7 @@ export class BaileysProvider implements IProvider<WAMessage> {
     interactionsRequireAck: false, pushIngress: false,
     streaming: 'none', // no live preview: ctx.stream() sends sentence chunks with typing
     forms: 'degraded', // flow().form() asks field by field
+    textFormat: 'whatsapp', // WhatsApp markup: *bold* _italic_ ~strike~
   }
 
   private readonly config: BaileysProviderConfig

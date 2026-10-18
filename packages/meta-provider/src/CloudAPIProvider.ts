@@ -61,6 +61,7 @@ export class CloudAPIProvider implements IProvider<unknown> {
     buttons: true, lists: true, polls: false, reactions: true, edit: false,
     typing: false, presence: false, readReceipts: true, groups: false, templates: true,
     interactionsRequireAck: false, pushIngress: true, forms: 'native',
+    textFormat: 'whatsapp', // WhatsApp markup: *bold* _italic_ ~strike~
     streaming: 'none', // no live preview: ctx.stream() sends sentence chunks with typing
   }
 

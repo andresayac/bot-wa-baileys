@@ -97,6 +97,7 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/). Versionado po
 - `ctx.user`: un lote inválido no escribe nada y un fallo del store no libera el lock con escrituras hermanas en vuelo; los TTL fraccionarios se redondean hacia arriba y los que desbordan `Number.MAX_SAFE_INTEGER` se rechazan.
 - `lintFlows()` ya no avisa de flujos a los que el código puede entrar con `c.goto()` (baja a info).
 - `bot-wa dev`: una factory que usa otro provider se detiene y nunca se vuelve a llamar; la entrada por pipe espera a que el bot termine de responder.
+- `ProviderCapabilities.textFormat` (opcional, tipo `TextFormat`: `'whatsapp' | 'markdown' | 'html' | 'plain'`): el formato de texto enriquecido que muestra el canal, para que quien genere Markdown (p. ej. `@bot-wa/ai`) lo convierta. `MockProvider` acepta `textFormat`. Lo declaran baileys, meta, evolution, wppconnect y gupshup (`'whatsapp'`), telegram, messenger, instagram y tiktok (`'plain'`) y discord (`'markdown'`).
 - El `Bot` omite los campos `undefined` en sus upserts de chats y contactos, así que un mensaje sin nombre visible ya no borra el nombre guardado. `IStore.upsertChat`/`upsertContact` documentan el contrato: un campo propio a `undefined` lo elimina.
 
 ### @bot-wa/baileys (2026-10)

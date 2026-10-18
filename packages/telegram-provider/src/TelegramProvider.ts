@@ -92,6 +92,7 @@ export class TelegramProvider implements IProvider<unknown> {
     pushIngress: true,     // supports webhook; also owns a long-poll loop
     streaming: 'draft',    // sendMessageDraft (private chats); edits elsewhere
     forms: 'degraded', // flow().form() asks field by field
+    textFormat: 'plain', // sent without parse_mode: Markdown would show literally
   }
 
   private readonly config: Required<Pick<TelegramProviderConfig, 'token' | 'baseUrl' | 'polling' | 'pollTimeout' | 'errorBackoffMs' | 'maxBackoffMs' | 'pollIdleMs'>> & Pick<TelegramProviderConfig, 'mediaDownload'>

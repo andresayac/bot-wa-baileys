@@ -58,6 +58,7 @@ export class GupshupProvider implements IProvider<GupshupCallback> {
     buttons: true, lists: true, polls: false, reactions: false, edit: false,
     typing: false, presence: false, readReceipts: false, groups: false, templates: true,
     interactionsRequireAck: false, pushIngress: true, streaming: 'none', forms: 'degraded',
+    textFormat: 'whatsapp', // WhatsApp markup: *bold* _italic_ ~strike~
   }
 
   private readonly config: GupshupProviderConfig & { baseUrl: string; webhookTokenHeader: string; webhookTokenParam: string }

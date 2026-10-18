@@ -417,10 +417,22 @@ export interface ProviderCapabilities {
    * Omitted → treated as `'none'`.
    */
   streaming?: StreamingMode
+  /**
+   * Rich-text dialect the channel renders in plain text messages, so producers
+   * of Markdown (e.g. `@bot-wa/ai` replies) can convert it: `'whatsapp'` —
+   * `*bold*`, `_italic_`, `~strike~`, `` `code` ``; `'markdown'` — Markdown is
+   * rendered as is (Discord); `'html'` — a small HTML subset; `'plain'` — no
+   * formatting at all (markers are shown literally, so strip them). Omitted →
+   * unknown: text is sent untouched.
+   */
+  textFormat?: TextFormat
 }
 
 /** See {@link ProviderCapabilities.streaming}. */
 export type StreamingMode = 'draft' | 'edit' | 'none'
+
+/** See {@link ProviderCapabilities.textFormat}. */
+export type TextFormat = 'whatsapp' | 'markdown' | 'html' | 'plain'
 
 /** Options of one {@link IProvider.sendDraft} call. */
 export interface DraftOptions {

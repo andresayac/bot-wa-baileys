@@ -123,6 +123,12 @@ pasan a un menú de texto numerado, `ctx.edit` envía un mensaje nuevo,
   con indicador de escritura (`streaming: 'none'`). Ver [Respuestas en streaming](/es/guide/streaming).
 - **Formularios**: `nativo` envía `flow().form()` como un WhatsApp Flow;
   `campo a campo` pregunta cada campo con mensajes de texto.
+- **`textFormat`** (no es columna): el formato de texto que muestra el canal,
+  para que quien genere Markdown, como `@bot-wa/ai`, lo convierta.
+  `'whatsapp'` (`*negrita*`, `_cursiva_`, `~tachado~`): Baileys, Cloud API,
+  Evolution, WPPConnect, Gupshup. `'plain'` (sin formato): Telegram (se envía
+  sin `parse_mode`), Messenger, Instagram, TikTok. `'markdown'`: Discord. Sin
+  declarar: Twilio, HighLevel, Email.
 - **Plantillas** es el tipo de contenido `template`: plantillas de la Cloud
   API, Content Templates de Twilio (`ContentSid`), `templateId` de HighLevel,
   plantillas de Gupshup. El resto de providers lo rechaza con

@@ -110,4 +110,9 @@ describe('MockProvider optional seams (editMessage / deleteMessage / sendDraft)'
     expect(new NoEdit().editMessage).toBeUndefined()
     expect(typeof new NoEdit().deleteMessage).toBe('function')
   })
+
+  it('textFormat simulates capabilities.textFormat (unset by default)', () => {
+    expect(new MockProvider().capabilities.textFormat).toBeUndefined()
+    expect(new MockProvider({ textFormat: 'whatsapp' }).capabilities.textFormat).toBe('whatsapp')
+  })
 })

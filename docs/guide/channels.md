@@ -118,6 +118,12 @@ text menu, `ctx.edit` sends a new message, `ctx.react` resolves
   typing (`streaming: 'none'`). See [Streaming replies](/guide/streaming).
 - **Forms**: `native` sends `flow().form()` as a WhatsApp Flow;
   `field by field` asks each field with text messages.
+- **`textFormat`** (not a column): the text markup the channel renders, so
+  Markdown producers such as `@bot-wa/ai` can convert it. `'whatsapp'`
+  (`*bold*`, `_italic_`, `~strike~`): Baileys, Cloud API, Evolution,
+  WPPConnect, Gupshup. `'plain'` (no markup): Telegram (sent without
+  `parse_mode`), Messenger, Instagram, TikTok. `'markdown'`: Discord. Not
+  declared: Twilio, HighLevel, Email.
 - **Templates** is the `template` content kind: Cloud API templates, Twilio
   Content Templates (`ContentSid`), HighLevel `templateId`, Gupshup templates.
   Other providers reject it with `UnsupportedContentError`.

@@ -94,6 +94,7 @@ export class WPPConnectProvider implements IProvider<unknown> {
     pushIngress: true,    // webhook-only
     streaming: 'none', // WhatsApp: no live preview, ctx.stream() sends chunks
     forms: 'degraded', // flow().form() asks field by field
+    textFormat: 'whatsapp', // WhatsApp markup: *bold* _italic_ ~strike~
   }
 
   private readonly baseUrl: string

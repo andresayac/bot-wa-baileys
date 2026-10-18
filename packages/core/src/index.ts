@@ -368,7 +368,7 @@ export type { FlowTriggerOptions, FlowTriggerTarget, RegisteredFlowInfo } from '
 export { streamText, resolveStreamStrategy } from './streaming/streamText.js'
 export { splitMessage, findSplitPoint } from './streaming/split.js'
 export type { StreamSource, StreamStrategy, StreamOptions, StreamResult, StreamTarget } from './streaming/types.js'
-export type { StreamingMode, DraftOptions } from './core/provider.js'
+export type { StreamingMode, TextFormat, DraftOptions } from './core/provider.js'
 // wa-flows
 // Native forms: `flow().form(definition)` renders a WhatsApp Flow on providers with
 // `capabilities.forms === 'native'` (@bot-wa/meta) and asks field by field elsewhere.

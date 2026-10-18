@@ -129,6 +129,7 @@ export class TikTokProvider implements IProvider<unknown> {
     pushIngress: true,
     streaming: 'none',
     forms: 'degraded', // flow().form() asks field by field
+    textFormat: 'plain', // no text markup: Markdown would show literally
   }
 
   private readonly config: TikTokProviderConfig

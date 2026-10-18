@@ -60,6 +60,7 @@ export class InstagramProvider implements IProvider<unknown> {
     pushIngress: true,
     streaming: 'none', // no live preview: ctx.stream() sends sentence chunks with typing
     forms: 'degraded', // flow().form() asks field by field
+    textFormat: 'plain', // no text markup: Markdown would show literally
   }
 
   private readonly config: Required<Pick<InstagramProviderConfig, 'apiVersion' | 'graphUrl'>> & InstagramProviderConfig

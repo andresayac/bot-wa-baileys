@@ -11,6 +11,7 @@ import type {
   IProvider,
   MessageRef,
   StreamingMode,
+  TextFormat,
   InboundEvent,
   InboundMessage,
   MessageType,
@@ -55,6 +56,8 @@ export interface MockProviderOptions {
   streaming?: StreamingMode
   /** `capabilities.maxTextLength` to simulate. Default: unset. */
   maxTextLength?: number
+  /** `capabilities.textFormat` to simulate (e.g. `'whatsapp'`). Default: unset. */
+  textFormat?: TextFormat
   /**
    * Which optional seams the mock exposes. A disabled seam is hidden (the instance
    * property reads `undefined`), so the bot treats it exactly like a provider that
@@ -114,6 +117,7 @@ export class MockProvider implements IProvider {
       streaming,
       forms: 'degraded',
       ...(options.maxTextLength !== undefined ? { maxTextLength: options.maxTextLength } : {}),
+      ...(options.textFormat !== undefined ? { textFormat: options.textFormat } : {}),
     }
     hideSeam(this, 'editMessage', supports.edit, edit)
     hideSeam(this, 'deleteMessage', supports.delete, supports.delete ?? streaming !== 'none')

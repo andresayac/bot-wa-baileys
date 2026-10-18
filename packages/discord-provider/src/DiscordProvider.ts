@@ -76,6 +76,7 @@ export class DiscordProvider implements IProvider<unknown> {
     pushIngress: false,
     streaming: 'edit', // ctx.stream(): send once, then throttled message edits
     forms: 'degraded', // flow().form() asks field by field
+    textFormat: 'markdown', // Discord renders Markdown natively
   }
 
   private readonly config: Required<
