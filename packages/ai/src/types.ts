@@ -19,6 +19,11 @@ export interface GenerateInput {
   maxTokens?: number
   effort?: Effort
   signal?: AbortSignal
+  /**
+   * Streaming only: called once when the provider stream ends normally, with the
+   * provider's stop reason when it reports one (e.g. `'refusal'`, `'end_turn'`).
+   */
+  onStreamEnd?: (info: { stopReason?: string }) => void
 }
 export interface GenerateResult {
   text: string

@@ -119,6 +119,7 @@ export function buildMessageContext(deps: BuildContextDeps): IMessageContext {
         isPrivate,
         send: sendOut,
         edit: deps.editMessage ? (ref, content) => deps.editMessage!(ref, content) : undefined,
+        delete: deps.deleteStreamMessage ? (ref) => deps.deleteStreamMessage!(ref) : undefined,
         draft: deps.sendDraft ? (draftId, text, o) => deps.sendDraft!(from, draftId, text, o) : undefined,
         typing: deps.typing ? () => deps.typing!(from, 'typing') : undefined,
       }, source, opts)

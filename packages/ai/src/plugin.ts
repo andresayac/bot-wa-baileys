@@ -71,10 +71,14 @@ export function aiPlugin(config: AIPluginConfig = {}): PluginSpec<AIPluginConfig
           const key = chatKeyOf(mctx)
           if (streamCfg && typeof mctx.stream === 'function') {
             try {
-              await mctx.stream(client.streamReplyInChat(key, mctx.body), {
+              // A discarded (cancelled) answer was never shown in full: keep it out of the context too.
+              const keepPartial = streamCfg.onCancel !== 'discard'
+              const result = await mctx.stream(client.streamReplyInChat(key, mctx.body, { keepPartial }), {
                 typing: cfg.humanizeTyping !== false,
                 ...streamCfg,
               })
+              // The model ended without a single character: never leave the user in silence.
+              if (!result.cancelled && !result.text.trim()) await mctx.reply(errorMessage)
             } catch (err) {
               ctx.logger.warn({ err }, 'ai streamed autoreply failed')
               await mctx.reply(errorMessage)

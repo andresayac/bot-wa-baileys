@@ -1,6 +1,11 @@
 import type { AIProvider, GenerateInput, GenerateResult } from './types.js'
 
-export interface MockOptions { reply?: string | ((input: GenerateInput) => string); model?: string }
+export interface MockOptions {
+  reply?: string | ((input: GenerateInput) => string)
+  model?: string
+  /** Stop reason reported by `generate()` and by `stream()` (through `onStreamEnd`), e.g. `'refusal'`. */
+  stopReason?: string
+}
 
 export class MockAIProvider implements AIProvider {
   readonly name = 'mock'
@@ -13,10 +18,11 @@ export class MockAIProvider implements AIProvider {
   }
   async generate(input: GenerateInput): Promise<GenerateResult> {
     this.calls.push(input)
-    return { text: this.textFor(input), model: this.opts.model ?? 'mock', usage: { input: 0, output: 0 } }
+    return { text: this.textFor(input), model: this.opts.model ?? 'mock', stopReason: this.opts.stopReason, usage: { input: 0, output: 0 } }
   }
   async *stream(input: GenerateInput): AsyncIterable<string> {
     this.calls.push(input)
     for (const ch of this.textFor(input)) yield ch
+    input.onStreamEnd?.({ stopReason: this.opts.stopReason })
   }
 }

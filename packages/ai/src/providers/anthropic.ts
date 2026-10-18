@@ -16,7 +16,7 @@ export interface AnthropicMessage {
 }
 export interface AnthropicStreamEvent {
   type?: string
-  delta?: { type?: string; text?: string }
+  delta?: { type?: string; text?: string; stop_reason?: string | null }
 }
 export interface AnthropicRequestOptions {
   signal?: AbortSignal
@@ -75,13 +75,18 @@ export class AnthropicProvider implements AIProvider {
     if (!this.client.messages.stream) {
       const r = await this.generate(input)
       if (r.text) yield r.text
+      input.onStreamEnd?.({ stopReason: r.stopReason })
       return
     }
     const s = this.client.messages.stream(this.buildArgs(input), this.reqOpts(input))
+    let stopReason: string | undefined
     for await (const event of s) {
       if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta' && event.delta.text) {
         yield event.delta.text
+      } else if (event.type === 'message_delta' && event.delta?.stop_reason) {
+        stopReason = event.delta.stop_reason
       }
     }
+    input.onStreamEnd?.({ stopReason })
   }
 }

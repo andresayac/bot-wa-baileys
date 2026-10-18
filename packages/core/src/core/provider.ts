@@ -701,6 +701,8 @@ export interface BuildContextDeps<TRaw = unknown> {
   editMessage?(ref: MessageRef, content: OutboundContent): Promise<unknown>
   /** Backs native drafts for `ctx.stream()` (strategy `'draft'`). */
   sendDraft?(chatId: ChatId, draftId: number, text: string, opts?: DraftOptions): Promise<void>
+  /** Deletes a message `ctx.stream()` sent (`onCancel: 'discard'`), from the chat and the message log. */
+  deleteStreamMessage?(ref: MessageRef): Promise<void>
   /** Set when this context projects an interaction (button/slash/callback). */
   interaction?: { id: string; data: string; respondBy?: number }
   /** Sender profile exposed as `ctx.user`; when omitted every `ctx.user` call rejects with `UserDataError('UNAVAILABLE')`. */

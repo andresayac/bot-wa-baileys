@@ -77,8 +77,11 @@ export class MockProvider implements IProvider {
   edits: MockEdit[] = []
   /** Draft previews recorded when `streaming` is `'draft'`. */
   drafts: MockDraft[] = []
+  /** Messages deleted through `deleteMessage` (present when `streaming` is not `'none'`). */
+  deleted: MessageRef[] = []
 
   editMessage?: IProvider['editMessage']
+  deleteMessage?: IProvider['deleteMessage']
   sendDraft?: IProvider['sendDraft']
 
   constructor(options: MockProviderOptions = {}) {
@@ -96,6 +99,7 @@ export class MockProvider implements IProvider {
         this.edits.push({ ref, content })
         return { ref }
       }
+      this.deleteMessage = async (ref) => { this.deleted.push(ref) }
     }
     if (streaming === 'draft') {
       this.sendDraft = async (chatId, draftId, text, opts) => {

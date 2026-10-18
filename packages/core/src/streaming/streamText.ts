@@ -28,7 +28,8 @@ const DEFAULT_THROTTLE_EDIT_MS = 1000
 const DEFAULT_MIN_CHUNK = 160
 const DEFAULT_MAX_CHUNK = 1500
 const DEFAULT_TYPING_INTERVAL_MS = 8000
-const MAX_FINAL_RETRY_WAIT_MS = 5000
+const MAX_FINAL_RETRY_WAIT_MS = 60_000
+const MAX_FINAL_RETRIES = 3
 
 const ABORTED: unique symbol = Symbol('aborted')
 
@@ -98,6 +99,8 @@ class StreamSession {
   private timer?: ReturnType<typeof setTimeout>
   private previewQueued = false
   private lastPreviewAt = 0
+  /** The transport rate-limited us: no live update before this time (ms epoch). */
+  private backoffUntil = 0
   private typingTimer?: ReturnType<typeof setInterval>
   private fatal?: unknown
   private cancelled = false
@@ -203,7 +206,7 @@ class StreamSession {
   private schedulePreview(): void {
     if (this.timer || this.previewQueued) return
     const throttle = this.throttleMs ?? (this.strategy === 'draft' ? DEFAULT_THROTTLE_DRAFT_MS : DEFAULT_THROTTLE_EDIT_MS)
-    const wait = Math.max(0, this.lastPreviewAt + throttle - Date.now())
+    const wait = Math.max(0, this.lastPreviewAt + throttle - Date.now(), this.backoffUntil - Date.now())
     this.timer = setTimeout(() => {
       this.timer = undefined
       this.previewQueued = true
@@ -236,7 +239,10 @@ class StreamSession {
         await this.target.draft!(this.draftId, text + this.cursor, this.draftOptions())
         this.lastShown = text
       } catch (error) {
-        if (error instanceof RateLimitedError) return
+        if (error instanceof RateLimitedError) {
+          this.backOff(error)
+          return
+        }
         this.fallbackFromDraft()
         await this.preview()
       }
@@ -257,9 +263,15 @@ class StreamSession {
     try {
       await this.target.edit!(this.editRef, { kind: 'text', text: text + this.cursor })
       this.lastShown = text
-    } catch {
-      // A failed intermediate edit (rate limit, transient) is skipped; the final edit retries.
+    } catch (error) {
+      // A failed intermediate edit is skipped (the final edit retries); a rate limit
+      // also pauses the live updates for as long as the transport asked.
+      if (error instanceof RateLimitedError) this.backOff(error)
     }
+  }
+
+  private backOff(error: RateLimitedError): void {
+    this.backoffUntil = Math.max(this.backoffUntil, Date.now() + Math.max(0, error.retryAfterMs))
   }
 
   /** Drafts refused (e.g. not a private chat): degrade to edits, else chunks. */
@@ -315,7 +327,7 @@ class StreamSession {
     await this.enqueue(async () => {
       if (this.strategy === 'edit' && this.editRef) {
         if (discard) {
-          if (this.cursor && this.lastShown) await this.finalEdit(this.editRef, this.lastShown.trimEnd())
+          await this.discardLive(this.editRef)
           return
         }
         const [first, ...rest] = splitMessage(this.current, this.maxLength)
@@ -328,15 +340,38 @@ class StreamSession {
     }).catch((error: unknown) => { this.fatal ??= error })
   }
 
-  /** Final edit of a message: one retry after a (bounded) rate-limit wait. */
+  /**
+   * `onCancel: 'discard'` with a live message on screen: delete it when the target
+   * can, else at least strip the cursor. Messages already completed (past the
+   * length limit) stay.
+   */
+  private async discardLive(ref: MessageRef): Promise<void> {
+    if (this.target.delete) {
+      await this.target.delete(ref)
+      const i = this.messages.findIndex((m) => m.ref.id === ref.id && m.ref.chatId === ref.chatId)
+      if (i >= 0) this.messages.splice(i, 1)
+      return
+    }
+    if (this.cursor && this.lastShown) await this.finalEdit(ref, this.lastShown.trimEnd())
+  }
+
+  /**
+   * Final edit of a message. It must land (it removes the cursor and shows the
+   * full text), so it waits out an active back-off and retries rate limits a few
+   * times, each wait bounded by {@link MAX_FINAL_RETRY_WAIT_MS}.
+   */
   private async finalEdit(ref: MessageRef, text: string): Promise<void> {
     if (!text) return
-    try {
-      await this.target.edit!(ref, { kind: 'text', text })
-    } catch (error) {
-      if (!(error instanceof RateLimitedError)) throw error
-      await sleep(Math.min(error.retryAfterMs, MAX_FINAL_RETRY_WAIT_MS))
-      await this.target.edit!(ref, { kind: 'text', text })
+    const pending = this.backoffUntil - Date.now()
+    if (pending > 0) await sleep(Math.min(pending, MAX_FINAL_RETRY_WAIT_MS))
+    for (let attempt = 0; ; attempt++) {
+      try {
+        await this.target.edit!(ref, { kind: 'text', text })
+        break
+      } catch (error) {
+        if (!(error instanceof RateLimitedError) || attempt >= MAX_FINAL_RETRIES) throw error
+        await sleep(Math.min(Math.max(0, error.retryAfterMs), MAX_FINAL_RETRY_WAIT_MS))
+      }
     }
     this.lastShown = text
   }

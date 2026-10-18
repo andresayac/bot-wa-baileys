@@ -253,6 +253,49 @@ describe('streamText — edit strategy (Discord-like)', () => {
     expect(r.edits.at(-1)!.text).toBe('a b c d')
   })
 
+  it('backs off for retryAfterMs after a rate-limited intermediate edit', async () => {
+    const attempts: number[] = []
+    let failed = false
+    const r = recorder({
+      streaming: 'edit', edit: true,
+      editImpl: async () => {
+        attempts.push(Date.now())
+        if (!failed) { failed = true; throw new RateLimitedError(120) }
+      },
+    })
+    const parts = Array.from({ length: 40 }, (_, i) => `w${i} `)
+    await streamText(r.target, gen(parts, 3), { throttleMs: 0 })
+    expect(attempts.length).toBeGreaterThan(1)
+    // No edit is attempted while the transport asked us to wait.
+    expect(attempts[1] - attempts[0]).toBeGreaterThanOrEqual(110)
+    expect(r.edits.at(-1)!.text).toBe(parts.join('').trim())
+  })
+
+  it('the final edit waits out repeated rate limits instead of failing', async () => {
+    let calls = 0
+    const r = recorder({
+      streaming: 'edit', edit: true,
+      editImpl: async () => { calls++; if (calls <= 3) throw new RateLimitedError(20) },
+    })
+    const res = await streamText(r.target, gen(['a', ' b'], 5), { throttleMs: 0 })
+    expect(res.messages).toHaveLength(1)
+    expect(r.edits.at(-1)!.text).toBe('a b')
+  })
+
+  it("onCancel: 'discard' deletes the live message the user already saw", async () => {
+    const r = recorder({ streaming: 'edit', edit: true })
+    const deleted: string[] = []
+    r.target.delete = async (ref) => { deleted.push(ref.id) }
+    const ac = new AbortController()
+    async function* endless(): AsyncGenerator<string> { for (let i = 0; ; i++) { await wait(3); yield `t${i} ` } }
+    setTimeout(() => ac.abort(), 40)
+    const res = await streamText(r.target, endless(), { throttleMs: 0, signal: ac.signal, onCancel: 'discard' })
+    expect(res.cancelled).toBe(true)
+    expect(r.sent).toHaveLength(1)
+    expect(deleted).toEqual(['m1'])
+    expect(res.messages).toEqual([])
+  })
+
   it('throws (after stopping) when the first send fails', async () => {
     const r = recorder({ streaming: 'edit', edit: true })
     r.target.send = async () => { throw new ProviderError('boom') }
@@ -335,7 +378,82 @@ describe('ctx.stream (Bot integration)', () => {
     expect(provider.drafts.length).toBeGreaterThan(0)
     expect(provider.drafts[0].chatId).toBe(chat.jid)
     expect(chat.replies()).toEqual(['Hola humano'])
-    expect(seen).toEqual(['Hola humano'])
+    expect(seen.at(-1)).toBe('Hola humano')
+    await bot.stop()
+  })
+
+  it('runs before(send) on every edit: a redacting hook covers the live edits too', async () => {
+    const { bot, provider, chat } = await createTestBot({}, { provider: { streaming: 'edit' } })
+    const kinds: Array<string | undefined> = []
+    bot.before('send', (p) => {
+      const payload = p as { content: OutboundContent; stream?: string }
+      kinds.push(payload.stream)
+      if (payload.content.kind === 'text') payload.content = { kind: 'text', text: payload.content.text.replaceAll('secret', '***') }
+    })
+    let done = false
+    bot.when('x', async (ctx) => {
+      await ctx.stream(gen(['my secret ', 'is secret', ' and more text'], 15), { throttleMs: 0 })
+      done = true
+    })
+    await chat.send('x')
+    await vi.waitFor(() => expect(done).toBe(true))
+    const shown = [...provider.outbox.map((m) => m.content), ...provider.edits.map((e) => e.content)]
+      .map((c) => (c.kind === 'text' ? c.text : ''))
+    expect(provider.edits.length).toBeGreaterThan(0)
+    expect(shown.join(' ')).not.toContain('secret')
+    expect(kinds).toContain('edit')
+    await bot.stop()
+  })
+
+  it('an aborting before(send) hook also blocks the native drafts', async () => {
+    const { bot, provider, chat } = await createTestBot({}, { provider: { streaming: 'draft' } })
+    bot.before('send', (p) => {
+      const payload = p as { content: OutboundContent; abort(): void }
+      if (payload.content.kind === 'text' && payload.content.text.includes('blocked')) payload.abort()
+    })
+    let done = false
+    bot.when('x', async (ctx) => { await ctx.stream(gen(['blocked ', 'content'], 10), { throttleMs: 0 }); done = true })
+    await chat.send('x')
+    await vi.waitFor(() => expect(done).toBe(true))
+    expect(provider.drafts).toHaveLength(0)
+    expect(chat.replies()).toEqual([])
+    await bot.stop()
+  })
+
+  it('edit strategy: the message log ends with the text the user sees (no cursor, not the first preview)', async () => {
+    const { bot, provider, chat } = await createTestBot({}, { provider: { streaming: 'edit' } })
+    const store = bot.getStore()
+    let done = false
+    bot.when('x', async (ctx) => {
+      await ctx.stream(gen(['Había', ' una', ' vez'], 15), { throttleMs: 0, cursor: ' ▌', sendOptions: { quoted: ctx.ref } })
+      done = true
+    })
+    await chat.send('x')
+    await vi.waitFor(() => expect(done).toBe(true))
+    expect(provider.outbox).toHaveLength(1)
+    const out = (await store.getMessagesByChat(chat.jid)).filter((m) => m.direction === 'outbound')
+    expect(out).toHaveLength(1)
+    expect(out[0].body).toBe('Había una vez')
+    expect(out[0].quoted).toBeDefined()
+    await bot.stop()
+  })
+
+  it("onCancel: 'discard' deletes the streamed message from the chat and the message log", async () => {
+    const { bot, provider, chat } = await createTestBot({}, { provider: { streaming: 'edit' } })
+    const store = bot.getStore()
+    async function* endless(): AsyncGenerator<string> { for (let i = 0; ; i++) { await wait(3); yield `t${i} ` } }
+    let res: { cancelled: boolean } | undefined
+    bot.when('x', async (ctx) => {
+      const ac = new AbortController()
+      setTimeout(() => ac.abort(), 40)
+      res = await ctx.stream(endless(), { throttleMs: 0, signal: ac.signal, onCancel: 'discard' })
+    })
+    await chat.send('x')
+    await vi.waitFor(() => expect(res?.cancelled).toBe(true))
+    expect(provider.outbox).toHaveLength(1)
+    expect(provider.deleted).toHaveLength(1)
+    const out = (await store.getMessagesByChat(chat.jid)).filter((m) => m.direction === 'outbound')
+    expect(out).toEqual([])
     await bot.stop()
   })
 

@@ -39,7 +39,13 @@ export interface StreamOptions {
   throttleMs?: number
   /** Abort the stream: reading stops and the source's `return()` is called. */
   signal?: AbortSignal
-  /** What to do with the text produced so far on cancellation. Default `'flush'` (send it). */
+  /**
+   * What to do with the text produced so far on cancellation. Default `'flush'`
+   * (send it). `'discard'` sends nothing more and removes the live preview: a draft
+   * simply expires and, with the edit strategy, the message being edited is deleted
+   * (when the transport can delete; otherwise only its cursor is removed). Messages
+   * already completed before the cancel stay.
+   */
   onCancel?: 'flush' | 'discard'
   /** Max chars per message. Default `capabilities.maxTextLength`, else 4096. */
   maxLength?: number
@@ -87,6 +93,8 @@ export interface StreamTarget {
   isPrivate?: boolean
   send(content: OutboundContent, options?: SendOptions): Promise<SentMessage>
   edit?(ref: MessageRef, content: OutboundContent): Promise<unknown>
+  /** Deletes a message this stream sent (used by `onCancel: 'discard'`). */
+  delete?(ref: MessageRef): Promise<void>
   draft?(draftId: number, text: string, opts?: DraftOptions): Promise<void>
   typing?(): Promise<void>
 }

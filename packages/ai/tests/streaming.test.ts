@@ -65,6 +65,49 @@ describe('AIClient.streamReplyInChat', () => {
     expect(store.m.get('k')).toBeUndefined()
   })
 
+  it('return() aborts the provider at once and does not store the chunk still in flight', async () => {
+    const store = memStore()
+    let signal: AbortSignal | undefined
+    const provider: AIProvider = {
+      name: 'hang',
+      async generate() { return { text: '', model: 'h' } },
+      async *stream(input) {
+        signal = input.signal
+        yield 'seen '
+        // The next chunk only arrives much later (a thinking / silent model).
+        await new Promise((r) => setTimeout(r, 300))
+        yield 'unseen'
+      },
+    }
+    const client = new AIClient(provider, new ContextManager(store))
+    const it = client.streamReplyInChat('k', 'q')[Symbol.asyncIterator]()
+    expect((await it.next()).value).toBe('seen ')
+    const pending = it.next()
+    pending.catch(() => undefined)
+    void it.return?.(undefined)
+    expect(signal?.aborted).toBe(true)
+    await vi.waitFor(() => expect(store.m.get('k')).toBeDefined(), { timeout: 200 })
+    expect(store.m.get('k')?.at(-1)).toEqual({ role: 'assistant', content: 'seen ' })
+  })
+
+  it('keepPartial: false stores nothing when the consumer stops early', async () => {
+    const store = memStore()
+    const client = new AIClient(new SlowStream(['a', 'b', 'c']), new ContextManager(store))
+    for await (const t of client.streamReplyInChat('k', 'q', { keepPartial: false })) { if (t === 'a') break }
+    await new Promise((r) => setTimeout(r, 20))
+    expect(store.m.get('k')).toBeUndefined()
+  })
+
+  it('a refusal yields refusalMessage instead and is not stored', async () => {
+    const store = memStore()
+    const mock = new MockAIProvider({ reply: '', stopReason: 'refusal' })
+    const client = new AIClient(mock, new ContextManager(store), { refusalMessage: 'no puedo' })
+    const out: string[] = []
+    for await (const t of client.streamReplyInChat('k', 'q')) out.push(t)
+    expect(out.join('')).toBe('no puedo')
+    expect(store.m.get('k')).toBeUndefined()
+  })
+
   it('times out when the provider goes idle longer than timeoutMs between chunks', async () => {
     const client = new AIClient(new SlowStream(['a', 'b'], 200), new ContextManager(memStore()), { timeoutMs: 30 })
     await expect((async () => { for await (const _ of client.streamReplyInChat('k', 'q')) { /* drain */ } })()).rejects.toBeInstanceOf(AITimeoutError)
@@ -112,6 +155,41 @@ describe('aiPlugin with stream', () => {
     const { chat, bot } = await botWith({ stream: false }, mock)
     await chat.send('hola')
     await chat.expectReply('clasico')
+    await bot.stop()
+  })
+
+  it('a streamed refusal replies refusalMessage and keeps it out of the context', async () => {
+    const mock = new MockAIProvider({ reply: '', stopReason: 'refusal' })
+    const { chat, bot } = await botWith({ stream: { throttleMs: 0 }, refusalMessage: 'eso no' }, mock, 'none')
+    await chat.send('hola')
+    await chat.expectReply('eso no')
+    await chat.send('otra')
+    await vi.waitFor(() => expect(mock.calls).toHaveLength(2))
+    expect(mock.calls[1].messages).toEqual([{ role: 'user', content: 'otra' }])
+    await bot.stop()
+  })
+
+  it("onCancel: 'discard' + the user's stop keeps the unseen answer out of the context", async () => {
+    const words = Array.from({ length: 400 }, (_, i) => `w${i} `)
+    const ai = new SlowStream(words, 3)
+    const { provider, chat, bot } = await botWith({ stream: { throttleMs: 0, canStop: true, onCancel: 'discard' } }, ai, 'draft')
+    await chat.send('hola')
+    await vi.waitFor(() => expect(provider.drafts.length).toBeGreaterThan(0))
+    expect(provider.stopDraft()).toBe(true)
+    await vi.waitFor(() => expect(ai.returned).toBe(true))
+    expect(ai.inputs[0].signal?.aborted).toBe(true)
+    expect(chat.replies()).toEqual([])
+    await chat.send('otra')
+    await vi.waitFor(() => expect(ai.inputs).toHaveLength(2))
+    expect(ai.inputs[1].messages).toEqual([{ role: 'user', content: 'otra' }])
+    await bot.stop()
+  })
+
+  it('an empty streamed answer replies errorMessage instead of silence', async () => {
+    const ai = new SlowStream([])
+    const { chat, bot } = await botWith({ stream: { throttleMs: 0 }, errorMessage: 'sin respuesta' }, ai, 'none')
+    await chat.send('hola')
+    await chat.expectReply('sin respuesta')
     await bot.stop()
   })
 

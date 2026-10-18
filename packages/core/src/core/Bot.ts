@@ -87,7 +87,7 @@ import { WelcomeTracker } from './welcome.js'
 import { callToInbound, RecentIds } from './calls.js'
 import { UserDataService } from '../user/UserDataService.js'
 import type { UserData } from '../user/types.js'
-import type { BuildContextDeps, UserDataEntry } from './provider.js'
+import type { BuildContextDeps, DraftOptions, UserDataEntry } from './provider.js'
 
 /** A user message handler — receives the full inbound {@link MessageContext}. */
 export type MessageHandler = (ctx: MessageContext) => unknown | Promise<unknown>
@@ -1261,13 +1261,66 @@ export class Bot extends EventEmitter {
     await this.dispatcher.dispatch(ctx as unknown as DispatchContext)
   }
 
-  /** `ctx.stream()` backing: capabilities + the provider's edit/draft primitives (when present). */
-  private streamDeps(): Pick<BuildContextDeps, 'capabilities' | 'editMessage' | 'sendDraft'> {
+  /**
+   * `ctx.stream()` backing: capabilities + the provider's edit/draft primitives (when present).
+   * Live previews run the same `before('send')` hooks as a real send (the payload carries
+   * `stream: 'draft' | 'edit'`), so a hook that redacts, translates or aborts a reply also
+   * covers the in-place updates. `after('send')` stays reserved for real messages.
+   */
+  private streamDeps(): Pick<BuildContextDeps, 'capabilities' | 'editMessage' | 'sendDraft' | 'deleteStreamMessage'> {
     const p = this.provider
     return {
       capabilities: p.capabilities,
-      editMessage: p.editMessage ? (ref, content) => p.editMessage!(ref, content) : undefined,
-      sendDraft: p.sendDraft ? (chatId, draftId, text, opts) => p.sendDraft!(chatId, draftId, text, opts) : undefined,
+      editMessage: p.editMessage ? (ref, content) => this.dispatchStreamEdit(ref, content) : undefined,
+      sendDraft: p.sendDraft ? (chatId, draftId, text, opts) => this.dispatchStreamDraft(chatId, draftId, text, opts) : undefined,
+      deleteStreamMessage: p.deleteMessage ? (ref) => this.deleteStreamMessage(ref) : undefined,
+    }
+  }
+
+  /** A discarded `ctx.stream()` message: gone from the chat and from the message log. */
+  private async deleteStreamMessage(ref: MessageRef): Promise<void> {
+    await this.provider.deleteMessage!(ref)
+    try {
+      await this.store.deleteMessage(ref)
+    } catch (error) {
+      this.emitError({ error })
+    }
+  }
+
+  /** `before('send')` for a live preview. Resolves the (possibly rewritten) content, or `undefined` when a hook aborted. */
+  private async runStreamSendHooks(chatId: ChatId, content: OutboundContent, stream: 'draft' | 'edit'): Promise<OutboundContent | undefined> {
+    const payload: { chatId: ChatId; content: OutboundContent; options?: SendOptions; stream: 'draft' | 'edit' } = { chatId, content, stream }
+    const proceed = await this.hooks.runBefore('send', payload as typeof payload & { abort(): void })
+    return proceed ? payload.content : undefined
+  }
+
+  /** A `ctx.stream()` edit: send hooks, provider edit, then the message log is updated to the shown text. */
+  private async dispatchStreamEdit(ref: MessageRef, content: OutboundContent): Promise<unknown> {
+    const final = await this.runStreamSendHooks(ref.chatId, content, 'edit')
+    if (!final) return undefined
+    const res = await this.provider.editMessage!(ref, final)
+    await this.persistOutboundEdit(ref, final)
+    return res
+  }
+
+  /** A `ctx.stream()` draft: send hooks, then the provider draft (skipped when aborted or no longer text). */
+  private async dispatchStreamDraft(chatId: ChatId, draftId: number, text: string, opts?: DraftOptions): Promise<void> {
+    const final = await this.runStreamSendHooks(chatId, { kind: 'text', text }, 'draft')
+    if (!final || final.kind !== 'text') return
+    await this.provider.sendDraft!(chatId, draftId, final.text, opts)
+  }
+
+  /** Keep the stored outbound message in sync with an in-place edit (body/type only). */
+  private async persistOutboundEdit(ref: MessageRef, content: OutboundContent): Promise<void> {
+    try {
+      const existing = await this.store.getMessage(ref)
+      if (!existing) {
+        await this.persistOutbound({ ref, chatId: ref.chatId, content, status: 'sent' })
+        return
+      }
+      await this.store.saveMessage({ ...existing, type: content.kind, body: outboundBody(content) })
+    } catch (error) {
+      this.emitError({ error })
     }
   }
 
