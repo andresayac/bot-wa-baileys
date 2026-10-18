@@ -331,12 +331,20 @@ bot.plug(aiPlugin({
   sistema le avisa al modelo qué tools confirma el sistema, para que no
   pregunte él antes (`toolConfirm.systemNote`, `false` lo apaga).
 
+  **Valores legibles y totales**: `labels` traduce valores de argumentos por
+  clave (`labels: { producto: { pan_de_bono: 'Pan de bono' } }` → `• 2 × Pan de bono`,
+  también dentro de listas) y `confirmLines(args)` sustituye las líneas de
+  argumentos por las tuyas (p. ej. precios y total calculados en código), sin
+  perder el envoltorio localizado. El modelo y el handler siguen recibiendo las
+  claves crudas.
+
   **Repeticiones**: las ejecuciones correctas de tools `confirm`/`dedupe` se
   recuerdan por chat (en memoria, 30 min, `/reset` las borra): si la tool se
   vuelve a llamar, la pregunta avisa ("Ojo: ya hice «Crear pedido» hace un
   momento…") y el prompt de sistema lista lo ya hecho; con `dedupe: 'args'`
   (o `{ windowMs }`) una llamada con los mismos argumentos ni se ejecuta ni se
   pregunta y el modelo recibe `{ executed: false, reason: 'duplicate', previous }`.
+  Un handler que devuelve `{ error }` no cuenta como ejecución hecha.
 
   Dentro de tu propia conversación usa `confirmWith(c)`:
 
@@ -357,6 +365,69 @@ bot.plug(aiPlugin({
   como datos personales. El logger solo registra metadatos.
 - El historial persistido sigue siendo texto plano usuario/asistente; los
   turnos intermedios de tools no se guardan. El streaming no usa tools.
+
+### Buenas prácticas para herramientas con efectos
+
+Salen de pruebas en vivo con modelos reales en WhatsApp: sin ellas el modelo
+calcula mal un total en texto libre, muestra claves como `pan_de_bono` o dice
+que "reemplazó" un pedido sin tener herramienta para hacerlo.
+
+1. **Nunca dejes que el modelo calcule dinero**: una tool de cotización sin
+   efectos (`cotizar_pedido`) para el "¿cuánto cuesta?", el total recalculado en
+   el handler que guarda y mostrado en la confirmación con `confirmLines` (o
+   `confirmMessage`), y devuelto en el resultado para que el modelo lo repita.
+2. **Valida los valores de catálogo con `enum`** (se validan antes de
+   confirmar) y acompáñalos con `labels` para que el usuario vea nombres.
+3. **Cada tool de crear trae las de cambiar, cancelar y listar**; si solo
+   puede crear, el modelo "corrige" creando otro pedido o inventa cambios.
+4. **`dedupe: 'args'` en las de crear**, para no registrar dos veces lo mismo.
+5. **`{ error }` explícito para ids desconocidos** (`{ error: 'No existe el pedido P-123. Consulta mis_pedidos.' }`),
+   nunca un `ok` silencioso; no se recuerda como hecho.
+6. **`confirm: true` en todo lo que tenga efectos**; las de solo lectura no lo necesitan.
+7. **Deja activa la nota de sistema** (`toolConfirm.systemNote`): prohíbe al
+   modelo afirmar acciones que ninguna tool confirmó, pedir confirmación él
+   mismo, mencionar el proceso de confirmación o calcular importes.
+
+```ts
+const MENU = { pan_de_bono: { name: 'Pan de bono', price: 2500 }, cafe: { name: 'Café', price: 4000 } }
+const quote = (items) => {
+  const lines = items.map((i) => ({ ...i, nombre: MENU[i.producto].name, subtotal: MENU[i.producto].price * i.cantidad }))
+  return { items: lines, total: lines.reduce((s, l) => s + l.subtotal, 0) }
+}
+const ITEMS = {
+  type: 'array', minItems: 1,
+  items: {
+    type: 'object',
+    properties: { producto: { type: 'string', enum: Object.keys(MENU) }, cantidad: { type: 'integer', minimum: 1 } },
+    required: ['producto', 'cantidad'],
+  },
+}
+
+tools: {
+  cotizar_pedido: {
+    description: 'Calcula precios y total sin registrar nada.',
+    schema: { type: 'object', properties: { items: ITEMS }, required: ['items'] },
+    handler: ({ items }) => quote(items),
+  },
+  crear_pedido: {
+    title: 'Crear pedido',
+    description: 'Registra un pedido nuevo.',
+    schema: { type: 'object', properties: { items: ITEMS }, required: ['items'] },
+    confirm: true,
+    dedupe: 'args',
+    confirmLines: ({ items }) => {
+      const q = quote(items)
+      return [...q.items.map((l) => `• ${l.cantidad} × ${l.nombre}: $${l.subtotal}`), `Total: $${q.total}`]
+    },
+    handler: async ({ items }, { ctx }) => db.orders.create({ chat: ctx?.from, ...quote(items) }),
+  },
+  // + actualizar_pedido, cancelar_pedido ({ error } si el id no existe) y mis_pedidos
+}
+```
+
+El ejemplo completo de la panadería está en la guía
+[Herramientas de IA](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/es/guide/ai-herramientas.md#buenas-prácticas-para-herramientas-con-efectos)
+y la plantilla `ai-full` de `create-bot-wa` trae las mismas tools.
 
 Para tests, `MockAIProvider` acepta turnos con llamadas a tools:
 

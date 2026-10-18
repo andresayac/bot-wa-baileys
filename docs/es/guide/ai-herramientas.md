@@ -54,6 +54,8 @@ Cada entrada de `tools` es un `AITool`; la clave es el nombre que ve el modelo.
 | `handler` | `(args, tctx) => unknown` | Ejecuta la herramienta. Un string vuelve al modelo tal cual, `undefined` como `'ok'` y cualquier otra cosa serializada a JSON. |
 | `confirm` | `boolean` | Pide confirmación humana antes de ejecutarla (ver [más abajo](#confirmacion-humana)). |
 | `confirmMessage` | `string \| (args) => string` | Texto de confirmación propio. |
+| `labels` | `{ [clave]: { [valor]: etiqueta } }` | Etiquetas humanas de los valores de los argumentos en la confirmación por defecto (`{ producto: { pan_de_bono: 'Pan de bono' } }`). Ver [Valores legibles y totales](#valores-legibles-y-totales). |
+| `confirmLines` | `(args) => string[]` | Tus propias líneas (p. ej. precios y total calculados en código) en lugar de las líneas de argumentos de la confirmación por defecto. |
 | `dedupe` | `'args' \| { windowMs }` | No la vuelve a ejecutar con los mismos argumentos dentro de la ventana (`'args'`: 10 minutos) en el mismo chat (ver [Efectos secundarios repetidos](#efectos-secundarios-repetidos)). |
 | `timeoutMs` | `number` | Timeout de esta herramienta; manda sobre `toolTimeoutMs`. |
 
@@ -196,6 +198,46 @@ confirm? (yes/no)`) cuando `ctx.lang` es `en` (ver
 (`{tool}` es el título y `{args}` un salto de línea más las líneas `• `, o
 vacío), o usa `confirmMessage` en la herramienta.
 
+### Valores legibles y totales
+
+Claves de catálogo como `pan_de_bono` le sirven al modelo, no al usuario. Dos
+opciones de la herramienta mejoran la pregunta por defecto sin escribirla tú:
+
+- **`labels`** traduce valores de argumentos a etiquetas humanas, por clave de
+  argumento (también dentro de los ítems de una lista). Los valores sin
+  etiqueta se muestran tal cual; el modelo y el handler siguen recibiendo las
+  claves crudas.
+- **`confirmLines(args)`** devuelve las líneas que se muestran en lugar de los
+  argumentos, dentro del mismo envoltorio localizado. Úsala para mostrar lo
+  que calculó **tu código** (precios, total), así el usuario nunca confirma un
+  número que se inventó el modelo. `confirmMessage` sigue mandando sobre ambas.
+
+```ts
+const MENU = { pan_de_bono: { name: 'Pan de bono', price: 2500 }, cafe: { name: 'Café', price: 4000 } }
+
+crear_pedido: {
+  title: 'Crear pedido',
+  labels: { producto: { pan_de_bono: 'Pan de bono', cafe: 'Café' } },
+  // o, con precios y total:
+  confirmLines: ({ items }) => [
+    ...items.map((i) => `• ${i.cantidad} × ${MENU[i.producto].name}: $${MENU[i.producto].price * i.cantidad}`),
+    `Total: $${items.reduce((sum, i) => sum + MENU[i.producto].price * i.cantidad, 0)}`,
+  ],
+  // ...
+}
+```
+
+```text
+Voy a: Crear pedido
+• 2 × Pan de bono: $5000
+• 1 × Café: $4000
+Total: $9000
+¿Confirmas? (sí/no)
+```
+
+Si armas tu propio texto, `argLines(args, ctx, labels)` y
+`summarizeValue(valor, ctx, depth, labels)` están exportadas.
+
 **Dentro de tu propia conversación** pasa `confirmWith(c)`: pregunta con
 `c.ask()`, que tampoco bloquea la cola.
 
@@ -250,7 +292,163 @@ las herramientas `confirm: true` y `dedupe` (en memoria, 30 minutos; `/reset` y
   `dedupe: 'args'` usa una ventana de 10 minutos; `dedupe: { windowMs: 60_000 }`
   fija la tuya. También sirve para herramientas sin `confirm`.
 
+Una ejecución cuyo handler devuelve un objeto con `error` no vacío (por ejemplo
+`{ error: 'No existe el pedido P-123' }`) no hizo nada, así que no se recuerda:
+ni aviso de repetición, ni línea de "ya ejecutadas", ni bloqueo de `dedupe`.
+
 `toolConfirm.systemNote: false` también apaga la lista del prompt de sistema.
+
+## Buenas prácticas para herramientas con efectos
+
+Estas reglas salen de pruebas en vivo con modelos reales en WhatsApp. Sin
+ellas, el modelo calcula mal el total de un pedido en texto libre, le muestra
+claves de catálogo al cliente o dice que "reemplazó" un pedido sin tener
+ninguna herramienta para hacerlo.
+
+1. **Nunca dejes que el modelo calcule dinero.** Precios, subtotales y totales
+   se calculan en tu código: ofrece una herramienta de cotización (sin
+   `confirm`, sin efectos) para el "¿cuánto cuesta…?", vuelve a calcular el
+   total en el handler que guarda el pedido y muéstralo en la confirmación con
+   `confirmLines` (o `confirmMessage`). Devuelve el total calculado en el
+   resultado para que el modelo lo repita en vez de calcularlo.
+2. **Valida los valores de catálogo con `enum`.** Claves de producto, tamaños,
+   sedes…: los argumentos se validan **antes** de la confirmación, así que un
+   producto inventado vuelve al modelo como error y el usuario nunca confirma
+   un pedido imposible. Acompaña las claves con `labels` (o nombres en
+   `confirmLines`) para que el usuario vea "Pan de bono" y no `pan_de_bono`.
+3. **Cada herramienta de crear trae las de cambiar, cancelar y listar.** Si el
+   modelo solo puede crear, "corrige" un pedido creando otro o dice que cambió
+   algo que no podía cambiar. Una herramienta de listado (`mis_pedidos`) le da
+   los ids para cambiar o cancelar.
+4. **Usa `dedupe` en las de crear** (`dedupe: 'args'`), para que un pedido
+   idéntico no se registre dos veces seguidas cuando el modelo vuelve a llamar
+   la herramienta por su cuenta.
+5. **Devuelve un `{ error }` explícito para ids desconocidos** (`{ error: 'No
+   existe un pedido activo P-123. Consulta mis_pedidos.' }`), nunca un `ok` o
+   `null` silencioso. El modelo lo lee y se lo dice al usuario; la ejecución no
+   se recuerda como hecha.
+6. **Mantén `confirm: true` en todo lo que tenga efectos** (crear, cambiar,
+   cancelar, pagar, reservar). Las de solo lectura (menú, cotizar, listar) no
+   lo necesitan.
+7. **Apóyate en la nota de sistema, no la pelees.** Con un confirmador, el
+   prompt de sistema le dice al modelo qué herramientas confirma el sistema,
+   que no pregunte "¿te lo registro?" él mismo, que no mencione el proceso de
+   confirmación y que nunca diga que hizo, cambió, reemplazó o canceló algo que
+   ningún resultado de herramienta confirmó (y que lo diga con claridad cuando
+   no tiene herramienta para lo que le piden). Déjala activa
+   (`toolConfirm.systemNote`) salvo que la reemplaces por un texto equivalente.
+
+Una panadería completa con todo lo anterior:
+
+```ts
+import { Bot } from '@bot-wa/core'
+import { aiPlugin } from '@bot-wa/ai'
+
+const MENU = {
+  pan_de_bono: { name: 'Pan de bono', price: 2500 },
+  croissant: { name: 'Croissant', price: 5000 },
+  cafe: { name: 'Café', price: 4000 },
+} as const
+type Product = keyof typeof MENU
+type Item = { producto: Product; cantidad: number }
+type Order = { id: string; items: Item[]; total: number; estado: 'confirmado' | 'cancelado' }
+
+const PRODUCTS = Object.keys(MENU)
+const ITEMS = {
+  type: 'array',
+  minItems: 1,
+  items: {
+    type: 'object',
+    properties: {
+      producto: { type: 'string', enum: PRODUCTS }, // solo productos reales
+      cantidad: { type: 'integer', minimum: 1, maximum: 50 },
+    },
+    required: ['producto', 'cantidad'],
+    additionalProperties: false,
+  },
+}
+const ORDER_ID = { type: 'string', description: 'Id del pedido (mis_pedidos)' }
+
+// El dinero se calcula aquí, nunca en el modelo.
+const money = (n: number) => '$' + n.toLocaleString('es-CO')
+const quote = (items: Item[]) => {
+  const lines = items.map((i) => ({ ...i, nombre: MENU[i.producto].name, subtotal: MENU[i.producto].price * i.cantidad }))
+  return { items: lines, total: lines.reduce((sum, l) => sum + l.subtotal, 0) }
+}
+const quoteLines = (items: Item[]) => {
+  const q = quote(items)
+  return [...q.items.map((l) => `• ${l.cantidad} × ${l.nombre}: ${money(l.subtotal)}`), `Total: ${money(q.total)}`]
+}
+
+const orders = new Map<string, Order[]>() // por chat; en producción, ctx.user o tu base de datos
+const ordersOf = (chat = '') => {
+  if (!orders.has(chat)) orders.set(chat, [])
+  return orders.get(chat)!
+}
+const active = (chat: string | undefined, id: string) => ordersOf(chat).find((o) => o.id === id && o.estado !== 'cancelado')
+const noOrder = (id: string) => ({ error: `No existe un pedido activo ${id}. Consulta mis_pedidos.` })
+
+const bot = new Bot({ provider })
+bot.plug(aiPlugin({
+  provider: 'anthropic',
+  persona: 'Eres el asistente de Panadería La Espiga. Usa ver_menu para los productos y cotizar_pedido para cualquier precio o total; nunca calcules importes tú.',
+  tools: {
+    ver_menu: {
+      description: 'Lista el menú: clave, nombre y precio.',
+      handler: () => Object.entries(MENU).map(([clave, p]) => ({ clave, nombre: p.name, precio: p.price })),
+    },
+    cotizar_pedido: {
+      description: 'Calcula precios, subtotales y total de una lista de productos sin registrar nada.',
+      schema: { type: 'object', properties: { items: ITEMS }, required: ['items'] },
+      handler: ({ items }: { items: Item[] }) => quote(items),
+    },
+    mis_pedidos: {
+      description: 'Lista los pedidos del cliente con id, productos, total y estado.',
+      handler: (_args: unknown, { ctx }) => ordersOf(ctx?.from),
+    },
+    crear_pedido: {
+      title: 'Crear pedido',
+      description: 'Registra un pedido nuevo. items: claves del menú y cantidades.',
+      schema: { type: 'object', properties: { items: ITEMS }, required: ['items'] },
+      confirm: true,
+      dedupe: 'args',
+      confirmLines: ({ items }: { items: Item[] }) => quoteLines(items),
+      handler: ({ items }: { items: Item[] }, { ctx }) => {
+        const order: Order = { id: 'P-' + Date.now().toString(36).toUpperCase(), ...quote(items), estado: 'confirmado' }
+        ordersOf(ctx?.from).push(order)
+        return order // el modelo repite este total, no lo calcula
+      },
+    },
+    actualizar_pedido: {
+      title: 'Cambiar pedido',
+      description: 'Reemplaza los productos de un pedido existente (por id) con la nueva lista completa.',
+      schema: { type: 'object', properties: { id: ORDER_ID, items: ITEMS }, required: ['id', 'items'] },
+      confirm: true,
+      confirmLines: ({ id, items }: { id: string; items: Item[] }) => [`• Pedido: ${id}`, ...quoteLines(items)],
+      handler: ({ id, items }: { id: string; items: Item[] }, { ctx }) => {
+        const order = active(ctx?.from, id)
+        if (!order) return noOrder(id)
+        return Object.assign(order, quote(items))
+      },
+    },
+    cancelar_pedido: {
+      title: 'Cancelar pedido',
+      description: 'Cancela un pedido existente por id.',
+      schema: { type: 'object', properties: { id: ORDER_ID }, required: ['id'] },
+      confirm: true,
+      handler: ({ id }: { id: string }, { ctx }) => {
+        const order = active(ctx?.from, id)
+        if (!order) return noOrder(id)
+        order.estado = 'cancelado'
+        return { id, estado: 'cancelado' }
+      },
+    },
+  },
+}))
+```
+
+La plantilla `ai-full` de [`create-bot-wa`](/es/guide/inicio) trae las mismas
+herramientas, con los pedidos guardados en `ctx.user`.
 
 ## Eventos de auditoría
 

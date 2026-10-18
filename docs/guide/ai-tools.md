@@ -53,6 +53,8 @@ Each entry of `tools` is an `AITool`; the key is the name the model sees.
 | `handler` | `(args, tctx) => unknown` | Runs the tool. Strings go back to the model as-is, `undefined` as `'ok'`, anything else JSON-serialized. |
 | `confirm` | `boolean` | Require human confirmation before running it (see [below](#human-confirmation)). |
 | `confirmMessage` | `string \| (args) => string` | Custom confirmation prompt. |
+| `labels` | `{ [argKey]: { [value]: label } }` | Human labels of argument values in the default confirmation (`{ product: { rye_bread: 'Rye bread' } }`). See [Readable values and totals](#readable-values-and-totals). |
+| `confirmLines` | `(args) => string[]` | Your own lines (e.g. prices and the total computed in code) in place of the argument lines of the default confirmation. |
 | `dedupe` | `'args' \| { windowMs }` | Do not run it again with the same arguments within the window (`'args'`: 10 minutes) in the same chat (see [Repeated side effects](#repeated-side-effects)). |
 | `timeoutMs` | `number` | Per-tool timeout, overrides `toolTimeoutMs`. |
 
@@ -187,6 +189,45 @@ confirm? (yes/no)`) when `ctx.lang` is `en` (see
 (`{tool}` is the title, `{args}` a newline plus the `• ` lines, or empty), or
 set `confirmMessage` on the tool.
 
+### Readable values and totals
+
+Catalog keys like `pan_de_bono` are good for the model and bad for the user.
+Two tool options improve the default prompt without writing it yourself:
+
+- **`labels`** maps argument values to human labels, per argument key (also
+  inside list items). Values without a label are shown as-is; the model and
+  the handler keep receiving the raw keys.
+- **`confirmLines(args)`** returns the lines to show instead of the arguments,
+  inside the same localized wrapper. Use it to show what **your code**
+  computed (prices, the total), so the user never confirms a number the model
+  made up. `confirmMessage` still wins over both.
+
+```ts
+const MENU = { pan_de_bono: { name: 'Pan de bono', price: 2500 }, cafe: { name: 'Café', price: 4000 } }
+
+crear_pedido: {
+  title: 'Crear pedido',
+  labels: { producto: { pan_de_bono: 'Pan de bono', cafe: 'Café' } },
+  // or, with prices and the total:
+  confirmLines: ({ items }) => [
+    ...items.map((i) => `• ${i.cantidad} × ${MENU[i.producto].name}: $${MENU[i.producto].price * i.cantidad}`),
+    `Total: $${items.reduce((sum, i) => sum + MENU[i.producto].price * i.cantidad, 0)}`,
+  ],
+  // ...
+}
+```
+
+```text
+Voy a: Crear pedido
+• 2 × Pan de bono: $5000
+• 1 × Café: $4000
+Total: $9000
+¿Confirmas? (sí/no)
+```
+
+`argLines(args, ctx, labels)` and `summarizeValue(value, ctx, depth, labels)`
+are exported if you build your own prompt.
+
 **Inside your own conversation** pass `confirmWith(c)`: it asks with `c.ask()`,
 which never blocks the queue either.
 
@@ -239,7 +280,158 @@ them) and uses them three ways:
   `dedupe: 'args'` uses a 10-minute window; `dedupe: { windowMs: 60_000 }` sets
   your own. It also works for tools without `confirm`.
 
+A run whose handler returns an object with a non-empty `error` (for example
+`{ error: 'No order P-123' }`) did nothing, so it is not remembered: no repeat
+notice, no "already done" line and no `dedupe` block.
+
 `toolConfirm.systemNote: false` also turns off the system prompt list.
+
+## Best practices for side-effecting tools
+
+These rules come from live tests with real models on WhatsApp. Without them a
+model will miscalculate an order total in free text, show catalog keys to the
+customer, or claim it "replaced" an order when it had no tool to do so.
+
+1. **Never let the model compute money.** Prices, subtotals and totals are
+   computed in your code: offer a quote tool (no `confirm`, no side effects)
+   for "how much is…?", compute the total again in the handler that stores the
+   order, and show it in the confirmation with `confirmLines` (or
+   `confirmMessage`). Return the computed total in the tool result so the
+   model can repeat it instead of calculating it.
+2. **Validate catalog values with `enum`.** Product keys, sizes, branches…:
+   arguments are validated **before** the confirmation, so an invented product
+   goes back to the model as an error and the user never confirms an
+   impossible order. Pair the keys with `labels` (or names in `confirmLines`)
+   so the user sees "Pan de bono", not `pan_de_bono`.
+3. **Give every create its update, cancel and list tools.** If the model can
+   only create, it will "fix" an order by creating another one, or say it
+   changed something it could not. A list tool (`my_orders`) gives it the ids
+   to update or cancel.
+4. **Use `dedupe` on create tools** (`dedupe: 'args'`), so an identical order
+   is not placed twice in a row when the model calls the tool again on its own.
+5. **Return an explicit `{ error }` for unknown ids** (`{ error: 'No active
+   order P-123. Check my_orders.' }`), never a silent `ok` or `null`. The model
+   reads it and tells the user; the run is not remembered as done.
+6. **Keep `confirm: true` on everything with side effects** (create, update,
+   cancel, pay, book). Read-only tools (menu, quote, list) do not need it.
+7. **Rely on the system note, do not fight it.** With a confirmer, the system
+   prompt tells the model which tools the system confirms, not to ask "shall I
+   place it?" itself, not to mention the confirmation process and never to
+   claim it did, changed, replaced or cancelled anything a tool result did not
+   confirm (and to say so plainly when it has no tool for a request). Keep it
+   on (`toolConfirm.systemNote`) unless you replace it with an equivalent text.
+
+A complete bakery with all of the above:
+
+```ts
+import { Bot } from '@bot-wa/core'
+import { aiPlugin } from '@bot-wa/ai'
+
+const MENU = {
+  pan_de_bono: { name: 'Pan de bono', price: 2500 },
+  croissant: { name: 'Croissant', price: 5000 },
+  cafe: { name: 'Café', price: 4000 },
+} as const
+type Product = keyof typeof MENU
+type Item = { producto: Product; cantidad: number }
+type Order = { id: string; items: Item[]; total: number; estado: 'confirmado' | 'cancelado' }
+
+const PRODUCTS = Object.keys(MENU)
+const ITEMS = {
+  type: 'array',
+  minItems: 1,
+  items: {
+    type: 'object',
+    properties: {
+      producto: { type: 'string', enum: PRODUCTS }, // only real products
+      cantidad: { type: 'integer', minimum: 1, maximum: 50 },
+    },
+    required: ['producto', 'cantidad'],
+    additionalProperties: false,
+  },
+}
+const ORDER_ID = { type: 'string', description: 'Order id (mis_pedidos)' }
+
+// Money is computed here, never by the model.
+const money = (n: number) => '$' + n.toLocaleString('es-CO')
+const quote = (items: Item[]) => {
+  const lines = items.map((i) => ({ ...i, nombre: MENU[i.producto].name, subtotal: MENU[i.producto].price * i.cantidad }))
+  return { items: lines, total: lines.reduce((sum, l) => sum + l.subtotal, 0) }
+}
+const quoteLines = (items: Item[]) => {
+  const q = quote(items)
+  return [...q.items.map((l) => `• ${l.cantidad} × ${l.nombre}: ${money(l.subtotal)}`), `Total: ${money(q.total)}`]
+}
+
+const orders = new Map<string, Order[]>() // per chat; use ctx.user or your DB in production
+const ordersOf = (chat = '') => {
+  if (!orders.has(chat)) orders.set(chat, [])
+  return orders.get(chat)!
+}
+const active = (chat: string | undefined, id: string) => ordersOf(chat).find((o) => o.id === id && o.estado !== 'cancelado')
+const noOrder = (id: string) => ({ error: `No active order ${id}. Check mis_pedidos.` })
+
+const bot = new Bot({ provider })
+bot.plug(aiPlugin({
+  provider: 'anthropic',
+  persona: 'You are the assistant of Panadería La Espiga. Use ver_menu for products and cotizar_pedido for any price or total; never calculate amounts yourself.',
+  tools: {
+    ver_menu: {
+      description: 'List the menu: key, name and price.',
+      handler: () => Object.entries(MENU).map(([clave, p]) => ({ clave, nombre: p.name, precio: p.price })),
+    },
+    cotizar_pedido: {
+      description: 'Compute prices, subtotals and the total of a list of products without placing anything.',
+      schema: { type: 'object', properties: { items: ITEMS }, required: ['items'] },
+      handler: ({ items }: { items: Item[] }) => quote(items),
+    },
+    mis_pedidos: {
+      description: "List the customer's orders with id, items, total and status.",
+      handler: (_args: unknown, { ctx }) => ordersOf(ctx?.from),
+    },
+    crear_pedido: {
+      title: 'Crear pedido',
+      description: 'Place a new order. items: menu keys and quantities.',
+      schema: { type: 'object', properties: { items: ITEMS }, required: ['items'] },
+      confirm: true,
+      dedupe: 'args',
+      confirmLines: ({ items }: { items: Item[] }) => quoteLines(items),
+      handler: ({ items }: { items: Item[] }, { ctx }) => {
+        const order: Order = { id: 'P-' + Date.now().toString(36).toUpperCase(), ...quote(items), estado: 'confirmado' }
+        ordersOf(ctx?.from).push(order)
+        return order // the model repeats this total, it does not compute it
+      },
+    },
+    actualizar_pedido: {
+      title: 'Cambiar pedido',
+      description: 'Replace the items of an existing order (by id) with the complete new list.',
+      schema: { type: 'object', properties: { id: ORDER_ID, items: ITEMS }, required: ['id', 'items'] },
+      confirm: true,
+      confirmLines: ({ id, items }: { id: string; items: Item[] }) => [`• Pedido: ${id}`, ...quoteLines(items)],
+      handler: ({ id, items }: { id: string; items: Item[] }, { ctx }) => {
+        const order = active(ctx?.from, id)
+        if (!order) return noOrder(id)
+        return Object.assign(order, quote(items))
+      },
+    },
+    cancelar_pedido: {
+      title: 'Cancelar pedido',
+      description: 'Cancel an existing order by id.',
+      schema: { type: 'object', properties: { id: ORDER_ID }, required: ['id'] },
+      confirm: true,
+      handler: ({ id }: { id: string }, { ctx }) => {
+        const order = active(ctx?.from, id)
+        if (!order) return noOrder(id)
+        order.estado = 'cancelado'
+        return { id, estado: 'cancelado' }
+      },
+    },
+  },
+}))
+```
+
+The [`create-bot-wa`](/guide/getting-started) `ai-full` template ships the same
+tools, with the orders kept in `ctx.user`.
 
 ## Audit events
 
