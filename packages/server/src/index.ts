@@ -9,7 +9,7 @@
  */
 export { createIngress, normalizePath, DEFAULT_MAX_BODY_BYTES, DEFAULT_BODY_TIMEOUT_MS, DEFAULT_INGEST_TIMEOUT_MS, DEFAULT_MAX_CONCURRENT } from './ingress.js'
 export { createNodeHandler, serveNode, splitUrl } from './node.js'
-export type { NodeHandlerOptions, ServeNodeOptions } from './node.js'
+export type { DrainOptions, NodeHandlerOptions, ServeNodeOptions } from './node.js'
 export { createFetchHandler, serveFetch } from './fetch.js'
 export { readNodeBody, readWebBody } from './body.js'
 export type { NodeRequestLike } from './body.js'

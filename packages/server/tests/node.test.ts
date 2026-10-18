@@ -134,6 +134,43 @@ describe('node:http handler — limits', () => {
     expect(provider.calls).toHaveLength(0)
   })
 
+  it('delivers the 413 to a client streaming a body far larger than the socket buffers', async () => {
+    const provider = new FakeWebhookProvider()
+    const { port } = await serve({ routes: [{ path: '/webhook', provider }], maxBodyBytes: 1024 })
+    const big = Buffer.alloc(4 * 1024 * 1024, 0x78)
+    const chunks = Array.from({ length: 64 }, (_, i) => big.subarray(i * 65536, (i + 1) * 65536))
+    for (let i = 0; i < 3; i++) {
+      const declared = await rawRequest(port, { headers: { 'content-length': String(big.length) }, chunks })
+      expect(declared.status).toBe(413)
+      expect(declared.headers.connection).toBe('close')
+      const chunked = await rawRequest(port, { headers: { 'transfer-encoding': 'chunked' }, chunks })
+      expect(chunked.status).toBe(413)
+    }
+    expect(provider.calls).toHaveLength(0)
+  })
+
+  it('stops draining an oversized body past the drain cap', async () => {
+    const provider = new FakeWebhookProvider()
+    const ingress = createIngress({ routes: [{ path: '/webhook', provider }], maxBodyBytes: 1024 })
+    running = await listen(createNodeHandler(ingress, { drain: { maxBytes: 64 * 1024, timeoutMs: 5000 } }))
+    const big = Buffer.alloc(4 * 1024 * 1024, 0x78)
+    const started = Date.now()
+    const res = await rawRequest(running.port, { headers: { 'content-length': String(big.length) }, chunks: [big] })
+    expect([413, 0]).toContain(res.status) // the socket is torn down once the cap is hit
+    expect(Date.now() - started).toBeLessThan(4000)
+    expect(provider.calls).toHaveLength(0)
+  })
+
+  it('does not wait on a stalled body before answering 408', async () => {
+    const provider = new FakeWebhookProvider()
+    const ingress = createIngress({ routes: [{ path: '/webhook', provider }], bodyTimeoutMs: 50 })
+    running = await listen(createNodeHandler(ingress, { drain: { maxBytes: 1 << 20, timeoutMs: 5000 } }))
+    const started = Date.now()
+    const res = await rawRequest(running.port, { headers: { 'content-length': '100' }, chunks: ['partial'], stall: true })
+    expect(res.status).toBe(408)
+    expect(Date.now() - started).toBeLessThan(2000)
+  })
+
   it('accepts a body exactly at the limit and honours a per-route override', async () => {
     const small = new FakeWebhookProvider()
     const big = new FakeWebhookProvider()

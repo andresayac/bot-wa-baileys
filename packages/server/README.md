@@ -112,3 +112,5 @@ const handler = createFetchHandler(ingress) // (Request) => Promise<Response>, 4
 | GET sin `verifyChallenge`, u otro método | `405` (+ `Allow`) |
 | Body demasiado grande / lento | `413` / `408` (con `Connection: close`) |
 | Saturado, `ingest` lento o cerrando | `503` + `Retry-After: 1` |
+
+Con `node:http`, Express y Fastify, antes de responder con `Connection: close` (413, 503...) se descarta el resto del body sin leer, para que el cliente reciba la respuesta en vez de un `ECONNRESET`. El drenado está acotado (por defecto 8 MiB y 5 s; `createNodeHandler(ingress, { drain: { maxBytes, timeoutMs } })`); al superarlo se responde igualmente y se corta el socket. Un `408` no espera al body.
