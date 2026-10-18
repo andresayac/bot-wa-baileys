@@ -59,7 +59,7 @@ export class TwilioProvider implements IProvider<TwilioWebhookParams> {
     maxTextLength: TWILIO_MAX_BODY,
     buttons: false, lists: false, polls: false, reactions: false, edit: false,
     typing: true, presence: false, readReceipts: false, groups: false, templates: true,
-    interactionsRequireAck: false, pushIngress: true, streaming: 'none',
+    interactionsRequireAck: false, pushIngress: true, streaming: 'none', forms: 'degraded',
   }
 
   private readonly config: TwilioProviderConfig & { apiBaseUrl: string; messagingBaseUrl: string }

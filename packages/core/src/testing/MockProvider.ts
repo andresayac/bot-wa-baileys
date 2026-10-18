@@ -96,6 +96,7 @@ export class MockProvider implements IProvider {
       typing: true, presence: true, readReceipts: true, groups: true, templates: false,
       interactionsRequireAck: false, pushIngress: false,
       streaming,
+      forms: 'degraded',
       ...(options.maxTextLength !== undefined ? { maxTextLength: options.maxTextLength } : {}),
     }
     if (streaming !== 'none') {

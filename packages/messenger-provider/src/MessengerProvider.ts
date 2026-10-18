@@ -56,6 +56,7 @@ export class MessengerProvider implements IProvider<unknown> {
     typing: true, presence: false, readReceipts: true, groups: false, templates: false,
     interactionsRequireAck: false, pushIngress: true,
     streaming: 'none', // no live preview: ctx.stream() sends sentence chunks with typing
+    forms: 'degraded', // flow().form() asks field by field
   }
 
   private readonly config: Required<Pick<MessengerProviderConfig, 'apiVersion' | 'graphUrl' | 'pageId'>> & MessengerProviderConfig

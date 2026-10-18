@@ -50,7 +50,7 @@ export class GoHighLevelProvider implements IProvider<GhlWebhookBody> {
     contentKinds: ['text', 'image', 'video', 'audio', 'voice', 'document', 'buttons', 'list', 'template', 'native'],
     buttons: false, lists: false, polls: false, reactions: false, edit: false,
     typing: false, presence: false, readReceipts: true, groups: false, templates: true,
-    interactionsRequireAck: false, pushIngress: true, streaming: 'none',
+    interactionsRequireAck: false, pushIngress: true, streaming: 'none', forms: 'degraded',
   }
 
   private readonly config: GoHighLevelProviderConfig & { apiVersion: string; baseUrl: string; defaultChannel: GhlChannel }

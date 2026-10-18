@@ -41,5 +41,7 @@ export function outboundText(content: OutboundContent): string {
       return `[template] ${content.name}`
     case 'native':
       return `[${content.provider}]`
+    case 'form':
+      return `[form] ${content.form.title ?? content.form.id}`
   }
 }

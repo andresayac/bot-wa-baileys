@@ -127,6 +127,7 @@ export class EmailProvider implements IProvider<EmailRaw> {
     interactionsRequireAck: false,
     pushIngress: false,    // owns its IMAP connection; ingest() is an extra seam
     streaming: 'none',   // no live preview: ctx.stream() sends sentence chunks
+    forms: 'degraded', // flow().form() asks field by field
   }
 
   private readonly config: EmailProviderConfig

@@ -128,6 +128,7 @@ export class TikTokProvider implements IProvider<unknown> {
     interactionsRequireAck: false,
     pushIngress: true,
     streaming: 'none',
+    forms: 'degraded', // flow().form() asks field by field
   }
 
   private readonly config: TikTokProviderConfig

@@ -315,3 +315,38 @@ describe('describe() / lint() support', () => {
     expect(typeof core.assertFormDefinition).toBe('function')
   })
 })
+
+describe('forms + flow-dsl steps (describe / lint / retry)', () => {
+  it('describe and lint know form, guard, use, delay and media steps in one flow', () => {
+    const sub = flow([]).id('sub').timeout('1m').form(signup)
+    const main = flow('alta')
+      .timeout('1m')
+      .guard(() => true, 'cerrado')
+      .delay('1s')
+      .media('image', 'https://x.test/a.png')
+      .use(sub)
+      .form({ ...signup, id: 'extra' }, { stateKey: 'extra' })
+    const graph = describeFlows([main, sub], { format: 'json' })
+    const kinds = graph.nodes.map((n) => n.kind)
+    for (const k of ['guard', 'delay', 'media', 'use', 'form'] as const) expect(kinds).toContain(k)
+    expect(graph.nodes.filter((n) => n.kind === 'form').map((n) => n.form?.id)).toEqual(expect.arrayContaining(['signup', 'extra']))
+    expect(describeFlows([main, sub])).toContain('alta')
+    expect(lintFlows([main]).map((d) => `${d.code}: ${d.message}`)).toEqual([])
+  })
+
+  it('c.retry() after a .use() whose sub-flow only has a form rewinds into it (form counts as a wait; the retry message is the prompt)', async () => {
+    const { bot, chat } = await createTestBot()
+    const sub = flow([]).id('datos').form({ id: 'nombre', fields: [{ type: 'text', name: 'name', label: 'Nombre' }] })
+    let tries = 0
+    bot.use(flow('reg').use(sub).do(async (_ctx, c) => {
+      if (tries++ === 0) await c.retry('otra vez')
+    }).say('fin'))
+    await chat.send('reg')
+    await chat.expectReply(/Nombre/)
+    await chat.send('Ana')
+    await chat.expectReply('otra vez')
+    await chat.send('Bea')
+    await chat.expectReply('fin')
+    await bot.stop()
+  })
+})

@@ -75,6 +75,7 @@ export class DiscordProvider implements IProvider<unknown> {
     interactionsRequireAck: true,
     pushIngress: false,
     streaming: 'edit', // ctx.stream(): send once, then throttled message edits
+    forms: 'degraded', // flow().form() asks field by field
   }
 
   private readonly config: Required<

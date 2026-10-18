@@ -91,6 +91,7 @@ export class TelegramProvider implements IProvider<unknown> {
     interactionsRequireAck: false, // answerCallbackQuery stops the spinner; no hard deadline
     pushIngress: true,     // supports webhook; also owns a long-poll loop
     streaming: 'draft',    // sendMessageDraft (private chats); edits elsewhere
+    forms: 'degraded', // flow().form() asks field by field
   }
 
   private readonly config: Required<Pick<TelegramProviderConfig, 'token' | 'baseUrl' | 'polling' | 'pollTimeout' | 'errorBackoffMs' | 'maxBackoffMs' | 'pollIdleMs'>> & Pick<TelegramProviderConfig, 'mediaDownload'>
