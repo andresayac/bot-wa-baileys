@@ -145,9 +145,13 @@ export function aiPlugin(config: AIPluginConfig = {}): PluginSpec<AIPluginConfig
             : undefined
           // Lets `/reset` cancel the turn even after its confirmation was answered.
           const abort = new AbortController()
+          // `humanizeTyping` shows the indicator while the model generates; the reply then
+          // skips the BotConfig.typing pacer so the user never sees a second typing round.
+          const typedAhead = cfg.humanizeTyping !== false
+          const replyOpts = typedAhead ? { typing: false } : undefined
           const turn = (async () => {
             try {
-              if (cfg.humanizeTyping !== false) await mctx.typing()
+              if (typedAhead) await mctx.typing()
               const text = await client.replyInChat(key, body, {
                 userId: mctx.sender,
                 isGroup: mctx.isGroup,
@@ -160,12 +164,12 @@ export function aiPlugin(config: AIPluginConfig = {}): PluginSpec<AIPluginConfig
                 ctx.logger.debug('ai autoreply dropped: a conversation is active on the chat')
                 return
               }
-              await mctx.reply(text)
+              await mctx.reply(text, replyOpts)
             } catch (err) {
               // Cancelled confirmation or turn (/reset, timeout, superseded turn): nothing to say.
               if (err instanceof AIToolCancelledError || abort.signal.aborted) return
               ctx.logger.warn({ err }, 'ai autoreply failed')
-              await mctx.reply(errorMessage).catch(() => {})
+              await mctx.reply(errorMessage, replyOpts).catch(() => {})
             }
           })()
           if (!confirmer) return turn

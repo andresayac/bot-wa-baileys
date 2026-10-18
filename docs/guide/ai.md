@@ -236,7 +236,7 @@ down.
 | `resetCommand` | `boolean` | `true` | registers `/reset` |
 | `errorMessage` | `string` | `'⚠️ Ahora no puedo responder, intenta luego.'` | reply sent if the provider fails |
 | `refusalMessage` | `string` | `'No puedo ayudar con eso.'` | reply sent when the provider refuses (`stopReason === 'refusal'`) |
-| `humanizeTyping` | `boolean` | `true` | sends "typing…" (`ctx.typing()`) before replying |
+| `humanizeTyping` | `boolean` | `true` | sends "typing…" (`ctx.typing()`) while the answer is generated; the reply then skips the `BotConfig.typing` pacer, so the indicator shows once |
 
 ## `/reset` and `slashCommandsPlugin`
 

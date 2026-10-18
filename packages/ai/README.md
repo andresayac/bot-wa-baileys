@@ -241,7 +241,7 @@ configurado en vez de tumbar el bot.
 | `resetCommand` | `boolean` | `true` | registra `/reset` |
 | `errorMessage` | `string` | `'⚠️ Ahora no puedo responder, intenta luego.'` | respuesta si el proveedor falla |
 | `refusalMessage` | `string` | `'No puedo ayudar con eso.'` | respuesta cuando el proveedor rehúsa (`stopReason === 'refusal'`) |
-| `humanizeTyping` | `boolean` | `true` | envía "escribiendo…" (`ctx.typing()`) antes de responder |
+| `humanizeTyping` | `boolean` | `true` | envía "escribiendo…" (`ctx.typing()`) mientras se genera la respuesta; la respuesta se salta entonces el `BotConfig.typing`, así que el indicador sale una sola vez |
 | `tools` | `Record<string, AITool>` | — | herramientas que el modelo puede llamar (ver [Tool calling](#tool-calling)) |
 | `maxSteps` | `number` | `5` | máximo de llamadas al modelo por turno en el bucle de tools |
 | `toolTimeoutMs` | `number` | `15000` | timeout por defecto de cada tool (`0` lo desactiva) |

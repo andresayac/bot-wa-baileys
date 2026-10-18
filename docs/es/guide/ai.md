@@ -238,7 +238,7 @@ el `errorMessage` configurado en vez de tumbar el bot.
 | `resetCommand` | `boolean` | `true` | registra `/reset` |
 | `errorMessage` | `string` | `'⚠️ Ahora no puedo responder, intenta luego.'` | respuesta si el proveedor falla |
 | `refusalMessage` | `string` | `'No puedo ayudar con eso.'` | respuesta cuando el proveedor rehúsa (`stopReason === 'refusal'`) |
-| `humanizeTyping` | `boolean` | `true` | envía "escribiendo…" (`ctx.typing()`) antes de responder |
+| `humanizeTyping` | `boolean` | `true` | envía "escribiendo…" (`ctx.typing()`) mientras se genera la respuesta; la respuesta se salta entonces el `BotConfig.typing`, así que el indicador sale una sola vez |
 
 ## `/reset` y `slashCommandsPlugin`
 

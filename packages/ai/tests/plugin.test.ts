@@ -97,3 +97,37 @@ describe('aiPlugin', () => {
     expect(rejections).toHaveLength(0)
   })
 })
+
+describe('aiPlugin — one typing indicator per one-shot autoreply', () => {
+  async function typingBot(cfg: AIPluginConfig, botTyping: boolean) {
+    const t = await createTestBot(botTyping ? { typing: { enabled: true, minMs: 5, maxMs: 10 } } : {})
+    const states: string[] = []
+    Object.assign(t.provider, { typing: async (_chatId: string, state: string) => { states.push(state) } })
+    t.bot.plug(aiPlugin({ __provider: new MockAIProvider({ reply: 'IA responde' }), ...cfg }))
+    return { ...t, states }
+  }
+
+  it('BotConfig.typing on + humanizeTyping: types once (before generating), not again on reply', async () => {
+    const { bot, chat, states } = await typingBot({}, true)
+    await chat.send('hola')
+    await chat.expectReply('IA responde')
+    expect(states.filter((s) => s === 'typing')).toHaveLength(1)
+    await bot.stop()
+  })
+
+  it('humanizeTyping:false leaves the indicator to BotConfig.typing (still once)', async () => {
+    const { bot, chat, states } = await typingBot({ humanizeTyping: false }, true)
+    await chat.send('hola')
+    await chat.expectReply('IA responde')
+    expect(states.filter((s) => s === 'typing')).toHaveLength(1)
+    await bot.stop()
+  })
+
+  it('without BotConfig.typing the autoreply still shows the indicator once', async () => {
+    const { bot, chat, states } = await typingBot({}, false)
+    await chat.send('hola')
+    await chat.expectReply('IA responde')
+    expect(states.filter((s) => s === 'typing')).toHaveLength(1)
+    await bot.stop()
+  })
+})
