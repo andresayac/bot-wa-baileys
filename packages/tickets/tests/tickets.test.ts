@@ -225,4 +225,60 @@ describe('ticket storage', () => {
     expect((await b.list()).map((t) => t.id)).toEqual(['1'])
     expect((await b.create({ chatId: 'd', subject: 's' })).id).toBe('2')
   })
+
+  it('the stored index only lists active tickets; closed ones are evicted but still readable', async () => {
+    const storage = memoryTicketStorage()
+    const a = new TicketDesk({ storage })
+    await a.create({ chatId: 'c1', subject: 'uno' })
+    await a.create({ chatId: 'c2', subject: 'dos' })
+    await a.close('1', { reason: 'ok' })
+    expect(JSON.parse((await storage.get('tickets:index'))!)).toEqual(['2'])
+    expect((await a.get('1'))?.status).toBe('closed')
+    expect((await a.list()).map((t) => t.id)).toEqual(['1', '2'])
+    expect((await a.list({ status: 'closed' })).map((t) => t.id)).toEqual(['1'])
+    // closed tickets can be reopened
+    expect((await a.update('1', { status: 'open' })).status).toBe('open')
+    expect(JSON.parse((await storage.get('tickets:index'))!).sort()).toEqual(['1', '2'])
+
+    const b = new TicketDesk({ storage })
+    await b.close('2')
+    const c = new TicketDesk({ storage })
+    expect((await c.get('2'))?.status).toBe('closed')
+    expect((await c.list({ chatId: 'c2' })).map((t) => t.id)).toEqual(['2'])
+    expect((await c.create({ chatId: 'c3', subject: 'tres' })).id).toBe('3')
+  })
+
+  it('a failed store write leaves memory untouched (no phantom ticket or patch)', async () => {
+    const inner = memoryTicketStorage()
+    let failOn: RegExp | undefined
+    const storage = {
+      get: (k: string) => inner.get(k),
+      async set(k: string, v: string) {
+        if (failOn?.test(k)) throw new Error(`write failed: ${k}`)
+        return inner.set(k, v)
+      },
+    }
+    const onCreate = vi.fn()
+    const d = new TicketDesk({ storage, onCreate })
+    await d.create({ chatId: 'c1', subject: 'uno' })
+
+    failOn = /index$/
+    await expect(d.create({ chatId: 'c2', subject: 'dos' })).rejects.toThrow(/write failed/)
+    expect((await d.list()).map((t) => t.chatId)).toEqual(['c1'])
+    failOn = undefined
+    const again = await d.create({ chatId: 'c2', subject: 'dos' })
+    expect(again.created).toBe(true)
+    expect(onCreate).toHaveBeenCalledTimes(2)
+
+    failOn = /t:1$/
+    await expect(d.update('1', { subject: 'cambiado' })).rejects.toThrow(/write failed/)
+    expect((await d.get('1'))?.subject).toBe('uno')
+    failOn = /index$/
+    await expect(d.close('1')).rejects.toThrow(/write failed/)
+    expect((await d.get('1'))?.status).toBe('open')
+    failOn = undefined
+    const fresh = new TicketDesk({ storage })
+    expect((await fresh.get('1'))?.status).toBe('open')
+    expect((await fresh.list()).map((t) => t.chatId).sort()).toEqual(['c1', 'c2'])
+  })
 })

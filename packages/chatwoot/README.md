@@ -58,8 +58,8 @@ app.post('/chatwoot', express.raw({ type: '*/*' }), async (req, res) => {
 | Mensaje entrante | `incoming` en la conversación del chat (la crea la primera vez). En grupos, el texto va prefijado con el nombre del participante. |
 | El bot envía | `outgoing` (los medios se reflejan como `[image] caption`, etc.). |
 | `ctx.handoff()` / `bot.handoff()` | Conversación `open`, nota privada (`handoffNote`) y `labels.handoff`. |
-| Respuesta pública de un agente (webhook `message_created`) | `bot.handoff()` si `autoHandoff` y el chat no está en handoff; luego `bot.sendTo()` (adjuntos por URL). No se re-refleja en Chatwoot. |
-| Conversación resuelta (webhook `conversation_status_changed`) | `bot.resume(chatId, { reason: 'chatwoot:resolved' })`. |
+| Respuesta pública de un agente (webhook `message_created`) | `bot.handoff()` si `autoHandoff` y el chat no está en handoff; luego `bot.sendTo()` (adjuntos por URL). No se re-refleja en Chatwoot y un reenvío del mismo mensaje (mismo id) se ignora. |
+| Conversación resuelta (webhook `conversation_status_changed`, o `conversation_updated` solo si `changed_attributes` trae el cambio de `status`) | `bot.resume(chatId, { reason: 'chatwoot:resolved' })`. |
 | `bot.resume()` por otra causa | Conversación `resolved` (`resolveOnResume`), quita `labels.handoff`, añade `labels.resume`. |
 
 Se ignoran: notas privadas, mensajes `incoming`, mensajes de *agent bots*, otros inboxes, conversaciones desconocidas y los ecos de los mensajes que creó el propio plugin.

@@ -54,7 +54,7 @@ Estados: `open` (en cola), `assigned`, `pending` (esperando al cliente, fuera de
 
 ## Persistencia
 
-Por defecto usa la API de cursores del store del bot (`tickets:seq`, `tickets:index`, `tickets:t:<id>`), que implementan los seis stores; con `MemoryStore` vive en RAM. Se carga de forma perezosa en la primera llamada (el `install` es síncrono) y las mutaciones se serializan. Puedes pasar tu propio `storage: { get, set }`.
+Por defecto usa la API de cursores del store del bot (`tickets:seq`, `tickets:index`, `tickets:t:<id>`), que implementan los seis stores; con `MemoryStore` vive en RAM. `tickets:index` solo lista los tickets no cerrados: en memoria solo viven los activos y los cerrados se leen bajo demanda (`get`, y `list` cuando el filtro puede incluir `closed`). Se carga de forma perezosa en la primera llamada (el `install` es síncrono) y las mutaciones se serializan; si falla una escritura en el store, la llamada se rechaza y la memoria no cambia. Puedes pasar tu propio `storage: { get, set }`.
 
 ## Callbacks y mensajes
 

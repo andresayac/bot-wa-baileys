@@ -72,6 +72,17 @@ export class ChatwootMapping {
     }
   }
 
+  /** Forget the chat's link entirely (e.g. its Chatwoot contact was deleted). */
+  async delete(chatId: ChatId): Promise<void> {
+    const prev = this.links.get(chatId) ?? await this.get(chatId)
+    this.links.delete(chatId)
+    await this.kv.set(`${this.prefix}chat:${chatId}`, '')
+    if (prev?.conversationId !== undefined) {
+      this.reverse.delete(prev.conversationId)
+      await this.kv.set(`${this.prefix}conv:${prev.conversationId}`, '')
+    }
+  }
+
   async chatOf(conversationId: number): Promise<ChatId | undefined> {
     const cached = this.reverse.get(conversationId)
     if (cached !== undefined) return cached

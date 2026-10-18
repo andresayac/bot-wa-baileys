@@ -55,9 +55,11 @@ export class FakeChatwoot {
       return json({ payload: { contact: { id: c.id, name: c.name, identifier: c.identifier }, contact_inbox: { source_id: c.source_id } } })
     }
     if (method === 'POST' && (m = /^\/contacts\/(\d+)\/contact_inboxes$/.exec(p))) {
+      if (!this.contacts.some((c) => c.id === Number(m![1]))) return json({ error: 'not found' }, 404)
       return json({ source_id: `ci-${m[1]}` })
     }
     if (method === 'POST' && p === '/conversations') {
+      if (!this.contacts.some((c) => c.id === body.contact_id)) return json({ error: 'not found' }, 404)
       const id = ++this.seq
       this.conversations.set(id, { id, contactId: body.contact_id, status: body.status ?? 'open', labels: [], messages: [] })
       return json({ id, status: 'open' })
@@ -83,6 +85,12 @@ export class FakeChatwoot {
       return json({ payload: conv.labels })
     }
     return json({ error: `no route ${method} ${p}` }, 404)
+  }
+
+  /** Delete a contact and its conversations (what Chatwoot does). */
+  deleteContact(contactId: number): void {
+    this.contacts = this.contacts.filter((c) => c.id !== contactId)
+    for (const [id, conv] of this.conversations) if (conv.contactId === contactId) this.conversations.delete(id)
   }
 
   messagesOf(conversationId: number): FakeMessage[] {

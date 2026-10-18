@@ -159,6 +159,7 @@ interface Logger { warn(...a: unknown[]): void; debug(...a: unknown[]): void }
 const RESOLVED_REASON = 'chatwoot:resolved'
 const AGENT_REASON = 'chatwoot:agent'
 const MAX_OWN_IDS = 2000
+const MAX_SEEN_AGENT_IDS = 5000
 
 type Json = Record<string, unknown>
 const obj = (v: unknown): Json => (v && typeof v === 'object' && !Array.isArray(v) ? (v as Json) : {})
@@ -201,6 +202,8 @@ export function chatwootPlugin(config: ChatwootPluginConfig): ChatwootPlugin {
   /** Chatwoot message ids created by this plugin (echo suppression). */
   const ownIds = new Set<number>()
   /** `${conversationId}\n${content}` → outgoing POSTs in flight (webhook may beat the response). */
+  /** Agent message ids already relayed to the chat (redelivery / replay suppression). */
+  const seenAgentIds = new Set<number>()
   const pendingEchoes = new Map<string, number>()
 
   const report = (error: unknown, context: string) => {
@@ -231,9 +234,16 @@ export function chatwootPlugin(config: ChatwootPluginConfig): ChatwootPlugin {
     if (ownIds.size > MAX_OWN_IDS) ownIds.delete(ownIds.values().next().value as number)
   }
 
-  /** Get (or create) the chat's contact + conversation. Call inside the chat's queue. */
-  const ensureLink = async (chatId: ChatId, ctx?: MessageContext): Promise<ChatwootChatLink & { conversationId: number }> => {
+  const isGone = (error: unknown) => error instanceof ChatwootApiError && (error.status === 404 || error.status === 422)
+
+  /**
+   * Get (or create) the chat's contact + conversation. Call inside the chat's queue.
+   * A stored contact that Chatwoot no longer knows (deleted by an agent, which also
+   * deletes its conversations) is dropped and the chat re-linked once.
+   */
+  const ensureLink = async (chatId: ChatId, ctx?: MessageContext, relinked = false): Promise<ChatwootChatLink & { conversationId: number }> => {
     let link = await mapping.get(chatId)
+    const stored = link !== undefined
     if (!link) {
       const info = config.contact?.(chatId, ctx) ?? {}
       const found = await client.findContactByIdentifier(chatId)
@@ -249,16 +259,23 @@ export function chatwootPlugin(config: ChatwootPluginConfig): ChatwootPlugin {
       await mapping.set(chatId, link)
     }
     if (link.conversationId === undefined) {
-      let sourceId = link.sourceId
-      if (sourceId === undefined) {
-        sourceId = await client.createContactInbox(link.contactId, inboxId)
-        if (sourceId !== undefined) link = { ...link, sourceId }
+      let conversationId: number
+      try {
+        let sourceId = link.sourceId
+        if (sourceId === undefined) {
+          sourceId = await client.createContactInbox(link.contactId, inboxId)
+          if (sourceId !== undefined) link = { ...link, sourceId }
+        }
+        conversationId = await client.createConversation({
+          inboxId,
+          contactId: link.contactId,
+          ...(sourceId !== undefined ? { sourceId } : {}),
+        })
+      } catch (error) {
+        if (!stored || relinked || !isGone(error)) throw error
+        await mapping.delete(chatId)
+        return ensureLink(chatId, ctx, true)
       }
-      const conversationId = await client.createConversation({
-        inboxId,
-        contactId: link.contactId,
-        ...(sourceId !== undefined ? { sourceId } : {}),
-      })
       link = { ...link, conversationId }
       await mapping.set(chatId, link)
     }
@@ -396,6 +413,7 @@ export function chatwootPlugin(config: ChatwootPluginConfig): ChatwootPlugin {
     const content = typeof payload.content === 'string' ? payload.content : ''
 
     if (messageId !== undefined && ownIds.has(messageId)) return
+    if (messageId !== undefined && seenAgentIds.has(messageId)) return
     const echoKey = `${conversationId}\n${content}`
     if ((pendingEchoes.get(echoKey) ?? 0) > 0) {
       decrementEcho(echoKey)
@@ -403,6 +421,11 @@ export function chatwootPlugin(config: ChatwootPluginConfig): ChatwootPlugin {
       return
     }
 
+    // Claim the id before any await so a concurrent redelivery is dropped too.
+    if (messageId !== undefined) {
+      seenAgentIds.add(messageId)
+      if (seenAgentIds.size > MAX_SEEN_AGENT_IDS) seenAgentIds.delete(seenAgentIds.values().next().value as number)
+    }
     const chatId = await mapping.chatOf(conversationId)
     if (chatId === undefined || !bot) return
     const contents = agentContentsFor(content, Array.isArray(payload.attachments) ? payload.attachments : [])
@@ -425,9 +448,18 @@ export function chatwootPlugin(config: ChatwootPluginConfig): ChatwootPlugin {
     }
   }
 
+  /** Whether a `conversation_updated` payload reports a status change to `resolved`. */
+  const statusChangedToResolved = (payload: Json): boolean => {
+    const changes: unknown[] = Array.isArray(payload.changed_attributes) ? payload.changed_attributes : [payload.changed_attributes]
+    return changes.some((c) => obj(obj(c).status).current_value === 'resolved')
+  }
+
   const handleStatus = async (payload: Json): Promise<void> => {
     const status = payload.status ?? obj(payload.conversation).status
     if (status !== 'resolved' || config.resumeOnResolve === false || !bot) return
+    // conversation_updated also fires for label/assignee/attribute edits (including the
+    // plugin's own) and carries the current status: only a real status change counts.
+    if (payload.event === 'conversation_updated' && !statusChangedToResolved(payload)) return
     const conversationId = num(payload.id) ?? num(obj(payload.conversation).id)
     if (conversationId === undefined) return
     const inbox = num(payload.inbox_id) ?? num(obj(payload.inbox).id)

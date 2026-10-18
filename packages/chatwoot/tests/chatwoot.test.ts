@@ -126,6 +126,43 @@ describe('chatwootPlugin — bot → Chatwoot sync', () => {
     await bot.stop()
   })
 
+  it('re-links the chat when the Chatwoot contact was deleted (with its conversations)', async () => {
+    const onError = vi.fn()
+    const { bot, chat } = await createTestBot()
+    const { fake, plugin } = setup({ onError })
+    bot.plug(plugin)
+    await chat.send('uno')
+    await plugin.flush()
+    const firstContact = fake.contacts[0].id
+    fake.deleteContact(firstContact)
+    await chat.send('dos')
+    await plugin.flush()
+    await chat.send('tres')
+    await plugin.flush()
+    expect(onError).not.toHaveBeenCalled()
+    expect(fake.contacts).toHaveLength(1)
+    expect(fake.contacts[0].id).not.toBe(firstContact)
+    const conv = fake.onlyConversation()
+    expect(conv.contactId).toBe(fake.contacts[0].id)
+    expect(conv.messages.map((m) => m.content)).toEqual(['dos', 'tres'])
+    expect(await plugin.conversationOf(CHAT)).toBe(conv.id)
+    await bot.stop()
+  })
+
+  it('re-links a stale mapping whose contact is gone even when no conversation is mapped', async () => {
+    const onError = vi.fn()
+    const { bot, chat } = await createTestBot()
+    const storage = { data: new Map<string, string>(), async get(k: string) { return this.data.get(k) }, async set(k: string, v: string) { this.data.set(k, v) } }
+    storage.data.set(`chatwoot:chat:${CHAT}`, JSON.stringify({ contactId: 777 }))
+    const { fake, plugin } = setup({ onError, storage })
+    bot.plug(plugin)
+    await chat.send('hola')
+    await plugin.flush()
+    expect(onError).not.toHaveBeenCalled()
+    expect(fake.onlyConversation().messages.map((m) => m.content)).toEqual(['hola'])
+    await bot.stop()
+  })
+
   it('reports API errors through onError without breaking the bot', async () => {
     const onError = vi.fn()
     const { bot, chat } = await createTestBot()
@@ -212,6 +249,39 @@ describe('chatwootPlugin — handoff integration', () => {
     expect(resumed).toHaveBeenCalledWith(expect.objectContaining({ chatId: CHAT, reason: 'chatwoot:resolved' }))
     await plugin.flush()
     expect(fake.requests.filter((r) => r.path.endsWith('/toggle_status') && (r.body as { status: string }).status === 'resolved')).toHaveLength(0)
+    await bot.stop()
+  })
+
+  it('conversation_updated only resumes when the status actually changed to resolved', async () => {
+    const { bot, chat } = await createTestBot()
+    const { fake, plugin } = setup({ labels: { handoff: ['humano'] } })
+    bot.plug(plugin)
+    await chat.send('hola')
+    await plugin.flush()
+    const conv = fake.onlyConversation()
+    await plugin.handleWebhook(tokenReq(agentReply(conv.id, 'te atiendo', { conversation: { id: conv.id, status: 'resolved' } })))
+    expect(bot.isHandedOff(CHAT)).toBe(true)
+    // label / assignee updates on an already resolved conversation carry status: resolved
+    await plugin.handleWebhook(tokenReq({ event: 'conversation_updated', id: conv.id, status: 'resolved', inbox_id: 2, changed_attributes: [{ label_list: { previous_value: [], current_value: ['humano'] } }] }))
+    await plugin.handleWebhook(tokenReq({ event: 'conversation_updated', id: conv.id, status: 'resolved', inbox_id: 2 }))
+    expect(bot.isHandedOff(CHAT)).toBe(true)
+    await plugin.handleWebhook(tokenReq({ event: 'conversation_updated', id: conv.id, status: 'resolved', inbox_id: 2, changed_attributes: [{ status: { previous_value: 'open', current_value: 'resolved' } }] }))
+    expect(bot.isHandedOff(CHAT)).toBe(false)
+    await bot.stop()
+  })
+
+  it('a redelivered agent message (same Chatwoot id) is sent to the chat only once', async () => {
+    const { bot, chat, provider } = await createTestBot()
+    const { fake, plugin } = setup()
+    bot.plug(plugin)
+    await chat.send('hola')
+    await plugin.flush()
+    const payload = agentReply(fake.onlyConversation().id, 'una sola vez', { id: 4242 })
+    const [a, b] = await Promise.all([plugin.handleWebhook(tokenReq(payload)), plugin.handleWebhook(tokenReq(payload))])
+    expect([a.status, b.status]).toEqual([200, 200])
+    expect((await plugin.handleWebhook(tokenReq(payload))).status).toBe(200)
+    const texts = provider.outbox.filter((m) => m.chatId === CHAT).map((m) => (m.content as { text: string }).text)
+    expect(texts).toEqual(['una sola vez'])
     await bot.stop()
   })
 
