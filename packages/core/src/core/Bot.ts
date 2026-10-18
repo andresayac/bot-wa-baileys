@@ -87,6 +87,7 @@ import { KeyedQueue } from '../utils/keyedQueue.js'
 import { definedFields } from '../utils/definedFields.js'
 import { HANDOFF_INDEX_KEY, HandoffRegistry, type HandoffEvent, type HandoffOptions, type HandoffState, type ResumeEvent, type ResumeOptions, type StoredHandoff } from '../gates/handoff.js'
 import { WelcomeTracker } from './welcome.js'
+import { DynamicFlowRegistry, type FlowTriggerOptions, type FlowTriggerTarget, type RegisteredFlowInfo } from './flowRegistry.js'
 import { callToInbound, RecentIds } from './calls.js'
 import { UserDataService } from '../user/UserDataService.js'
 import type { UserData } from '../user/types.js'
@@ -246,6 +247,8 @@ export class Bot extends EventEmitter {
   private lifecycleAbort = new AbortController()
   /** Locale registry behind `bot.locale()` / `ctx.t()` (see i18n/I18n.ts). */
   private i18n: I18n
+  /** Runtime flow CRUD (`registerFlow`/`unregisterFlow`/`replaceFlow`/`triggerFlow`). */
+  private flowRegistry: DynamicFlowRegistry
 
   constructor(config: BotConfig) {
     super()
@@ -328,6 +331,16 @@ export class Bot extends EventEmitter {
     if (typeof (this.store as Partial<CheckpointStore>).setCheckpoint === 'function') {
       this.runtime.attachStore(this.store as CheckpointStore)
     }
+
+    this.flowRegistry = new DynamicFlowRegistry({
+      runtime: this.runtime,
+      enterMatcher: (trigger, target) => this.registerEnterMatcher(trigger, target),
+      isStarted: () => this.isStarted,
+      isHandedOff: (chatId) => this.isChatHandedOff(chatId),
+      reply: (chatId, text) => this.sendText(chatId, text),
+      decorate: (ctx) => ({ ...ctx, user: this.users.for(ctx.sender) }),
+      reportError: (error, ctx) => this.emitError({ error, ctx: ctx as unknown as MessageContext }),
+    })
 
     this.welcome = new WelcomeTracker({ store: this.store, onError: (error) => this.emitError({ error }) })
 
@@ -888,6 +901,53 @@ export class Bot extends EventEmitter {
   onContact(handler: MessageHandler) { return this.onType('contact', handler) }
   onPoll(handler: MessageHandler) { return this.onType('poll', handler) }
 
+  /* =========================================================================
+   * DYNAMIC FLOW REGISTRY (manager)
+   * ====================================================================== */
+
+  /**
+   * Register a flow at runtime (same as `use(flow)`, but refuses a duplicate id).
+   * Returns the flow id. See {@link replaceFlow} to hot-swap an existing one.
+   *
+   * @example
+   * ```ts
+   * bot.registerFlow(flow('encuesta').ask('¿Tu nombre?', 'name').say((_ctx, c) => `Gracias ${c.state.name}`))
+   * ```
+   */
+  registerFlow(flow: FlowBuilder | CompiledFlow): string { return this.flowRegistry.register(flow) }
+
+  /**
+   * Remove a flow or conversation by id: its triggers stop matching. Conversations already
+   * running finish on the version they entered with. Returns `false` when unknown.
+   */
+  unregisterFlow(id: string): boolean { return this.flowRegistry.unregister(id) }
+
+  /**
+   * Hot-swap the flow registered under `id` (registers it when absent). The new flow keeps
+   * `id` whatever its own id is; its trigger replaces the old one. Running conversations
+   * keep the old version; persisted checkpoints resume on the new steps (by step index).
+   */
+  replaceFlow(id: string, flow: FlowBuilder | CompiledFlow): void { this.flowRegistry.replace(id, flow) }
+
+  /** Whether a flow or conversation is registered under `id`. */
+  hasFlow(id: string): boolean { return this.flowRegistry.has(id) }
+
+  /** Every live flow (`kind: 'flow'`) and async conversation (`kind: 'conversation'`). */
+  listFlows(): RegisteredFlowInfo[] { return this.flowRegistry.list() }
+
+  /**
+   * Start flow `id` proactively in a chat, without an inbound message (fire-and-forget; the
+   * user's replies then flow into it as usual). Replaces a conversation already running on the
+   * same key. Returns `false` when the flow is unknown or the chat is handed off; throws when
+   * the bot is not started.
+   */
+  triggerFlow(id: string, target: FlowTriggerTarget, opts?: FlowTriggerOptions): boolean {
+    return this.flowRegistry.trigger(id, target, opts)
+  }
+
+  /** Snapshots of every live conversation (`key`, `state`, `waiting`, `queued`). */
+  listConversations(): ConversationSnapshot[] { return this.flowRegistry.conversations() }
+
   abortConversation(target: string | { from: string; sender: string; isGroup: boolean }): boolean {
     if (typeof target !== 'string') return this.runtime.abort(this.runtime.keyFor(target))
     return this.runtime.abort(target)
@@ -1329,7 +1389,7 @@ export class Bot extends EventEmitter {
       void this.runtime.enter(target, ctx).catch((error) => this.emitError({ error, ctx: ctx as unknown as MessageContext }))
     })
     const unroute = this.flowRoutes.add(trigger, target)
-    const unsub = () => { unmatch(); unroute() }
+    const unsub = this.flowRegistry.track(target, () => { unmatch(); unroute() })
     this.disposables.add(unsub)
     return unsub
   }

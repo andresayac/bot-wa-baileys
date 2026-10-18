@@ -358,3 +358,6 @@ export type {
   TranslateParams,
 } from './i18n/types.js'
 export type { ContextI18n } from './core/provider.js'
+// manager
+// Dynamic flow registry: bot.registerFlow/unregisterFlow/replaceFlow/listFlows/triggerFlow.
+export type { FlowTriggerOptions, FlowTriggerTarget, RegisteredFlowInfo } from './core/flowRegistry.js'
