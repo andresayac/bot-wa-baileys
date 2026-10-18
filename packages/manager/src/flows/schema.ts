@@ -18,19 +18,22 @@ export const FLOW_DOCUMENT_LIMITS = Object.freeze({
   maxTextLength: 4096,
   maxOptions: 20,
   maxDelayMs: 300_000,
+  /** Upper bound of every `timeout` (7 days; must stay below setTimeout's 2^31-1 ms). */
+  maxTimeoutMs: 604_800_000,
   maxKeywords: 50,
 })
 
 /** Identifier pattern for flow ids, state keys, option keys and goto targets. */
 export const FLOW_ID_PATTERN = '^[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}$'
 
-const duration = {
-  description: 'Milliseconds, or a duration string such as "500ms", "30s", "5m", "1h".',
+const durationOf = (maxMs: number) => ({
+  description: `Milliseconds, or a duration string such as "500ms", "30s", "5m", "1h" (at most ${maxMs} ms).`,
   oneOf: [
-    { type: 'integer', minimum: 0 },
+    { type: 'integer', minimum: 0, maximum: maxMs },
     { type: 'string', pattern: '^\\s*\\d+(\\.\\d+)?\\s*(ms|s|m|h)\\s*$' },
   ],
-}
+})
+const duration = durationOf(FLOW_DOCUMENT_LIMITS.maxTimeoutMs)
 const text = { type: 'string', minLength: 1, maxLength: FLOW_DOCUMENT_LIMITS.maxTextLength, description: 'Message text; supports {{ path }} placeholders over c.state and $body/$from/$sender/$isGroup.' }
 const expression = { type: 'string', minLength: 1, maxLength: 1000, description: 'Safe expression (see the flow guide): literals, state paths, == != < <= > >= && || ! + -, and len/lower/upper/trim/number/string/contains/startsWith/endsWith/empty/oneOf.' }
 const identifier = { type: 'string', pattern: FLOW_ID_PATTERN }
@@ -122,7 +125,7 @@ export const FLOW_DOCUMENT_SCHEMA = Object.freeze({
         },
       },
     },
-    delay: { type: 'object', required: ['kind', 'duration'], additionalProperties: false, properties: { kind: { const: 'delay' }, duration } },
+    delay: { type: 'object', required: ['kind', 'duration'], additionalProperties: false, properties: { kind: { const: 'delay' }, duration: durationOf(FLOW_DOCUMENT_LIMITS.maxDelayMs) } },
     goto: { type: 'object', required: ['kind', 'target'], additionalProperties: false, properties: { kind: { const: 'goto' }, target: identifier } },
     end: { type: 'object', required: ['kind'], additionalProperties: false, properties: { kind: { const: 'end' }, text } },
     condition: {

@@ -190,6 +190,12 @@ export class BotManager extends EventEmitter {
   /** Ids being stopped on purpose (their `closed` event must not trigger a reconnect). */
   private readonly stopping = new Set<string>()
   private readonly lifecycleOperations = new Map<string, Promise<void>>()
+  /** Per-bot queue that serializes every read-modify-write of a bot's config. */
+  private readonly configOperations = new Map<string, Promise<unknown>>()
+  /** Ids claimed by an in-flight createBot()/restore() (not yet registered). */
+  private readonly reserved = new Set<string>()
+  /** Ids whose last start() rejected: the instance may hold half-open resources. */
+  private readonly failedStarts = new Set<string>()
   private readonly observers = new Map<string, BotObserver>()
   private readonly configs = new Map<string, BotConfigRecord>()
   private readonly lifecycleErrors = new Map<string, number>()
@@ -237,7 +243,7 @@ export class BotManager extends EventEmitter {
    */
   add(bot: ManageableBot, opts: AddBotOptions = {}): string {
     const id = opts.id ?? this.nextId()
-    if (this.registry.has(id)) throw new Error(`Bot id "${id}" is already registered`)
+    if (this.registry.has(id) || this.reserved.has(id)) throw new Error(`Bot id "${id}" is already registered`)
     const entry: BotEntry = {
       id, bot, createdAt: Date.now(), meta: opts.meta,
       ...(opts.tenantId !== undefined ? { tenantId: opts.tenantId } : {}),
@@ -266,24 +272,39 @@ export class BotManager extends EventEmitter {
    * Returns `false` when the id is unknown. A persisted config is kept (see {@link deleteBot}).
    */
   async remove(id: string): Promise<boolean> {
-    const entry = this.registry.get(id)
-    if (!entry) return false
+    return this.serializeConfig(id, () => this.removeUnlocked(id))
+  }
+
+  /**
+   * Remove under the config lock. The stop and the unregistration run as ONE lifecycle
+   * operation, so it waits for an in-flight start/restart and nothing queued after it
+   * can start the bot again.
+   */
+  private async removeUnlocked(id: string): Promise<boolean> {
+    if (!this.registry.has(id)) return false
     this.wanted.delete(id)
     this.supervisor.cancel(id)
-    if (this.runningIds.has(id)) {
+    let removed = false
+    await this.serializeLifecycle(id, async () => {
+      const entry = this.registry.get(id)
+      if (!entry) return
       try {
-        await this.serializeLifecycle(id, () => this.stopBody(id))
+        await this.stopBody(id)
       } catch (error) {
-        // stopBody() already emitted 'error'; make sure state is consistent.
-        this.runningIds.delete(id)
+        // stopBody() already emitted 'error'; removal goes on.
         this.logger.warn({ id, err: error }, 'stop failed during remove')
       }
-    }
-    this.registry.delete(id)
-    this.observers.get(id)?.detach()
-    this.observers.delete(id)
-    this.configs.delete(id)
-    this.lifecycleErrors.delete(id)
+      if (this.failedStarts.has(id)) await this.retire(id, entry.bot)
+      this.runningIds.delete(id)
+      this.failedStarts.delete(id)
+      this.registry.delete(id)
+      this.observers.get(id)?.detach()
+      this.observers.delete(id)
+      this.configs.delete(id)
+      this.lifecycleErrors.delete(id)
+      removed = true
+    })
+    if (!removed) return false
     this.logger.debug({ id }, 'bot removed')
     this.emit('removed', id)
     return true
@@ -389,6 +410,7 @@ export class BotManager extends EventEmitter {
     await this.serializeLifecycle(id, async () => {
       await this.stopBody(id)
       if (opts.recreate) await this.rebuild(id)
+      else if (this.failedStarts.has(id)) await this.retire(id, this.registry.get(id)!.bot)
       const observer = this.observers.get(id)
       if (observer) observer.restarts++
       await this.startBody(id)
@@ -480,20 +502,32 @@ export class BotManager extends EventEmitter {
     assertSafeId(id, 'bot id')
     const tenantId = input.tenantId ?? this.defaultTenantId
     assertSafeId(tenantId, 'tenantId')
-    if (this.registry.has(id) || this.configs.has(id) || (await this.configStore?.get(id))) {
-      throw new ManagerError(`Bot id "${id}" already exists`, 'CONFLICT')
-    }
     const flows = checkFlows(input.flows)
+    const conflict = () => new ManagerError(`Bot id "${id}" already exists`, 'CONFLICT')
+    // Claim the id synchronously, before the first await: a concurrent createBot()/add()
+    // for the same id must fail instead of overwriting this one's config.
+    if (this.registry.has(id) || this.configs.has(id) || this.reserved.has(id)) throw conflict()
+    this.reserved.add(id)
     const now = Date.now()
-    const record: BotConfigRecord = {
-      id, tenantId, desiredState: input.autoStart === false ? 'stopped' : 'running', version: 1, createdAt: now, updatedAt: now,
-      ...(input.name !== undefined ? { name: input.name } : {}),
-      ...(input.provider !== undefined ? { provider: checkProvider(input.provider) } : {}),
-      ...(flows.length ? { flows } : {}),
-      ...(input.meta !== undefined ? { meta: input.meta } : {}),
+    let bot: ManageableBot | undefined
+    let record: BotConfigRecord
+    try {
+      record = {
+        id, tenantId, desiredState: input.autoStart === false ? 'stopped' : 'running', version: 1, createdAt: now, updatedAt: now,
+        ...(input.name !== undefined ? { name: input.name } : {}),
+        ...(input.provider !== undefined ? { provider: checkProvider(input.provider) } : {}),
+        ...(flows.length ? { flows } : {}),
+        ...(input.meta !== undefined ? { meta: input.meta } : {}),
+      }
+      if (await this.configStore?.get(id)) throw conflict()
+      bot = await this.materialize(factory, record)
+      await this.configStore?.put(record)
+    } catch (error) {
+      if (bot) await this.retire(id, bot)
+      throw error
+    } finally {
+      this.reserved.delete(id)
     }
-    const bot = await this.materialize(factory, record)
-    await this.configStore?.put(record)
     this.configs.set(id, record)
     this.add(bot, { id, tenantId, meta: record.meta, ...(record.name !== undefined ? { name: record.name } : {}) })
     if (record.desiredState === 'running') await this.startSupervised(id)
@@ -506,45 +540,55 @@ export class BotManager extends EventEmitter {
    * Pass `expectedVersion` for optimistic concurrency (`CONFLICT` on mismatch).
    */
   async updateBot(id: string, patch: UpdateBotInput, opts: { expectedVersion?: number } = {}): Promise<BotConfigRecord> {
-    const current = this.configs.get(id)
-    if (!current) throw new ManagerError(`Bot "${id}" has no managed config`, this.registry.has(id) ? 'NOT_CONFIGURED' : 'NOT_FOUND')
-    if (opts.expectedVersion !== undefined && opts.expectedVersion !== current.version) {
-      throw new ManagerError(`Bot "${id}" is at version ${current.version}`, 'CONFLICT')
-    }
-    const flows = patch.flows !== undefined ? checkFlows(patch.flows) : undefined
-    const next: BotConfigRecord = {
-      ...current,
-      ...(patch.name !== undefined ? { name: patch.name } : {}),
-      ...(patch.provider !== undefined ? { provider: checkProvider(patch.provider) } : {}),
-      ...(flows !== undefined ? { flows } : {}),
-      ...(patch.meta !== undefined ? { meta: patch.meta } : {}),
-      ...(patch.desiredState !== undefined ? { desiredState: checkDesired(patch.desiredState) } : {}),
-      version: current.version + 1,
-      updatedAt: Date.now(),
-    }
-    if (flows !== undefined && flows.length === 0) delete next.flows
-    const rebuild = patch.provider !== undefined || flows !== undefined
-    if (rebuild) {
-      const fresh = await this.materialize(this.requireFactory(), next)
-      await this.serializeLifecycle(id, async () => {
-        await this.stopBody(id)
-        this.replaceEntry(id, fresh, next)
-      })
-    } else {
-      this.replaceEntry(id, this.registry.get(id)!.bot, next)
-    }
-    await this.configStore?.put(next)
-    this.configs.set(id, next)
+    const next = await this.serializeConfig(id, async () => {
+      const current = this.configs.get(id)
+      if (!current) throw new ManagerError(`Bot "${id}" has no managed config`, this.registry.has(id) ? 'NOT_CONFIGURED' : 'NOT_FOUND')
+      if (opts.expectedVersion !== undefined && opts.expectedVersion !== current.version) {
+        throw new ManagerError(`Bot "${id}" is at version ${current.version}`, 'CONFLICT')
+      }
+      const flows = patch.flows !== undefined ? checkFlows(patch.flows) : undefined
+      const next: BotConfigRecord = {
+        ...current,
+        ...(patch.name !== undefined ? { name: patch.name } : {}),
+        ...(patch.provider !== undefined ? { provider: checkProvider(patch.provider) } : {}),
+        ...(flows !== undefined ? { flows } : {}),
+        ...(patch.meta !== undefined ? { meta: patch.meta } : {}),
+        ...(patch.desiredState !== undefined ? { desiredState: checkDesired(patch.desiredState) } : {}),
+        version: current.version + 1,
+        updatedAt: Date.now(),
+      }
+      if (flows !== undefined && flows.length === 0) delete next.flows
+      if (patch.provider !== undefined || flows !== undefined) {
+        const fresh = await this.materialize(this.requireFactory(), next)
+        try {
+          await this.serializeLifecycle(id, async () => {
+            if (!this.registry.has(id)) throw new ManagerError(`Bot "${id}" is not registered`, 'NOT_FOUND')
+            await this.stopBody(id)
+            this.swapBot(id, fresh, next)
+          })
+        } catch (error) {
+          await this.retire(id, fresh)
+          throw error
+        }
+      } else {
+        this.replaceEntry(id, this.registry.get(id)!.bot, next)
+      }
+      await this.configStore?.put(next)
+      this.configs.set(id, next)
+      return next
+    })
     if (next.desiredState === 'running' && !this.runningIds.has(id)) await this.startSupervised(id)
     else if (next.desiredState === 'stopped' && this.runningIds.has(id)) await this.stop(id)
-    return structuredClone(this.configs.get(id)!)
+    return structuredClone(this.configs.get(id) ?? next)
   }
 
   /** Stop, unregister and forget a bot, including its persisted config. */
   async deleteBot(id: string): Promise<boolean> {
-    const removed = await this.remove(id)
-    const deleted = (await this.configStore?.delete(id)) ?? false
-    return removed || deleted
+    return this.serializeConfig(id, async () => {
+      const removed = await this.removeUnlocked(id)
+      const deleted = (await this.configStore?.delete(id)) ?? false
+      return removed || deleted
+    })
   }
 
   /**
@@ -558,12 +602,15 @@ export class BotManager extends EventEmitter {
     const results: Record<string, RestoreOutcome> = {}
     const records = await this.configStore.list()
     await Promise.all(records.map(async (record) => {
-      if (this.registry.has(record.id)) return
+      if (this.registry.has(record.id) || this.reserved.has(record.id) || this.configs.has(record.id)) return
+      this.reserved.add(record.id)
       try {
         const bot = await this.materialize(factory, record)
+        this.reserved.delete(record.id)
         this.configs.set(record.id, record)
         this.add(bot, { id: record.id, tenantId: record.tenantId, meta: record.meta, ...(record.name !== undefined ? { name: record.name } : {}) })
       } catch (error) {
+        this.reserved.delete(record.id)
         this.emitError(record.id, error)
         results[record.id] = toError(error)
         return
@@ -585,6 +632,10 @@ export class BotManager extends EventEmitter {
 
   /** Register a new JSON flow on a live bot (and persist it for config-backed bots). Returns its id. */
   async addFlow(botId: string, document: unknown): Promise<string> {
+    return this.serializeConfig(botId, () => this.addFlowUnlocked(botId, document))
+  }
+
+  private async addFlowUnlocked(botId: string, document: unknown): Promise<string> {
     const entry = this.requireEntry(botId)
     const compiled = compileFlowDocument(document)
     if (requireCapability(entry.bot, 'hasFlow')(compiled.id)) {
@@ -597,6 +648,10 @@ export class BotManager extends EventEmitter {
 
   /** Create or hot-swap the JSON flow `flowId` (the document's `id` must match). */
   async putFlow(botId: string, flowId: string, document: unknown): Promise<{ created: boolean }> {
+    return this.serializeConfig(botId, () => this.putFlowUnlocked(botId, flowId, document))
+  }
+
+  private async putFlowUnlocked(botId: string, flowId: string, document: unknown): Promise<{ created: boolean }> {
     const entry = this.requireEntry(botId)
     const compiled = compileFlowDocument(document)
     if (compiled.id !== flowId) throw new ManagerError(`Flow document id "${compiled.id}" does not match "${flowId}"`, 'INVALID')
@@ -615,6 +670,10 @@ export class BotManager extends EventEmitter {
 
   /** Unregister flow `flowId` from a live bot (and its persisted config). */
   async removeFlow(botId: string, flowId: string): Promise<boolean> {
+    return this.serializeConfig(botId, () => this.removeFlowUnlocked(botId, flowId))
+  }
+
+  private async removeFlowUnlocked(botId: string, flowId: string): Promise<boolean> {
     const entry = this.requireEntry(botId)
     const removed = requireCapability(entry.bot, 'unregisterFlow')(flowId)
     let persisted = false
@@ -658,7 +717,7 @@ export class BotManager extends EventEmitter {
     let id: string
     do {
       id = `bot-${++this.counter}`
-    } while (this.registry.has(id) || this.configs.has(id))
+    } while (this.registry.has(id) || this.configs.has(id) || this.reserved.has(id))
     return id
   }
 
@@ -669,8 +728,16 @@ export class BotManager extends EventEmitter {
     try {
       await entry.bot.start()
     } catch (error) {
+      this.failedStarts.add(id)
       this.emitError(id, error)
       throw error
+    }
+    this.failedStarts.delete(id)
+    if (this.registry.get(id)?.bot !== entry.bot) {
+      // Removed or swapped while starting (both normally run under the lifecycle queue).
+      // Never leave an unmanaged instance running.
+      await this.retire(id, entry.bot)
+      throw new ManagerError(`Bot "${id}" was removed while starting`, 'NOT_FOUND')
     }
     this.runningIds.add(id)
     this.observers.get(id)?.started()
@@ -736,11 +803,45 @@ export class BotManager extends EventEmitter {
     if (old.bot !== bot) this.observe(id, bot)
   }
 
+  /**
+   * Rebuild a stopped bot from its current config (runs inside the lifecycle queue).
+   * If the config changed while the factory ran (a flow added, say), build again from
+   * the newer record so the live bot never lags behind what was persisted.
+   */
   private async rebuild(id: string): Promise<void> {
-    const record = this.configs.get(id)
-    if (!record || !this.factory) return
-    const bot = await this.materialize(this.factory, record)
+    if (!this.factory) return
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const record = this.configs.get(id)
+      if (!record || !this.registry.has(id)) return
+      const bot = await this.materialize(this.factory, record)
+      if (this.configs.get(id) === record && this.registry.has(id)) {
+        this.swapBot(id, bot, record)
+        return
+      }
+      await this.retire(id, bot)
+    }
+    throw new ManagerError(`Bot "${id}" config kept changing during rebuild`, 'CONFLICT')
+  }
+
+  /**
+   * Install `bot` in place of the current (stopped) instance. An old instance whose
+   * start() failed is stopped too: it may hold half-open sockets, timers or webhooks.
+   */
+  private swapBot(id: string, bot: ManageableBot, record: BotConfigRecord): void {
+    const old = this.registry.get(id)!.bot
+    const failed = this.failedStarts.has(id)
+    this.failedStarts.delete(id)
     this.replaceEntry(id, bot, record)
+    if (failed && old !== bot) void this.retire(id, old)
+  }
+
+  /** Best-effort stop of an instance the manager is dropping. Never throws. */
+  private async retire(id: string, bot: ManageableBot): Promise<void> {
+    try {
+      await bot.stop()
+    } catch (error) {
+      this.logger.warn({ id, err: error }, 'stopping a discarded bot instance failed')
+    }
   }
 
   private canRecreate(id: string): boolean { return this.factory !== undefined && this.configs.has(id) }
@@ -758,11 +859,14 @@ export class BotManager extends EventEmitter {
   }
 
   private async persistDesired(id: string, desiredState: BotDesiredRunState): Promise<void> {
-    const record = this.configs.get(id)
-    if (!record || record.desiredState === desiredState) return
-    const next = { ...record, desiredState, version: record.version + 1, updatedAt: Date.now() }
-    this.configs.set(id, next)
-    await this.configStore?.put(next)
+    if (!this.configs.has(id)) return
+    await this.serializeConfig(id, async () => {
+      const record = this.configs.get(id)
+      if (!record || record.desiredState === desiredState) return
+      const next = { ...record, desiredState, version: record.version + 1, updatedAt: Date.now() }
+      await this.configStore?.put(next)
+      this.configs.set(id, next)
+    })
   }
 
   private async saveFlows(botId: string, update: (flows: FlowDocument[]) => FlowDocument[]): Promise<void> {
@@ -771,8 +875,8 @@ export class BotManager extends EventEmitter {
     const flows = update(record.flows ?? [])
     const next: BotConfigRecord = { ...record, flows, version: record.version + 1, updatedAt: Date.now() }
     if (!flows.length) delete next.flows
-    this.configs.set(botId, next)
     await this.configStore?.put(next)
+    this.configs.set(botId, next)
   }
 
   private requireEntry(id: string): BotEntry {
@@ -784,6 +888,17 @@ export class BotManager extends EventEmitter {
   private requireFactory(): BotFactory {
     if (!this.factory) throw new ManagerError('this operation needs a BotManager({ factory })', 'NOT_CONFIGURED')
     return this.factory
+  }
+
+  /** Run `operation` after every earlier config operation of `id` (a per-bot mutex). */
+  private serializeConfig<T>(id: string, operation: () => Promise<T>): Promise<T> {
+    const previous = this.configOperations.get(id) ?? Promise.resolve()
+    const next = previous.catch(() => {}).then(operation)
+    this.configOperations.set(id, next)
+    void next.finally(() => {
+      if (this.configOperations.get(id) === next) this.configOperations.delete(id)
+    }).catch(() => {})
+    return next
   }
 
   private serializeLifecycle(id: string, operation: () => Promise<void>): Promise<void> {

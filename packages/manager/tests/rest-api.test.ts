@@ -336,3 +336,37 @@ describe('REST API — messaging, conversations, flows, idempotency', () => {
     await ctx.manager.shutdown()
   })
 })
+
+describe('REST API — secret redaction', () => {
+  it('redacts secrets recursively in provider.options and meta, in every bot response', async () => {
+    const { api, manager } = setup()
+    const options = {
+      region: 'eu',
+      graph: { accessToken: 'AT', version: 'v20' },
+      logins: [{ user: 'bob', password: 'pw' }],
+      privateKey: 'PK', signingKey: 'SK', pass: 'p', pin: '1234', cookie: 'c',
+    }
+    const meta = { plan: 'pro', webhook: { secret: 'whs', url: 'https://x' } }
+    const created = await call(api, 'POST', '/v1/bots', { token: OPS, body: { id: 'r1', tenantId: 'acme', provider: { type: 'mock', options }, meta } })
+    expect(created.status).toBe(201)
+    const expected = {
+      region: 'eu',
+      graph: { accessToken: '[REDACTED]', version: 'v20' },
+      logins: [{ user: 'bob', password: '[REDACTED]' }],
+      privateKey: '[REDACTED]', signingKey: '[REDACTED]', pass: '[REDACTED]', pin: '[REDACTED]', cookie: '[REDACTED]',
+    }
+    const redactedMeta = { plan: 'pro', webhook: { secret: '[REDACTED]', url: 'https://x' } }
+    expect(created.body.data.config.provider.options).toEqual(expected)
+    expect(created.body.data.config.meta).toEqual(redactedMeta)
+    expect(created.body.data.meta).toEqual(redactedMeta)
+    const got = await call(api, 'GET', '/v1/bots/r1', { token: OPS })
+    expect(got.body.data.config.provider.options).toEqual(expected)
+    const list = await call(api, 'GET', '/v1/bots', { token: OPS })
+    expect(list.body.data[0].meta).toEqual(redactedMeta)
+    const updated = await call(api, 'PUT', '/v1/bots/r1', { token: OPS, body: { meta: { apiKey: 'k' } } })
+    expect(updated.body.data.config.meta).toEqual({ apiKey: '[REDACTED]' })
+    // The manager itself keeps the real values (the factory needs them).
+    expect(manager.getConfig('r1')!.provider!.options).toMatchObject({ graph: { accessToken: 'AT' } })
+    await manager.shutdown()
+  })
+})

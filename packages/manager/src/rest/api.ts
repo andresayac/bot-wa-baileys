@@ -23,6 +23,7 @@ import {
 import type { BotManager, BotStatus } from '../BotManager.js'
 import { CapabilityError, capability, requireCapability } from '../capabilities.js'
 import { ManagerError } from '../errors.js'
+import { redactSecrets } from '../redact.js'
 import { FlowDocumentError } from '../flows/compile.js'
 import { FLOW_DOCUMENT_SCHEMA } from '../flows/schema.js'
 import { MemoryIdempotencyStore, TokenBucketRateLimiter, type IdempotencyStore, type RateLimiter, type StoredResponse, type TokenBucketOptions, type MemoryIdempotencyOptions } from './limits.js'
@@ -138,7 +139,7 @@ export function createRestApi(manager: BotManager, options: RestApiOptions): Res
     return status
   }
   const detail = (id: string) => {
-    const status = manager.status(id)!
+    const status = publicStatus(manager.status(id)!)
     return { ...status, connection: manager.connection(id)?.state ?? 'unknown', config: redactConfig(manager.getConfig(id)) }
   }
   const lifecycle = (action: 'start' | 'stop' | 'restart') => async (ctx: RouteContext): Promise<Result> => {
@@ -150,7 +151,7 @@ export function createRestApi(manager: BotManager, options: RestApiOptions): Res
       if (error instanceof ManagerError || error instanceof CapabilityError) throw error
       throw new HttpError(500, 'LIFECYCLE_FAILED', `${action} failed`)
     }
-    return ok(manager.status(id))
+    return ok(publicStatus(manager.status(id)!))
   }
 
   // ── route handlers ───────────────────────────────────────────────────
@@ -170,7 +171,7 @@ export function createRestApi(manager: BotManager, options: RestApiOptions): Res
     listBots: (ctx) => {
       const tenant = ctx.query.get('tenantId')
       if (tenant && ctx.principal!.tenantId !== '*' && tenant !== ctx.principal!.tenantId) throw new HttpError(403, 'FORBIDDEN', 'cross-tenant access denied')
-      return ok(manager.list().filter((s) => visible(ctx.principal, s) && (!tenant || tenantOf(s) === tenant)))
+      return ok(manager.list().filter((s) => visible(ctx.principal, s) && (!tenant || tenantOf(s) === tenant)).map(publicStatus))
     },
     createBot: async (ctx) => {
       const body = objectBody(ctx.body)
@@ -553,12 +554,18 @@ function decodeCursor(raw: string | null): CursorPoint | undefined {
   throw invalid('cursor is malformed')
 }
 
-function redactConfig<T extends { provider?: { type: string; options?: Record<string, unknown> } }>(config: T | undefined): T | null {
+/** Config as echoed to clients: secrets in `provider.options` and `meta` are redacted at any depth. */
+function redactConfig<T extends { provider?: { type: string; options?: Record<string, unknown> }; meta?: Record<string, unknown> }>(config: T | undefined): T | null {
   if (!config) return null
-  if (!config.provider?.options) return config
-  const options = Object.fromEntries(Object.entries(config.provider.options).map(([k, v]) =>
-    /secret|token|password|authorization|api[-_]?key|credential/i.test(k) ? [k, '[REDACTED]'] : [k, v]))
-  return { ...config, provider: { ...config.provider, options } }
+  return {
+    ...config,
+    ...(config.provider ? { provider: redactSecrets(config.provider) } : {}),
+    ...(config.meta ? { meta: redactSecrets(config.meta) } : {}),
+  }
+}
+
+function publicStatus(status: BotStatus): BotStatus {
+  return status.meta ? { ...status, meta: redactSecrets(status.meta) } : status
 }
 
 function objectBody(body: unknown): Record<string, unknown> {

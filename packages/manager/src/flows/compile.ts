@@ -94,7 +94,7 @@ export function validateFlowDocument(input: unknown): FlowDocumentIssue[] {
   if (input.name !== undefined && (typeof input.name !== 'string' || input.name.length > 200)) add('/name', 'must be a string of at most 200 characters')
   if (input.description !== undefined && (typeof input.description !== 'string' || input.description.length > 2000)) add('/description', 'must be a string of at most 2000 characters')
   checkTrigger(input.trigger, add)
-  if (input.timeout !== undefined) checkDuration(input.timeout, '/timeout', add)
+  if (input.timeout !== undefined) checkTimeout(input.timeout, '/timeout', add)
   if (input.persistent !== undefined && typeof input.persistent !== 'boolean') add('/persistent', 'must be a boolean')
   const counter = { steps: 0 }
   if (!Array.isArray(input.steps) || input.steps.length === 0) add('/steps', 'must be a non-empty array')
@@ -299,7 +299,7 @@ function checkStep(step: unknown, path: string, depth: number, counter: { steps:
     case 'ask':
       checkText(step.text, `${path}/text`, add)
       checkId(step.stateKey, `${path}/stateKey`, add)
-      if (step.timeout !== undefined) checkDuration(step.timeout, `${path}/timeout`, add)
+      if (step.timeout !== undefined) checkTimeout(step.timeout, `${path}/timeout`, add)
       if (step.retries !== undefined && !(Number.isInteger(step.retries) && (step.retries as number) >= 0 && (step.retries as number) <= 20)) add(`${path}/retries`, 'must be an integer between 0 and 20')
       if (step.validate !== undefined) {
         if (!isObject(step.validate)) add(`${path}/validate`, 'must be an object')
@@ -313,7 +313,7 @@ function checkStep(step: unknown, path: string, depth: number, counter: { steps:
     case 'choose': {
       checkText(step.text, `${path}/text`, add)
       if (step.stateKey !== undefined) checkId(step.stateKey, `${path}/stateKey`, add)
-      if (step.timeout !== undefined) checkDuration(step.timeout, `${path}/timeout`, add)
+      if (step.timeout !== undefined) checkTimeout(step.timeout, `${path}/timeout`, add)
       const options = step.options
       if (!Array.isArray(options) || options.length === 0 || options.length > FLOW_DOCUMENT_LIMITS.maxOptions) {
         add(`${path}/options`, `must be an array of 1-${FLOW_DOCUMENT_LIMITS.maxOptions} options`)
@@ -381,6 +381,12 @@ function checkDuration(v: unknown, path: string, add: Add): boolean {
   if (typeof v === 'string' && DURATION_RE.test(v)) return true
   add(path, 'must be milliseconds or a duration such as "30s", "5m", "1h"')
   return false
+}
+
+function checkTimeout(v: unknown, path: string, add: Add): void {
+  if (checkDuration(v, path, add) && toMs(v as FlowDuration) > FLOW_DOCUMENT_LIMITS.maxTimeoutMs) {
+    add(path, `must be at most ${FLOW_DOCUMENT_LIMITS.maxTimeoutMs} ms`)
+  }
 }
 
 function checkExpression(v: unknown, path: string, add: Add): void {

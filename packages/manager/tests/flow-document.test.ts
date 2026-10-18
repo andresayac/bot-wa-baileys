@@ -187,3 +187,22 @@ describe('compiled flow documents run on a real bot', () => {
     await bot.stop()
   })
 })
+
+describe('duration bounds', () => {
+  const ask = (timeout: unknown) => ({ version: 1, id: 'f', trigger: 'x', steps: [{ kind: 'ask', text: 'q', stateKey: 'a', timeout }] })
+  it('rejects timeouts above FLOW_DOCUMENT_LIMITS.maxTimeoutMs (setTimeout would overflow)', async () => {
+    const { FLOW_DOCUMENT_LIMITS } = await import('../src/index.js')
+    expect(FLOW_DOCUMENT_LIMITS.maxTimeoutMs).toBeLessThanOrEqual(2 ** 31 - 1)
+    expect(validateFlowDocument(ask('1000h')).map((i) => i.path)).toEqual(['/steps/0/timeout'])
+    expect(validateFlowDocument(ask(2_592_000_000)).map((i) => i.path)).toEqual(['/steps/0/timeout'])
+    expect(validateFlowDocument({ ...ask('5m'), timeout: '1000h' }).map((i) => i.path)).toEqual(['/timeout'])
+    expect(validateFlowDocument({ version: 1, id: 'c', trigger: 'x', steps: [{ kind: 'choose', text: 'q', options: [{ key: 'a', label: 'A' }], timeout: '1000h' }] }).map((i) => i.path))
+      .toEqual(['/steps/0/timeout'])
+    expect(validateFlowDocument(ask('24h'))).toEqual([])
+    expect(validateFlowDocument(ask(FLOW_DOCUMENT_LIMITS.maxTimeoutMs))).toEqual([])
+  })
+  it('the JSON Schema bounds integer durations too', () => {
+    const json = JSON.stringify(FLOW_DOCUMENT_SCHEMA)
+    expect(json).toContain('"maximum"')
+  })
+})

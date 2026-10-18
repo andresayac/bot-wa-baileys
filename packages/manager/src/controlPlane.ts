@@ -1,4 +1,5 @@
 import { createCipheriv, createDecipheriv, randomBytes, timingSafeEqual } from 'node:crypto'
+import { redactSecrets } from './redact.js'
 
 export type ControlAction =
   | 'bots:read' | 'bots:write' | 'bots:operate'
@@ -119,8 +120,5 @@ export function verifyApiKey(presented: string, expected: string): boolean {
 }
 
 function redact(metadata: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
-  if (!metadata) return undefined
-  return Object.fromEntries(Object.entries(metadata).map(([key, value]) =>
-    /secret|token|password|authorization|api[-_]?key/i.test(key) ? [key, '[REDACTED]'] : [key, value],
-  ))
+  return metadata ? redactSecrets(metadata) : undefined
 }
