@@ -13,9 +13,17 @@
  * - queues the original content and retries it once the user replies,
  *   reporting every outcome through `onReport`.
  *
- * The pending queue holds the original `OutboundContent` (which may carry
- * buffers/streams), so it is always in memory and bounded; only the window
- * state goes through the store.
+ * The pending queue and the tracked sends hold `OutboundContent`, so they are
+ * always in memory and bounded; only the window state goes through the store.
+ * The content must be replayable (it may be sent more than once): one-shot
+ * media such as `{ stream }` cannot be retried, and buffers would stay alive
+ * in the caches. `CloudAPIProvider` uploads such media once, before handing
+ * the content over, and passes the manager the media id instead.
+ *
+ * The window belongs to a business number + user pair. A manager is scoped to
+ * one business number (`scope`, the provider's `phoneNumberId`); a shared
+ * manager hands each provider its own view with {@link SessionWindowManager.forScope},
+ * and store keys are prefixed with the scope (`<scope>:<chatId>`).
  */
 
 import {
@@ -141,8 +149,17 @@ export interface SessionReport {
 }
 
 export interface SessionWindowOptions {
-  /** Window state store. Default: bounded {@link MemorySessionWindowStore}. */
+  /**
+   * Window state store. Default: bounded {@link MemorySessionWindowStore}. May
+   * be shared by several managers/providers: keys are prefixed with `scope`.
+   */
   store?: SessionWindowStore
+  /**
+   * Business number this manager tracks windows for (`CloudAPIProvider` sets
+   * its `phoneNumberId`). Store keys become `<scope>:<chatId>`. Default: none
+   * (keys are the bare chat id).
+   */
+  scope?: string
   /** Window length in ms. Default 24 h. */
   windowMs?: number
   /**
@@ -173,7 +190,10 @@ export interface SessionWindowOptions {
   onReopened?: 'reject' | 'resolve'
   /** Outcome callback (queued, sent, failed, expired, ...). Errors thrown here are swallowed. */
   onReport?: (report: SessionReport) => void
-  /** Free-form sends remembered (by message id) to react to async 131047 status failures. Default 500. */
+  /**
+   * Free-form sends remembered (by message id, with their content) to react to
+   * async 131047 status failures. `0` disables it. Default 500.
+   */
   maxTrackedSends?: number
   /** Clock (epoch ms). Default `Date.now`. */
   now?: () => number
@@ -233,6 +253,11 @@ interface PendingChat {
 export class SessionWindowManager {
   readonly store: SessionWindowStore
   readonly windowMs: number
+  /** Business number this manager is scoped to (see {@link SessionWindowOptions.scope}). */
+  readonly scope: string | undefined
+  /** Manager `forScope` derives views from (itself, unless this is a view). */
+  private root: SessionWindowManager = this
+  private readonly scopes = new Map<string, SessionWindowManager>()
   private readonly opts: SessionWindowOptions
   private readonly now: () => number
   private readonly pendingChats = new Map<ChatId, PendingChat>()
@@ -248,6 +273,28 @@ export class SessionWindowManager {
     this.store = options.store ?? new MemorySessionWindowStore()
     this.windowMs = options.windowMs ?? SESSION_WINDOW_MS
     this.now = options.now ?? Date.now
+    this.scope = options.scope
+  }
+
+  /**
+   * The manager for one business number: same options and store, its own
+   * window keys, queue and tracked sends. Memoised, so every provider on that
+   * number shares it. Returns this manager when it already has that scope.
+   */
+  forScope(scope: string): SessionWindowManager {
+    const root = this.root
+    if (root.scope === scope) return root
+    let view = root.scopes.get(scope)
+    if (!view) {
+      view = new SessionWindowManager({ ...root.opts, store: root.store, scope })
+      view.root = root
+      root.scopes.set(scope, view)
+    }
+    return view
+  }
+
+  private key(chatId: ChatId): string {
+    return this.scope === undefined ? chatId : `${this.scope}:${chatId}`
   }
 
   /* Window state --------------------------------------------------------- */
@@ -304,7 +351,7 @@ export class SessionWindowManager {
   private async read(chatId: ChatId): Promise<SessionWindowState | undefined> {
     const pending = this.writes.get(chatId)
     if (pending) await pending.catch(() => undefined)
-    return this.store.get(chatId)
+    return this.store.get(this.key(chatId))
   }
 
   /**
@@ -318,8 +365,8 @@ export class SessionWindowManager {
   ): Promise<SessionWindowState> {
     const prev = this.writes.get(chatId) ?? Promise.resolve()
     const run = prev.catch(() => undefined).then(async () => {
-      const next = fn(await this.store.get(chatId))
-      await this.store.set(chatId, next)
+      const next = fn(await this.store.get(this.key(chatId)))
+      await this.store.set(this.key(chatId), next)
       after?.(next)
       return next
     })

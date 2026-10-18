@@ -459,3 +459,33 @@ describe('MemorySessionWindowStore', () => {
     expect(await manager.isOpen('A')).toBe(true)
   })
 })
+
+describe('SessionWindowManager: scopes (business numbers)', () => {
+  it('forScope returns a memoised view with its own window, queue and store keys', async () => {
+    const { manager } = setup({ reopenTemplate: TEMPLATE })
+    const a = manager.forScope('PN_A')
+    const b = manager.forScope('PN_B')
+    expect(manager.forScope('PN_A')).toBe(a)
+    expect(b.forScope('PN_A')).toBe(a)
+    expect(a.store).toBe(manager.store)
+    expect(a.scope).toBe('PN_A')
+
+    const tb = fakeTransport()
+    tb.state.closed.add('U')
+    await expect(b.send('U', text('from B'), undefined, tb.rawSend)).rejects.toBeInstanceOf(SessionWindowReopenedError)
+    const ta = fakeTransport()
+    await a.noteInbound('U', ta.rawSend)
+    expect(await a.isOpen('U')).toBe(true)
+    expect(await b.state('U')).toBe('closed')
+    expect(await manager.state('U')).toBe('unknown')
+    expect(b.pending('U')).toBe(1)
+    expect(ta.rawSend).not.toHaveBeenCalled()
+    expect((manager.store as MemorySessionWindowStore).get('PN_A:U')).toBeDefined()
+  })
+
+  it('a manager built with a scope is its own view for that scope', () => {
+    const manager = new SessionWindowManager({ scope: 'PN_A' })
+    expect(manager.forScope('PN_A')).toBe(manager)
+    expect(manager.forScope('PN_B').scope).toBe('PN_B')
+  })
+})

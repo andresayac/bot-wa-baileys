@@ -44,6 +44,9 @@ import { SessionWindowManager } from './sessionWindow.js'
 import { UsageTracker, pricingOf } from './pricing.js'
 import { verifyChallenge, checkGraphSignature, parseGraphBody, type ChallengeQuery } from '@bot-wa/graph-core'
 
+/** Content kinds that carry a `media` source. */
+const MEDIA_KINDS: ReadonlySet<OutboundContent['kind']> = new Set(['image', 'video', 'audio', 'voice', 'document', 'sticker'])
+
 const EXT_MIME: Record<string, string> = {
   jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp',
   mp4: 'video/mp4', mp3: 'audio/mpeg', ogg: 'audio/ogg', aac: 'audio/aac',
@@ -84,8 +87,12 @@ export class CloudAPIProvider implements IProvider<unknown> {
       mediaDownload: this.config.mediaDownload,
     })
     this.identity = new IdentityResolver(config.identityMap ?? new MemoryIdentityMap(), this.logger)
+    // The 24 h window belongs to a business number + user pair: scope it by phone number id.
     const sw = config.sessionWindow
-    this.sessionWindow = sw === undefined ? undefined : sw instanceof SessionWindowManager ? sw : new SessionWindowManager(sw)
+    const scope = this.config.phoneNumberId
+    this.sessionWindow = sw === undefined ? undefined
+      : sw instanceof SessionWindowManager ? sw.forScope(scope)
+      : new SessionWindowManager({ ...sw, scope })
     const usage = config.usage
     this.usage = usage === false ? undefined : usage instanceof UsageTracker ? usage : new UsageTracker(usage ?? {})
     if (!this.config.appSecret && !this.config.allowUnsignedWebhooks) {
@@ -250,12 +257,24 @@ export class CloudAPIProvider implements IProvider<unknown> {
    * queues the content until the user replies (see {@link SessionWindowManager}).
    */
   async send(chatId: ChatId, content: OutboundContent, options?: SendOptions): Promise<SendResult<unknown>> {
-    if (this.sessionWindow) return this.sessionWindow.send(chatId, content, options, this.rawSend)
+    if (this.sessionWindow) return this.sessionWindow.send(chatId, await this.replayable(content), options, this.rawSend)
     return this.sendNow(chatId, content, options)
   }
 
+  /**
+   * Resolve media once (upload → media id, URL → link) so the session window
+   * manager can resend the content (a `{ stream }` is drained by its first
+   * read) and never keeps media bytes in its queue or tracked sends.
+   */
+  private async replayable(content: OutboundContent): Promise<OutboundContent> {
+    if (!MEDIA_KINDS.has(content.kind)) return content
+    const media = (content as { media: MediaSource }).media
+    if (typeof media === 'object' && media !== null && !Buffer.isBuffer(media) && 'native' in media) return content
+    return { ...content, media: { native: await this.resolveMedia(media) } } as OutboundContent
+  }
+
   private async sendNow(chatId: ChatId, content: OutboundContent, options?: SendOptions): Promise<SendResult<unknown>> {
-    const needsMedia = ['image', 'video', 'audio', 'voice', 'document', 'sticker'].includes(content.kind)
+    const needsMedia = MEDIA_KINDS.has(content.kind)
     const media = needsMedia ? await this.resolveMedia((content as { media: MediaSource }).media) : undefined
     const message = toOutbound(content, media)
     if (options?.quoted) {

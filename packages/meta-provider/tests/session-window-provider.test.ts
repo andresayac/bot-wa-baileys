@@ -1,3 +1,4 @@
+import { Readable } from 'node:stream'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import type { DeliveryStatus, InboundEvent } from '@bot-wa/core'
 import { CloudAPIProvider } from '../src/CloudAPIProvider.js'
@@ -7,11 +8,20 @@ import { rawFixture } from './support-fixtures.js'
 
 interface Call { url: string; body: Record<string, unknown> }
 
-/** Fake Graph: free-form messages to `closed` recipients fail with 131047. */
-function mockGraph(closed: Set<string>) {
+/**
+ * Fake Graph: free-form messages to `closed` recipients fail with 131047.
+ * Media uploads (`/media`) are recorded in `uploads` with their byte size.
+ */
+function mockGraph(closed: Set<string>, uploads: Array<{ url: string; size: number }> = []) {
   const calls: Call[] = []
   let n = 0
+  let m = 0
   vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+    if (url.endsWith('/media')) {
+      const file = (init?.body as FormData).get('file') as Blob
+      uploads.push({ url, size: file.size })
+      return { ok: true, status: 200, headers: { get: () => null }, json: async () => ({ id: `MEDIA${++m}` }) }
+    }
     const body = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>
     calls.push({ url, body })
     const fail = body.type !== 'template' && closed.has(String(body.to))
@@ -88,7 +98,8 @@ describe('CloudAPIProvider: session window', () => {
     const reports: SessionReport[] = []
     const manager = new SessionWindowManager({ reopenTemplate: TEMPLATE, onReport: (r) => reports.push(r) })
     const p = new CloudAPIProvider({ ...baseCfg, sessionWindow: manager })
-    expect(p.sessionWindow).toBe(manager)
+    // A shared manager is scoped to the provider's business number.
+    expect(p.sessionWindow).toBe(manager.forScope('PNID'))
     // Graph accepted the message synchronously (id wamid.OUT1)...
     const res = await p.send(USER, { kind: 'text', text: 'late' })
     // ...then the status webhook says it failed with 131047.
@@ -97,6 +108,122 @@ describe('CloudAPIProvider: session window', () => {
     await flush()
     expect(calls.map((c) => c.body.type)).toEqual(['text', 'template'])
     expect(reports.at(-1)).toMatchObject({ outcome: 'queued', reason: 'status', chatId: USER })
+  })
+})
+
+describe('CloudAPIProvider: session window media retries', () => {
+  const streamOf = (...chunks: string[]): NodeJS.ReadableStream => Readable.from(chunks.map((c) => Buffer.from(c)))
+
+  it('a stream media send that hits 131047 is retried on reply with the same uploaded media', async () => {
+    const closed = new Set([USER])
+    const uploads: Array<{ url: string; size: number }> = []
+    const calls = mockGraph(closed, uploads)
+    const reports: SessionReport[] = []
+    const now = (): number => 1751400290_000
+    const p = new CloudAPIProvider({ ...baseCfg, sessionWindow: { reopenTemplate: TEMPLATE, now, onReport: (r) => reports.push(r) } })
+
+    await expect(p.send(USER, { kind: 'image', media: { stream: streamOf('abc', 'def') }, caption: 'pic' }))
+      .rejects.toBeInstanceOf(SessionWindowReopenedError)
+    closed.delete(USER)
+    p.ingest(rawFixture('message-text'))
+    await flush()
+
+    // Uploaded once (6 bytes); the retry reuses the media id instead of re-reading the drained stream.
+    expect(uploads).toEqual([{ url: expect.stringContaining('/PNID/media'), size: 6 }])
+    const images = calls.filter((c) => c.body.type === 'image').map((c) => c.body.image)
+    expect(images).toEqual([{ id: 'MEDIA1', caption: 'pic' }, { id: 'MEDIA1', caption: 'pic' }])
+    expect(reports.map((r) => r.outcome)).toEqual(['queued', 'sent'])
+  })
+
+  it('a stream media send failed by a 131047 status is resent with the uploaded media', async () => {
+    const uploads: Array<{ url: string; size: number }> = []
+    const calls = mockGraph(new Set(), uploads)
+    const reports: SessionReport[] = []
+    // Clock right after the fixtures: the status (1751400200) predates the inbound (1751400300).
+    const p = new CloudAPIProvider({ ...baseCfg, sessionWindow: { reopenTemplate: TEMPLATE, now: () => 1751400310_000, onReport: (r) => reports.push(r) } })
+    p.ingest(rawFixture('message-text'))
+    await flush()
+    const res = await p.send(USER, { kind: 'document', media: { stream: streamOf('pdf-bytes') }, filename: 'a.pdf' })
+    p.ingest(rawFixture('status-failed-131047').replace('wamid.LATE', res.ref.id))
+    await flush()
+
+    expect(uploads.map((u) => u.size)).toEqual([9])
+    const docs = calls.filter((c) => c.body.type === 'document').map((c) => c.body.document)
+    expect(docs).toEqual([{ id: 'MEDIA1', filename: 'a.pdf' }, { id: 'MEDIA1', filename: 'a.pdf' }])
+    expect(reports.at(-1)).toMatchObject({ outcome: 'sent', reason: 'status' })
+  })
+
+  it('the manager never keeps media bytes: queued and tracked content carry the media id', async () => {
+    const uploads: Array<{ url: string; size: number }> = []
+    mockGraph(new Set([USER]), uploads)
+    const reports: SessionReport[] = []
+    const p = new CloudAPIProvider({ ...baseCfg, sessionWindow: { reopenTemplate: TEMPLATE, now: () => 1751400290_000, onReport: (r) => reports.push(r) } })
+    await expect(p.send(USER, { kind: 'video', media: Buffer.alloc(1024) })).rejects.toBeInstanceOf(SessionWindowReopenedError)
+    const queued = reports.find((r) => r.outcome === 'queued')!
+    expect(queued.content).toEqual({ kind: 'video', media: { native: { id: 'MEDIA1' } } })
+    expect(uploads).toHaveLength(1)
+  })
+
+  it('a URL media source is kept as a link (no upload)', async () => {
+    const uploads: Array<{ url: string; size: number }> = []
+    const calls = mockGraph(new Set(), uploads)
+    const p = new CloudAPIProvider({ ...baseCfg, sessionWindow: { reopenTemplate: TEMPLATE } })
+    await p.send(USER, { kind: 'image', media: 'https://example.com/a.png' })
+    expect(uploads).toEqual([])
+    expect(calls[0].body.image).toEqual({ link: 'https://example.com/a.png' })
+  })
+})
+
+describe('CloudAPIProvider: session window per business number', () => {
+  const cfgA = { ...baseCfg, phoneNumberId: 'PNID_A' }
+  const cfgB = { ...baseCfg, phoneNumberId: 'PNID_B' }
+
+  it('a shared manager keeps window state and queues apart per phone number', async () => {
+    const closed = new Set([USER])
+    const calls = mockGraph(closed)
+    const reports: SessionReport[] = []
+    const manager = new SessionWindowManager({ reopenTemplate: TEMPLATE, now: () => 1751400290_000, onReport: (r) => reports.push(r) })
+    const a = new CloudAPIProvider({ ...cfgA, sessionWindow: manager })
+    const b = new CloudAPIProvider({ ...cfgB, sessionWindow: manager })
+    expect(a.sessionWindow).not.toBe(b.sessionWindow)
+
+    // Queued through B (B's window with the user is closed).
+    await expect(b.send(USER, { kind: 'text', text: 'from B' })).rejects.toBeInstanceOf(SessionWindowReopenedError)
+    closed.delete(USER)
+
+    // The user writes to A: A's window opens, B's stays closed, and B's queue is not drained by A.
+    a.ingest(rawFixture('message-text'))
+    await flush()
+    expect(await a.sessionWindow!.isOpen(USER)).toBe(true)
+    expect(await b.sessionWindow!.isOpen(USER)).toBe(false)
+    expect(b.sessionWindow!.pending(USER)).toBe(1)
+    expect(calls.filter((c) => c.url.includes('PNID_A'))).toHaveLength(0)
+
+    // The user writes to B: B delivers its own queue from B's number.
+    b.ingest(rawFixture('message-text'))
+    await flush()
+    const last = calls.at(-1)!
+    expect(last.url).toContain('/PNID_B/messages')
+    expect(last.body).toMatchObject({ type: 'text', text: { body: 'from B' } })
+    expect(reports.map((r) => r.outcome)).toEqual(['queued', 'sent'])
+  })
+
+  it('options with a shared store key the window state by phone number', async () => {
+    mockGraph(new Set())
+    const data = new Map<string, SessionWindowState>()
+    const store = {
+      get: (id: string) => data.get(id),
+      set: (id: string, st: SessionWindowState) => { data.set(id, st) },
+      delete: (id: string) => { data.delete(id) },
+    }
+    const now = (): number => 1751400310_000
+    const a = new CloudAPIProvider({ ...cfgA, sessionWindow: { store, now } })
+    const b = new CloudAPIProvider({ ...cfgB, sessionWindow: { store, now } })
+    a.ingest(rawFixture('message-text'))
+    await flush()
+    expect(await a.sessionWindow!.state(USER)).toBe('open')
+    expect(await b.sessionWindow!.state(USER)).toBe('unknown')
+    expect([...data.keys()]).toEqual([`PNID_A:${USER}`])
   })
 })
 
