@@ -111,6 +111,13 @@ function dedupeWindow(tool: AITool<unknown>): number | undefined {
   return tool.dedupe === 'args' ? DEFAULT_DEDUPE_WINDOW_MS : Math.max(0, tool.dedupe.windowMs)
 }
 
+/** A handler result reporting a failure: a plain object with a non-empty `error`. */
+function isErrorResult(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
+  const error = (value as { error?: unknown }).error
+  return error !== undefined && error !== null && error !== false && error !== ''
+}
+
 function isReply(a: ToolConfirmation): a is ToolConfirmReply {
   return typeof a === 'object' && a !== null && typeof (a as { reply?: unknown }).reply === 'string'
 }
@@ -231,8 +238,9 @@ export async function runToolLoop(opts: ToolLoopOptions): Promise<ToolLoopResult
           })])
         : await exec
       emit({ ...base, type: 'tool.result', durationMs: Date.now() - started })
-      // Side-effecting runs are remembered per chat (repeat notice / dedupe).
-      if (ledger && (tool.confirm || tool.dedupe)) ledger.record(call.name, v.data, value)
+      // Side-effecting runs are remembered per chat (repeat notice / dedupe); a returned
+      // `{ error }` (e.g. unknown id) did nothing, so it is not remembered as done.
+      if (ledger && (tool.confirm || tool.dedupe) && !isErrorResult(value)) ledger.record(call.name, v.data, value)
       return { callId: call.id, name: call.name, content: serialize(value) }
     } catch (err) {
       const durationMs = Date.now() - started

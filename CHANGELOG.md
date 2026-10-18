@@ -171,6 +171,7 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/). Versionado po
 - La pregunta de confirmación por defecto (`ai.tools.confirm`) pasa a `Voy a: {tool}{args}\n¿Confirmas? (sí/no)` (en: `About to: {tool}{args}\nDo you confirm? (yes/no)`), con `{tool}` = título y `{args}` = líneas `• `.
 
 **Corregido**
+- Una herramienta con efectos (`confirm`/`dedupe`) cuyo handler devuelve un objeto con `error` no vacío (p. ej. `{ error: 'No existe el pedido P-1' }`) ya no se recuerda como acción hecha: no dispara el aviso de repetición, la nota de acciones ya ejecutadas ni el bloqueo de `dedupe`.
 - La autorespuesta one-shot ya no muestra "escribiendo…" dos veces con `BotConfig.typing` activo: con `humanizeTyping` el indicador sale mientras se genera la respuesta y esta se envía con `typing: false`.
 
 ### create-bot-wa (2026-10)

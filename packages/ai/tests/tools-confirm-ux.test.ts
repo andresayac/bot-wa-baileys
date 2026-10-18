@@ -323,6 +323,21 @@ describe('repeated side effects', () => {
     await chat.expectReply('Voy a: Crear pedido\n• 2 × torta_chocolate\n¿Confirmas? (sí/no)')
   })
 
+  it('a run that returns { error } is not remembered as done (no repeat notice, no dedupe block)', async () => {
+    const ran: unknown[] = []
+    const requests: ToolConfirmRequest[] = []
+    const mock = bakeryModel()
+    const ai = new AIClient(mock, new ContextManager(new MemoryStore()), {
+      tools: orderTool(ran, { dedupe: 'args', handler: (args) => { ran.push(args); return { error: 'Sin stock' } } }),
+    })
+    const confirm = async (req: ToolConfirmRequest) => { requests.push(req); return 'approved' as const }
+    expect(await ai.replyInChat('k', 'pide 1', { confirm })).toBe('final: {"error":"Sin stock"}')
+    await ai.replyInChat('k', 'pide 1', { confirm })
+    expect(ran).toHaveLength(2)
+    expect(requests.map((r) => r.previous)).toEqual([undefined, undefined])
+    expect(mock.calls.at(-1)?.system ?? '').not.toContain('Acciones ya ejecutadas')
+  })
+
   it('dedupe: an identical call within the window is not run nor confirmed; the model gets { reason: duplicate }', async () => {
     const ran: unknown[] = []
     const events: AIToolEvent[] = []

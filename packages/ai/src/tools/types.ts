@@ -65,7 +65,9 @@ export interface AITool<TArgs = unknown> {
   /**
    * Executes the tool. The return value is sent back to the model (strings
    * as-is, anything else JSON-serialized). A thrown error is reported to the
-   * model as a failed tool result, never to the end user.
+   * model as a failed tool result, never to the end user. A returned object
+   * with a non-empty `error` (e.g. `{ error: 'unknown order id' }`) is sent
+   * as-is but not remembered as a done side effect (repeat notice / `dedupe`).
    */
   handler(args: TArgs, tctx: AIToolContext): unknown
   /**
