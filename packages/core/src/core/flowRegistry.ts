@@ -41,6 +41,8 @@ export interface FlowRegistryDeps {
   enterMatcher(trigger: Trigger, target: string): () => void
   isStarted(): boolean
   isHandedOff(chatId: ChatId): boolean
+  /** Access lists (blacklist / whitelist) refuse this subject — same gate as an inbound message. */
+  isBlocked(chatId: ChatId, userId: UserId): boolean
   reply(chatId: ChatId, text: string): Promise<unknown>
   decorate?(ctx: RuntimeMessage): RuntimeMessage
   reportError(error: unknown, ctx: RuntimeMessage): void
@@ -106,8 +108,9 @@ export class DynamicFlowRegistry {
     if (!this.deps.isStarted()) throw new Error('triggerFlow() needs a started bot')
     const fn = this.deps.runtime.lookup(id)
     if (!fn) return false
-    if (this.deps.isHandedOff(target.chatId)) return false
     const chatId = target.chatId
+    if (this.deps.isBlocked(chatId, target.userId ?? chatId)) return false
+    if (this.deps.isHandedOff(chatId)) return false
     const base: RuntimeMessage = {
       from: chatId,
       sender: target.userId ?? chatId,

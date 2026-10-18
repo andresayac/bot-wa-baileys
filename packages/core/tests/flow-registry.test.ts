@@ -107,3 +107,25 @@ describe('dynamic flow registry (bot.registerFlow / unregisterFlow / replaceFlow
     await bot.stop()
   })
 })
+
+describe('triggerFlow gates', () => {
+  it('refuses blacklisted / non-whitelisted subjects and handed-off chats, and counts the drops', async () => {
+    const { bot, provider } = await createTestBot()
+    bot.registerFlow(flow('promo').say('promo!'))
+    bot.blacklist.add('bad')
+    expect(bot.triggerFlow('promo', { chatId: 'bad' })).toBe(false)
+    expect(bot.triggerFlow('promo', { chatId: 'g1', userId: 'bad', isGroup: true })).toBe(false)
+    bot.whitelist.enable().add('vip')
+    expect(bot.triggerFlow('promo', { chatId: 'other' })).toBe(false)
+    bot.whitelist.disable()
+    await bot.handoff('agent-chat')
+    expect(bot.triggerFlow('promo', { chatId: 'agent-chat' })).toBe(false)
+    await tick()
+    expect(provider.outbox.filter((m) => m.content.kind === 'text' && m.content.text === 'promo!')).toEqual([])
+    const drops = bot.metrics().dropped
+    expect(drops.blocked).toBe(3)
+    expect(drops.handoff).toBe(1)
+    expect(bot.triggerFlow('promo', { chatId: 'ok' })).toBe(true)
+    await bot.stop()
+  })
+})

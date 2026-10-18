@@ -336,7 +336,16 @@ export class Bot extends EventEmitter {
       runtime: this.runtime,
       enterMatcher: (trigger, target) => this.registerEnterMatcher(trigger, target),
       isStarted: () => this.isStarted,
-      isHandedOff: (chatId) => this.isChatHandedOff(chatId),
+      isHandedOff: (chatId) => {
+        if (!this.isChatHandedOff(chatId)) return false
+        this.counters.handoffDropped()
+        return true
+      },
+      isBlocked: (chatId, senderId) => {
+        if (checkAccess(this.blacklist, this.whitelist, { chatId, senderId }) === 'allowed') return false
+        this.counters.blockedDropped()
+        return true
+      },
       reply: (chatId, text) => this.sendText(chatId, text),
       decorate: (ctx) => ({ ...ctx, user: this.users.for(ctx.sender) }),
       reportError: (error, ctx) => this.emitError({ error, ctx: ctx as unknown as MessageContext }),
@@ -938,7 +947,8 @@ export class Bot extends EventEmitter {
   /**
    * Start flow `id` proactively in a chat, without an inbound message (fire-and-forget; the
    * user's replies then flow into it as usual). Replaces a conversation already running on the
-   * same key. Returns `false` when the flow is unknown or the chat is handed off; throws when
+   * same key. Returns `false` when the flow is unknown, the subject is refused by the access
+   * lists (blacklist / whitelist) or the chat is handed off; throws when
    * the bot is not started.
    */
   triggerFlow(id: string, target: FlowTriggerTarget, opts?: FlowTriggerOptions): boolean {
