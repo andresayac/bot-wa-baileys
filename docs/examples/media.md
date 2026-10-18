@@ -103,13 +103,18 @@ bot.when('poll-multi', async (ctx) => {
 
 ## Receive an image, reply with a sticker
 
-`ctx.media` is already the loaded payload (not a promise) — no need to `await` it:
+Inbound media is downloaded on demand: `loadMediaOf(ctx)` fetches the bytes
+once and leaves them on `ctx.media` (see
+[Access media content](/guide/messages#access-media-content)):
 
 ```ts
+import { loadMediaOf } from '@bot-wa/core'
+
 bot.onImage(async (ctx) => {
   await ctx.reply('📸 Got your image. Converting to sticker...')
-  if (ctx.media?.buffer) {
-    await ctx.sticker(ctx.media.buffer, { pack: 'My Bot', author: 'me' })
+  const media = await loadMediaOf(ctx, { maxBytes: 5 * 1024 * 1024 })
+  if (media) {
+    await ctx.sticker(media.buffer, { pack: 'My Bot', author: 'me' })
   }
 })
 ```

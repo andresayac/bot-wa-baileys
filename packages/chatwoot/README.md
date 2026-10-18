@@ -99,3 +99,14 @@ Se ignoran: notas privadas, mensajes `incoming`, mensajes de *agent bots*, otros
 
 - Los medios entrantes se reflejan como texto (`[image] caption`), no se suben como adjuntos.
 - Un chat ↔ una conversación; si Chatwoot devuelve 404 para la conversación mapeada se crea otra.
+- Resolver la conversación en Chatwoot **reanuda el bot** (`bot.resume()`), pero **no cierra ningún ticket**: el plugin no conoce [`@bot-wa/tickets`](../tickets) (ni ningún otro sistema de tickets) y no se acopla a él. Si usas ambos, ciérralo tú en el evento `'resume'`:
+
+  ```ts
+  bot.on('resume', async ({ chatId, reason }) => {
+    if (reason !== 'chatwoot:resolved') return
+    const tickets = bot.injectTools.tickets
+    for (const t of (await tickets?.list({ chatId, status: ['open', 'assigned', 'pending'] })) ?? []) {
+      await tickets!.close(t.id, { reason: 'chatwoot:resolved' })
+    }
+  })
+  ```

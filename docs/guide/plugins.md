@@ -130,6 +130,18 @@ synchronous and resolve lazily on first use, reporting configuration errors
 without crashing. That's how `@bot-wa/ai` loads its provider SDKs.
 :::
 
+## Plugin packages
+
+Besides `slashCommandsPlugin`, these packages ship ready-made plugins:
+
+- [AI](/guide/ai) — `@bot-wa/ai`: LLM replies (`aiPlugin`), with
+  [tools](/guide/ai-tools), [memory and RAG](/guide/ai-memory-rag) and
+  [streaming](/guide/streaming).
+- [Voice](/guide/voice) — experimental `@bot-wa/voice` (`voicePlugin`):
+  speech-to-text for inbound voice notes and text-to-speech replies.
+- [Integrations](/guide/integrations) — experimental `@bot-wa/chatwoot`,
+  `@bot-wa/tickets`, `@bot-wa/moderation` and `@bot-wa/dialogflow`.
+
 ## Next steps
 
 - [Dependency injection](./di) — share tools between plugins

@@ -28,7 +28,11 @@ flow('x').say('Pensando…').say('¡Listo!', { delay: '2s' }) // pausa 2 s antes
 ```
 
 `{ delay }` (`'500ms'`, `'2s'`, `'1m'` o milisegundos) también funciona en
-`ask`, `choose` y `media`. Para pausar entre pasos sin enviar nada, usa
+`ask`, `choose` (cuarto argumento, después de la clave de estado:
+`.choose(prompt, opciones, 'choice', { delay: '1s' })`) y `media`. Es una pausa
+antes del paso, independiente del
+[indicador de escritura](./mensajes#indicador-de-escritura-y-pausas) que
+`BotConfig.typing` añade a cada `.say`. Para pausar entre pasos sin enviar nada, usa
 `.delay('3s')`. Un delay inválido, o mayor de lo que admite un timer de
 Node (2^31 − 1 ms, unos 24 días), lanza un error al construir el flow.
 Terminar la conversación (`/reset`, un reemplazo, `bot.stop()`) cancela el
@@ -57,7 +61,9 @@ vuelve a preguntar (hasta `retries`, por defecto 3, antes de lanzar
 adaptadores de valibot o tu propio validador. El core no depende de zod. En
 `c.state` se guarda el valor **parseado**, y una respuesta rechazada vuelve
 a preguntar con `otherwise` o, si no está definido, con el mensaje del
-primer issue del schema:
+primer issue del schema (o con el mensaje integrado y traducible
+`core.wait.invalid` si el schema no da ninguno, ver
+[i18n](./i18n#mensajes-internos)):
 
 ```ts
 import { z } from 'zod'
@@ -195,9 +201,11 @@ flow('admin')
   .say('Menú de admin')
 ```
 
-Si el predicado devuelve un valor falsy, el flow se detiene: con un mensaje
-(un string o `(ctx, c) => string`) lo envía y termina la conversación; con
-`{ redirect, message? }` salta a otra conversación como `goto`.
+Si el predicado (síncrono o async) devuelve un valor falsy, el flow se
+detiene: con un mensaje (un string o `(ctx, c) => string`) lo envía y termina
+la conversación; sin mensaje termina en silencio; con `{ redirect, message? }`
+envía el mensaje (si lo hay) y salta a otra conversación como `goto` (también
+acepta un `FlowBuilder` como destino).
 `bot.lint()` revisa los destinos de `redirect` igual que los de `goto`.
 
 ### persistent — sobrevive reinicios
@@ -231,7 +239,7 @@ flow('soporte').scope('dm').ask('Describe your issue', 'issue')
 `.form(definicion, opts)` recoge campos de texto, número, email, fecha, selección,
 selección múltiple y opt-in con validación. En la Cloud API de WhatsApp se envía
 como un WhatsApp Flow nativo; en el resto, el bot pregunta campo por campo. Más
-en [Formularios (WhatsApp Flows)](./formularios.md).
+en [Formularios (WhatsApp Flows)](./formularios).
 
 ## `c.state` — memoria entre pasos
 
@@ -290,6 +298,12 @@ una API externa a mitad de la conversación — sáltate el DSL y escribe la
 conversación directamente con `bot.conversation(name, async (c, ctx) =>
 {...})`, usando `c.ask`/`c.waitText`/`c.waitMedia`/`c.choose`/`c.goto`/`c.end`.
 Los flows construidos con `flow()` compilan exactamente a este runtime.
+
+`c.waitMedia(tipos?, opts?)` espera `image`, `video`, `audio`, `document` o
+`sticker` por defecto; las notas de voz, solo si las pides
+(`c.waitMedia(['voice'])` o `c.waitMedia(['audio', 'voice'])`). Resuelve con el
+mensaje; descarga sus bytes con
+[`loadMediaOf()`](./mensajes#acceder-al-contenido-del-media).
 
 ## `ctx` en `bot.conversation()` es un `MessageContext` completo
 

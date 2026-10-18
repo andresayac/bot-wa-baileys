@@ -116,13 +116,34 @@ bot.conversation('complaint', async (c, ctx) => {
 
 `ctx.tools.ai` (an `AIClient`) exposes:
 
-- `ask(prompt: string): Promise<string>` — a one-shot question, **without**
+- `ask(prompt, opts?): Promise<string>` — a one-shot question, **without**
   chat history (does not read or write the saved context). Uses the
-  `persona`/`model`/`maxTokens`/`effort` configured on `aiPlugin`.
+  `persona`/`model`/`maxTokens`/`effort` configured on `aiPlugin` (and the
+  [tools](/guide/ai-tools), when configured).
+- `replyInChat(chatKey, text, opts?): Promise<string>` — answers inside a
+  chat's history (reads it and stores the turn), the same way the
+  autoresponder does. `opts` takes `{ userId, isGroup }` for
+  [memory](/guide/ai-memory-rag) and `{ ctx, confirm, signal }` for tools; use
+  `chatKeyOf(ctx)` as the key. `replyInChatDetailed()` also returns the
+  citations and facts of the turn.
+- `streamReplyInChat(chatKey, text, opts?)` — the streaming twin of
+  `replyInChat`, to feed [`ctx.stream()`](/guide/streaming).
+- `runTools(input, opts?)` — runs the [tool loop](/guide/ai-tools) and returns
+  its full result.
+- `memory()`, `memoryFacts()`, `remember()`, `forget()`, `extractMemory()` —
+  the [long-term memory](/guide/ai-memory-rag) API; `idle()` waits for
+  background extraction.
 - `generate(input: { messages, system?, model?, maxTokens?, effort?, signal? }): Promise<GenerateResult>` —
   full control: explicit messages and per-call overrides.
 - `stream(input): AsyncIterable<string>` — same as `generate` but yields the
   text incrementally (`for await (const delta of ...)`).
+
+**Typing (TypeScript).** Importing `@bot-wa/ai` augments the core's
+`DefaultTools` interface, so `ctx.tools.ai` is already an `AIClient` in
+`when()`, `onMessage()` and `command()` handlers (and in
+`bot.injectTools.ai`), with no casts. The type does not check that the plugin
+is installed: without `bot.plug(aiPlugin(...))` (or after `unplug()`),
+`ctx.tools.ai` is `undefined` at runtime.
 
 ## The providers
 
@@ -228,7 +249,7 @@ down.
 | `apiKey` | `string` | env var fallback | API key (if omitted, each provider tries its conventional env var) |
 | `baseUrl` | `string` | preset-dependent | endpoint override (openai `baseURL` / ollama host) |
 | `persona` | `string` | — | system prompt |
-| `maxTokens` | `number` | `4096` (anthropic) / `1024` (openai-compatible) | output token limit |
+| `maxTokens` | `number` | `4096` (anthropic) / `1024` (openai, presets, gemini) | output token limit (not sent to ollama) |
 | `effort` | `'low' \| 'medium' \| 'high' \| 'xhigh' \| 'max'` | — | reasoning effort (Anthropic only) |
 | `timeoutMs` | `number` | `60000` | per-call timeout for non-streaming calls; on expiry the request is aborted and rejects, so a hung provider can't block the chat's queue (`0` disables it — not recommended) |
 | `context.maxMessages` | `number` | `20` | history window kept per chat |
@@ -237,6 +258,71 @@ down.
 | `errorMessage` | `string` | `'⚠️ Ahora no puedo responder, intenta luego.'` | reply sent if the provider fails |
 | `refusalMessage` | `string` | `'No puedo ayudar con eso.'` | reply sent when the provider refuses (`stopReason === 'refusal'`) |
 | `humanizeTyping` | `boolean` | `true` | sends "typing…" (`ctx.typing()`) while the answer is generated; the reply then skips the `BotConfig.typing` pacer, so the indicator shows once |
+| `tools` | `Record<string, AITool>` | — | functions the model may call (see [Tool calling](#tool-calling)) |
+| `maxSteps` | `number` | `5` | max model calls per turn in the tool loop |
+| `toolTimeoutMs` | `number` | `15000` | default per-tool timeout (`0` disables it) |
+| `maxStepsMessage` | `string` | localized `ai.tools.maxSteps` (es: `'No pude completar la solicitud. Intenta de nuevo con más detalle.'`) | reply when the tool loop hits `maxSteps` |
+| `toolConfirm` | `{ yes?: string[]; timeout?: number \| string }` | `{ timeout: '2m' }` | confirmation dialog of `confirm: true` tools |
+| `onToolEvent` | `(event: AIToolEvent) => void` | — | audit hook for every tool loop event (also emitted as `bot.on('ai.tool')`) |
+| `memory` | `boolean \| AIMemoryConfig` | — | long-term per-user memory (see [Memory and RAG](#memory-and-rag)) |
+| `rag` | `AIRetriever \| AIRagConfig` | — | answers grounded in your documents (see [Memory and RAG](#memory-and-rag)) |
+| `stream` | `boolean \| AIStreamConfig` | off | stream the autoreply with `ctx.stream()` (see [Streaming](#streaming)) |
+
+## Tool calling
+
+With `tools`, the model can call your bot's functions through native tool /
+function calling (Anthropic, OpenAI and the compatible presets, Gemini,
+Ollama), in a multi-step loop with per-tool timeouts, errors fed back to the
+model, human confirmation for `confirm: true` tools and audit events:
+
+```ts
+bot.plug(aiPlugin({
+  provider: 'openai',
+  model: 'gpt-5-mini',
+  tools: {
+    search_product: {
+      description: 'Search the catalog by text',
+      schema: { type: 'object', properties: { q: { type: 'string' } }, required: ['q'] },
+      handler: async ({ q }: { q: string }) => db.products.search(q),
+    },
+  },
+}))
+```
+
+Full guide: [AI tool calling](/guide/ai-tools).
+
+## Memory and RAG
+
+`memory` remembers facts about each user across conversations (stored in
+`ctx.user`, injected into the autoreply, optionally extracted by the model in
+the background). `rag` answers from your documents with numbered citations,
+using any retriever, such as `createRag()` from the experimental
+`@bot-wa/rag` package.
+
+```ts
+bot.plug(aiPlugin({
+  provider: 'openai',
+  model: 'gpt-5-mini',
+  memory: { autoExtract: true, ttl: '90d' },
+  rag: { retriever: createRag({ documents: ['./docs/faq.md'] }), appendSources: true },
+}))
+```
+
+Full guide: [AI memory & RAG](/guide/ai-memory-rag).
+
+## Streaming
+
+`stream: true` sends the autoreply while it is generated: native drafts on
+Telegram, live edits on Discord, sentence chunks with typing on WhatsApp.
+Turns with tools are not streamed. Full guide:
+[Streaming replies](/guide/streaming#with-bot-wa-ai).
+
+## Voice notes
+
+The autoresponder answers text messages only. With the experimental
+[`@bot-wa/voice`](/guide/voice) plugin, voice notes are transcribed before
+routing (use `autoTranscribe: { asText: true }` so the AI answers them) and
+`autoReplyWithVoice` can send the answer back as audio.
 
 ## `/reset` and `slashCommandsPlugin`
 
@@ -273,19 +359,25 @@ const answer = await client.ask('what time is it?')
 // answer === 'mock reply'
 ```
 
+`reply` can also be a function of the request that returns `{ toolCalls }`
+to script tool calls (see [Testing in the tool calling guide](/guide/ai-tools#testing)),
+and `mock.calls` records every request the client sent.
+
 ## Roadmap
 
 Non-goals of this first version, already accounted for in the
 `AIProvider`/`ContextManager` design so they can be added later without
 breaking the API:
 
-- **Function/tool calling** — letting the AI trigger bot actions.
 - **Auto-summarize / compaction** of the history (instead of trimming to a
   fixed message window).
-- RAG / embeddings.
 - Multi-persona per number.
 
 ## Next steps
 
+- [AI tool calling](/guide/ai-tools) — let the model call your bot's functions
+- [AI memory & RAG](/guide/ai-memory-rag) — per-user facts and answers from your documents
+- [Streaming replies](/guide/streaming) — `ctx.stream()` per channel
+- [Voice](/guide/voice) — transcribe voice notes and answer with audio
 - [Plugins](./plugins) — how `bot.plug()`/`definePlugin` work in general
 - [Dependency injection](./di) — how `ctx.tools` is wired

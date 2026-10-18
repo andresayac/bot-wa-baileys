@@ -101,6 +101,29 @@ const buy = flow('buy')
 bot.use(buy)
 ```
 
+## Back to the main menu
+
+An option with `goto` leaves the current flow for another one; an option whose
+`then` is a whole flow runs it inline and comes back (like `.use()`):
+
+```ts
+const menu = flow('menu').choose('Main menu', { buy: 'Buy 🛒', help: 'Help' }, 'section')
+
+const address = flow('address').ask('Street?', 'street').ask('City?', 'city')
+
+const checkout = flow('checkout')
+  .choose('Confirm your order?', {
+    yes: { label: 'Yes ✅', then: address },   // runs the sub-flow, then continues below
+    back: { label: '⬅️ Main menu', goto: menu }, // leaves this flow
+  })
+  .say((_ctx, c) => `📦 Shipping to ${c.state.street}, ${c.state.city}`)
+
+bot.use([menu, checkout]) // `address` runs inline, it needs no registration
+```
+
+`bot.lint()` reports a `goto` to a flow that is not registered (see
+[Inspect & lint flows](/guide/flow-tools)).
+
 ## Next steps
 
 - [Support with timeout](./support-flow) — timeout and fallback

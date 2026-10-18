@@ -109,9 +109,19 @@ await ctx.reply('Un momento…', { typing: false })
 await ctx.reply('Aquí está', { delay: '1.5s', typing: { maxMs: 1000 } })
 ```
 
+- `typing: true` usa la temporización del bot, `typing: false` lo suprime y un
+  objeto lo activa con esos cambios. Un `maxMs` por respuesta menor que el `minMs`
+  del bot baja el mínimo en lugar de lanzar un error.
+- `delay` (ms o `'500ms'`, `'1.5s'`) corre antes del indicador. `cancelIf: () => boolean`
+  se comprueba después de la espera: si devuelve `true`, la respuesta se descarta.
 - Si el indicador falla, el envío no falla: es cosmético y best effort.
 - En providers sin `capabilities.typing` no hay indicador **ni espera**. `delay` se respeta en todos.
 - Una respuesta en espera se descarta (resuelve `{ skipped: true }`) si el bot se detiene, el chat pasa a handoff o el flujo se aborta durante la espera. `stop({ drain: true })` espera a esas respuestas.
+- `ctx.replyWithTyping(texto, msPorCaracter?)` marca su propio ritmo (40 ms por
+  carácter por defecto) e ignora `BotConfig.typing`.
+
+Las respuestas largas o generadas por IA se pueden enviar por partes en lugar de
+de una vez: ve [Streaming](./streaming).
 
 ## Editar un mensaje
 
@@ -133,7 +143,7 @@ Si el provider no puede editar (sin `capabilities.edit`, un tipo de contenido qu
 no admite edición o nada que editar), `ctx.edit` envía el contenido como **mensaje
 nuevo** en el chat del mensaje editado (`ref.chatId`), o no envía nada con
 `{ fallback: 'skip' }`. Las ediciones pasan por los hooks `before`/`after('send')`
-(el payload lleva `edit: ref`) y actualizan el registro de salida.
+(el payload lleva `edit: ref`, ver [Hooks](./hooks#ediciones-y-salida-en-streaming)) y actualizan el registro de salida.
 
 ## Reaccionar
 
@@ -223,18 +233,37 @@ el voto cifrado ya no. Detalles en el README de `@bot-wa/baileys`.
 
 ## Acceder al contenido del media
 
-`ctx.media` es un campo plano (no una promesa) presente siempre que el
-mensaje entrante trae media:
+El media entrante se descarga de forma **perezosa**: el contexto solo lleva una
+referencia hasta que pides los bytes con `loadMediaOf(ctx)`. Descarga una sola vez
+a través del provider y guarda el resultado en `ctx.media`:
 
 ```ts
+import { loadMediaOf, MediaTooLargeError } from '@bot-wa/core'
+
 bot.onImage(async (ctx) => {
-  if (ctx.media) {
-    console.log(ctx.media.mimetype)  // 'image/jpeg'
-    console.log(ctx.media.buffer)    // Buffer
-    console.log(ctx.media.size)      // bytes
+  try {
+    const media = await loadMediaOf(ctx, { maxBytes: 5 * 1024 * 1024 })
+    if (!media) return                 // sin media, o la descarga falló
+    console.log(media.mimetype)        // 'image/jpeg'
+    console.log(media.buffer)          // Buffer
+    console.log(media.size)            // bytes, si el provider los declaró
+    // ctx.media ya es el mismo payload
+  } catch (err) {
+    if (err instanceof MediaTooLargeError) await ctx.reply('Ese archivo es demasiado grande')
+    else throw err
   }
 })
 ```
+
+- Resuelve `undefined` si el mensaje no trae media, el provider no puede
+  descargar o (por defecto) la descarga falla. `{ throwOnError: true }` rechaza
+  con el error de la descarga.
+- `maxBytes` se compara con el tamaño que declaró el provider, antes de descargar
+  nada, y otra vez mientras se lee; la descarga se corta en cuanto lo supera.
+  Rechaza con `MediaTooLargeError` (un `PayloadTooLargeError`, con `bytes` y
+  `maxBytes`).
+- Llámalo en un hook `before('message')` para descargar antes del enrutado; así
+  transcribe las notas de voz el plugin de [voz](./voz).
 
 ## El `MessageContext` completo
 
@@ -243,12 +272,13 @@ Además de los helpers de respuesta, cada handler recibe campos de datos en
 = `from` en DMs, participant en grupos), `ctx.senderInfo`, `ctx.pushName`,
 `ctx.chat` (`{ id, kind, name?, isGroup, isBroadcast, participants? }`),
 `ctx.type`, `ctx.isGroup` / `ctx.isPrivate` / `ctx.isFromMe`,
-`ctx.mentions`, `ctx.quoted?`, `ctx.media?`, `ctx.timestamp`, `ctx.tools`
+`ctx.mentions`, `ctx.quoted?`, `ctx.media?` (tras `loadMediaOf`), `ctx.timestamp`, `ctx.tools`
 (registro de DI), `ctx.raw` (payload nativo del provider), `ctx.ref` (la
 referencia al mensaje — `{ id, chatId, native? }`, reemplaza el `ctx.key`
 de v1), `ctx.user` (el [perfil persistente](./datos-usuario) del remitente),
-`ctx.handoff()` (pasar el chat a un [humano](./handoff)) y `ctx.call` (el
-`CallEvent`, solo en contextos [`CALL`](./triggers#call)).
+`ctx.handoff()` (pasar el chat a un [humano](./handoff)), `ctx.call` (el
+`CallEvent`, solo en contextos [`CALL`](./triggers#call)) y los miembros de
+[i18n](./i18n) `ctx.lang`, `ctx.langSource`, `ctx.t()` y `ctx.setLang()`.
 
 ## Identidad por transporte
 
@@ -319,7 +349,7 @@ Desde un handler, lánzala con `void bot.broadcast(...)` para no retener la cola
 
 ## Iniciar un flujo desde código
 
-`bot.trigger(name, { chatId, userId?, isGroup?, data?, ifActive? })` inicia un flujo
+`bot.trigger(name, { chatId, userId?, isGroup?, data?, ifActive?, body? })` inicia un flujo
 registrado o una `bot.conversation` para alguien que no ha escrito: recordatorios,
 webhooks, paneles de administración. `data` inicializa `c.state`:
 
@@ -333,31 +363,28 @@ bot.schedule('0 9 * * *', async () => {
 
 Pasa por las listas de acceso, el gate de handoff humano y la cola FIFO del chat.
 Resuelve `{ started, name, chatId, userId, reason? }` en cuanto la conversación
-**empieza**, no cuando termina. `reason` es `'stopped' | 'blocked' | 'handoff' | 'busy'`.
+**empieza**, no cuando termina (para eso, escucha `'conversation:ended'`). `reason` es
+`'stopped' | 'blocked' | 'handoff' | 'busy'`; un `name` desconocido rechaza.
 Si el sujeto ya tiene una conversación activa o dormida, no se toca salvo con `ifActive: 'replace'`.
 Puedes hacer `await bot.trigger(...)` desde un handler o comando del mismo chat sin problema: corre en el turno de ese mensaje.
 
+- `userId` (por defecto, `chatId`) e `isGroup` apuntan a un participante de un grupo;
+  `body` fija el `ctx.body` del mensaje sintético (por defecto `''`).
+- No corren hooks `before('message')`, matchers ni el evento `'message'`, y no se
+  persiste nada del mensaje sintético (`ctx.raw` es `{ synthetic: 'trigger', name }`).
+- `bot.triggerFlow(id, { chatId, userId?, isGroup? }, { state?, body? })` es un envoltorio
+  fino con `ifActive: 'replace'` que resuelve `true`/`false` y rechaza con el bot detenido.
+
 ## Métricas de runtime
 
-`bot.metrics()` devuelve una foto en memoria: conversaciones (iniciadas, completadas,
-canceladas, expiradas, sin reintentos, con error, activas, duración media) en total y
-por flujo, mensajes de entrada y salida, descartes de entrada (duplicados, bloqueados,
-handoff), triggers, errores y uptime. `bot.resetMetrics()` pone los contadores a cero.
-`toPrometheus(snapshot, { prefix?, labels? })` la renderiza en formato de texto de Prometheus, sin dependencias:
-
-```ts
-import { toPrometheus } from '@bot-wa/core'
-
-app.get('/metrics', (_req, res) => res.type('text/plain').send(toPrometheus(bot.metrics())))
-
-bot.on('conversation:started', ({ id, name, chatId }) => { /* ... */ })
-bot.on('conversation:ended', ({ id, name, chatId, outcome, durationMs }) => { /* ... */ })
-```
-
-`id` es único por instancia de conversación, así que sirve para emparejar cada `ended` con su `started`.
-Cuando una conversación se reemplaza, su `ended` (`outcome: 'cancelled'`) se emite antes del `started` de la nueva.
+`bot.metrics()`, `bot.resetMetrics()`, el exportador de Prometheus `toPrometheus()` y
+los eventos `'conversation:started'` / `'conversation:ended'` se documentan en
+[Operación](./operations#metricas-de-runtime).
 
 ## Siguientes pasos
 
 - [Flujos conversacionales](./flujos) — conversaciones multi-paso
+- [Streaming](./streaming) — respuestas largas y de IA, por partes
+- [Canales](./canales) — qué soporta cada transporte
+- [Operación](./operations) — métricas y eventos de conversación
 - [Ejemplos](/es/ejemplos/media) — recetas de media completas

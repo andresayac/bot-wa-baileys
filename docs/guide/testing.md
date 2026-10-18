@@ -122,6 +122,27 @@ Options: `requireRefChatId`, `rejectSuspiciousIds`, `distinctHumans`.
 `violations`. A real example lives in
 `packages/baileys-provider/tests/identity-contract.test.ts`.
 
+## Golden transcripts
+
+To lock down whole conversations, record one (`recordTranscript`) or read it
+from the store log (`transcriptFromStore`), redact it, commit it as JSON and
+replay it in a test with `assertTranscript`: any changed, missing or extra
+reply fails with an expected-vs-actual diff. The same replay can gate a
+deployment. See [Golden transcripts](/guide/golden-transcripts).
+
+```ts
+import { assertTranscript, parseTranscript } from '@bot-wa/core/testing'
+
+await assertTranscript(parseTranscript(readFileSync('tests/golden/checkout.json', 'utf8')), buildBot)
+```
+
+## Static checks
+
+[`eslint-plugin-bot-wa`](/guide/eslint) (experimental) catches v1 API
+leftovers, a blocking `runtime.enter()`, async plugin `install()`, empty
+triggers, waits without a timeout and per-user state in module variables
+before the code runs.
+
 ## Next steps
 
 - [Terminal simulator](./dev-simulator): try the bot by hand

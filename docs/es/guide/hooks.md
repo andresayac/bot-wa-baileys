@@ -23,9 +23,10 @@ bot.before('message', async (ctx, next) => {
 })
 ```
 
-::: warning No olvides next()
-Si no llamas `next()` (o llamas a `ctx.abort()`), el mensaje **no se sigue
-procesando**. Útil para bloquear mensajes (rate limiting, filtros).
+::: warning Bloquea con abort(), no saltándote next()
+Volver sin llamar a `next()` solo se salta los **hooks `before` restantes**;
+el mensaje se sigue enrutando. Para detenerlo, llama a `ctx.abort()` (ver
+`abort()` más abajo). Útil para bloquear mensajes (rate limiting, filtros).
 :::
 
 ### after — después de procesar
@@ -48,6 +49,9 @@ bot.onError('message', async (ctx, error) => {
 También existe un `bot.hook(event, phase, handler, priority?)` genérico si
 necesitas registrar una fase dinámicamente en lugar de llamar directamente a
 `before`/`after`/`onError`.
+
+El error de un handler se emite **siempre** en `bot.on('error', ({ error, ctx }) => ...)`,
+haya o no un hook `onError('message')` registrado.
 
 ## Casos de uso
 
@@ -89,7 +93,7 @@ bot.before('message', async (ctx, next) => {
 
 ```ts
 bot.before('message', async (ctx, next) => {
-  if (ctx.isGroup) return
+  if (ctx.isGroup) { ctx.abort(); return }
   await next()
 })
 ```
@@ -128,6 +132,37 @@ bot.before('send', async (payload, next) => {
 })
 ```
 
+Un envío abortado resuelve `{ skipped: true }` en lugar de rechazar (una
+[difusión](./mensajes#difusiones-broadcast) lo cuenta como `skipped`).
+
+### Ediciones y salida en streaming
+
+Algunos payloads llevan una marca para que un hook los distinga de un envío normal:
+
+| Marca | Lo envía | Hooks que corren |
+| --- | --- | --- |
+| `edit: ref` | [`ctx.edit()`](./mensajes#editar-un-mensaje) al editar un mensaje en el sitio | `before` + `after` |
+| `stream: 'message'` | un mensaje nuevo que envía [`ctx.stream()`](./streaming) (el primero de un stream por ediciones, un trozo por frases, el mensaje final tras los borradores) | `before` + `after` |
+| `stream: 'edit'` | una actualización en vivo de un mensaje en streaming | solo `before` |
+| `stream: 'draft'` | una vista previa nativa como borrador (Telegram) | solo `before` |
+
+Un hook puede reescribir `payload.content` o hacer `abort()` en cualquiera de ellos.
+Una edición abortada resuelve `skipped` y no envía un mensaje nuevo en su lugar.
+Una edición degradada (el provider no puede editar) sale como un envío normal, sin `edit`.
+
+```ts
+let sentCount = 0
+bot.before('send', async (payload, next) => {
+  // Oculta números de tarjeta en todo, vistas previas incluidas
+  if (payload.content.kind === 'text') {
+    payload.content.text = payload.content.text.replace(/\b\d{13,16}\b/g, '[card]')
+  }
+  // Cuenta solo mensajes nuevos: las vistas previas repiten el mismo texto muchas veces
+  if (payload.stream !== 'draft' && payload.stream !== 'edit' && !payload.edit) sentCount++
+  await next()
+})
+```
+
 ## abort() — detener el pipeline
 
 ```ts
@@ -152,11 +187,15 @@ bot.before('message', handler, 0)   // valor por defecto
 | Evento | Cuándo |
 |---|---|
 | `message` | El pipeline principal — un mensaje entrante siendo procesado |
-| `send` | Cualquier mensaje saliente, desde un helper de respuesta de `ctx` o `bot.send*` |
+| `send` | Cualquier mensaje saliente, desde un helper de respuesta de `ctx` o `bot.send*` (también ediciones y salida en streaming, ver arriba) |
+| `reaction`, `poll`, `group`, `presence`, `status` | Eventos del provider (una reacción, un voto de encuesta, un cambio de grupo, presencia, un acuse de entrega/lectura): corren los hooks `before` y `after` y luego el evento `bot.on(...)` correspondiente |
+| `call` | Una llamada entrante. `before('call', (ev) => ev.abort())` la aparta de los [triggers `CALL`](./triggers#call) |
 
 Los eventos de conexión a nivel de provider (`qr`, `ready`, `connection`,
 ...) son listeners `bot.on(...)` normales, no fases de hooks — ver
-[Conceptos básicos](./conceptos).
+[Conceptos básicos](./conceptos). Lo mismo vale para
+`'conversation:started'` / `'conversation:ended'`
+(ver [Operación](./operations#eventos-de-conversacion)).
 
 ## Siguientes pasos
 

@@ -31,12 +31,18 @@ What it draws:
   that starts it (`bot.use`, `bot.when(trigger, flow)`, a
   `bot.conversation` trigger). With `bot.when(trigger, flow)` the flow's own
   trigger is not routed, and the diagram shows that.
-- `say`, `ask` (→ state key, ⏱ when the step has its own timeout), `do`
-  (with the function name if it has one: `do: saveUser()`), `media`,
+- `say`, `ask` (→ state key, ⏱ when the step has its own timeout, `✓schema`
+  when it validates with a `schema`), `do` (with the function name if it has
+  one: `do: saveUser()`), `media` (with its kind: `media (document): ...`),
   `choose` (a diamond; options are arrows labelled `1) Label`, like the menu
-  the user sees), `goto` (a dotted arrow to the target flow) and `end`.
+  the user sees), `form` (its fields and state key), `guard` (`guard: isAdmin()`,
+  with `✗→ target` when it redirects), `use` (the sub-flow drawn inline,
+  returning to the next step), `delay` (`.delay()` steps; a `{ delay }`
+  option is appended to its step's label), `goto` (a dotted arrow to the target
+  flow) and `end`.
 - An option's `then:` is its own node when it is an action, or a nested
-  subgraph that returns to the parent's next step when it is a sub-flow.
+  subgraph that returns to the parent's next step when it is a sub-flow. An
+  option's `goto` is an arrow to its target flow.
 - The flow's `.timeout()` and `.persistent()` go in the subgraph title.
 - A `goto` to a flow that does not exist is drawn as a `missing: name` node.
 - Steps after an unconditional `goto` have no incoming arrow (visible dead
@@ -63,7 +69,7 @@ sorted from most to least severe.
 
 | Code | Severity | What it detects |
 | --- | --- | --- |
-| `goto-target-missing` | error | `goto('x')` to something not registered (also `goto(builder)` of a regex-triggered flow without `.id()`, whose id changes on every compile) |
+| `goto-target-missing` | error | `goto('x')`, a `.guard()` `redirect` or a `choose` option `goto` to something not registered (also `goto(builder)` of a regex-triggered flow without `.id()`, whose id changes on every compile) |
 | `invalid-timeout` | error | a step timeout that cannot be parsed (`'2 minutos'`) |
 | `empty-choice` | error | `choose()` with no options |
 | `unreachable-step` | warning | steps after an unconditional `goto` (or after a `choose` whose options all jump away) |
@@ -74,11 +80,13 @@ sorted from most to least severe.
 | `persistent-memory-store` | warning | `.persistent()` with a `MemoryStore` without `file` (checkpoints die on restart) |
 | `duplicate-choice` | warning | options with the same key or normalized label |
 | `ambiguous-choice` | warning | a numeric key/label out of position (`{ 0: 'Zero', 1: 'One' }`: typing 1 picks '0'), or a label equal to another option's key |
+| `form-state-collision` | warning | a `.form()` stores its answers under a `c.state` key that another `ask`/`choose`/`form` of the same flow also writes |
 | `missing-timeout` | info | `ask`/`choose` with no timeout and no `conversation.timeout`: the 5-minute fallback applies. Also notes that `then:` sub-flows do not inherit the parent's `.timeout()` |
 | `wait-never-expires` | info | timeout `0`: the wait never expires |
 
-`missing-timeout` fires on most small bots by design; use
-`minSeverity: 'warning'` for a quieter report.
+The timeout checks (`invalid-timeout`, `missing-timeout`,
+`wait-never-expires`) also cover `.form()` steps. `missing-timeout` fires on
+most small bots by design; use `minSeverity: 'warning'` for a quieter report.
 
 ## Lower-level helpers
 

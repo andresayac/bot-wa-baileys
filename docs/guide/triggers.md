@@ -148,3 +148,4 @@ Flows built with `flow(WELCOME)` or a type trigger get an anonymous id, so
 - [Core concepts](./concepts#the-inbound-pipeline): where each trigger runs
 - [Handoff & access lists](./handoff)
 - [Persistent user data](./user-data)
+- [Starting a flow programmatically](./messages#starting-a-flow-programmatically): `bot.trigger()` without an inbound message

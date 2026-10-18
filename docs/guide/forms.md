@@ -51,10 +51,15 @@ bot.use(
 Every field also takes `name`, `label`, `required` (default `true`, `false` for
 `optin`), `helper`, `prompt` (field-by-field question text) and `error` (custom
 error message). The definition is checked when the flow is built: a bad id, a
-duplicate field name or empty options throw a `TypeError`.
+duplicate field name or empty options throw a `TypeError`. Besides `id`,
+`title`, `intro` and `fields`, a definition takes `cta` (the button that opens a
+native form, default `'Abrir formulario'`) and `submitLabel` (default
+`'Enviar'`); these two are not taken from the `core.form.*` catalog, so set them
+when your bot does not speak Spanish.
 
 In field-by-field mode, `select`/`multiselect` accept the menu number, the key or
-the label; dates accept `YYYY-MM-DD` and `DD/MM/YYYY`; numbers accept a decimal
+the label (several picks separated by commas, `;`, `and`/`y` or spaces between
+numbers); dates accept `YYYY-MM-DD`, `DD/MM/YYYY`, `DD-MM-YYYY` and `DD.MM.YYYY`; numbers accept a decimal
 point or comma (`1.5`, `1,5`). Grouped numbers such as `1.500` or `1,500` are
 **rejected** (the separator could mean thousands or decimals), and the user is
 asked to type them without a thousands separator.
@@ -132,4 +137,4 @@ answer with `chat.send(formReplyBody({ token, values }), { type: 'form' })`.
 `bot.describe()` draws `form` nodes with their fields, and `bot.lint()` reports
 `form-state-collision` when a form writes a `c.state` key that another
 `ask`/`choose`/`form` of the same flow also writes. The timeout rules apply to
-forms too. See [Inspect & lint flows](./flow-tools.md).
+forms too. See [Inspect & lint flows](./flow-tools).

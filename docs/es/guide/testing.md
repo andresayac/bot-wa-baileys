@@ -127,6 +127,28 @@ Opciones: `requireRefChatId`, `rejectSuspiciousIds`, `distinctHumans`.
 Hay un ejemplo real en
 `packages/baileys-provider/tests/identity-contract.test.ts`.
 
+## Transcripciones doradas
+
+Para fijar conversaciones completas, graba una (`recordTranscript`) o léela
+del log del store (`transcriptFromStore`), redáctala, commitéala como JSON y
+reprodúcela en un test con `assertTranscript`: cualquier respuesta cambiada,
+ausente o de más falla con un diff esperado frente a real. La misma
+reproducción puede condicionar un despliegue. Consulta
+[Transcripciones doradas](/es/guide/transcripciones).
+
+```ts
+import { assertTranscript, parseTranscript } from '@bot-wa/core/testing'
+
+await assertTranscript(parseTranscript(readFileSync('tests/golden/checkout.json', 'utf8')), buildBot)
+```
+
+## Comprobaciones estáticas
+
+[`eslint-plugin-bot-wa`](/es/guide/eslint) (experimental) detecta restos de la
+API v1, un `runtime.enter()` bloqueante, `install()` async en plugins,
+triggers vacíos, esperas sin timeout y estado por usuario en variables de
+módulo antes de ejecutar el código.
+
 ## Siguientes pasos
 
 - [Simulador en la terminal](./simulador): prueba el bot a mano

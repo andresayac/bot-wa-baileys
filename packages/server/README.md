@@ -2,14 +2,14 @@
 
 > **Experimental — aún no publicado en npm.** El paquete es `private`: úsalo desde este monorepo (`workspace:*`). Su API puede cambiar.
 
-Ingress HTTP para los canales por webhook de `@bot-wa` (WhatsApp Cloud API, Messenger, Instagram, Telegram en modo webhook). Resuelve lo que todo host de webhooks tiene que hacer bien y que es fácil hacer mal:
+Ingress HTTP para los canales por webhook de `@bot-wa` (WhatsApp Cloud API, Messenger, Instagram, Telegram en modo webhook, Evolution, Twilio, HighLevel, TikTok, email entrante...). El ingress llama a `ingest(raw, headers)` sin la URL: con WPPConnect y Gupshup el token del webhook tiene que llegar en una cabecera, no en la query string. Resuelve lo que todo host de webhooks tiene que hacer bien y que es fácil hacer mal:
 
 - **Bytes crudos del body**: `provider.ingest()` recibe el `Buffer` exacto que llegó (la firma `X-Hub-Signature-256` de Meta se calcula sobre esos bytes, nunca sobre JSON re-serializado).
 - **Límite de tamaño** (`413`), por defecto 1 MiB, comprobado contra `Content-Length` y mientras llega el stream.
 - **Timeouts**: lectura del body (`408`) e `ingest` (`503`).
 - **Límite de concurrencia** (`503` + `Retry-After: 1` cuando está saturado).
 - **Enrutado por método y ruta**: `GET` → `verifyChallenge` (handshake de Meta), `POST` → `ingest(raw, headers)`; el valor que devuelve `ingest` es el status HTTP.
-- **Health**: `/healthz` (liveness, siempre 200) y `/readyz` (200 solo cuando el bot está `ready` y no se está cerrando).
+- **Health**: `/healthz` (liveness, siempre 200) y `/readyz` (200 solo cuando el bot está `ready`, el check `readiness` opcional da `true` y no se está cerrando).
 - **Sin logs sensibles**: solo se registran método, ruta, status, tamaños y el *nombre* de la clase de error; nunca bodies, cabeceras, query strings ni mensajes de error.
 - **Sin dependencias de frameworks**: adaptadores para `node:http`, Express, Fastify y Hono tipados estructuralmente, en subpaths separados.
 

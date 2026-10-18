@@ -44,13 +44,13 @@ stub — via the structural `ManageableBot` interface.
 
 | Method | Returns | Notes |
 | --- | --- | --- |
-| `add(bot, opts?: { id?, meta? })` | `string` (the id) | Auto id `bot-N` when omitted (never collides); **throws on duplicate id**. Emits `added`. |
+| `add(bot, opts?: { id?, tenantId?, name?, meta? })` | `string` (the id) | Auto id `bot-N` when omitted (never collides); **throws on duplicate id**. Emits `added`. |
 | `get(id)` | `ManageableBot \| undefined` | The bot instance. |
 | `has(id)` | `boolean` | |
 | `remove(id)` | `Promise<boolean>` | Stops the bot first if running (a failed stop emits `error` but does not block removal). Emits `removed`. `false` when unknown. |
-| `list()` | `Array<{ id, running, meta }>` | Status snapshot of every bot. |
-| `status(id)` | `{ id, running, meta } \| undefined` | Snapshot of one bot. |
-| `entries()` | `BotEntry[]` | Full entries: `{ id, bot, createdAt, meta? }`. |
+| `list()` | `Array<{ id, running, tenantId?, name?, meta? }>` | Status snapshot of every bot. |
+| `status(id)` | `{ id, running, tenantId?, name?, meta? } \| undefined` | Snapshot of one bot. |
+| `entries()` | `BotEntry[]` | Full entries: `{ id, bot, createdAt, tenantId?, name?, meta? }`. |
 | `isRunning(id)` | `boolean` | |
 | `size` | `number` (getter) | Registered bot count. |
 
@@ -59,7 +59,9 @@ stub — via the structural `ManageableBot` interface.
 | Method | Behavior |
 | --- | --- |
 | `start(id)` / `stop(id)` | `Promise<void>`. Idempotent (no-op if already running / not running). Throw for unknown ids; re-throw bot failures after emitting `error`. A failed `stop` leaves the bot marked running. |
+| `restart(id, { recreate? })` | Stop (when running) and start again; emits `restarted`. `recreate: true` rebuilds a config-backed bot through the factory. |
 | `startAll()` / `stopAll()` | `Promise<Record<string, 'ok' \| Error>>`. Run **in parallel** and never throw — failures are collected per id in the results map. |
+| `shutdown()` | Cancel pending reconnects and stop every bot **without** changing the persisted desired state (so `restore()` brings them back). |
 
 ```ts
 const results = await manager.startAll()
@@ -78,7 +80,10 @@ await manager.stopAll()
 | `removed` | `id: string` | After `remove()` unregisters a bot. |
 | `started` | `id: string` | After `start(id)` succeeds. |
 | `stopped` | `id: string` | After `stop(id)` succeeds. |
+| `restarted` | `id: string` | After `restart(id)` (manual or by the supervisor). |
 | `error` | `{ id: string, error: unknown }` | A lifecycle operation failed (also re-thrown / present in results maps). |
+| `connection` | `{ id, state, reason?, authPayload?, updatedAt? }` | A bot's connection state changed (bots that emit `connection`). |
+| `reconnecting` / `reconnected` / `reconnectFailed` | `{ id, attempt, delayMs, reason }` / `{ id, attempts }` / `{ id, attempts, error? }` | Supervisor activity (see *Reconexión automática*). |
 
 Listeners are typed via `ManagerEventMap`. A no-op default `error` listener
 is installed so an unobserved failure can never crash the process through
@@ -86,7 +91,7 @@ is installed so an unobserved failure can never crash the process through
 
 ## HTTP API
 
-Two HTTP surfaces are available. **New deployments should use `createControlPlaneApi(manager, { tenantId, apiKeys })`**: a versioned `/v1` API with no anonymous mode. Every API key carries scopes, every response includes `x-request-id`, and lifecycle operations accept an `Idempotency-Key`.
+Three HTTP surfaces are available. The complete one is **`createRestApi`** (see *API REST `/v1` completa* below). `createControlPlaneApi(manager, { tenantId, apiKeys })` is a minimal, audited `/v1` surface with no anonymous mode (it also defaults to the `/v1` prefix, so do not mount it next to `createRestApi` on the same prefix). Every API key carries scopes, every response includes `x-request-id`, and lifecycle operations accept an `Idempotency-Key`.
 
 ```ts
 createServer(createControlPlaneApi(manager, {
@@ -107,6 +112,8 @@ can list, start and stop bots — and a one-time warning is logged.
 
 | Route | Success | Errors |
 | --- | --- | --- |
+| `GET {prefix}/health` | `200` — `{ status: 'ok', bots, running }` | |
+| `GET {prefix}/metrics` | `200` — Prometheus text (`botwa_manager_bots_registered`, `botwa_manager_bots_running`) | |
 | `GET {prefix}/bots` | `200` — `Array<{ id, running, meta }>` | |
 | `GET {prefix}/bots/:id` | `200` — `{ id, running, meta }` | `404 { error }` unknown id |
 | `POST {prefix}/bots/:id/start` | `200` — `{ id, running: true }` | `404` unknown id · `500 { error }` start failure |

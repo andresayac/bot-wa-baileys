@@ -107,8 +107,8 @@ Los nombres se aceptan en cualquier forma (`MESSAGES_UPSERT`, `messages-upsert`,
 `ctx.media` / `provider.downloadMedia(ref)` usa el base64 del webhook si la
 instancia tiene `webhookBase64: true`; si no, llama a
 `/chat/getBase64FromMediaMessage/{instance}`. Nunca descarga URLs arbitrarias del
-payload. Para enviar, una URL `https://` se pasa tal cual a Evolution y
-cualquier otro `MediaSource` (Buffer, ruta, stream) viaja en base64.
+payload. Para enviar, una URL (`http(s)://` o `{ url }`) se pasa tal cual a Evolution
+y cualquier otro `MediaSource` (Buffer, ruta, stream) viaja en base64.
 
 ## Limitaciones
 

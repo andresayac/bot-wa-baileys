@@ -1,6 +1,6 @@
 # @bot-wa/email
 
-> **Experimental — aún no publicado en npm.** Implementación real y con tests, pero el paquete es `private`: su API puede cambiar. Úsalo desde este monorepo (`workspace:*`).
+> **Experimental — aún no publicado en npm.** Implementación real y con tests, pero el paquete es `private`: su API puede cambiar. Úsalo desde este monorepo (`workspace:*`); el `pnpm add @bot-wa/email` de abajo funcionará cuando se publique.
 
 Transporte **email** para [`@bot-wa/core`](../core): **IMAP IDLE** para recibir (o `ingest()` con el MIME crudo desde un webhook de correo entrante) y **SMTP** para responder. Cada hilo de correo es un chat, así que los flows (`flow().ask()...`) funcionan igual que en WhatsApp o Telegram: el cliente responde al email y el bot continúa la conversación en el mismo hilo.
 
@@ -87,6 +87,7 @@ Sin `requireAuthentication`, trata `senderId` como una dirección declarada, no 
 El estado de los hilos (a quién responder, asunto, cadena `References`) vive en memoria por defecto. Para seguir respondiendo después de un reinicio, guárdalo en cualquier store con cursores:
 
 ```ts
+import { Bot } from '@bot-wa/core'
 import { SQLiteStore } from '@bot-wa/sqlite-store'
 import { cursorThreadStore, EmailProvider } from '@bot-wa/email'
 

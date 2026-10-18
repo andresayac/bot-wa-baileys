@@ -89,12 +89,18 @@ bot.schedule('0 9 * * *', async () => {
 })
 ```
 
+To send one message to many chats use [`bot.broadcast()`](./messages#broadcasts)
+(batches, retries on rate limits, cancellable); to start a whole flow for
+someone use [`bot.trigger()`](./messages#starting-a-flow-programmatically).
+On the WhatsApp Cloud API, free-form messages only go out inside the 24-hour
+window: see [Session window](./session-window).
+
 ## How do I stop the bot properly?
 
 ```ts
 process.on('SIGINT', async () => {
   console.log('🛑 Shutting down...')
-  await bot.stop()
+  await bot.stop({ drain: true }) // wait for in-flight and paced replies (up to `timeout`, 10 s by default)
   process.exit(0)
 })
 ```
@@ -132,7 +138,7 @@ WhatsApp can detect excessive automation. To minimize risk:
 - Don't send spam or mass messages
 - Use `markOnlineOnConnect: false` (a `BaileysProvider` option)
 - Respect rate limits (the provider's [built-in limiter](./rate-limiting))
-- Don't reply instantly to everything (use human delays)
+- Don't reply instantly to everything (turn on the [typing indicator](./messages#typing-indicator-and-reply-delays) with `BotConfig.typing`)
 - Consider the official [Cloud API](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/meta-provider) (`@bot-wa/meta`) for business-critical bots — no ban risk
 
 ## Do I need TypeScript?

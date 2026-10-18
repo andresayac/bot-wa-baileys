@@ -25,6 +25,7 @@ const rag = createRag({
 
 bot.plug(aiPlugin({
   provider: 'openai',
+  model: 'gpt-5-mini',                            // openai has no default model
   rag: { retriever: rag, appendSources: true },   // o simplemente `rag`
 }))
 // Usuario: "¿cuánto tarda el envío?"

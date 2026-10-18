@@ -117,13 +117,35 @@ bot.conversation('reclamo', async (c, ctx) => {
 
 `ctx.tools.ai` (un `AIClient`) expone:
 
-- `ask(prompt: string): Promise<string>` — una pregunta suelta, **sin**
+- `ask(prompt, opts?): Promise<string>` — una pregunta suelta, **sin**
   historial de chat (no lee ni escribe el contexto guardado). Usa la
-  `persona`/`model`/`maxTokens`/`effort` configurados en `aiPlugin`.
+  `persona`/`model`/`maxTokens`/`effort` configurados en `aiPlugin` (y las
+  [herramientas](/es/guide/ai-herramientas), si las hay).
+- `replyInChat(chatKey, text, opts?): Promise<string>` — responde dentro del
+  historial de un chat (lo lee y guarda el turno), igual que el
+  autoresponder. `opts` acepta `{ userId, isGroup }` para la
+  [memoria](/es/guide/ai-memoria-rag) y `{ ctx, confirm, signal }` para las
+  herramientas; usa `chatKeyOf(ctx)` como clave. `replyInChatDetailed()`
+  devuelve además las citas y los hechos del turno.
+- `streamReplyInChat(chatKey, text, opts?)` — el gemelo en streaming de
+  `replyInChat`, para pasárselo a [`ctx.stream()`](/es/guide/streaming).
+- `runTools(input, opts?)` — ejecuta el
+  [bucle de herramientas](/es/guide/ai-herramientas) y devuelve su resultado
+  completo.
+- `memory()`, `memoryFacts()`, `remember()`, `forget()`, `extractMemory()` —
+  la API de [memoria a largo plazo](/es/guide/ai-memoria-rag); `idle()` espera
+  a la extracción en segundo plano.
 - `generate(input: { messages, system?, model?, maxTokens?, effort?, signal? }): Promise<GenerateResult>` —
   control total: mensajes explícitos y overrides puntuales.
 - `stream(input): AsyncIterable<string>` — igual que `generate` pero entrega
   el texto en fragmentos (`for await (const delta of ...)`).
+
+**Tipado (TypeScript).** Importar `@bot-wa/ai` amplía la interfaz
+`DefaultTools` del core, así que `ctx.tools.ai` ya es un `AIClient` en los
+handlers de `when()`, `onMessage()` y `command()` (y en
+`bot.injectTools.ai`), sin casts. El tipo no comprueba que el plugin esté
+instalado: sin `bot.plug(aiPlugin(...))` (o después de `unplug()`),
+`ctx.tools.ai` es `undefined` en tiempo de ejecución.
 
 ## Los proveedores
 
@@ -230,7 +252,7 @@ el `errorMessage` configurado en vez de tumbar el bot.
 | `apiKey` | `string` | fallback a env var | API key (si se omite, cada proveedor intenta su variable de entorno convencional) |
 | `baseUrl` | `string` | según preset | override de endpoint (`baseURL` de openai / host de ollama) |
 | `persona` | `string` | — | system prompt |
-| `maxTokens` | `number` | `4096` (anthropic) / `1024` (compatibles OpenAI) | límite de tokens de salida |
+| `maxTokens` | `number` | `4096` (anthropic) / `1024` (openai, presets, gemini) | límite de tokens de salida (no se envía a ollama) |
 | `effort` | `'low' \| 'medium' \| 'high' \| 'xhigh' \| 'max'` | — | esfuerzo de razonamiento (solo Anthropic) |
 | `timeoutMs` | `number` | `60000` | timeout por llamada no-streaming; al vencer aborta la petición y rechaza, para que un proveedor colgado no bloquee la cola del chat (`0` lo desactiva, no recomendado) |
 | `context.maxMessages` | `number` | `20` | ventana de historial guardada por chat |
@@ -239,6 +261,73 @@ el `errorMessage` configurado en vez de tumbar el bot.
 | `errorMessage` | `string` | `'⚠️ Ahora no puedo responder, intenta luego.'` | respuesta si el proveedor falla |
 | `refusalMessage` | `string` | `'No puedo ayudar con eso.'` | respuesta cuando el proveedor rehúsa (`stopReason === 'refusal'`) |
 | `humanizeTyping` | `boolean` | `true` | envía "escribiendo…" (`ctx.typing()`) mientras se genera la respuesta; la respuesta se salta entonces el `BotConfig.typing`, así que el indicador sale una sola vez |
+| `tools` | `Record<string, AITool>` | — | funciones que el modelo puede llamar (ver [Herramientas](#herramientas)) |
+| `maxSteps` | `number` | `5` | máximo de llamadas al modelo por turno en el bucle de herramientas |
+| `toolTimeoutMs` | `number` | `15000` | timeout por defecto de cada herramienta (`0` lo desactiva) |
+| `maxStepsMessage` | `string` | mensaje localizado `ai.tools.maxSteps` (es: `'No pude completar la solicitud. Intenta de nuevo con más detalle.'`) | respuesta cuando el bucle llega a `maxSteps` |
+| `toolConfirm` | `{ yes?: string[]; timeout?: number \| string }` | `{ timeout: '2m' }` | diálogo de confirmación de las herramientas `confirm: true` |
+| `onToolEvent` | `(event: AIToolEvent) => void` | — | auditoría de cada evento del bucle (también se emite como `bot.on('ai.tool')`) |
+| `memory` | `boolean \| AIMemoryConfig` | — | memoria a largo plazo por usuario (ver [Memoria y RAG](#memoria-y-rag)) |
+| `rag` | `AIRetriever \| AIRagConfig` | — | respuestas basadas en tus documentos (ver [Memoria y RAG](#memoria-y-rag)) |
+| `stream` | `boolean \| AIStreamConfig` | apagado | transmite el autoresponder con `ctx.stream()` (ver [Streaming](#streaming)) |
+
+## Herramientas
+
+Con `tools`, el modelo puede llamar a funciones de tu bot mediante el *tool /
+function calling* nativo (Anthropic, OpenAI y los presets compatibles,
+Gemini, Ollama), en un bucle de varios pasos con timeout por herramienta,
+errores devueltos al modelo, confirmación humana para las herramientas
+`confirm: true` y eventos de auditoría:
+
+```ts
+bot.plug(aiPlugin({
+  provider: 'openai',
+  model: 'gpt-5-mini',
+  tools: {
+    buscar_producto: {
+      description: 'Busca productos del catálogo por texto',
+      schema: { type: 'object', properties: { q: { type: 'string' } }, required: ['q'] },
+      handler: async ({ q }: { q: string }) => db.products.search(q),
+    },
+  },
+}))
+```
+
+Guía completa: [Herramientas de IA](/es/guide/ai-herramientas).
+
+## Memoria y RAG
+
+`memory` recuerda hechos de cada usuario entre conversaciones (se guardan en
+`ctx.user`, se inyectan en el autoresponder y, opcionalmente, el modelo los
+extrae en segundo plano). `rag` responde a partir de tus documentos con citas
+numeradas, usando cualquier retriever, como `createRag()` del paquete
+experimental `@bot-wa/rag`.
+
+```ts
+bot.plug(aiPlugin({
+  provider: 'openai',
+  model: 'gpt-5-mini',
+  memory: { autoExtract: true, ttl: '90d' },
+  rag: { retriever: createRag({ documents: ['./docs/faq.md'] }), appendSources: true },
+}))
+```
+
+Guía completa: [Memoria y RAG](/es/guide/ai-memoria-rag).
+
+## Streaming
+
+`stream: true` envía la respuesta del autoresponder mientras se genera:
+borradores nativos en Telegram, ediciones en vivo en Discord y trozos por
+frases con "escribiendo…" en WhatsApp. Los turnos con herramientas no se
+transmiten. Guía completa:
+[Respuestas en streaming](/es/guide/streaming#con-bot-wa-ai).
+
+## Notas de voz
+
+El autoresponder solo contesta mensajes de texto. Con el plugin experimental
+[`@bot-wa/voice`](/es/guide/voz), las notas de voz se transcriben antes de
+enrutarse (usa `autoTranscribe: { asText: true }` para que la IA las
+conteste) y `autoReplyWithVoice` puede devolver la respuesta como audio.
 
 ## `/reset` y `slashCommandsPlugin`
 
@@ -276,18 +365,25 @@ const respuesta = await client.ask('¿qué hora es?')
 // respuesta === 'respuesta simulada'
 ```
 
+`reply` también puede ser una función de la petición que devuelva
+`{ toolCalls }` para simular llamadas a herramientas (ver
+[Testing en la guía de herramientas](/es/guide/ai-herramientas#testing)), y
+`mock.calls` registra cada petición que envió el cliente.
+
 ## Roadmap
 
 No-objetivos de esta primera versión, ya contemplados en el diseño de
 `AIProvider`/`ContextManager` para poder añadirlos después sin romper la API:
 
-- **Function/tool calling** — que la IA pueda ejecutar acciones del bot.
 - **Auto-summarize / compaction** del historial (en vez de recortar por
   ventana fija de mensajes).
-- RAG / embeddings.
 - Multi-persona por número.
 
 ## Siguientes pasos
 
+- [Herramientas de IA](/es/guide/ai-herramientas) — deja que el modelo llame a funciones de tu bot
+- [Memoria y RAG](/es/guide/ai-memoria-rag) — hechos por usuario y respuestas con tus documentos
+- [Respuestas en streaming](/es/guide/streaming) — `ctx.stream()` por canal
+- [Voz](/es/guide/voz) — transcribe notas de voz y responde con audio
 - [Plugins](./plugins) — cómo funcionan `bot.plug()`/`definePlugin` en general
 - [Inyección de dependencias](./di) — cómo se conecta `ctx.tools`

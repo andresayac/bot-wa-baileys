@@ -97,7 +97,7 @@ bot.when('info', async (ctx) => {
 
 ```ts
 bot.when('who', async (ctx) => {
-  const name = ctx.senderInfo?.pushName ?? ctx.pushName ?? 'friend'
+  const name = ctx.senderInfo.displayName ?? 'friend'
   await ctx.reply(`👋 Hi ${name}!`)
 })
 ```

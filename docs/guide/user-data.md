@@ -34,7 +34,7 @@ bot.when('hola', async (ctx) => {
 // Jobs, webhooks, admin endpoints
 await bot.user('5491122334455').ns('billing').set('plan', 'pro')
 
-// Inside flow steps and conversations ctx is a RuntimeMessage: use userOf()
+// Inside flow steps ctx is a RuntimeMessage: use userOf()
 import { userOf } from '@bot-wa/core'
 
 flow('idioma')

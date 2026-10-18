@@ -58,10 +58,10 @@ especially if you move the bot to the official Cloud API (`@bot-wa/meta`). See t
 
 ```
 my-bot/
-├── package.json      # type: module, @bot-wa/core + the transport, start/dev scripts
+├── package.json      # type: module, @bot-wa/core + the transport, start/dev scripts (dev = bot-wa dev terminal simulator)
 ├── src/bot.js        # runnable bot: provider + bot.when('hola', …) + a small flow
 ├── .env.example      # the env vars the bot reads (copy to .env)
-├── .gitignore        # node_modules/, sessions/, .env, *.qr.png
+├── .gitignore        # node_modules/, sessions/, .env, *.qr.png, *.db, *.db-*
 ├── README.md         # how to run this specific bot
 └── AGENTS.md         # instructions for AI coding agents: the v2 API, what does NOT exist (addAnswer, capture…), commands
 ```
@@ -72,7 +72,7 @@ Then:
 cd my-bot
 npm install
 cp .env.example .env   # fill in your credentials
-npm start              # or: npm run dev (auto-reload)
+npm start              # or: npm run dev (chat in the terminal: simulated provider, hot reload)
 ```
 
 ## CLI options
@@ -94,7 +94,7 @@ create-bot-wa <dir> [options]
 import { scaffold, TEMPLATE_NAMES } from 'create-bot-wa'
 
 const result = await scaffold({ targetDir: './my-bot', template: 'telegram' })
-console.log(result.files) // ['.env.example', '.gitignore', 'README.md', 'package.json', 'src/bot.js']
+console.log(result.files) // ['package.json', 'src/bot.js', '.env.example', '.gitignore', 'README.md', 'AGENTS.md']
 ```
 
 It refuses to write into a non-empty target directory unless `overwrite: true` is passed.

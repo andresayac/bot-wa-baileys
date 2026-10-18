@@ -52,10 +52,14 @@ Todos los campos aceptan además `name`, `label`, `required` (por defecto `true`
 `false` en `optin`), `helper`, `prompt` (texto de la pregunta campo por campo) y
 `error` (mensaje de error propio). La definición se comprueba al construir el
 flujo: un id inválido, un nombre de campo repetido u opciones vacías lanzan un
-`TypeError`.
+`TypeError`. Además de `id`, `title`, `intro` y `fields`, una definición acepta
+`cta` (el botón que abre un formulario nativo, por defecto `'Abrir formulario'`)
+y `submitLabel` (por defecto `'Enviar'`); estos dos no salen del catálogo
+`core.form.*`, así que defínelos si tu bot no habla español.
 
 Campo por campo, `select`/`multiselect` aceptan el número del menú, la clave o la
-etiqueta; las fechas aceptan `AAAA-MM-DD` y `DD/MM/AAAA`; los números aceptan
+etiqueta (varias elecciones separadas por comas, `;`, `y`/`and` o espacios entre
+números); las fechas aceptan `AAAA-MM-DD`, `DD/MM/AAAA`, `DD-MM-AAAA` y `DD.MM.AAAA`; los números aceptan
 punto o coma decimal (`1.5`, `1,5`). Los números agrupados como `1.500` o `1,500`
 se **rechazan** (el separador puede ser de miles o decimal) y se pide al usuario
 que los escriba sin separador de miles.
@@ -136,4 +140,4 @@ formularios campo por campo. Para probar el camino nativo, pon
 `form-state-collision` cuando un formulario escribe una clave de `c.state` que
 otro `ask`/`choose`/`form` del mismo flujo también escribe. Las reglas de
 timeouts se aplican también a los formularios. Más en
-[Inspeccionar y validar flujos](./inspeccion-flujos.md).
+[Inspeccionar y validar flujos](./inspeccion-flujos).

@@ -4,7 +4,7 @@
 
 - **Node.js** 22 o superior ([descargar](https://nodejs.org/))
 - **pnpm** (recomendado) o npm/yarn
-- Un teléfono con WhatsApp
+- Un teléfono con WhatsApp (para el transporte Baileys)
 
 ::: tip ¿No tienes pnpm?
 Instálalo con:
@@ -29,6 +29,54 @@ todavía**: la primera publicación se está preparando. Los comandos
 clona [el repositorio](https://github.com/andresayac/bot-wa-baileys) y usa
 los paquetes desde el workspace de pnpm (`workspace:*`).
 :::
+
+## Crear un proyecto con create-bot-wa
+
+La forma más rápida de empezar es la CLI `create-bot-wa`, que genera un
+proyecto listo para ejecutar (forma parte de la misma alpha, así que hasta la
+primera publicación ejecútala desde el monorepo:
+`pnpm --filter create-bot-wa build && node packages/create-bot-wa/lib/cli.js my-bot`):
+
+```bash
+npm create bot-wa@latest my-bot
+npm create bot-wa@latest my-bot -- --template telegram --yes
+```
+
+| Plantilla | Qué obtienes |
+| --- | --- |
+| `baileys` (por defecto) | WhatsApp vía Baileys: escaneas un QR para vincular |
+| `meta` | WhatsApp Cloud API (webhook; necesita credenciales de Meta y una URL pública) |
+| `telegram` | Telegram Bot API (long-polling; necesita un token de @BotFather) |
+| `ai` | Baileys + autorespondedor de soporte con `@bot-wa/ai` limitado al negocio (`ANTHROPIC_API_KEY`) |
+| `games` | Adivina el número, ahorcado, trivia, tres en raya, piedra-papel-tijera; puntuaciones en `ctx.user` |
+| `support` | Tickets por usuario, menú de FAQ y handoff a humano |
+| `store` | Catálogo, carrito por usuario con TTL de 7 días y flujo de checkout |
+| `restaurant` | Menú, pedidos a domicilio o para recoger, "repetir mi último pedido", reservas de mesa |
+| `clinic` | Agenda de citas (especialidad, día, hora), listar y cancelar citas |
+| `ai-full` | IA limitada al negocio + intents por palabra clave/regex + store SQLite + scheduler + comandos slash + handoff (`ANTHROPIC_API_KEY`) |
+
+Las plantillas de casos de uso (de `games` a `ai-full`) usan Baileys.
+
+| Flag | Significado |
+| --- | --- |
+| `-t, --template <name>` | Una de las plantillas de arriba (`baileys` en modo no interactivo) |
+| `--name <name>` | Nombre del paquete (por defecto, el del directorio) |
+| `-y, --yes` | Omite las preguntas y usa los valores por defecto |
+| `--overwrite` | Permite generar en un directorio que no está vacío |
+| `-h, --help` | Muestra la ayuda |
+
+Cada proyecto incluye `package.json` (con `npm start` y `npm run dev`, el
+[simulador en la terminal](/es/guide/simulador)), `src/bot.js`,
+`.env.example`, `.gitignore`, `README.md` y un **`AGENTS.md`** con
+instrucciones para agentes de código con IA: la API v2 actual, lo que no
+existe (`addAnswer`, `capture`...) y los comandos que hay que ejecutar.
+
+El `package.json` generado depende de las versiones en npm de los paquetes
+`@bot-wa/*` (`^2.0.0-alpha.1` para el core, `^0.1.0` para el resto), así que
+su `npm install` solo funciona tras la primera publicación. Mientras tanto,
+apunta esas dependencias a tu copia local del monorepo.
+
+Si prefieres montarlo todo a mano, sigue los pasos de abajo.
 
 ## Paso 1 — Instalar el framework
 
@@ -55,7 +103,9 @@ Otros transportes detrás del mismo contrato `IProvider`:
 
 Los paquetes **Alpha** forman parte de la primera alpha publicable. Los
 **Experimental** son implementaciones reales y con tests que de momento siguen
-siendo privadas (sin publicar) y pueden cambiar.
+siendo privadas (sin publicar) y pueden cambiar. Hay más providers
+experimentales (Evolution API, WPPConnect, Twilio, HighLevel, Gupshup, Email y
+TikTok) y una matriz de capacidades en [Canales](/es/guide/canales).
 
 Luego agrega `"type": "module"` al `package.json` generado para que Node
 trate tus archivos como ESM:
@@ -134,10 +184,9 @@ const bot = new Bot({
 `provider.ingest(rawBody, headers)` desde tu servidor HTTP — la firma se
 calcula sobre los bytes exactos que envió Meta. Sin `appSecret` el
 constructor lanza un error; `allowUnsignedWebhooks: true` existe solo para
-desarrollo local aislado.) Ver
-[`@bot-wa/telegram`](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/telegram-provider)
-y [`@bot-wa/discord`](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/discord-provider)
-(experimental) para los otros transportes.
+desarrollo local aislado.) Consulta [Canales](/es/guide/canales) para el
+resto de transportes y [Servidor de webhooks](/es/guide/servidor) para montar
+los providers por webhook.
 
 ## Siguientes pasos
 

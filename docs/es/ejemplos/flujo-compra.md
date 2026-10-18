@@ -104,6 +104,29 @@ const buy = flow('buy')
 bot.use(buy)
 ```
 
+## Volver al menú principal
+
+Una opción con `goto` sale del flujo actual hacia otro; una opción cuyo `then`
+es un flujo completo lo ejecuta en línea y vuelve (como `.use()`):
+
+```ts
+const menu = flow('menu').choose('Menú principal', { comprar: 'Comprar 🛒', ayuda: 'Ayuda' }, 'seccion')
+
+const direccion = flow('direccion').ask('¿Calle?', 'calle').ask('¿Ciudad?', 'ciudad')
+
+const checkout = flow('checkout')
+  .choose('¿Confirmas el pedido?', {
+    si: { label: 'Sí ✅', then: direccion },        // ejecuta el sub-flujo y sigue abajo
+    volver: { label: '⬅️ Menú principal', goto: menu }, // sale de este flujo
+  })
+  .say((_ctx, c) => `📦 Envío a ${c.state.calle}, ${c.state.ciudad}`)
+
+bot.use([menu, checkout]) // `direccion` corre en línea, no hace falta registrarlo
+```
+
+`bot.lint()` avisa de un `goto` a un flujo no registrado (ver
+[Inspeccionar y validar flujos](/es/guide/inspeccion-flujos)).
+
 ## Siguientes pasos
 
 - [Soporte con timeout](./flujo-soporte) — timeout y fallback

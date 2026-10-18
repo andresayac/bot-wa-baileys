@@ -103,14 +103,18 @@ bot.when('poll-multi', async (ctx) => {
 
 ## Recibir una imagen y responder con un sticker
 
-`ctx.media` ya es el payload cargado (no es una promesa) — no hace falta
-hacerle `await`:
+El media entrante se descarga bajo demanda: `loadMediaOf(ctx)` trae los bytes
+una vez y los deja en `ctx.media` (ver
+[Acceder al contenido del media](/es/guide/mensajes#acceder-al-contenido-del-media)):
 
 ```ts
+import { loadMediaOf } from '@bot-wa/core'
+
 bot.onImage(async (ctx) => {
   await ctx.reply('📸 Got your image. Converting to sticker...')
-  if (ctx.media?.buffer) {
-    await ctx.sticker(ctx.media.buffer, { pack: 'My Bot', author: 'me' })
+  const media = await loadMediaOf(ctx, { maxBytes: 5 * 1024 * 1024 })
+  if (media) {
+    await ctx.sticker(media.buffer, { pack: 'My Bot', author: 'me' })
   }
 })
 ```

@@ -71,6 +71,24 @@ const register = flow('register')
 bot.use(register)
 ```
 
+## Validate with a schema
+
+`schema` takes any zod-compatible object (anything with `safeParse()`). The
+**parsed** value lands in `c.state`, typed, so `c.state.age` below is a
+`number`. A rejected answer re-asks with the schema's message:
+
+```ts
+import { z } from 'zod'
+
+const register = flow('register')
+  .ask('What is your name?', 'name', { schema: z.string().trim().min(2, '❌ At least 2 letters') })
+  .ask('How old are you?', 'age', { schema: z.coerce.number().int().min(18, '❌ You must be 18 or older') })
+  .say((_ctx, c) => `✅ ${c.state.name}, ${c.state.age} years old`)
+```
+
+For several fields at once (a native WhatsApp Flow on the Cloud API), see
+[Forms](/guide/forms).
+
 ## Next steps
 
 - [Shopping flow](./shopping-flow) — branching with choose

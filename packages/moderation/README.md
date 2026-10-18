@@ -18,8 +18,7 @@ bot.plug(moderationPlugin({
   provider,                                          // habilita delete/kick/admins si el provider los soporta
   antiSpam: { maxMessages: 5, windowMs: 10_000, action: 'warn' },
   wordFilter: { banned: ['spam', 'estafa', /bit\.ly\/\w+/i], action: 'delete' },
-  autoKickOnLink: true,                              // = linkFilter: { action: ['delete', 'kick'] }
-  linkFilter: { allowInvites: ['CODIGO_DE_MI_GRUPO'] },
+  linkFilter: { action: ['delete', 'kick'], allowInvites: ['CODIGO_DE_MI_GRUPO'] },
   warnings: { max: 3, then: 'kick' },
   groups: {
     [grupoStaff]: false,                             // sin moderación aquí
@@ -50,6 +49,7 @@ Por defecto solo modera **grupos** (`applyTo: 'all'` incluye chats privados). La
 - `allowInvites` acepta códigos o enlaces de invitación completos (con o sin `https://`) y compara el **código exacto**: una URL que solo contiene el código (p. ej. en la query) no queda permitida.
 - Invitaciones reconocidas: WhatsApp (`chat.whatsapp.com/…`), Telegram (`t.me/+…`, `t.me/joinchat/…`) y Discord (`discord.gg/…`, `discord.com/invite/…`). Añade otras con `invitePatterns` (el primer grupo de captura es el código).
 - `action` acepta una acción o varias en orden: `['delete', 'warn']`.
+- `autoKickOnLink: true` es un atajo de `linkFilter: { action: ['delete', 'kick'] }` y solo se aplica si no defines `linkFilter` (global o en el override del grupo).
 
 ## Acciones y degradación
 

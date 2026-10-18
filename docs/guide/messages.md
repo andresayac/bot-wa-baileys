@@ -107,9 +107,19 @@ await ctx.reply('One moment…', { typing: false })
 await ctx.reply('Here it is', { delay: '1.5s', typing: { maxMs: 1000 } })
 ```
 
+- `typing: true` uses the bot's timing, `typing: false` suppresses it, and an
+  object enables it with those overrides. A per-reply `maxMs` below the bot's
+  `minMs` lowers the minimum instead of throwing.
+- `delay` (ms or `'500ms'`, `'1.5s'`) runs before the indicator. `cancelIf: () => boolean`
+  is checked after the wait: when it returns `true` the reply is dropped.
 - A failing indicator never fails the send; it is cosmetic and best effort.
 - On providers without `capabilities.typing` there is no indicator **and no wait**. `delay` is honored everywhere.
 - A paced reply is dropped (it resolves `{ skipped: true }`) if the bot stops, the chat is handed off or the flow is aborted during the wait. `stop({ drain: true })` waits for paced replies.
+- `ctx.replyWithTyping(text, msPerChar?)` paces itself (40 ms per character by
+  default) and ignores `BotConfig.typing`.
+
+Long or AI-generated answers can be streamed instead of sent in one go: see
+[Streaming](./streaming).
 
 ## Edit a message
 
@@ -130,7 +140,7 @@ When the provider cannot edit (no `capabilities.edit`, a content kind it cannot
 edit, or nothing to edit), `ctx.edit` sends the content as a **new message** in
 the chat of the edited message (`ref.chatId`), or sends nothing with
 `{ fallback: 'skip' }`. Edits run the `before`/`after('send')` hooks (the payload
-carries `edit: ref`) and update the outbound ledger.
+carries `edit: ref`, see [Hooks](./hooks#edits-and-streamed-output)) and update the outbound ledger.
 
 ## React
 
@@ -219,18 +229,37 @@ longer does. Details in the `@bot-wa/baileys` README.
 
 ## Access media content
 
-`ctx.media` is a plain field (not a promise) present whenever the inbound
-message carries media:
+Inbound media is downloaded **lazily**: the context only carries a reference
+until you ask for the bytes with `loadMediaOf(ctx)`. It downloads once through
+the provider and caches the result on `ctx.media`:
 
 ```ts
+import { loadMediaOf, MediaTooLargeError } from '@bot-wa/core'
+
 bot.onImage(async (ctx) => {
-  if (ctx.media) {
-    console.log(ctx.media.mimetype)  // 'image/jpeg'
-    console.log(ctx.media.buffer)    // Buffer
-    console.log(ctx.media.size)      // bytes
+  try {
+    const media = await loadMediaOf(ctx, { maxBytes: 5 * 1024 * 1024 })
+    if (!media) return                 // no media, or the download failed
+    console.log(media.mimetype)        // 'image/jpeg'
+    console.log(media.buffer)          // Buffer
+    console.log(media.size)            // bytes, when the provider declared it
+    // ctx.media is now the same payload
+  } catch (err) {
+    if (err instanceof MediaTooLargeError) await ctx.reply('That file is too large')
+    else throw err
   }
 })
 ```
+
+- It resolves `undefined` when the message has no media, the provider cannot
+  download, or (by default) the download fails. `{ throwOnError: true }`
+  rejects with the download error instead.
+- `maxBytes` is checked against the size the provider declared, before
+  downloading anything, and again while reading; the download is cut as soon as
+  it goes over. It rejects with `MediaTooLargeError` (a `PayloadTooLargeError`,
+  with `bytes` and `maxBytes`).
+- Call it in a `before('message')` hook to download before routing; the
+  [voice](./voice) plugin transcribes voice notes this way.
 
 ## The full `MessageContext`
 
@@ -239,12 +268,13 @@ Besides the reply helpers, every handler receives data fields on `ctx`:
 participant in groups), `ctx.senderInfo`, `ctx.pushName`, `ctx.chat`
 (`{ id, kind, name?, isGroup, isBroadcast, participants? }`), `ctx.type`,
 `ctx.isGroup` / `ctx.isPrivate` / `ctx.isFromMe`, `ctx.mentions`,
-`ctx.quoted?`, `ctx.media?`, `ctx.timestamp`, `ctx.tools` (DI registry),
+`ctx.quoted?`, `ctx.media?` (after `loadMediaOf`), `ctx.timestamp`, `ctx.tools` (DI registry),
 `ctx.raw` (provider-native payload), `ctx.ref` (the message reference —
 `{ id, chatId, native? }`, replaces v1's `ctx.key`), `ctx.user` (the
 sender's [persistent profile](./user-data)), `ctx.handoff()` (pass the chat
-to a [human](./handoff)) and `ctx.call` (the `CallEvent`, on
-[`CALL`](./triggers#call) contexts only).
+to a [human](./handoff)), `ctx.call` (the `CallEvent`, on
+[`CALL`](./triggers#call) contexts only) and the [i18n](./i18n) members
+`ctx.lang`, `ctx.langSource`, `ctx.t()` and `ctx.setLang()`.
 
 ## Identity per transport
 
@@ -316,7 +346,7 @@ From inside a handler, launch it with `void bot.broadcast(...)` so that chat's q
 
 ## Starting a flow programmatically
 
-`bot.trigger(name, { chatId, userId?, isGroup?, data?, ifActive? })` starts a
+`bot.trigger(name, { chatId, userId?, isGroup?, data?, ifActive?, body? })` starts a
 registered flow or `bot.conversation` for someone who has not written: reminders,
 webhooks, admin panels. `data` seeds `c.state`:
 
@@ -330,31 +360,29 @@ bot.schedule('0 9 * * *', async () => {
 
 It goes through the access lists, the human handoff gate and the chat's FIFO queue.
 It resolves `{ started, name, chatId, userId, reason? }` as soon as the conversation is
-**entered**, not when it ends. `reason` is `'stopped' | 'blocked' | 'handoff' | 'busy'`.
+**entered**, not when it ends (listen to `'conversation:ended'` for that). `reason` is
+`'stopped' | 'blocked' | 'handoff' | 'busy'`; an unknown `name` rejects.
 A subject with a live or dormant conversation is left alone unless `ifActive: 'replace'`.
 It is safe to `await bot.trigger(...)` from a handler or command of the same chat: it runs in that message's queue slot.
 
+- `userId` (default: `chatId`) and `isGroup` target one participant of a group;
+  `body` sets the synthetic message's `ctx.body` (default `''`).
+- No `before('message')` hooks, matchers or `'message'` event run, and nothing is
+  persisted for the synthetic message (`ctx.raw` is `{ synthetic: 'trigger', name }`).
+- `bot.triggerFlow(id, { chatId, userId?, isGroup? }, { state?, body? })` is a thin
+  wrapper with `ifActive: 'replace'` that resolves `true`/`false` and rejects while
+  the bot is stopped.
+
 ## Runtime metrics
 
-`bot.metrics()` returns an in-process snapshot: conversations (started, completed,
-cancelled, timed out, retries exceeded, errored, active, mean duration) overall and
-per flow, messages in/out, inbound drops (duplicate, blocked, handoff), triggers,
-errors and uptime. `bot.resetMetrics()` zeroes the counters. `toPrometheus(snapshot, { prefix?, labels? })`
-renders it in the Prometheus text format, with no dependencies:
-
-```ts
-import { toPrometheus } from '@bot-wa/core'
-
-app.get('/metrics', (_req, res) => res.type('text/plain').send(toPrometheus(bot.metrics())))
-
-bot.on('conversation:started', ({ id, name, chatId }) => { /* ... */ })
-bot.on('conversation:ended', ({ id, name, chatId, outcome, durationMs }) => { /* ... */ })
-```
-
-`id` is unique per conversation instance, so you can pair an `ended` with its `started`.
-When a conversation is replaced, its `ended` (`outcome: 'cancelled'`) is emitted before the new one's `started`.
+`bot.metrics()`, `bot.resetMetrics()`, the Prometheus exporter `toPrometheus()` and
+the `'conversation:started'` / `'conversation:ended'` events are documented in
+[Operations](./operations#runtime-metrics).
 
 ## Next steps
 
 - [Conversation flows](./flows) — multi-step conversations
+- [Streaming](./streaming) — long and AI replies, piece by piece
+- [Channels](./channels) — what each transport supports
+- [Operations](./operations) — metrics and conversation events
 - [Examples](/examples/media) — full media recipes

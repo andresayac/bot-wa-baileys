@@ -165,6 +165,15 @@ const bot = new Bot({
 
 The full interface is documented in the [API reference](/api/interfaces/IStore.html). `MemoryStore` is the reference implementation of the contract; inside the monorepo, every store runs the shared conformance suite (`test-utils/store-conformance.ts`).
 
+Semantics every store must keep:
+
+- `upsertChat` / `upsertContact` **shallow-merge** onto the stored record. An
+  own field set to `undefined` **unsets** that field, so a partial upsert must
+  omit what it does not know. The `Bot` already does: a message without a
+  display name (or chat name) never erases the one stored.
+- `deleteChat` also deletes that chat's message log.
+- `maxMessagesPerChat` is opt-in; by default the message log is unbounded.
+
 The user-data methods (`getUserData`, `setUserData`, `deleteUserData`,
 `listUserData`, `purgeExpiredUserData`) are optional: without them
 `ctx.user` rejects with `UNSUPPORTED_STORE`. If you add them, also pass

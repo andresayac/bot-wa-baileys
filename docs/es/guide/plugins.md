@@ -131,6 +131,20 @@ reportando los errores de configuración sin tumbar el bot. Así carga
 `@bot-wa/ai` los SDKs de sus proveedores.
 :::
 
+## Paquetes de plugins
+
+Además de `slashCommandsPlugin`, estos paquetes traen plugins listos:
+
+- [IA](/es/guide/ai) — `@bot-wa/ai`: respuestas con LLM (`aiPlugin`), con
+  [herramientas](/es/guide/ai-herramientas),
+  [memoria y RAG](/es/guide/ai-memoria-rag) y
+  [streaming](/es/guide/streaming).
+- [Voz](/es/guide/voz) — el experimental `@bot-wa/voice` (`voicePlugin`):
+  voz a texto para las notas de voz entrantes y respuestas con texto a voz.
+- [Integraciones](/es/guide/integraciones) — los experimentales
+  `@bot-wa/chatwoot`, `@bot-wa/tickets`, `@bot-wa/moderation` y
+  `@bot-wa/dialogflow`.
+
 ## Siguientes pasos
 
 - [Inyección de dependencias](./di) — comparte herramientas entre plugins

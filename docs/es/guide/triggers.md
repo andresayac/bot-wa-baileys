@@ -151,3 +151,4 @@ id anónimo, así que `.persistent()` necesita un `.id('...')` explícito.
 - [Conceptos básicos](./conceptos#el-pipeline-de-entrada): dónde corre cada trigger
 - [Handoff y listas de acceso](./handoff)
 - [Datos persistentes por usuario](./datos-usuario)
+- [Iniciar un flujo desde código](./mensajes#iniciar-un-flujo-desde-codigo): `bot.trigger()` sin mensaje entrante

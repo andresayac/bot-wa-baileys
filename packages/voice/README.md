@@ -9,14 +9,16 @@ Voz para bots de [`@bot-wa/core`](../core): **speech-to-text** (STT) de las nota
 - Sin SDKs: llamadas HTTPS con `secureFetch` de [`@bot-wa/http`](../http) (anti-SSRF, timeouts, límite de tamaño).
 - `install()` síncrono; los adapters se resuelven en el primer uso y un `warmup()` no fatal avisa al arrancar si falta una api key.
 
-```bash
-pnpm add @bot-wa/voice
+Dentro del monorepo, decláralo como dependencia del workspace (todavía no se puede instalar desde npm):
+
+```json
+{ "dependencies": { "@bot-wa/voice": "workspace:*" } }
 ```
 
 ## Inicio rápido
 
 ```ts
-import { Bot, VOICE_NOTE } from '@bot-wa/core'
+import { VOICE_NOTE } from '@bot-wa/core'
 import { voicePlugin } from '@bot-wa/voice'
 
 bot.plug(voicePlugin({
@@ -117,7 +119,7 @@ bot.plug(voicePlugin({ stt: local }))
 ## Formatos de audio
 
 - **Entrada:** las notas de voz de WhatsApp y Telegram llegan en OGG/Opus, que Whisper, `gpt-4o-*-transcribe` y Deepgram aceptan directamente. Si el canal no informa el mimetype, se detecta por los primeros bytes (OGG, WAV, MP3, MP4/M4A, WebM, FLAC, AMR) y, si no, se asume OGG.
-- **Salida para WhatsApp:** una nota de voz (PTT) debe ser **OGG/Opus**. `@bot-wa/baileys` transcodifica `kind: 'voice'` a OGG/Opus por su cuenta (necesita `ffmpeg`), así que cualquier formato vale. Para Cloud API y Telegram pide OGG/Opus al TTS: es el valor por defecto en OpenAI (`format: 'opus'`); en ElevenLabs usa `outputFormat: 'opus_48000_64'` si tu plan lo ofrece (por defecto es `mp3_44100_128`, que Telegram y Cloud API aceptan como audio pero no siempre como nota de voz).
+- **Salida para WhatsApp:** una nota de voz (PTT) debe ser **OGG/Opus**. `@bot-wa/baileys` transcodifica `kind: 'voice'` a OGG/Opus por su cuenta (con el binario de `ffmpeg` que incluye vía `@ffmpeg-installer/ffmpeg`), así que cualquier formato vale. Para Cloud API y Telegram pide OGG/Opus al TTS: es el valor por defecto en OpenAI (`format: 'opus'`); en ElevenLabs usa `outputFormat: 'opus_48000_64'` si tu plan lo ofrece (por defecto es `mp3_44100_128`, que Telegram y Cloud API aceptan como audio pero no siempre como nota de voz).
 - No hay transcodificación dentro de este paquete (no depende de `ffmpeg`).
 
 ## Límites
