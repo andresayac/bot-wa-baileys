@@ -5,6 +5,7 @@ import type { ConversationControls } from '../conversations/controls.js'
 import { normalizeText } from '../core/matching.js'
 import { isTypeTrigger, isWelcomeTrigger } from '../core/triggers.js'
 import { parseDuration } from '../utils/duration.js'
+import { MAX_TIMER_MS } from '../utils/timers.js'
 import type { SchemaLike } from './schema.js'
 import {
   isFlowMediaKind,
@@ -29,8 +30,14 @@ export type EmptyFlowState = Record<never, never>
  */
 export type FlowControls<S extends object = EmptyFlowState> = ConversationControls & { state: S & Record<string, unknown> }
 
-/** `S` with key `K` set to `V` (replacing any previous type of `K`). */
-export type FlowStateWith<S, K extends string, V> = { [P in keyof S | K]: P extends K ? V : P extends keyof S ? S[P] : never }
+/**
+ * `S` with key `K` set to `V` (replacing any previous type of `K`). A non-literal key
+ * (`K = string`) cannot be tracked, so `S` is returned unchanged — the value stays reachable
+ * as `unknown` through the open index signature of {@link FlowControls}.
+ */
+export type FlowStateWith<S, K extends string, V> = string extends K
+  ? S
+  : { [P in keyof S | K]: P extends K ? V : P extends keyof S ? S[P] : never }
 
 /** `S` merged with `T` (keys of `T` win) — the state after `.use(subFlow)`. */
 export type FlowStateMerge<S, T> = { [P in keyof S | keyof T]: P extends keyof T ? T[P] : P extends keyof S ? S[P] : never }
@@ -137,7 +144,10 @@ export const addKeyword = flow
 function delayOf(d: FlowDelay | undefined): number | undefined {
   if (d === undefined) return undefined
   const ms = parseDuration(d)
-  if (!Number.isFinite(ms) || ms < 0) throw new Error(`Invalid flow delay: ${String(d)}`)
+  // A Node timer cannot hold more than 2^31-1 ms: a longer delay would fire after ~1 ms.
+  if (!Number.isFinite(ms) || ms < 0 || ms > MAX_TIMER_MS) {
+    throw new Error(`Invalid flow delay: ${String(d)} (expected 0 to ${MAX_TIMER_MS} ms, about 24 days)`)
+  }
   return ms
 }
 

@@ -86,7 +86,16 @@ export function createControls(rt: ConversationRuntime, handle: ConversationHand
   const rawWait = (o?: WaitOptions) => rt.wait(handle, { timeoutMs: timeoutOf(o), filter: o?.filter })
 
   // Records every wait so c.retry() can re-run it (see retry.ts).
-  const tracker = new WaitTracker({ assertAlive: () => rt.assertAlive(handle), reply: (text) => ctx.reply(text) })
+  const tracker = new WaitTracker({
+    assertAlive: () => rt.assertAlive(handle),
+    reply: (text) => ctx.reply(text),
+    // Wakes early when the conversation ends/aborts; the caller re-checks liveness afterwards.
+    sleep: (ms) => new Promise<void>((resolve) => {
+      let unsubscribe = () => {}
+      const timer = setTimeout(() => { unsubscribe(); resolve() }, ms)
+      unsubscribe = rt.observe(handle, { end: () => { clearTimeout(timer); resolve() } })
+    }),
+  })
 
   /** `promptFor(message?)`: text sent before waiting (and re-sent by c.retry()); default: just the retry message. */
   function loopWait<T>(

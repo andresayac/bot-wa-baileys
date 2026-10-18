@@ -16,6 +16,7 @@ import {
   type SchemaLike,
   type SchemaParseResult,
   type ConversationControls,
+  RetryUnavailableError,
 } from '../src/index.js'
 
 /* ---------------------------------------------------------------------------
@@ -95,6 +96,53 @@ describe('flow().use(subFlow)', () => {
     rt.deliver(msg('ok'))
     await run
     expect(start.reply).toHaveBeenLastCalledWith('listo ok')
+  })
+
+  it('c.retry() in a parent step after .use() re-runs the returned sub-flow', async () => {
+    const { bot, chat } = await createTestBot()
+    const errors: unknown[] = []
+    bot.on('error', (e) => { errors.push(e) })
+    bot.use(
+      flow('reg')
+        .say('hola')
+        .use(flow('sub').ask('¿Email?', 'email'))
+        .do((_ctx, c) => { if (!String(c.state.email).includes('@')) c.retry('mal email') })
+        .say((_ctx, c) => `ok ${String(c.state.email)}`),
+    )
+    await chat.send('reg')
+    await chat.expectReply('¿Email?')
+    await chat.send('nope')
+    await chat.expectReply('mal email')
+    await chat.send('a@b.co')
+    await chat.expectReply('ok a@b.co')
+    expect(chat.replies()).toEqual(['hola', '¿Email?', 'mal email', 'ok a@b.co'])
+    expect(errors).toEqual([])
+  })
+
+  it('a retry after .use() shares the sub-flow wait budget', async () => {
+    const onError = vi.fn()
+    const rt = new ConversationRuntime({ controlsFactory: (r, handle, ctx) => createControls(r, handle, ctx), onError })
+    const sub = flow('sub').ask('¿Email?', 'email', { retries: 2 })
+    const f = flow('p').use(sub).do((_ctx, c) => { c.retry('mal') }).compile()
+    const start = msg('p')
+    const run = rt.enter(flowToConversation(f), start)
+    await vi.waitFor(() => expect(start.reply).toHaveBeenCalledWith('¿Email?'))
+    rt.deliver(msg('x'))
+    await vi.waitFor(() => expect(start.reply).toHaveBeenCalledWith('mal'))
+    rt.deliver(msg('y'))
+    await run
+    // Two retries consume the sub-flow ask's budget of 2 → the "too many attempts" ending.
+    expect(onError).not.toHaveBeenCalled()
+    expect(start.reply.mock.calls.map((c) => c[0])).toEqual(['¿Email?', 'mal', '❌ Demasiados intentos. Conversación terminada.'])
+  })
+
+  it('a retry after a wait-less .use() step is still unavailable', async () => {
+    const onError = vi.fn()
+    const rt = new ConversationRuntime({ controlsFactory: (r, handle, ctx) => createControls(r, handle, ctx), onError })
+    const f = flow('p').use(flow('sub').say('hi')).do((_ctx, c) => { c.retry('x') }).compile()
+    await rt.enter(flowToConversation(f), msg('p'))
+    expect(onError).toHaveBeenCalledTimes(1)
+    expect(onError.mock.calls[0][0]).toBeInstanceOf(RetryUnavailableError)
   })
 })
 
@@ -410,9 +458,54 @@ describe('per-step delays', () => {
     }
   })
 
+  it('abort/abortAll during a delay cancels the timer and unwinds right away', async () => {
+    vi.useFakeTimers()
+    try {
+      const rt = makeRt()
+      const ctx = msg('d')
+      const after = vi.fn()
+      const f = flow('d').say('hi').delay('1h').do(after).compile()
+      let settled = false
+      const run = rt.enter(flowToConversation(f), ctx).then(() => { settled = true })
+      await vi.advanceTimersByTimeAsync(50)
+      expect(vi.getTimerCount()).toBe(1)
+      rt.abortAll()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(settled).toBe(true)
+      expect(vi.getTimerCount()).toBe(0)
+      await run
+      expect(after).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('bot.stop() during a delay leaves no timer behind', async () => {
+    vi.useFakeTimers()
+    try {
+      const { bot, chat } = await createTestBot()
+      const after = vi.fn()
+      bot.use(flow('d').say('hi').delay('3s').do(after))
+      const sent = chat.send('d')
+      await vi.advanceTimersByTimeAsync(50)
+      await sent
+      expect(chat.replies()).toEqual(['hi'])
+      await bot.stop()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(vi.getTimerCount()).toBe(0)
+      expect(after).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('rejects an invalid delay at build time', () => {
     expect(() => flow('x').say('a', { delay: '2 minutos' })).toThrow(/Invalid duration/)
     expect(() => flow('x').delay(-5)).toThrow(/Invalid flow delay/)
+    // Longer than a Node timer can hold (2^31-1 ms): it would otherwise fire after ~1 ms.
+    expect(() => flow('x').delay('600h')).toThrow(/Invalid flow delay/)
+    expect(() => flow('x').say('a', { delay: 2_147_483_648 })).toThrow(/Invalid flow delay/)
+    expect(() => flow('x').delay(2_147_483_647)).not.toThrow()
   })
 })
 
@@ -449,6 +542,15 @@ describe('typed flow state', () => {
     // Re-asking a key replaces its type instead of intersecting it.
     const again = flow('x').ask('a', 'v').ask('b', 'v', { schema: z.number(0, 'x') })
     expectTypeOf<FlowStateOf<typeof again>>().toEqualTypeOf<{ v: number }>()
+
+    // A non-literal (`string`) key cannot be tracked: earlier keys keep their types.
+    const dynKey: string = 'dyn'
+    const dynamic = flow('dyn')
+      .ask('edad?', 'edad', { schema: z.number(0, 'x') })
+      .ask('q', dynKey)
+      .choose('p', { a: 'A' }, dynKey)
+      .do((_ctx, c) => { expectTypeOf(c.state.edad).toEqualTypeOf<number>() })
+    expectTypeOf<FlowStateOf<typeof dynamic>>().toEqualTypeOf<{ edad: number }>()
 
     // Typed builders are accepted everywhere a flow is.
     expect(() => registro.compile()).not.toThrow()

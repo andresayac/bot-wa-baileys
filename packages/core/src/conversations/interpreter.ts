@@ -3,19 +3,20 @@ import { isCompiledFlow } from '../flows/FlowBuilder.js'
 import type { ConversationFn, RuntimeMessage } from './ConversationRuntime.js'
 import type { ConversationControls } from './controls.js'
 import { ConversationEnded, ConversationGoto } from './errors.js'
-import { assertControlsAlive, markStep, replayable } from './retry.js'
+import { assertControlsAlive, markStep, pauseControls, replayable } from './retry.js'
 import { sendFlowMedia } from '../flows/media.js'
-import { sleep } from '../utils/timers.js'
 
 async function resolveText(t: CompiledStep & { kind: 'say' | 'ask' }, ctx: RuntimeMessage, c: ConversationControls): Promise<string> {
   return typeof t.text === 'function' ? await t.text(ctx, c) : t.text
 }
 
-/** Per-step `{ delay }`: pause, then make sure the conversation is still alive before sending. */
+/**
+ * Per-step `{ delay }` / `.delay()`: pause, then make sure the conversation is still alive before
+ * sending. Aborting the conversation (abort, abortAll, `bot.stop()`, `/reset`) cuts the pause short.
+ */
 async function pause(ms: number | undefined, c: ConversationControls): Promise<void> {
   if (ms === undefined || ms <= 0) return
-  await sleep(ms)
-  assertControlsAlive(c)
+  await pauseControls(c, ms)
 }
 
 /** Run `flow` from `startAt`; a `c.retry()` inside a step replays it from the retried step (see retry.ts). */
