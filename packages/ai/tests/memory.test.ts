@@ -360,3 +360,30 @@ describe('aiPlugin({ memory })', () => {
     expect(await bot.injectTools.ai.memory(chat.jid)).toEqual(['Es de Bogotá'])
   })
 })
+
+describe('AIClient memory + tools', () => {
+  it('the tool loop keeps the persona + user facts in every model call', async () => {
+    const store = new MemoryStore()
+    const users = new UserDataService(store)
+    const memory = new MemoryManager((id) => users.for(id), {})
+    const mock = new MockAIProvider({
+      reply: (input) => {
+        const last = input.messages[input.messages.length - 1]
+        return last?.role === 'tool' ? 'listo' : { toolCalls: [{ name: 'hora', args: {} }] }
+      },
+    })
+    const ai = new AIClient(mock, new ContextManager(store), {
+      persona: 'ACME',
+      memory,
+      tools: { hora: { description: 'Hora actual', handler: () => '12:00' } },
+    })
+    await ai.remember('u', 'Se llama Juan')
+    expect(await ai.replyInChat('chat', 'qué hora es', { userId: 'u' })).toBe('listo')
+    expect(mock.calls).toHaveLength(2)
+    for (const call of mock.calls) {
+      expect(call.system?.startsWith('ACME')).toBe(true)
+      expect(call.system).toContain('- Se llama Juan')
+      expect(call.tools?.map((t) => t.name)).toEqual(['hora'])
+    }
+  })
+})
