@@ -29,6 +29,14 @@ also drive the mock directly: `provider.incoming(text, { from, sender, ... })`,
 `provider.interaction(data, opts)` (button and list taps) and
 `provider.call({ id, from, status })` (for [`CALL` triggers](./triggers#call)).
 
+`editMessage`, `deleteMessage` and `sendDraft` are real methods (recorded in
+`edits`, `deleted` and `drafts`) that you can override in a subclass. They are
+exposed according to `new MockProvider({ streaming, supports })`: `edit` and
+`delete` when `streaming` is not `'none'`, `drafts` with `'draft'`. A disabled
+one reads `undefined`, so the bot treats it as unsupported; pass
+`supports: { edit: true }` to enable one, or `supports: { edit: false }` to
+simulate a transport without it (this also hides a subclass override).
+
 `MockProvider` always uses a stable `from`. To test identity changes and
 hostile delivery, use the chaos kit below.
 

@@ -1,16 +1,14 @@
-import { Bot, type MessageRef } from '@bot-wa/core'
+import { Bot } from '@bot-wa/core'
 import { MockProvider } from '@bot-wa/core/testing'
 
 /** MockProvider with the optional moderation capabilities (delete + group admin). */
 export class AdminMockProvider extends MockProvider {
-  deleted: MessageRef[] = []
   kicked: Array<{ chatId: string; userIds: string[] }> = []
   admins: Record<string, string[]> = {}
   adminLookups = 0
 
-  // A property (not a method): MockProvider declares deleteMessage as an optional property.
-  override deleteMessage?: (ref: MessageRef) => Promise<void> = async (ref) => {
-    this.deleted.push(ref)
+  constructor() {
+    super({ supports: { delete: true } })
   }
 
   groups = {

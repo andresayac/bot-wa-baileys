@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { MockProvider } from '../src/testing/MockProvider.js'
-import type { InboundEvent } from '../src/core/provider.js'
+import type { DraftOptions, InboundEvent, MessageRef, OutboundContent, SendResult } from '../src/core/provider.js'
 
 describe('MockProvider (v2)', () => {
   it('start emits a ready connection event', async () => {
@@ -54,5 +54,60 @@ describe('MockProvider (v2)', () => {
       expect(ev.interaction.data).toBe('btn_yes')
       expect(ev.interaction.kind).toBe('button')
     }
+  })
+})
+
+describe('MockProvider optional seams (editMessage / deleteMessage / sendDraft)', () => {
+  // User code that subclasses MockProvider with real methods must typecheck (no TS2425).
+  class UserMock extends MockProvider {
+    edited: string[] = []
+    async editMessage(ref: MessageRef, content: OutboundContent): Promise<SendResult> {
+      this.edited.push(content.kind === 'text' ? content.text : content.kind)
+      return { ref }
+    }
+    async deleteMessage(_ref: MessageRef): Promise<void> {}
+    async sendDraft(_chatId: string, _draftId: number, _text: string, _opts?: DraftOptions): Promise<void> {}
+  }
+
+  it('are real class methods a subclass can override; overrides are never hidden', async () => {
+    expect(typeof MockProvider.prototype.editMessage).toBe('function')
+    expect(typeof MockProvider.prototype.deleteMessage).toBe('function')
+    expect(typeof MockProvider.prototype.sendDraft).toBe('function')
+    const p = new UserMock()
+    expect(typeof p.editMessage).toBe('function')
+    await p.editMessage({ id: '1', chatId: 'c' }, { kind: 'text', text: 'x' })
+    expect(p.edited).toEqual(['x'])
+  })
+
+  it('look unsupported (undefined) unless the streaming mode or `supports` enables them', async () => {
+    const plain = new MockProvider()
+    expect(plain.editMessage).toBeUndefined()
+    expect(plain.deleteMessage).toBeUndefined()
+    expect(plain.sendDraft).toBeUndefined()
+
+    const edit = new MockProvider({ streaming: 'edit' })
+    expect(typeof edit.editMessage).toBe('function')
+    expect(typeof edit.deleteMessage).toBe('function')
+    expect(edit.sendDraft).toBeUndefined()
+    await edit.editMessage!({ id: '1', chatId: 'c' }, { kind: 'text', text: 'y' })
+    expect(edit.edits).toHaveLength(1)
+
+    const opted = new MockProvider({ supports: { edit: true, delete: true } })
+    expect(typeof opted.editMessage).toBe('function')
+    await opted.deleteMessage!({ id: '1', chatId: 'c' })
+    expect(opted.deleted).toHaveLength(1)
+
+    const off = new MockProvider({ streaming: 'draft', supports: { drafts: false, edit: false } })
+    expect(off.sendDraft).toBeUndefined()
+    expect(off.editMessage).toBeUndefined()
+    expect(typeof off.deleteMessage).toBe('function')
+  })
+
+  it('an explicit supports: false hides even a subclass override', () => {
+    class NoEdit extends UserMock {
+      constructor() { super({ supports: { edit: false } }) }
+    }
+    expect(new NoEdit().editMessage).toBeUndefined()
+    expect(typeof new NoEdit().deleteMessage).toBe('function')
   })
 })

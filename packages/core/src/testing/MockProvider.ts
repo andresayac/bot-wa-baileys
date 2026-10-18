@@ -55,6 +55,24 @@ export interface MockProviderOptions {
   streaming?: StreamingMode
   /** `capabilities.maxTextLength` to simulate. Default: unset. */
   maxTextLength?: number
+  /**
+   * Which optional seams the mock exposes. A disabled seam is hidden (the instance
+   * property reads `undefined`), so the bot treats it exactly like a provider that
+   * lacks the method. Defaults follow `streaming`: `edit` and `delete` when it is not
+   * `'none'`, `drafts` when it is `'draft'`. When left unset, a subclass's own
+   * override of the method is never hidden; an explicit `false` hides it too.
+   */
+  supports?: MockProviderSupports
+}
+
+/** {@link MockProviderOptions.supports}. */
+export interface MockProviderSupports {
+  /** `editMessage` (recorded in `edits`); also sets `capabilities.edit` unless given. */
+  edit?: boolean
+  /** `deleteMessage` (recorded in `deleted`). */
+  delete?: boolean
+  /** `sendDraft` (recorded in `drafts`). */
+  drafts?: boolean
 }
 
 /** One recorded {@link MockProvider.editMessage} call. */
@@ -77,40 +95,45 @@ export class MockProvider implements IProvider {
   selfId: string | null = null
 
   outbox: MockOutgoing[] = []
-  /** Edits recorded when `streaming` is `'edit'` or `'draft'`. */
+  /** Edits recorded by {@link editMessage} (enabled by `streaming` `'edit'`/`'draft'` or `supports.edit`). */
   edits: MockEdit[] = []
-  /** Draft previews recorded when `streaming` is `'draft'`. */
+  /** Draft previews recorded by {@link sendDraft} (enabled by `streaming: 'draft'` or `supports.drafts`). */
   drafts: MockDraft[] = []
-  /** Messages deleted through `deleteMessage` (present when `streaming` is not `'none'`). */
+  /** Messages deleted through {@link deleteMessage} (enabled by `streaming` not `'none'` or `supports.delete`). */
   deleted: MessageRef[] = []
-
-  editMessage?: IProvider['editMessage']
-  deleteMessage?: IProvider['deleteMessage']
-  sendDraft?: IProvider['sendDraft']
 
   constructor(options: MockProviderOptions = {}) {
     const streaming = options.streaming ?? 'none'
+    const supports = options.supports ?? {}
+    const edit = supports.edit ?? streaming !== 'none'
     this.capabilities = {
       contentKinds: ['text', 'image', 'video', 'audio', 'voice', 'document', 'sticker', 'location', 'contact', 'poll', 'buttons', 'list', 'reaction'],
-      buttons: true, lists: true, polls: true, reactions: true, edit: streaming !== 'none',
+      buttons: true, lists: true, polls: true, reactions: true, edit,
       typing: true, presence: true, readReceipts: true, groups: true, templates: false,
       interactionsRequireAck: false, pushIngress: false,
       streaming,
       forms: 'degraded',
       ...(options.maxTextLength !== undefined ? { maxTextLength: options.maxTextLength } : {}),
     }
-    if (streaming !== 'none') {
-      this.editMessage = async (ref, content) => {
-        this.edits.push({ ref, content })
-        return { ref }
-      }
-      this.deleteMessage = async (ref) => { this.deleted.push(ref) }
-    }
-    if (streaming === 'draft') {
-      this.sendDraft = async (chatId, draftId, text, opts) => {
-        this.drafts.push({ chatId, draftId, text, opts })
-      }
-    }
+    hideSeam(this, 'editMessage', supports.edit, edit)
+    hideSeam(this, 'deleteMessage', supports.delete, supports.delete ?? streaming !== 'none')
+    hideSeam(this, 'sendDraft', supports.drafts, supports.drafts ?? streaming === 'draft')
+  }
+
+  /** Records the edit in {@link edits}. Hidden (`undefined`) unless enabled — see {@link MockProviderOptions.supports}. */
+  async editMessage(ref: MessageRef, content: OutboundContent): Promise<SendResult> {
+    this.edits.push({ ref, content })
+    return { ref }
+  }
+
+  /** Records the ref in {@link deleted}. Hidden (`undefined`) unless enabled — see {@link MockProviderOptions.supports}. */
+  async deleteMessage(ref: MessageRef): Promise<void> {
+    this.deleted.push(ref)
+  }
+
+  /** Records the draft in {@link drafts}. Hidden (`undefined`) unless enabled — see {@link MockProviderOptions.supports}. */
+  async sendDraft(chatId: ChatId, draftId: number, text: string, opts?: DraftOptions): Promise<void> {
+    this.drafts.push({ chatId, draftId, text, opts })
   }
 
   /** Simulate the user pressing "stop" on the latest draft that offered it. */
@@ -214,4 +237,18 @@ function senderInfoOf(id: string, opts: IncomingOpts): InboundMessage['senderInf
     ...(opts.language !== undefined ? { language: opts.language } : {}),
     ...(opts.platformData !== undefined ? { platformData: opts.platformData } : {}),
   }
+}
+
+type OptionalSeam = 'editMessage' | 'deleteMessage' | 'sendDraft'
+
+/**
+ * Make a disabled seam read `undefined` on the instance (the bot gates these optional
+ * `IProvider` methods on presence). With no explicit setting, a subclass override of
+ * the method stays visible; an explicit `false` hides it as well.
+ */
+function hideSeam(target: MockProvider, name: OptionalSeam, explicit: boolean | undefined, enabled: boolean): void {
+  if (enabled) return
+  const overridden = target[name] !== MockProvider.prototype[name]
+  if (explicit === undefined && overridden) return
+  Object.defineProperty(target, name, { value: undefined, writable: true, configurable: true, enumerable: false })
 }

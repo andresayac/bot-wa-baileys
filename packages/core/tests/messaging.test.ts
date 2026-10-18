@@ -35,9 +35,9 @@ class MessagingMock extends MockProvider {
   typingThrowsSync = false
   editError: Error | null = null
   constructor(caps: Partial<ProviderCapabilities> = {}, opts: { edit?: boolean } = {}) {
-    super()
+    // `supports.edit: false` hides the editMessage override below (an unsupported seam).
+    super(opts.edit === false ? { supports: { edit: false } } : {})
     Object.assign(this.capabilities, caps)
-    if (opts.edit === false) (this as { editMessage?: unknown }).editMessage = undefined
   }
   override async send(chatId: string, content: OutboundContent, options?: Parameters<MockProvider['send']>[2]): Promise<SendResult> {
     this.log.push({ op: 'send', chatId, content })
@@ -48,8 +48,7 @@ class MessagingMock extends MockProvider {
     this.log.push({ op: 'typing', chatId, state })
     return this.typingError ? Promise.reject(this.typingError) : Promise.resolve()
   }
-  // A property (not a method): MockProvider declares editMessage as an optional property.
-  override editMessage?: (ref: MessageRef, content: OutboundContent) => Promise<SendResult> = async (ref, content) => {
+  override async editMessage(ref: MessageRef, content: OutboundContent): Promise<SendResult> {
     if (this.editError) throw this.editError
     this.log.push({ op: 'edit', ref, content })
     return { ref }

@@ -31,6 +31,14 @@ provider.outbox       // todos los mensajes salientes, de cualquier chat
 `provider.call({ id, from, status })` (para los
 [triggers `CALL`](./triggers#call)).
 
+`editMessage`, `deleteMessage` y `sendDraft` son métodos de verdad (se
+registran en `edits`, `deleted` y `drafts`) que puedes sobrescribir en una
+subclase. Se exponen según `new MockProvider({ streaming, supports })`: `edit`
+y `delete` cuando `streaming` no es `'none'`, `drafts` con `'draft'`. Uno
+desactivado vale `undefined`, así que el bot lo trata como no soportado; pasa
+`supports: { edit: true }` para activarlo o `supports: { edit: false }` para
+simular un transporte sin él (también oculta la versión de una subclase).
+
 `MockProvider` usa siempre un `from` estable. Para probar cambios de
 identidad y entregas hostiles, usa el kit de caos.
 
