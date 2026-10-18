@@ -38,7 +38,7 @@ export interface DialogflowPluginConfig extends DialogflowClientConfig, Dialogfl
   fulfillment?: 'off' | 'unrouted' | 'all'
   /** Skip messages starting with this prefix (default `'/'`); `false` sends commands too. */
   commandPrefix?: string | false
-  /** Skip messages while the sender is inside a conversation (default `true`). */
+  /** Skip messages while the sender is inside a conversation (default `true`). Chats in handoff are always skipped. */
   skipActiveConversation?: boolean
   /** Return `false` to skip Dialogflow for a message. */
   filter?: (ctx: MessageContext) => boolean
@@ -79,6 +79,9 @@ export function dialogflowPlugin(config: DialogflowPluginConfig): PluginSpec<Dia
       function shouldDetect(mctx: MessageContext): boolean {
         if (!mctx.body || !mctx.body.trim() || mctx.interaction) return false
         if (prefix !== false && mctx.body.startsWith(prefix)) return false
+        // A human owns a handed-off chat: the dispatcher will not route the message, so
+        // spending a detectIntent call (and leaking the text to Google) is pointless.
+        if (bot.isHandedOff(mctx.from)) return false
         if (config.filter && !config.filter(mctx)) return false
         if ((config.skipActiveConversation ?? true) && bot.inspectConversation({ from: mctx.from, sender: mctx.sender, isGroup: mctx.isGroup })) {
           return false

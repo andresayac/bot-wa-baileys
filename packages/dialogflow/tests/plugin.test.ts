@@ -111,6 +111,20 @@ describe('dialogflowPlugin — what is sent to Dialogflow', () => {
     await bot.stop()
   })
 
+  it('skips chats that are handed off to a human, and detects again after resume', async () => {
+    const { bot, chat, google } = await setup()
+    await bot.handoff(chat.jid)
+    await chat.send('hola')
+    await flush()
+    expect(google.detectRequests()).toHaveLength(0)
+
+    await bot.resume(chat.jid)
+    await chat.send('hola')
+    await flush()
+    expect(google.detectRequests().map(textOf)).toEqual(['hola'])
+    await bot.stop()
+  })
+
   it('uses one hashed session per chat by default, per participant on request', async () => {
     const { bot, provider, google } = await setup()
     provider.incoming('hola', { from: 'g1', sender: 'u1', isGroup: true })

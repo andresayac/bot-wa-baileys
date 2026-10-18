@@ -50,7 +50,7 @@ bot.plug(dialogflowContext({
 
 1. Un hook `before('message')` (prioridad `0`; la moderación corre antes, en `100`) llama a `detectIntent` y guarda el resultado asociado a **ese** mensaje.
 2. `whenDialogflowIntent` registra un predicado de `bot.when` que lee ese resultado (sin volver a llamar a Dialogflow). Si la intención coincide y supera `minConfidence`, se ejecuta el destino; si no, el mensaje sigue su camino normal (`onMessage`, otros matchers…).
-3. No se envían a Dialogflow: mensajes vacíos, interacciones, comandos (`/…`, configurable con `commandPrefix`), mensajes de un usuario dentro de una conversación activa (`skipActiveConversation`) y los que descarte `filter`.
+3. No se envían a Dialogflow: mensajes vacíos, interacciones, comandos (`/…`, configurable con `commandPrefix`), mensajes de un usuario dentro de una conversación activa (`skipActiveConversation`), mensajes de un chat en handoff (`bot.isHandedOff()`: lo atiende un humano) y los que descarte `filter`.
 4. Si `detectIntent` falla, se registra en el logger, se llama a `onError` y el mensaje sigue llegando a los demás handlers.
 
 **Sesiones:** una sesión de Dialogflow por chat (`sessionScope: 'chat'`, por defecto) o por participante en grupos (`'participant'`), o la clave que devuelva `sessionKey(ctx)`. La clave se convierte en un id de sesión con SHA-256 (32 caracteres), así que el número de teléfono o el id del chat no se envían a Google.
@@ -75,6 +75,8 @@ bot.plug(dialogflowContext({
 | `commandPrefix` | `string \| false` | `'/'` | Los comandos no se envían a Dialogflow |
 | `skipActiveConversation` | `boolean` | `true` | No consultar dentro de una conversación |
 | `filter` | `(ctx) => boolean` | — | `false` = no consultar |
+| `priority` | `number` | `0` | Prioridad del hook `before('message')` |
+| `client` | `DialogflowClient` | — | Cliente ya construido (en lugar de crearlo desde la config) |
 | `onError` | `(error, ctx) => void` | — | Errores de `detectIntent` |
 | `http` | `{ fetch?, resolver?, timeoutMs?, maxBytes? }` | — | Opciones de `secureFetch` (útil en tests) |
 
