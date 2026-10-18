@@ -585,11 +585,11 @@ Cada punto a partir del 6 requiere una spec y un plan fechado en `docs/superpowe
 
 ## Estado revisado de FEATURES.md
 
-[`FEATURES.md`](FEATURES.md) se conserva como catálogo de propuestas y APIs posibles. La auditoría encontró:
+[`FEATURES.md`](FEATURES.md) se conserva como catálogo de propuestas y APIs posibles; cada entrada lleva una línea **Estado** con la API real y su guía. Estado a 2026-10-18:
 
-- Implementado: `#15 c.end()` con mensaje y finalización.
-- Parcial: `#2`, `#3`, `#4`, `#6`, `#8`, `#10`, `#11`, `#12`, `#14`, `#24`, `#25`, `#27`, `#35`, `#38` y `#39`.
-- Ausente o esencialmente pendiente: `#1`, `#5`, `#7`, `#9`, `#13`, `#16–23`, `#26`, `#28–34`, `#36–37` y `#40`.
+- Implementado: `#1–#37`, `#39` y `#40`. Lo que vive en paquetes nuevos sigue siendo **privado** (Experimental, sin publicar): proveedores `#17–#23` (`evolution`, `twilio`, `tiktok`, `email`, `wppconnect`, `gohighlevel`, `gupshup`), voz `#16` (`@bot-wa/voice`, como plugin y no como provider), RAG `#29` (`@bot-wa/rag`), Dialogflow `#31`, plugins `#32–#34` (`chatwoot`, `tickets`, `moderation`), manager `#24–#27` y `#40` (`eslint-plugin-bot-wa`).
+- Parcial: `#38` (`createTestBot` no tiene `expectNoReply` ni `sendMedia`/`sendReaction`; el snapshot de conversación lo cubren los golden transcripts).
+- Ideas del análisis fuera del catálogo, ya implementadas: kit de caos, contrato de identidad, idempotencia de entrada, describe/lint de flujos, `bot-wa dev`, ingress de webhooks (`@bot-wa/server`), ventana de 24 h y pricing de la Cloud API, `ctx.stream`, golden transcripts con gate de publicación, estado tipado en flujos, `AGENTS.md` en los proyectos generados y formularios nativos (WhatsApp Flows).
 
 Los elementos que allí aparecen como “descartados” deben interpretarse así:
 
