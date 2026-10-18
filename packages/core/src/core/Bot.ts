@@ -91,6 +91,9 @@ import { callToInbound, RecentIds } from './calls.js'
 import { UserDataService } from '../user/UserDataService.js'
 import type { UserData } from '../user/types.js'
 import type { UserDataEntry } from './provider.js'
+import { MetricsCollector, type BotMetricsSnapshot, type ConversationEndedEvent, type ConversationStartedEvent } from '../ops/metrics.js'
+import { runBroadcast, type BroadcastOptions, type BroadcastResult } from '../ops/broadcast.js'
+import { assertTriggerArgs, triggerInbound, type TriggerOptions, type TriggerResult } from '../ops/trigger.js'
 
 /** A user message handler — receives the full inbound {@link MessageContext}. */
 export type MessageHandler = (ctx: MessageContext) => unknown | Promise<unknown>
@@ -137,6 +140,10 @@ export interface BotEvents {
   handoff: HandoffEvent
   /** A handed-off chat was given back to the bot (`bot.resume()`). */
   resume: ResumeEvent
+  /** A conversation/flow was entered (trigger match, `bot.trigger()`, dormant resume, `c.goto()`). */
+  'conversation:started': ConversationStartedEvent
+  /** A conversation/flow ended — completed, cancelled, timed out, out of retries or errored. */
+  'conversation:ended': ConversationEndedEvent
 }
 
 export type BotEventArgs<K extends keyof BotEvents> = BotEvents[K] extends void ? [] : [BotEvents[K]]
@@ -231,6 +238,10 @@ export class Bot extends EventEmitter {
    * point is dropped instead of hitting a stopped provider.
    */
   private pacedSendsOpen = false
+  /** Runtime counters behind {@link metrics}. */
+  private counters = new MetricsCollector()
+  /** Aborted by {@link stop}: cancels running broadcasts so nothing is sent through a stopped provider. */
+  private lifecycleAbort = new AbortController()
 
   constructor(config: BotConfig) {
     super()
@@ -295,6 +306,18 @@ export class Bot extends EventEmitter {
       scope: this.config.conversationScope === 'chat' ? 'chat' : 'participant',
       logger: this.logger.child({ module: 'conversations' }),
       onError: (error, ctx) => this.emitError({ error, ctx: ctx as unknown as MessageContext }),
+      onConversationStart: ({ id, name, key, ctx }) => {
+        this.counters.conversationStarted(name)
+        this.emitSafely('conversation:started', { id, name, key, chatId: ctx.from, userId: ctx.sender })
+      },
+      onConversationEnd: ({ id, name, key, ctx, outcome, durationMs, goto }) => {
+        this.counters.conversationEnded(name, outcome, durationMs)
+        const event: ConversationEndedEvent = {
+          id, name, key, chatId: ctx.from, userId: ctx.sender, outcome, completed: outcome === 'completed', durationMs,
+        }
+        if (goto !== undefined) event.goto = goto
+        this.emitSafely('conversation:ended', event)
+      },
     })
     if (typeof (this.store as Partial<CheckpointStore>).setCheckpoint === 'function') {
       this.runtime.attachStore(this.store as CheckpointStore)
@@ -315,7 +338,11 @@ export class Bot extends EventEmitter {
         }
         return this.emit(event, payload)
       },
-      gate: (ctx) => this.handoffs.admits(ctx),
+      gate: (ctx) => {
+        const admitted = this.handoffs.admits(ctx)
+        if (!admitted) this.counters.handoffDropped()
+        return admitted
+      },
     })
 
     // The handoff index lives under a store cursor key; a backend without cursor support
@@ -396,9 +423,11 @@ export class Bot extends EventEmitter {
       providerAttempted = true
       await this.provider.start()
       this.scheduler.start(this.logger.child({ module: 'scheduler' }))
+      if (this.lifecycleAbort.signal.aborted) this.lifecycleAbort = new AbortController()
       this.isStarted = true
       this.acceptingInbound = true
       this.pacedSendsOpen = true
+      this.counters.markStarted()
       this.emit('started')
     } catch (error) {
       this.acceptingInbound = false
@@ -428,6 +457,9 @@ export class Bot extends EventEmitter {
   private async stopOnce(opts?: { drain?: boolean; timeout?: number }): Promise<void> {
     if (!this.isStarted) return
     this.acceptingInbound = false
+    // Running broadcasts start no new send from here on; their in-flight sends are
+    // in `inflightSends`, so `drain` still waits for them.
+    this.lifecycleAbort.abort()
     this.scheduler.stop()
     if (opts?.drain && this.inflightSends.size > 0) {
       const timeout = opts.timeout ?? 10_000
@@ -445,6 +477,7 @@ export class Bot extends EventEmitter {
     catch (error) { stopError ??= error }
     this.isStarted = false
     this.connState = 'closed'
+    this.counters.markStopped()
     this.emit('stopped')
     if (stopError) throw stopError
   }
@@ -481,7 +514,9 @@ export class Bot extends EventEmitter {
     const op = this.provider.send(payload.chatId, payload.content, payload.options)
     this.inflightSends.add(op)
     try {
-      const res = await op
+      let res: SendResult
+      try { res = await op } catch (error) { this.counters.outbound(false); throw error }
+      this.counters.outbound(true)
       if (isEditableSend(payload.content)) {
         if (origin !== 'ctx') this.externalSends.mark(payload.chatId)
       }
@@ -539,16 +574,115 @@ export class Bot extends EventEmitter {
     return this.send(chatId, { kind: 'text', text })
   }
 
-  /** Broadcast content to multiple chats (one send per chat). */
-  async broadcast(chatIds: ChatId[], content: OutboundContent): Promise<{ sent: SentMessage[]; failed: Array<{ chatId: ChatId; error: Error }> }> {
-    const sent: SentMessage[] = []
-    const failed: Array<{ chatId: ChatId; error: Error }> = []
-    for (const chatId of chatIds) {
-      try { sent.push(await this.send(chatId, content)) }
-      catch (error) { failed.push({ chatId, error: error as Error }) }
-    }
-    return { sent, failed }
+  /**
+   * Send `content` (a string is sent as text) to many chats: in batches of `batchSize`
+   * (default 10) with `concurrency` parallel sends (default 1), pausing `delayBetween`
+   * between batches. A `RateLimitedError` pauses the whole broadcast for its
+   * `retryAfterMs` and retries that chat (up to `maxRetries`, default 3); other errors
+   * are recorded and the broadcast goes on. Abort `signal` to stop early — never-attempted
+   * chats come back in `pending`. `bot.stop()` cancels it the same way (with `drain`,
+   * stop waits for its in-flight sends), and a broadcast started on a stopped bot
+   * sends nothing. Duplicate ids are sent once. Each send takes the normal
+   * outbound path (send hooks, ledger, the provider's rate limiter) but not the
+   * dispatcher's per-chat queues, so inbound handling is never blocked; still, launch it
+   * with `void` (not `await`) from inside a handler so that chat's queue is not held.
+   *
+   * @example
+   * ```ts
+   * const ac = new AbortController()
+   * const res = await bot.broadcast(chatIds, '🎉 Nueva promo!', {
+   *   batchSize: 10, delayBetween: '2s', signal: ac.signal,
+   *   onProgress: (done, total) => bot.logger.info(`${done}/${total}`),
+   *   onFail: (chatId, error) => bot.logger.warn({ chatId, err: error }, 'broadcast failed'),
+   * })
+   * // → { total: 500, sent: 480, failed: 20, skipped: 0, errors: [{ chatId, error }], messages, cancelled: false, pending: [] }
+   * ```
+   */
+  broadcast(chatIds: readonly ChatId[], content: string | OutboundContent, opts?: BroadcastOptions): Promise<BroadcastResult> {
+    const outbound: OutboundContent = typeof content === 'string' ? { kind: 'text', text: content } : content
+    const stopSignal = this.lifecycleAbort.signal
+    const signal = opts?.signal ? AbortSignal.any([opts.signal, stopSignal]) : stopSignal
+    return runBroadcast(
+      { send: (chatId, c, o) => this.send(chatId, c, o), reportError: (error) => this.emitError({ error }) },
+      chatIds,
+      outbound,
+      { ...opts, signal },
+    )
   }
+
+  /**
+   * Start a registered flow/conversation for a subject without waiting for them to
+   * write — reminders from `bot.schedule()`, webhooks, admin panels. `data` seeds
+   * `c.state`. The start goes through the same gates as a message (blacklist /
+   * whitelist, human handoff) and the chat's FIFO queue; by default a subject that
+   * already has a live or dormant conversation is left alone (`ifActive: 'replace'`
+   * cancels it). Resolves once the conversation is entered — not when it ends
+   * (listen to `'conversation:ended'` for that). Rejects when `name` is not registered.
+   * Safe to `await` from a handler or command of the same chat: the trigger then runs
+   * inline in that message's queue slot instead of queuing behind it (which would
+   * deadlock the chat). Awaiting a trigger for a DIFFERENT chat whose handlers in turn
+   * await a trigger back into this one can still deadlock — launch those with `void`.
+   * Before-message hooks, matchers and the `'message'` event do not run, and nothing
+   * is persisted for the synthetic inbound (`ctx.raw` is `{ synthetic: 'trigger', name }`).
+   *
+   * @example
+   * ```ts
+   * bot.schedule('0 9 * * *', async () => {
+   *   for (const cita of await db.citasDeHoy()) {
+   *     await bot.trigger('recordatorio', { chatId: cita.chatId, data: { hora: cita.hora } })
+   *   }
+   * })
+   * ```
+   */
+  async trigger(name: string, opts: TriggerOptions): Promise<TriggerResult> {
+    assertTriggerArgs(name, opts)
+    if (!this.runtime.has(name)) throw new Error(`Conversation "${name}" is not registered`)
+    const inbound = triggerInbound(name, opts)
+    const base = { name, chatId: inbound.chatId, userId: inbound.senderId }
+    if (!this.acceptingInbound) return { ...base, started: false, reason: 'stopped' }
+    if (checkAccess(this.blacklist, this.whitelist, inbound) !== 'allowed') {
+      this.counters.blockedDropped()
+      return { ...base, started: false, reason: 'blocked' }
+    }
+    const ctx = buildMessageContext({
+      inbound,
+      tools: this.tools,
+      send: (chatId, content, o) => this.dispatchSend(chatId, content, o),
+      typing: async (chatId, state) => { await this.provider.typing?.(chatId, state) },
+      handoff: (chatId, o) => this.handoff(chatId, o),
+      user: this.users.for(inbound.senderId),
+    })
+    return this.dispatcher.runExclusive(ctx, async (): Promise<TriggerResult> => {
+      if (!this.acceptingInbound) return { ...base, started: false, reason: 'stopped' }
+      if (!this.handoffs.admits(ctx)) {
+        this.counters.handoffDropped()
+        return { ...base, started: false, reason: 'handoff' }
+      }
+      const key = this.runtime.keyFor(ctx)
+      if (this.runtime.hasActive(key) || this.runtime.hasDormant(key)) {
+        if (opts.ifActive !== 'replace') return { ...base, started: false, reason: 'busy' }
+        this.runtime.discardDormant(key)
+      }
+      // Fire-and-forget: enter() resolves when the conversation ENDS.
+      void this.runtime.enter(name, ctx, { state: opts.data })
+        .catch((error) => this.emitError({ error, ctx: ctx as unknown as MessageContext }))
+      this.counters.triggerStarted()
+      return { ...base, started: true }
+    })
+  }
+
+  /**
+   * Snapshot of the runtime counters: conversations (started/completed/cancelled/
+   * timedOut/retriesExceeded/errored, active, mean duration) overall and per flow,
+   * messages in/out, inbound drops (duplicate/blocked/handoff), triggers, errors and
+   * uptime. In-process only. Render it for Prometheus with `toPrometheus()`.
+   */
+  metrics(): BotMetricsSnapshot {
+    return this.counters.snapshot(this.runtime.activeCount())
+  }
+
+  /** Zero every {@link metrics} counter (uptime is kept). */
+  resetMetrics(): void { this.counters.reset() }
 
   /* =========================================================================
    * HUMAN HANDOFF + ACCESS LISTS  (see gates/handoff.ts, gates/accessList.ts)
@@ -1079,8 +1213,14 @@ export class Bot extends EventEmitter {
   }
 
   private emitError(payload: { error: unknown; ctx?: MessageContext }): void {
+    this.counters.error()
     if (this.listenerCount('error') > 0) this.emit('error', payload)
     else this.logger.error({ err: payload.error }, 'unhandled bot error')
+  }
+
+  /** Emit an observability event; a throwing listener is reported, never propagated into the runtime. */
+  private emitSafely<K extends 'conversation:started' | 'conversation:ended'>(event: K, payload: BotEvents[K]): void {
+    try { this.emit(event, ...([payload] as BotEventArgs<K>)) } catch (error) { this.emitError({ error }) }
   }
 
   private registerEnterMatcher(trigger: Trigger, target: string): () => void {
@@ -1144,7 +1284,10 @@ export class Bot extends EventEmitter {
   /** Inbound idempotency gate: a redelivered message/interaction never reaches handlers twice. */
   private async runInboundOnce(event: InboundEvent, handle: () => Promise<void>): Promise<void> {
     if (!this.inboundDedupe) return handle()
-    await this.inboundDedupe.run(event, handle, () => this.logger.debug({ kind: event.kind }, 'duplicate inbound event dropped'))
+    await this.inboundDedupe.run(event, handle, () => {
+      this.counters.duplicateDropped()
+      this.logger.debug({ kind: event.kind }, 'duplicate inbound event dropped')
+    })
   }
 
   private async handleInbound(
@@ -1154,9 +1297,11 @@ export class Bot extends EventEmitter {
     // Access gate (blacklist/whitelist): dropped before persistence, hooks and routing.
     const access = checkAccess(this.blacklist, this.whitelist, inbound)
     if (access !== 'allowed') {
+      this.counters.blockedDropped()
       this.logger.debug({ gate: access, chatId: inbound.chatId, senderId: inbound.senderId }, 'inbound dropped by access list')
       return
     }
+    this.counters.inbound()
     const timestamp = receiveTimestamp(inbound.timestamp)
     const stored: StoredMessage = {
       ref: inbound.ref,

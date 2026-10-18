@@ -147,10 +147,8 @@ export interface ScheduledTask {
  * BROADCAST
  * ========================================================================== */
 
-export interface BroadcastResult {
-  sent: SentMessage[]
-  failed: Array<{ chatId: ChatId; error: Error }>
-}
+// Defined with the broadcast engine (`bot.broadcast()`); re-exported here for compatibility.
+export type { BroadcastResult } from '../ops/broadcast.js'
 
 /* ============================================================================
  * TRIGGER MATCHING
