@@ -1,0 +1,5 @@
+{
+  "event": "connection.update",
+  "instance": "my-instance",
+  "data": { "instance": "my-instance", "state": "close", "statusReason": 401 }
+}

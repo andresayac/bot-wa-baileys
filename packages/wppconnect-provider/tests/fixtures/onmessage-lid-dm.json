@@ -1,0 +1,18 @@
+{
+  "event": "onmessage",
+  "session": "my-bot",
+  "id": "false_184523390222111@lid_3EB0F00DBABE00000003",
+  "body": "2",
+  "type": "chat",
+  "t": 1760700120,
+  "notifyName": "Andrés",
+  "from": "184523390222111@lid",
+  "to": "573009998877@c.us",
+  "ack": 1,
+  "isNewMsg": true,
+  "chatId": "184523390222111@lid",
+  "fromMe": false,
+  "mentionedJidList": [],
+  "isGroupMsg": false,
+  "sender": { "id": "184523390222111@lid", "pushname": "Andrés", "isMe": false, "isUser": true, "isGroup": false }
+}

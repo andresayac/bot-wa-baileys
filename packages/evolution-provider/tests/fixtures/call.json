@@ -1,0 +1,5 @@
+{
+  "event": "call",
+  "instance": "my-instance",
+  "data": { "chatId": "573001112233@s.whatsapp.net", "from": "573001112233@s.whatsapp.net", "id": "C0A1B2C3D4E5F6", "date": "2026-10-17T10:05:00.000Z", "offline": false, "status": "offer", "isVideo": false, "isGroup": false }
+}

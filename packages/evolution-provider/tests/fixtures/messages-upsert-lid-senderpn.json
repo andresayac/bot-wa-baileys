@@ -1,0 +1,24 @@
+{
+  "event": "messages.upsert",
+  "instance": "my-instance",
+  "data": {
+    "key": {
+      "remoteJid": "184523390222111@lid",
+      "fromMe": false,
+      "id": "3EB0F00DBABE00000002",
+      "senderLid": "184523390222111@lid",
+      "senderPn": "573001112233@s.whatsapp.net",
+      "addressingMode": "lid"
+    },
+    "pushName": "Andrés",
+    "message": { "extendedTextMessage": { "text": "quiero el menú" } },
+    "messageType": "extendedTextMessage",
+    "messageTimestamp": "1760700060",
+    "instanceId": "6f1c3a52-6e0b-4d1e-9a0c-0f4d6a7c1b11",
+    "source": "ios"
+  },
+  "date_time": "2026-10-17T10:01:00.000Z",
+  "sender": "573009998877@s.whatsapp.net",
+  "server_url": "http://localhost:8080",
+  "apikey": "B6D711FCDE4D4FD5936544120E713976"
+}

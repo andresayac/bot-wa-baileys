@@ -1,0 +1,40 @@
+{
+  "event": "messages.upsert",
+  "instance": "my-instance",
+  "data": {
+    "key": {
+      "remoteJid": "120363041234567890@g.us",
+      "fromMe": false,
+      "id": "3EB0C0FFEE0000000004",
+      "participant": "184523390222111@lid",
+      "participantAlt": "573001112233@s.whatsapp.net",
+      "addressingMode": "lid"
+    },
+    "pushName": "Andrés",
+    "message": {
+      "imageMessage": {
+        "url": "https://mmg.whatsapp.net/o1/v/t62.7118-24/f1/m231/abc.enc",
+        "mimetype": "image/jpeg",
+        "caption": "mira esto @184523390999999",
+        "fileLength": "48211",
+        "height": 1280,
+        "width": 960,
+        "mediaKey": "kC0vB0Q3m2tY8m4Z0w5o2Q==",
+        "contextInfo": {
+          "stanzaId": "3EB0PREVIOUS000000001",
+          "participant": "184523390999999@lid",
+          "quotedMessage": { "conversation": "¿alguien tiene la foto?" },
+          "mentionedJid": ["184523390999999@lid"]
+        }
+      }
+    },
+    "messageType": "imageMessage",
+    "messageTimestamp": 1760700180,
+    "instanceId": "6f1c3a52-6e0b-4d1e-9a0c-0f4d6a7c1b11",
+    "source": "android"
+  },
+  "date_time": "2026-10-17T10:03:00.000Z",
+  "sender": "573009998877@s.whatsapp.net",
+  "server_url": "http://localhost:8080",
+  "apikey": "B6D711FCDE4D4FD5936544120E713976"
+}

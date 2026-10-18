@@ -1,0 +1,11 @@
+{
+  "event": "onack",
+  "session": "my-bot",
+  "id": { "fromMe": true, "remote": "573001112233@c.us", "id": "3EB0SENT0000000001", "_serialized": "true_573001112233@c.us_3EB0SENT0000000001" },
+  "body": "hola!",
+  "type": "chat",
+  "t": 1760700010,
+  "from": "573009998877@c.us",
+  "to": "573001112233@c.us",
+  "ack": 3
+}

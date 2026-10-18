@@ -1,0 +1,5 @@
+{
+  "event": "connection.update",
+  "instance": "my-instance",
+  "data": { "instance": "my-instance", "wuid": "573009998877@s.whatsapp.net", "profileName": "Mi Bot", "profilePictureUrl": null, "state": "open", "statusReason": 200 }
+}
