@@ -1,0 +1,5 @@
+---
+"@bot-wa/core": minor
+---
+
+Add golden transcripts: `recordTranscript` (recording `IProvider` wrapper), `transcriptFromStore`/`transcriptFromMessages` (from the store message log), `redactTranscript` (stable `<user:N>`/`<email:N>`/`<phone:N>` placeholders), a versioned JSON format (`parseTranscript`/`serializeTranscript`), and `replayTranscript`/`assertTranscript` in `@bot-wa/core/testing` with expected-vs-actual diffs and tolerance options (masks, ids, timestamps, content fields, ordering). Redaction applies patterns to inbound text only by default (bot-printed prices/dates stay comparable; `outboundPatterns` + replay `redact` opt in), replaces display names with `<name:N>` (replayed as push name), and can emit format-valid `surrogates`. `transcriptFromStore` accepts a `Bot` and reads group kinds from the store; live inbound timestamps with second precision are persisted with the receive time so the message log orders them correctly against replies. `RecordingProvider` keeps a bounded buffer (`maxTurns`, default 10 000).

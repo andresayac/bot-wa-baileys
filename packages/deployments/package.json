@@ -24,6 +24,9 @@
     "prepublishOnly": "pnpm build",
     "typecheck": "tsc -p tsconfig.test.json"
   },
+  "dependencies": {
+    "@bot-wa/core": "workspace:*"
+  },
   "author": "Andres Aya",
   "license": "MIT",
   "devDependencies": {
