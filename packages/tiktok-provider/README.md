@@ -33,7 +33,7 @@ bot.when('precio', async (ctx) => {
   await ctx.reply('¡Gracias por tu comentario! Te escribimos por DM 🙌')
 })
 
-// DMs: menú con tarjeta Q&A (de 1 a 3 botones)
+// DMs: menú con tarjeta Q&A (de 1 a 3 botones; con más, menú de texto numerado)
 bot.when('hola', async (ctx) => {
   await ctx.buttons('¿Qué necesitas?', [
     { id: 'precios', title: 'Precios' },
@@ -93,8 +93,8 @@ curl -X POST https://business-api.tiktok.com/open_api/v1.3/business/webhook/upda
 |---|---|---|---|
 | `text` | ✅ (≤ 6000 caracteres; `ctx.quote()` cita el mensaje) | ✅ (≤ 150 caracteres) | ✅ (el primer envío es la respuesta directa; los siguientes van al DM enlazado, con todo lo de la columna DM) |
 | `image` | ✅ (Buffer, `{path}` y URL se suben con `/business/message/media/upload/`; `{ native: { mediaId } }` reutiliza un `media_id` existente) | ❌ | ❌ |
-| `buttons` | ✅ `QA_BUTTON_CARD` (1 a 3, títulos ≤ 20) o `QA_LINK_CARD` (títulos ≤ 40); pregunta ≤ 40 | ❌ | ❌ |
-| `list` | ✅ `QA_LINK_CARD` si hay como mucho 3 filas en total | ❌ | ❌ |
+| `buttons` | ✅ `QA_BUTTON_CARD` (1 a 3, títulos ≤ 20) o `QA_LINK_CARD` (títulos ≤ 40); pregunta ≤ 40. Si no cabe (más de 3, botones con URL, textos más largos), menú de texto numerado | ✅ menú de texto numerado (≤ 150 caracteres) | ✅ menú de texto numerado en la respuesta directa |
+| `list` | ✅ `QA_LINK_CARD` si hay como mucho 3 filas en total; con más, menú de texto numerado | ✅ menú de texto numerado (≤ 150 caracteres) | ✅ menú de texto numerado en la respuesta directa |
 | `native` (`provider: 'tiktok'`) | ✅ (se fusiona en el body de `message/send`, p. ej. `SHARE_POST`) | ✅ (se fusiona en `reply/create`, p. ej. `image_uri`) | ❌ |
 | Resto (`audio`, `video`, `document`, `location`, `poll`, `reaction`…) | `UnsupportedContentError` | `UnsupportedContentError` | `UnsupportedContentError` |
 
@@ -119,6 +119,6 @@ Acciones: `typing()` envía `SENDER_ACTION TYPING`, que desaparece a los 5 s. `m
 | HTTP 429 o `code` 40016 / 40100 / 40132 / 40133 | `RateLimitedError` (respeta `Retry-After`) |
 | Ventana o cuota de mensajes | `OutsideSessionWindowError` |
 | `code` 40007 (no existe la conversación o el comentario), o chat id inválido | `RecipientUnreachableError` |
-| Texto o tarjeta por encima del límite (se comprueba antes de llamar a la API) | `PayloadTooLargeError` |
+| Texto por encima del límite, también un menú degradado (se comprueba antes de llamar a la API) | `PayloadTooLargeError` |
 | Tipo de contenido no soportado | `UnsupportedContentError` |
 | Cualquier otro `code` ≠ 0 o HTTP no-2xx | `TikTokApiError` (`code`, `requestId`, `httpStatus`) |

@@ -35,13 +35,24 @@ describe('toDmMessage', () => {
     const r = toDmMessage({ kind: 'buttons', text: 'Q', buttons: [{ id: 'a', title: 'x'.repeat(30) }] }, dm) as { template: { type: string } }
     expect(r.template.type).toBe('QA_LINK_CARD')
   })
-  it('rejects buttons TikTok cannot render', () => {
+  it('degrades buttons a Q&A card cannot hold to a numbered text menu', () => {
     const b = { id: 'a', title: 'A' }
-    expect(() => toDmMessage({ kind: 'buttons', text: 'Q', buttons: [b, b, b, b] }, dm)).toThrow(UnsupportedContentError)
-    expect(() => toDmMessage({ kind: 'buttons', text: 'Q', buttons: [] }, dm)).toThrow(UnsupportedContentError)
-    expect(() => toDmMessage({ kind: 'buttons', text: 'x'.repeat(41), buttons: [b] }, dm)).toThrow(PayloadTooLargeError)
-    expect(() => toDmMessage({ kind: 'buttons', text: 'Q', buttons: [{ id: 'a', title: 'x'.repeat(41) }] }, dm)).toThrow(PayloadTooLargeError)
-    expect(() => toDmMessage({ kind: 'buttons', text: 'Q', buttons: [{ id: 'a', title: 'Web', url: 'https://x.y' }] }, dm)).toThrow(UnsupportedContentError)
+    const text = (content: OutboundContent) => {
+      const r = toDmMessage(content, dm) as { message_type: string; text: { body: string } }
+      expect(r.message_type).toBe('TEXT')
+      return r.text.body
+    }
+    expect(text({ kind: 'buttons', text: 'Q', buttons: [b, { id: 'b', title: 'B' }, { id: 'c', title: 'C' }, { id: 'd', title: 'D' }] }))
+      .toBe('Q\n\n1) A\n2) B\n3) C\n4) D')
+    expect(text({ kind: 'buttons', text: 'x'.repeat(41), buttons: [b] })).toBe(`${'x'.repeat(41)}\n\n1) A`)
+    expect(text({ kind: 'buttons', text: 'Q', buttons: [{ id: 'a', title: 'x'.repeat(41) }] })).toBe(`Q\n\n1) ${'x'.repeat(41)}`)
+    expect(text({ kind: 'buttons', text: 'Q', buttons: [b, { id: 'w', title: 'Web', url: 'https://x.y' }] })).toBe('Q\n\n1) A\n2) Web: https://x.y')
+    expect(text({ kind: 'buttons', text: 'Q', buttons: [] })).toBe('Q')
+    expect(text({ kind: 'buttons', text: 'Q', buttons: [b, b, b, b], footer: 'Responde con el número' }))
+      .toBe('Q\n\n1) A\n2) A\n3) A\n4) A\n\nResponde con el número')
+  })
+  it('rejects a degraded menu over the DM text limit', () => {
+    expect(() => toDmMessage({ kind: 'buttons', text: 'x'.repeat(6000), buttons: [1, 2, 3, 4].map((n) => ({ id: String(n), title: `B${n}` })) }, dm)).toThrow(PayloadTooLargeError)
   })
   it('maps a list with ≤ 3 rows to a QA_LINK_CARD', () => {
     expect(toDmMessage({ kind: 'list', text: 'Elige', buttonText: 'Ver', sections: [{ rows: [{ id: '1', title: 'Uno' }, { id: '2', title: 'Dos' }] }] }, dm)).toMatchObject({
@@ -49,7 +60,9 @@ describe('toDmMessage', () => {
       template: { type: 'QA_LINK_CARD', title: 'Elige', buttons: [{ type: 'REPLY', title: 'Uno', id: '1' }, { type: 'REPLY', title: 'Dos', id: '2' }] },
     })
     const rows = [1, 2, 3, 4].map((n) => ({ id: String(n), title: `R${n}` }))
-    expect(() => toDmMessage({ kind: 'list', text: 'Elige', buttonText: 'Ver', sections: [{ rows }] }, dm)).toThrow(UnsupportedContentError)
+    expect(toDmMessage({ kind: 'list', text: 'Elige', buttonText: 'Ver', sections: [{ rows }] }, dm)).toMatchObject({
+      message_type: 'TEXT', text: { body: 'Elige\n\n1) R1\n2) R2\n3) R3\n4) R4' },
+    })
   })
   it('passes native payloads through, pinned to the conversation', () => {
     expect(toDmMessage({ kind: 'native', provider: 'tiktok', payload: { message_type: 'SHARE_POST', share_post: { item_id: 'V' } } }, dm)).toEqual({
@@ -82,7 +95,9 @@ describe('toCommentReply', () => {
   })
   it('only supports text (and native passthrough)', () => {
     expect(() => toCommentReply({ kind: 'image', media: 'x' }, target)).toThrow(UnsupportedContentError)
-    expect(() => toCommentReply({ kind: 'buttons', text: 't', buttons: [{ id: '1', title: 'a' }] }, target)).toThrow(UnsupportedContentError)
+    // Buttons / lists degrade to a numbered text menu (within the 150-character limit).
+    expect(toCommentReply({ kind: 'buttons', text: 't', buttons: [{ id: '1', title: 'a' }] }, target)).toMatchObject({ text: 't\n\n1) a' })
+    expect(() => toCommentReply({ kind: 'buttons', text: 'x'.repeat(150), buttons: [{ id: '1', title: 'a' }] }, target)).toThrow(PayloadTooLargeError)
     expect(toCommentReply({ kind: 'native', provider: 'tiktok', payload: { image_uri: 'U', image_width: 1, image_height: 2 } }, target)).toEqual({
       business_id: 'B', video_id: 'V', comment_id: 'C', image_uri: 'U', image_width: 1, image_height: 2,
     })

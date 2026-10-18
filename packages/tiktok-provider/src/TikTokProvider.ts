@@ -114,7 +114,7 @@ export class TikTokProvider implements IProvider<unknown> {
   readonly capabilities: ProviderCapabilities = {
     contentKinds: ['text', 'image', 'buttons', 'list', 'native'],
     maxTextLength: 6000,
-    // Q&A cards: 1–3 reply buttons — choose() menus with more options must stay numbered text.
+    // Q&A cards: 1–3 reply buttons; bigger menus (or URL buttons) degrade to numbered text.
     buttons: true,
     lists: true,
     polls: false,

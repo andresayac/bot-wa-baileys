@@ -107,7 +107,7 @@ text menu, `ctx.edit` sends a new message, `ctx.react` resolves
 | HighLevel | webhook | no | no | no | no | no | no | yes | no | yes | chunks | field by field |
 | Gupshup | webhook | yes | yes | no | no | no | no | no | no | yes | chunks | field by field |
 | Email | IMAP IDLE (or `ingest()`) | no | no | no | no | no | no | no | no | no | chunks | field by field |
-| TikTok | webhook | yes (1 to 3, DMs) | yes (up to 3 rows, DMs) | no | no | no | yes (DMs) | yes (DMs) | no | no | chunks | field by field |
+| TikTok | webhook | yes (1 to 3, DMs; more → numbered text) | yes (up to 3 rows, DMs; more → numbered text) | no | no | no | yes (DMs) | yes (DMs) | no | no | chunks | field by field |
 
 - **Send reactions** only describes sending. Several providers still
   receive reactions as `reaction` events (Messenger, Instagram, Gupshup,
@@ -444,7 +444,10 @@ const provider = new TikTokProvider({
   (comment thread, a group chat) and `hic:<comment_id>` (high-intent
   comment). `ctx.chat.platformData.surface` tells them apart.
 - DMs: text (up to 6000 characters), images, Q&A cards for buttons (1 to
-  3); comments: text replies up to 150 characters.
+  3); comments: text replies up to 150 characters. Buttons or lists a Q&A
+  card cannot hold (more than 3 options, URL buttons, titles over 40
+  characters) and menus sent to a comment thread degrade to a numbered text
+  menu, as on Baileys.
 - The bot cannot start a conversation, and TikTok limits messages per 48 h
   window (`OutsideSessionWindowError`).
 

@@ -6,7 +6,9 @@
  *  - Comment threads → `POST /business/comment/reply/create/` (text ≤ 150).
  *  - High-intent comments → `/business/message/send/` with `direct_reply`.
  *
- * Anything TikTok cannot carry rejects with `UnsupportedContentError`; limits
+ * Buttons / lists a Q&A card cannot hold (more than 3 options, URL buttons, long
+ * titles) and buttons / lists in comment threads degrade to a numbered text menu.
+ * Anything else TikTok cannot carry rejects with `UnsupportedContentError`; limits
  * documented by TikTok reject with `PayloadTooLargeError` before any request.
  */
 
@@ -39,19 +41,41 @@ function assertText(text: string, limit: number, what: string): void {
   if (charLength(text) > limit) throw new PayloadTooLargeError(`TikTok ${what} is limited to ${limit} characters (got ${charLength(text)})`)
 }
 
-function card(kind: 'buttons' | 'list', title: string, options: Array<Pick<Button, 'id' | 'title' | 'url'>>): TikTokRequestBody {
-  if (options.length === 0 || options.length > CARD_MAX_BUTTONS) {
-    throw new UnsupportedContentError(kind, `TikTok Q&A cards hold 1–${CARD_MAX_BUTTONS} options (got ${options.length}); use a numbered choose() menu instead`)
-  }
-  if (options.some((o) => o.url)) throw new UnsupportedContentError(kind, 'TikTok Q&A cards only support reply buttons (no URL buttons)')
-  assertText(title, CARD_TITLE_LIMIT, 'Q&A card question')
+type MenuOption = Pick<Button, 'id' | 'title' | 'url'>
+
+/** True when a Q&A card can carry the menu: 1–3 reply options, question ≤ 40, titles ≤ 40. */
+function fitsCard(title: string, options: MenuOption[]): boolean {
+  return options.length > 0
+    && options.length <= CARD_MAX_BUTTONS
+    && !options.some((o) => o.url)
+    && charLength(title) <= CARD_TITLE_LIMIT
+    && options.every((o) => charLength(o.title) <= LINK_CARD_TITLE_LIMIT)
+}
+
+/**
+ * The same degradation as Baileys: the question, a numbered menu (a URL button
+ * shows its link) and the footer. The user answers with the number, which
+ * `choose()` menus and number triggers understand.
+ */
+export function numberedMenu(text: string, options: MenuOption[], footer?: string): string {
+  const menu = options.map((o, i) => `${i + 1}) ${o.title}${o.url ? `: ${o.url}` : ''}`).join('\n')
+  return [text, menu, footer].filter((part) => part !== undefined && part !== '').join('\n\n')
+}
+
+function card(kind: 'buttons' | 'list', title: string, options: MenuOption[]): TikTokRequestBody {
   const longest = Math.max(...options.map((o) => charLength(o.title)))
-  if (longest > LINK_CARD_TITLE_LIMIT) throw new PayloadTooLargeError(`TikTok Q&A option titles are limited to ${LINK_CARD_TITLE_LIMIT} characters`)
   const type = kind === 'buttons' && longest <= BUTTON_CARD_TITLE_LIMIT ? 'QA_BUTTON_CARD' : 'QA_LINK_CARD'
   return {
     message_type: 'TEMPLATE',
     template: { type, title, buttons: options.map((o) => ({ type: 'REPLY', title: o.title, id: o.id })) },
   }
+}
+
+/** `buttons` / `list` as `{ text, options, footer }`, or `undefined` for any other kind. */
+function menuOf(content: OutboundContent): { kind: 'buttons' | 'list'; text: string; options: MenuOption[]; footer?: string } | undefined {
+  if (content.kind === 'buttons') return { kind: 'buttons', text: content.text, options: content.buttons, footer: content.footer }
+  if (content.kind === 'list') return { kind: 'list', text: content.text, options: content.sections.flatMap((s) => s.rows), footer: content.footer }
+  return undefined
 }
 
 export interface DmTarget {
@@ -81,9 +105,12 @@ export function toDmMessage(content: OutboundContent, target: DmTarget): TikTokR
       return { ...base, message_type: 'IMAGE', image: { media_id: target.mediaId } }
     }
     case 'buttons':
-      return { ...base, ...card('buttons', content.text, content.buttons) }
-    case 'list':
-      return { ...base, ...card('list', content.text, content.sections.flatMap((s) => s.rows)) }
+    case 'list': {
+      const menu = menuOf(content)!
+      if (fitsCard(menu.text, menu.options)) return { ...base, ...card(menu.kind, menu.text, menu.options) }
+      // More than 3 options, URL buttons or long titles: a numbered text menu, like Baileys.
+      return toDmMessage({ kind: 'text', text: numberedMenu(menu.text, menu.options, menu.footer) }, target)
+    }
     case 'native':
       return { ...base, ...nativePayload(content) }
     default:
@@ -97,9 +124,11 @@ export interface CommentTarget {
   commentId: string
 }
 
-/** Build a `/business/comment/reply/create/` body. Text only (or a native image reply). */
+/** Build a `/business/comment/reply/create/` body. Text (buttons / lists as a numbered menu) or a native image reply. */
 export function toCommentReply(content: OutboundContent, target: CommentTarget): TikTokRequestBody {
   const base = { business_id: target.businessId, video_id: target.videoId, comment_id: target.commentId }
+  const menu = menuOf(content)
+  if (menu) content = { kind: 'text', text: numberedMenu(menu.text, menu.options, menu.footer) }
   if (content.kind === 'text') {
     assertText(content.text, COMMENT_TEXT_LIMIT, 'comment reply')
     return { ...base, text: content.text }
@@ -113,8 +142,10 @@ export interface DirectReplyTarget {
   commentId: string
 }
 
-/** Build a Comment-to-Message direct reply (`direct_reply.reply_type = COMMENT_REPLY`). Text only. */
+/** Build a Comment-to-Message direct reply (`direct_reply.reply_type = COMMENT_REPLY`). Text (buttons / lists as a numbered menu). */
 export function toDirectReply(content: OutboundContent, target: DirectReplyTarget): TikTokRequestBody {
+  const menu = menuOf(content)
+  if (menu) content = { kind: 'text', text: numberedMenu(menu.text, menu.options, menu.footer) }
   if (content.kind !== 'text') {
     throw new UnsupportedContentError(content.kind, `TikTok direct replies to comments only support text (got '${content.kind}')`)
   }

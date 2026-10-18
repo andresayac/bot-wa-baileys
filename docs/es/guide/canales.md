@@ -111,7 +111,7 @@ pasan a un menú de texto numerado, `ctx.edit` envía un mensaje nuevo,
 | HighLevel | webhook | no | no | no | no | no | no | sí | no | sí | fragmentos | campo a campo |
 | Gupshup | webhook | sí | sí | no | no | no | no | no | no | sí | fragmentos | campo a campo |
 | Email | IMAP IDLE (o `ingest()`) | no | no | no | no | no | no | no | no | no | fragmentos | campo a campo |
-| TikTok | webhook | sí (de 1 a 3, DMs) | sí (hasta 3 filas, DMs) | no | no | no | sí (DMs) | sí (DMs) | no | no | fragmentos | campo a campo |
+| TikTok | webhook | sí (de 1 a 3, DMs; más → texto numerado) | sí (hasta 3 filas, DMs; más → texto numerado) | no | no | no | sí (DMs) | sí (DMs) | no | no | fragmentos | campo a campo |
 
 - **Enviar reacciones** solo describe el envío. Varios providers reciben
   igualmente reacciones como eventos `reaction` (Messenger, Instagram,
@@ -461,7 +461,10 @@ const provider = new TikTokProvider({
   de alta intención). `ctx.chat.platformData.surface` los distingue.
 - DMs: texto (hasta 6000 caracteres), imágenes, tarjetas Q&A para los
   botones (de 1 a 3); comentarios: respuestas de texto de hasta 150
-  caracteres.
+  caracteres. Los botones o listas que no caben en una tarjeta Q&A (más de 3
+  opciones, botones con URL, títulos de más de 40 caracteres) y los menús
+  enviados a un hilo de comentarios se degradan a un menú de texto numerado,
+  como en Baileys.
 - El bot no puede iniciar una conversación y TikTok limita los mensajes por
   ventana de 48 h (`OutsideSessionWindowError`).
 
