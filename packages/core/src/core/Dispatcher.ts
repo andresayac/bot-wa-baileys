@@ -189,6 +189,9 @@ export class Dispatcher {
    * WELCOME sits after commands/conversations so those never spend the welcome. Call
    * events take a separate path (`dispatchEvent`): same access/handoff gates in the Bot,
    * then only CALL type triggers — no message hooks, commands or 'message' event.
+   * `bot.trigger()` bypasses this method too: access lists in the Bot, then
+   * {@link runExclusive} (the chat's FIFO slot) → handoff gate → conversation start —
+   * no dedupe, persistence, message hooks, matchers or 'message' event.
    */
   private async run(ctx: DispatchContext): Promise<void> {
     const { hooks, runtime, emit } = this.deps

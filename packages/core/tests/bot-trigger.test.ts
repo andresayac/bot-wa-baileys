@@ -193,3 +193,19 @@ describe('bot.trigger', () => {
     await bot.stop()
   })
 })
+
+describe('bot.trigger + messaging', () => {
+  it('a triggered conversation gets the same messaging seams as an inbound one', async () => {
+    const { bot, provider } = await setup()
+    let support: string | undefined
+    bot.conversation('aviso', async (c, ctx) => {
+      // MockProvider has no typing capability: the bot's capability seam says so.
+      support = (ctx as unknown as { supports(f: string): string }).supports('typing')
+      await c.say('hola')
+    })
+    await bot.trigger('aviso', { chatId: 'u1' })
+    await waitText(provider, 'hola', 'u1')
+    expect(support).toBe('unsupported')
+    await bot.stop()
+  })
+})

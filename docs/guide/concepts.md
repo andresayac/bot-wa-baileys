@@ -74,6 +74,11 @@ Incoming **calls** take a separate path: the same access-list and handoff
 gates, then only [`CALL` triggers](./triggers#call). No message hooks,
 commands or `'message'` event.
 
+`bot.trigger(name, { chatId })` (start a flow without an inbound message)
+takes its own path too: the access lists, then the chat's FIFO slot, the
+handoff gate and the conversation start. No dedupe, persistence, message
+hooks, matchers or `'message'` event.
+
 If a handler throws, the `onError('message')` hooks run and the error is
 always emitted on `bot.on('error', ({ error, ctx }) => ...)`, even when no
 error hook is registered.

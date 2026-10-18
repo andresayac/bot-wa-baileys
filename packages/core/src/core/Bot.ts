@@ -647,10 +647,11 @@ export class Bot extends EventEmitter {
     const ctx = buildMessageContext({
       inbound,
       tools: this.tools,
-      send: (chatId, content, o) => this.dispatchSend(chatId, content, o),
+      send: (chatId, content, o) => this.dispatchSend(chatId, content, o, chatId === inbound.from ? 'ctx' : 'api'),
       typing: async (chatId, state) => { await this.provider.typing?.(chatId, state) },
       handoff: (chatId, o) => this.handoff(chatId, o),
       user: this.users.for(inbound.senderId),
+      ...this.messagingDeps(),
     })
     return this.dispatcher.runExclusive(ctx, async (): Promise<TriggerResult> => {
       if (!this.acceptingInbound) return { ...base, started: false, reason: 'stopped' }
