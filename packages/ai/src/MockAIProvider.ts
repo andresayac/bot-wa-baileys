@@ -22,6 +22,8 @@ export interface MockTurn {
 export interface MockOptions {
   reply?: string | MockTurn | ((input: GenerateInput) => string | MockTurn)
   model?: string
+  /** Default stop reason reported by `generate()` and by `stream()` (through `onStreamEnd`), e.g. `'refusal'`. A turn's own `stopReason` wins. */
+  stopReason?: string
 }
 
 export class MockAIProvider implements AIProvider {
@@ -40,7 +42,7 @@ export class MockAIProvider implements AIProvider {
     this.calls.push({ ...input, messages: [...input.messages] })
     const turn = this.turnFor(input)
     const toolCalls = (turn.toolCalls ?? []).map((c) => ({ id: c.id ?? `mock_call_${++this.seq}`, name: c.name, args: c.args ?? {} }))
-    const stopReason = turn.stopReason ?? (toolCalls.length ? 'tool_use' : undefined)
+    const stopReason = turn.stopReason ?? this.opts.stopReason ?? (toolCalls.length ? 'tool_use' : undefined)
     return {
       text: turn.text ?? '',
       model: this.opts.model ?? 'mock',
@@ -51,6 +53,8 @@ export class MockAIProvider implements AIProvider {
   }
   async *stream(input: GenerateInput): AsyncIterable<string> {
     this.calls.push({ ...input, messages: [...input.messages] })
-    for (const ch of this.turnFor(input).text ?? '') yield ch
+    const turn = this.turnFor(input)
+    for (const ch of turn.text ?? '') yield ch
+    input.onStreamEnd?.({ stopReason: turn.stopReason ?? this.opts.stopReason })
   }
 }

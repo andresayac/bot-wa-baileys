@@ -1,4 +1,5 @@
 export type { AIMessage } from '@bot-wa/core'
+import type { StreamOptions } from '@bot-wa/core'
 import type { PresetName } from './providers/presets.js'
 import type { AIMemoryConfig } from './memory/MemoryManager.js'
 import type { AIRagConfig, AIRetriever } from './rag.js'
@@ -40,6 +41,11 @@ export interface GenerateInput {
   signal?: AbortSignal
   /** Tools the model may call this turn (native function/tool calling). */
   tools?: AIToolDefinition[]
+  /**
+   * Streaming only: called once when the provider stream ends normally, with the
+   * provider's stop reason when it reports one (e.g. `'refusal'`, `'end_turn'`).
+   */
+  onStreamEnd?: (info: { stopReason?: string }) => void
 }
 export interface GenerateResult {
   text: string
@@ -109,4 +115,18 @@ export interface AIConfig {
   }
   /** Audit hook for every tool loop event (also emitted on the bot as `'ai.tool'`). */
   onToolEvent?: (event: AIToolEvent) => void
+  /**
+   * Stream the autoresponder's answer with `ctx.stream()` (native drafts on
+   * Telegram, live edits on Discord, sentence chunks with typing on WhatsApp)
+   * instead of one message at the end. `true` uses the defaults; an object tunes
+   * the `StreamOptions`. Default: off (one message). Falls back to the one-shot
+   * reply when the core has no `ctx.stream`.
+   */
+  stream?: boolean | AIStreamConfig
+}
+
+/** {@link AIConfig.stream} as an object: `StreamOptions` for the autoresponder. */
+export type AIStreamConfig = Omit<StreamOptions, 'signal' | 'sendOptions'> & {
+  /** Default true; `false` disables streaming while keeping the options around. */
+  enabled?: boolean
 }

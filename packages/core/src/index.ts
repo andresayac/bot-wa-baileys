@@ -361,3 +361,9 @@ export type { ContextI18n } from './core/provider.js'
 // manager
 // Dynamic flow registry: bot.registerFlow/unregisterFlow/replaceFlow/listFlows/triggerFlow.
 export type { FlowTriggerOptions, FlowTriggerTarget, RegisteredFlowInfo } from './core/flowRegistry.js'
+// streaming
+// ctx.stream(): live replies (native drafts / throttled edits / sentence chunks).
+export { streamText, resolveStreamStrategy } from './streaming/streamText.js'
+export { splitMessage, findSplitPoint } from './streaming/split.js'
+export type { StreamSource, StreamStrategy, StreamOptions, StreamResult, StreamTarget } from './streaming/types.js'
+export type { StreamingMode, DraftOptions } from './core/provider.js'

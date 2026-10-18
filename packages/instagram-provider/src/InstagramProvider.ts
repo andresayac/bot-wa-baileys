@@ -58,6 +58,7 @@ export class InstagramProvider implements IProvider<unknown> {
     templates: false,
     interactionsRequireAck: false,
     pushIngress: true,
+    streaming: 'none', // no live preview: ctx.stream() sends sentence chunks with typing
   }
 
   private readonly config: Required<Pick<InstagramProviderConfig, 'apiVersion' | 'graphUrl'>> & InstagramProviderConfig

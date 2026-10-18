@@ -60,6 +60,7 @@ export class CloudAPIProvider implements IProvider<unknown> {
     buttons: true, lists: true, polls: false, reactions: true, edit: false,
     typing: false, presence: false, readReceipts: true, groups: false, templates: true,
     interactionsRequireAck: false, pushIngress: true,
+    streaming: 'none', // no live preview: ctx.stream() sends sentence chunks with typing
   }
 
   private readonly config: Required<Pick<CloudAPIProviderConfig, 'apiVersion' | 'graphUrl'>> & CloudAPIProviderConfig

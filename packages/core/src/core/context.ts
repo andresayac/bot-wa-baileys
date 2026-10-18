@@ -19,6 +19,7 @@ import { unavailableUserData } from '../user/UserDataService.js'
 import { isEditableSend, isMessageRef, type EditOptions, type EditResult, type ReplyOptions } from './messaging.js'
 import { UnsupportedContentError } from './provider.js'
 import { defaultI18n, normalizeLocale } from '../i18n/I18n.js'
+import { streamText } from '../streaming/streamText.js'
 import type {
   BuildContextDeps,
   Button,
@@ -173,6 +174,17 @@ export function buildMessageContext(deps: BuildContextDeps): IMessageContext {
     },
     async sendNative(provider: string, payload: unknown) {
       return sendOut({ kind: 'native', provider, payload })
+    },
+    stream(source, opts) {
+      return streamText({
+        capabilities: deps.capabilities,
+        isPrivate,
+        send: sendOut,
+        edit: deps.streamEdit ? (ref, content) => deps.streamEdit!(ref, content) : undefined,
+        delete: deps.deleteStreamMessage ? (ref) => deps.deleteStreamMessage!(ref) : undefined,
+        draft: deps.sendDraft ? (draftId, text, o) => deps.sendDraft!(from, draftId, text, o) : undefined,
+        typing: deps.typing ? () => deps.typing!(from, 'typing') : undefined,
+      }, source, opts)
     },
 
     /* Actions — degrade to no-op when the provider lacks the capability -- */

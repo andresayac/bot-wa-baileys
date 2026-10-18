@@ -1,4 +1,5 @@
 export { MockProvider } from './MockProvider.js'
+export type { MockProviderOptions, MockEdit, MockDraft, MockOutgoing } from './MockProvider.js'
 export { createTestBot } from './createTestBot.js'
 export type { TestChat } from './createTestBot.js'
 

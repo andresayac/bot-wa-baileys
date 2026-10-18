@@ -18,7 +18,7 @@ export interface OpenAIChatCompletion {
   usage?: { prompt_tokens: number; completion_tokens: number }
 }
 export interface OpenAIStreamChunk {
-  choices: Array<{ delta?: { content?: string } }>
+  choices: Array<{ delta?: { content?: string }; finish_reason?: string | null }>
 }
 export interface OpenAIRequestOptions {
   signal?: AbortSignal
@@ -104,10 +104,13 @@ export class OpenAIProvider implements AIProvider {
       ...this.baseArgs(textOnly),
       stream: true,
     }, this.reqOpts(input))) as AsyncIterable<OpenAIStreamChunk>
+    let stopReason: string | undefined
     for await (const chunk of s) {
       const d = chunk.choices[0]?.delta?.content
       if (d) yield d
+      stopReason = chunk.choices[0]?.finish_reason ?? stopReason
     }
+    input.onStreamEnd?.({ stopReason })
   }
 }
 

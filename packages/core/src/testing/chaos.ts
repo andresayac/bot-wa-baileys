@@ -411,6 +411,7 @@ export class ChaosProvider<P extends IProvider = IProvider> implements IProvider
   typing?: IProvider['typing']
   deleteMessage?: IProvider['deleteMessage']
   editMessage?: IProvider['editMessage']
+  sendDraft?: IProvider['sendDraft']
   acknowledgeInteraction?: IProvider['acknowledgeInteraction']
 
   private readonly opts: ResolvedOptions
@@ -453,6 +454,7 @@ export class ChaosProvider<P extends IProvider = IProvider> implements IProvider
     if (inner.typing) this.typing = inner.typing.bind(inner)
     if (inner.deleteMessage) this.deleteMessage = inner.deleteMessage.bind(inner)
     if (inner.editMessage) this.editMessage = inner.editMessage.bind(inner)
+    if (inner.sendDraft) this.sendDraft = inner.sendDraft.bind(inner)
     if (inner.acknowledgeInteraction) this.acknowledgeInteraction = inner.acknowledgeInteraction.bind(inner)
 
     inner.onEvent((event) => this.receive(event))

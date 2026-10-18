@@ -177,6 +177,122 @@ export class AIClient {
   }
 
   /**
+   * Streaming twin of {@link replyInChat}: yields the answer piece by piece (feed
+   * it to `ctx.stream()`). The turn (user + assistant) is stored once the stream
+   * ends, but not when the provider fails. `timeoutMs` applies as an IDLE timeout:
+   * no chunk for that long -> {@link AITimeoutError}.
+   *
+   * Stopping early (`return()`, which is what `ctx.stream()` does on cancel, or
+   * `opts.signal`) aborts the provider request at once; the chunk still in flight
+   * is dropped. The partial answer already yielded is stored unless
+   * `keepPartial: false` (pair it with `ctx.stream(..., { onCancel: 'discard' })`).
+   *
+   * A refusal (`stopReason === 'refusal'`) yields `refusalMessage` (after a blank
+   * line when some text was already streamed) and the turn is not stored, like
+   * {@link replyInChat}.
+   *
+   * @example
+   * ```ts
+   * await ctx.stream(ctx.tools.ai.streamReplyInChat(chatKeyOf(ctx), ctx.body))
+   * ```
+   */
+  streamReplyInChat(chatKey: string, userText: string, opts?: { signal?: AbortSignal; keepPartial?: boolean }): AsyncIterableIterator<string> {
+    // A plain async generator queues return() until its pending await settles, so
+    // the provider request would keep running (and its next chunk be recorded).
+    // Abort first, then hand the return to the generator.
+    const stop = new AbortController()
+    const gen = this.streamReply(chatKey, userText, stop, opts)
+    const it: AsyncIterableIterator<string> = {
+      next: () => gen.next(),
+      return: (value?: unknown) => { stop.abort(); return gen.return(value as undefined) },
+      throw: (error?: unknown) => { stop.abort(); return gen.throw(error) },
+      [Symbol.asyncIterator]: () => it,
+    }
+    return it
+  }
+
+  private async *streamReply(
+    chatKey: string,
+    userText: string,
+    ctrl: AbortController,
+    opts?: { signal?: AbortSignal; keepPartial?: boolean },
+  ): AsyncGenerator<string, void, undefined> {
+    const onUserAbort = () => ctrl.abort()
+    if (opts?.signal) {
+      if (opts.signal.aborted) ctrl.abort()
+      else opts.signal.addEventListener('abort', onUserAbort, { once: true })
+    }
+    let text = ''
+    let completed = false
+    let failed = false
+    let refused = false
+    let iterator: AsyncIterator<string> | undefined
+    try {
+      const history = await this.ctx.history(chatKey)
+      const messages: AIMessage[] = [...history, { role: 'user', content: userText }]
+      let stopReason: string | undefined
+      iterator = this.provider.stream({
+        ...this.base(messages),
+        signal: ctrl.signal,
+        onStreamEnd: (info) => { stopReason = info.stopReason },
+      })[Symbol.asyncIterator]()
+      while (!ctrl.signal.aborted) {
+        const r = await this.nextWithIdleTimeout(iterator, ctrl)
+        // Stopped while waiting: a chunk that arrives late was never seen.
+        if (ctrl.signal.aborted || r.done) break
+        if (typeof r.value !== 'string' || !r.value) continue
+        text += r.value
+        yield r.value
+      }
+      completed = !ctrl.signal.aborted
+      if (completed && stopReason === 'refusal') {
+        refused = true
+        yield (text ? '\n\n' : '') + (this.opts.refusalMessage ?? 'No puedo ayudar con eso.')
+      }
+    } catch (error) {
+      failed = true
+      throw error
+    } finally {
+      if (opts?.signal) opts.signal.removeEventListener('abort', onUserAbort)
+      if (!completed) {
+        ctrl.abort()
+        const pending = iterator
+        try { void Promise.resolve(pending?.return?.()).catch(() => undefined) } catch { /* ignore */ }
+      }
+      if (!failed && !refused && text && (completed || opts?.keepPartial !== false)) {
+        await this.ctx.appendMany(chatKey, [
+          { role: 'user', content: userText },
+          { role: 'assistant', content: text },
+        ])
+      }
+    }
+  }
+
+  /** `iterator.next()` raced against the idle timeout and against `ctrl` aborting (resolves `done`). */
+  private async nextWithIdleTimeout(iterator: AsyncIterator<string>, ctrl: AbortController): Promise<IteratorResult<string>> {
+    const next = iterator.next()
+    next.catch(() => undefined)
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let onAbort: (() => void) | undefined
+    const aborted = new Promise<IteratorResult<string>>((resolve) => {
+      onAbort = () => resolve({ done: true, value: undefined })
+      ctrl.signal.addEventListener('abort', onAbort, { once: true })
+    })
+    const racers: Array<Promise<IteratorResult<string>>> = [next, aborted]
+    if (this.timeoutMs > 0) {
+      racers.push(new Promise<never>((_, reject) => {
+        timer = setTimeout(() => { reject(new AITimeoutError(this.timeoutMs)); ctrl.abort() }, this.timeoutMs)
+      }))
+    }
+    try {
+      return await Promise.race(racers)
+    } finally {
+      if (timer) clearTimeout(timer)
+      if (onAbort) ctrl.signal.removeEventListener('abort', onAbort)
+    }
+  }
+
+  /**
    * Run the multi-step tool loop over `input.messages` with the configured
    * tools (or `input.tools`-less when none). Each model call gets the client's
    * timeout; each tool its own (`toolTimeoutMs` / `tool.timeoutMs`). Throws

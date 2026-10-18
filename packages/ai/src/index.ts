@@ -17,7 +17,7 @@ export { GeminiProvider } from './providers/gemini.js'
 export { LazyProvider } from './providers/LazyProvider.js'
 export { PRESETS, isPreset } from './providers/presets.js'
 export type { Preset, PresetName } from './providers/presets.js'
-export type { AIProvider, AIMessage, AIChatMessage, AIConfig, AIProviderName, GenerateInput, GenerateResult, Effort } from './types.js'
+export type { AIProvider, AIMessage, AIChatMessage, AIConfig, AIProviderName, GenerateInput, GenerateResult, Effort, AIStreamConfig } from './types.js'
 
 // ai-tools — native tool / function calling
 export { defineTool, AIToolCancelledError } from './tools/types.js'

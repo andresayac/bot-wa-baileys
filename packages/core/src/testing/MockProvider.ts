@@ -7,7 +7,10 @@
 import type {
   CallEvent,
   ChatId,
+  DraftOptions,
   IProvider,
+  MessageRef,
+  StreamingMode,
   InboundEvent,
   InboundMessage,
   MessageType,
@@ -42,17 +45,81 @@ export interface IncomingOpts {
   platformData?: Record<string, unknown>
 }
 
+/** Options of {@link MockProvider}. */
+export interface MockProviderOptions {
+  /**
+   * Streaming mode to simulate (`capabilities.streaming`). `'edit'` also exposes
+   * `editMessage` (recorded in `edits`); `'draft'` exposes `sendDraft` (recorded in
+   * `drafts`) and `editMessage`. Default `'none'` (no edit, no drafts).
+   */
+  streaming?: StreamingMode
+  /** `capabilities.maxTextLength` to simulate. Default: unset. */
+  maxTextLength?: number
+}
+
+/** One recorded {@link MockProvider.editMessage} call. */
+export interface MockEdit {
+  ref: MessageRef
+  content: OutboundContent
+}
+
+/** One recorded {@link MockProvider.sendDraft} call. */
+export interface MockDraft {
+  chatId: ChatId
+  draftId: number
+  text: string
+  opts?: DraftOptions
+}
+
 export class MockProvider implements IProvider {
   readonly id = 'mock'
-  readonly capabilities: ProviderCapabilities = {
-    contentKinds: ['text', 'image', 'video', 'audio', 'voice', 'document', 'sticker', 'location', 'contact', 'poll', 'buttons', 'list', 'reaction'],
-    buttons: true, lists: true, polls: true, reactions: true, edit: false,
-    typing: true, presence: true, readReceipts: true, groups: true, templates: false,
-    interactionsRequireAck: false, pushIngress: false,
-  }
+  readonly capabilities: ProviderCapabilities
   selfId: string | null = null
 
   outbox: MockOutgoing[] = []
+  /** Edits recorded when `streaming` is `'edit'` or `'draft'`. */
+  edits: MockEdit[] = []
+  /** Draft previews recorded when `streaming` is `'draft'`. */
+  drafts: MockDraft[] = []
+  /** Messages deleted through `deleteMessage` (present when `streaming` is not `'none'`). */
+  deleted: MessageRef[] = []
+
+  editMessage?: IProvider['editMessage']
+  deleteMessage?: IProvider['deleteMessage']
+  sendDraft?: IProvider['sendDraft']
+
+  constructor(options: MockProviderOptions = {}) {
+    const streaming = options.streaming ?? 'none'
+    this.capabilities = {
+      contentKinds: ['text', 'image', 'video', 'audio', 'voice', 'document', 'sticker', 'location', 'contact', 'poll', 'buttons', 'list', 'reaction'],
+      buttons: true, lists: true, polls: true, reactions: true, edit: streaming !== 'none',
+      typing: true, presence: true, readReceipts: true, groups: true, templates: false,
+      interactionsRequireAck: false, pushIngress: false,
+      streaming,
+      ...(options.maxTextLength !== undefined ? { maxTextLength: options.maxTextLength } : {}),
+    }
+    if (streaming !== 'none') {
+      this.editMessage = async (ref, content) => {
+        this.edits.push({ ref, content })
+        return { ref }
+      }
+      this.deleteMessage = async (ref) => { this.deleted.push(ref) }
+    }
+    if (streaming === 'draft') {
+      this.sendDraft = async (chatId, draftId, text, opts) => {
+        this.drafts.push({ chatId, draftId, text, opts })
+      }
+    }
+  }
+
+  /** Simulate the user pressing "stop" on the latest draft that offered it. */
+  stopDraft(): boolean {
+    for (let i = this.drafts.length - 1; i >= 0; i--) {
+      const stop = this.drafts[i].opts?.onStop
+      if (stop) { stop(); return true }
+    }
+    return false
+  }
   private listeners = new Set<(e: InboundEvent) => void | Promise<void>>()
 
   async start(): Promise<void> {

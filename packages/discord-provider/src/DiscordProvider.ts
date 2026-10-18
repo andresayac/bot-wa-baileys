@@ -74,6 +74,7 @@ export class DiscordProvider implements IProvider<unknown> {
     templates: false,
     interactionsRequireAck: true,
     pushIngress: false,
+    streaming: 'edit', // ctx.stream(): send once, then throttled message edits
   }
 
   private readonly config: Required<
