@@ -37,6 +37,7 @@ import { createMemory } from './memory/createMemory.js'
 import { toRagConfig } from './rag.js'
 import { AIToolCancelledError, type AIToolEvent } from './tools/types.js'
 import { suspendingConfirmer } from './tools/autoreplyConfirm.js'
+import { formatMarkdown, formatMarkdownStream, type TextFormat } from './format.js'
 
 /** Public config for {@link aiPlugin}. */
 export type AIPluginConfig = AIConfig & {
@@ -80,6 +81,7 @@ export function aiPlugin(config: AIPluginConfig = {}): PluginSpec<AIPluginConfig
         maxSteps: cfg.maxSteps,
         toolTimeoutMs: cfg.toolTimeoutMs,
         maxStepsMessage: cfg.maxStepsMessage,
+        ...(cfg.toolConfirm?.systemNote !== undefined ? { toolNote: cfg.toolConfirm.systemNote } : {}),
         onToolEvent: (event: AIToolEvent) => {
           // Audit trail: metadata only in the log (no args / results), full event to sinks.
           ctx.logger.debug({ tool: event.tool, type: event.type, step: event.step, durationMs: event.durationMs }, 'ai tool event')
@@ -107,12 +109,16 @@ export function aiPlugin(config: AIPluginConfig = {}): PluginSpec<AIPluginConfig
         bot.onMessage(async (mctx: MessageContext) => {
           if (mctx.type !== 'text' || !mctx.body) return
           const key = chatKeyOf(mctx)
+          // Markdown from the model → the channel's own markup (or none), per provider capabilities.
+          const textFormat = resolveTextFormat(cfg.format, mctx.capabilities?.textFormat)
+          const shown = (text: string): string => (textFormat ? formatMarkdown(text, textFormat) : text)
           // Tool turns (loop + confirmations) are not streamed: they take the one-shot path below.
           if (streamCfg && !client.hasTools && typeof mctx.stream === 'function') {
             try {
               // A discarded (cancelled) answer was never shown in full: keep it out of the context too.
               const keepPartial = streamCfg.onCancel !== 'discard'
-              const result = await mctx.stream(client.streamReplyInChat(key, mctx.body, { keepPartial, userId: mctx.sender, isGroup: mctx.isGroup, ctx: mctx }), {
+              const source = client.streamReplyInChat(key, mctx.body, { keepPartial, userId: mctx.sender, isGroup: mctx.isGroup, ctx: mctx })
+              const result = await mctx.stream(textFormat ? formatMarkdownStream(source, textFormat) : source, {
                 typing: cfg.humanizeTyping !== false,
                 ...streamCfg,
               })
@@ -139,6 +145,7 @@ export function aiPlugin(config: AIPluginConfig = {}): PluginSpec<AIPluginConfig
           const confirmer = client.hasTools
             ? suspendingConfirmer(bot, mctx, {
                 yes: cfg.toolConfirm?.yes,
+                no: cfg.toolConfirm?.no,
                 timeout: cfg.toolConfirm?.timeout ?? DEFAULT_CONFIRM_TIMEOUT,
                 canAsk: () => generation.get(key) === gen,
               })
@@ -164,7 +171,7 @@ export function aiPlugin(config: AIPluginConfig = {}): PluginSpec<AIPluginConfig
                 ctx.logger.debug('ai autoreply dropped: a conversation is active on the chat')
                 return
               }
-              await mctx.reply(text, replyOpts)
+              await mctx.reply(shown(text), replyOpts)
             } catch (err) {
               // Cancelled confirmation or turn (/reset, timeout, superseded turn): nothing to say.
               if (err instanceof AIToolCancelledError || abort.signal.aborted) return
@@ -193,6 +200,7 @@ export function aiPlugin(config: AIPluginConfig = {}): PluginSpec<AIPluginConfig
           // stale turn into the history cleared below, nor replies.
           inflight.get(key)?.abort()
           generation.delete(key)
+          client.clearToolHistory(key)
           await ctxMgr.clear(key)
           bot.abortConversation(mctx)
           await mctx.reply(DEFAULT_RESET_REPLY)
@@ -215,6 +223,13 @@ export function aiPlugin(config: AIPluginConfig = {}): PluginSpec<AIPluginConfig
       }
     },
   })
+}
+
+/** `format` option + the provider's `capabilities.textFormat` → the dialect to convert to, or undefined (send as is). */
+function resolveTextFormat(option: AIConfig['format'], capability: TextFormat | undefined): TextFormat | undefined {
+  if (option === false) return undefined
+  if (option === undefined || option === 'auto') return capability
+  return option
 }
 
 /** `stream` option → the StreamOptions to use, or `undefined` when streaming is off. */

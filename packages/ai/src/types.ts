@@ -1,5 +1,5 @@
 export type { AIMessage } from '@bot-wa/core'
-import type { StreamOptions } from '@bot-wa/core'
+import type { StreamOptions, TextFormat } from '@bot-wa/core'
 import type { PresetName } from './providers/presets.js'
 import type { AIMemoryConfig } from './memory/MemoryManager.js'
 import type { AIRagConfig, AIRetriever } from './rag.js'
@@ -110,8 +110,17 @@ export interface AIConfig {
   toolConfirm?: {
     /** Answers accepted as "yes" (normalized, case/accents-insensitive). Default `DEFAULT_YES`: si (also "sí"), s, yes, y, ok, okay, confirmo, confirmar, dale, claro, de acuerdo, acepto, 1. */
     yes?: string[]
+    /** Answers taken as "no" (same normalization). Default `DEFAULT_NO`: no, n, nop, nope, cancelar, cancela, cancelo, cancel, negativo, mejor no, no gracias, ... */
+    no?: string[]
     /** How long to wait for the answer. Default '2m'. */
     timeout?: number | string
+    /**
+     * System prompt note telling the model which tools the system confirms
+     * itself (so it does not ask "shall I?" before calling them) and which
+     * side-effecting tools already ran in the chat. Localized. `false` turns it
+     * off; a string replaces the confirm note. Default `true`.
+     */
+    systemNote?: boolean | string
   }
   /** Audit hook for every tool loop event (also emitted on the bot as `'ai.tool'`). */
   onToolEvent?: (event: AIToolEvent) => void
@@ -123,6 +132,15 @@ export interface AIConfig {
    * reply when the core has no `ctx.stream`.
    */
   stream?: boolean | AIStreamConfig
+  /**
+   * Convert the model's Markdown (`**bold**`, `# heading`, `[link](url)`, `- item`)
+   * before sending the autoreply: `'auto'` (default) follows the provider's
+   * `capabilities.textFormat` (`*bold*` on WhatsApp, markers stripped on
+   * Telegram/Messenger/Instagram, untouched on Discord and on providers that do
+   * not declare it); a {@link TextFormat} forces one; `false` sends the text as is.
+   * The stored history keeps the model's original text.
+   */
+  format?: 'auto' | TextFormat | false
 }
 
 /** {@link AIConfig.stream} as an object: `StreamOptions` for the autoresponder. */

@@ -256,11 +256,12 @@ configurado en vez de tumbar el bot.
 | `maxSteps` | `number` | `5` | máximo de llamadas al modelo por turno en el bucle de tools |
 | `toolTimeoutMs` | `number` | `15000` | timeout por defecto de cada tool (`0` lo desactiva) |
 | `maxStepsMessage` | `string` | mensaje localizado `ai.tools.maxSteps` (es: `'No pude completar la solicitud…'`) | respuesta si se agota `maxSteps` |
-| `toolConfirm` | `{ yes?: string[]; timeout?: number \| string }` | `{ timeout: '2m' }` | diálogo de confirmación de las tools `confirm: true` |
+| `toolConfirm` | `{ yes?: string[]; no?: string[]; timeout?: number \| string; systemNote?: boolean \| string }` | `{ timeout: '2m' }` | diálogo de confirmación de las tools `confirm: true` |
 | `onToolEvent` | `(e: AIToolEvent) => void` | — | auditoría: recibe cada evento del bucle (también se emite como `bot.on('ai.tool')`) |
 | `memory` | `boolean \| AIMemoryConfig` | — | memoria a largo plazo por usuario (ver [Memoria](#memoria-a-largo-plazo-por-usuario)) |
 | `rag` | `AIRetriever \| AIRagConfig` | — | RAG: pasajes de tus documentos con citas (ver [RAG](#rag-respuestas-con-tus-documentos)) |
 | `stream` | `boolean \| AIStreamConfig` | apagado | transmite el autoresponder con `ctx.stream()` (ver [Streaming](#streaming)) |
+| `format` | `'auto' \| TextFormat \| false` | `'auto'` | convierte el Markdown del modelo al formato del canal según `capabilities.textFormat` (`*negrita*` en WhatsApp, sin marcas en Telegram/Messenger/Instagram, intacto en Discord); `false` lo envía tal cual. El historial guarda el texto original. `formatMarkdown()` / `formatMarkdownStream()` se exportan |
 
 ## Tool calling
 
@@ -282,10 +283,13 @@ bot.plug(aiPlugin({
       handler: async ({ q }: { q: string }) => db.products.search(q),
     },
     crear_pedido: defineTool({
-      description: 'Crea un pedido para el cliente',
-      schema: z.object({ items: z.array(z.string()), cliente: z.string() }),
+      title: 'Crear pedido', // lo que ve el usuario al confirmar
+      description: 'Crea un pedido. items: claves del menú y cantidades', // solo para el modelo
+      schema: z.object({
+        items: z.array(z.object({ producto: z.enum(['pan_centeno', 'croissant']), cantidad: z.number().int().min(1) })).min(1),
+      }),
       confirm: true, // pide "sí/no" al usuario antes de ejecutar
-      confirmMessage: (a) => `¿Creo el pedido de ${a.items.join(', ')}? (sí/no)`,
+      dedupe: 'args', // no repite el mismo pedido dos veces seguidas
       timeoutMs: 10_000,
       handler: async (args, { ctx }) => db.orders.create({ ...args, chat: ctx?.from }),
     }),
@@ -301,9 +305,12 @@ bot.plug(aiPlugin({
   tool desconocida, un timeout o una negativa del usuario se devuelven al
   modelo como resultado fallido; nunca llegan al usuario como crash.
 - **Esquemas**: JSON Schema (validado con un subconjunto: `type`, `required`,
-  `properties`, `enum`, `const`, `items`, `additionalProperties: false`) o cualquier
+  `properties`, `enum`, `const`, `items`, `additionalProperties: false`,
+  `minimum`/`maximum`, `minLength`/`maxLength`, `minItems`/`maxItems`) o cualquier
   validador con `safeParse()`. Con zod v4 se usa su `toJSONSchema()`; si no,
-  pasa `jsonSchema` a mano.
+  pasa `jsonSchema` a mano. Los argumentos se validan **antes** de pedir
+  confirmación: el usuario nunca aprueba una llamada inválida (usa `enum` para
+  las claves de producto) y el error vuelve al modelo.
 - **Confirmación humana** (`confirm: true`): el autoresponder pregunta al
   usuario dentro de una conversación del runtime y devuelve la cola FIFO del
   chat, así que la respuesta llega sin bloqueos. `/reset` o el timeout
@@ -312,8 +319,26 @@ bot.plug(aiPlugin({
   la cola, pero los turnos de un mismo chat se serializan (un mensaje nuevo
   espera a que termine) y una segunda confirmación nunca reemplaza un flujo que
   el usuario haya abierto entretanto: el turno se cancela en silencio y no
-  responde encima de ese flujo. Dentro de tu propia conversación usa
-  `confirmWith(c)`:
+  responde encima de ese flujo.
+
+  La pregunta por defecto es legible: el `title` de la tool (o su nombre
+  humanizado) y una línea por argumento, nunca la descripción ni JSON
+  (`Voy a: Crear pedido` / `• 5 × torta_chocolate` / `¿Confirmas? (sí/no)`).
+  Un sí claro ejecuta, un no claro rechaza y **cualquier otra respuesta**
+  (`sí pero cambia a 5 unidades`) no ejecuta: el modelo recibe
+  `{ executed: false, reason: 'user_replied', userReply }` y vuelve a proponer
+  (`classifyConfirmation()`, `toolConfirm.yes` / `toolConfirm.no`). El prompt de
+  sistema le avisa al modelo qué tools confirma el sistema, para que no
+  pregunte él antes (`toolConfirm.systemNote`, `false` lo apaga).
+
+  **Repeticiones**: las ejecuciones correctas de tools `confirm`/`dedupe` se
+  recuerdan por chat (en memoria, 30 min, `/reset` las borra): si la tool se
+  vuelve a llamar, la pregunta avisa ("Ojo: ya hice «Crear pedido» hace un
+  momento…") y el prompt de sistema lista lo ya hecho; con `dedupe: 'args'`
+  (o `{ windowMs }`) una llamada con los mismos argumentos ni se ejecuta ni se
+  pregunta y el modelo recibe `{ executed: false, reason: 'duplicate', previous }`.
+
+  Dentro de tu propia conversación usa `confirmWith(c)`:
 
   ```ts
   bot.conversation('soporte', async (c, ctx) => {
@@ -325,8 +350,9 @@ bot.plug(aiPlugin({
   Sin confirmador (p. ej. `ctx.tools.ai.ask()` suelto), las tools
   `confirm: true` se deniegan.
 - **Auditoría**: `bot.on('ai.tool', (e) => ...)` u `onToolEvent` reciben
-  `tool.call`, `tool.confirm.*`, `tool.result`, `tool.error`, `tool.timeout`,
-  `tool.invalid_args`, `tool.unknown` y `loop.max_steps`, con `step`,
+  `tool.call`, `tool.confirm.*` (también `tool.confirm.replied`), `tool.duplicate`,
+  `tool.result`, `tool.error`, `tool.timeout`, `tool.invalid_args`, `tool.unknown`
+  y `loop.max_steps`, con `step`,
   `callId`, `chatKey` y `durationMs`. Los eventos incluyen `args`: trátalos
   como datos personales. El logger solo registra metadatos.
 - El historial persistido sigue siendo texto plano usuario/asistente; los

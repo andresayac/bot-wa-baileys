@@ -1,5 +1,5 @@
 import type { Bot, MessageContext } from '@bot-wa/core'
-import { isAffirmative } from './confirm.js'
+import { classifyConfirmation } from './confirm.js'
 import type { ToolConfirmation, ToolConfirmer } from './types.js'
 
 export interface SuspendingConfirmer {
@@ -14,6 +14,7 @@ export interface SuspendingConfirmer {
 
 export interface SuspendingConfirmerOptions {
   yes?: readonly string[]
+  no?: readonly string[]
   timeout?: number | string
   /**
    * Checked before every confirmation. When it returns false the confirmation
@@ -54,7 +55,8 @@ export function suspendingConfirmer(
     waiting = true
     const ended = bot.enterConversation(async (c) => {
       const answer = await c.ask(req.prompt, opts.timeout !== undefined ? { timeout: opts.timeout } : undefined)
-      result = isAffirmative(answer, opts.yes) ? 'approved' : 'denied'
+      // Clear yes / clear no; anything else (a yes with changes too) goes back to the model.
+      result = classifyConfirmation(answer, { yes: opts.yes, no: opts.no })
     }, mctx)
     detached = true
     signalSuspended()

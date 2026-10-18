@@ -29,10 +29,13 @@ bot.plug(aiPlugin({
       handler: async ({ q }: { q: string }) => db.products.search(q),
     },
     crear_pedido: defineTool({
-      description: 'Crea un pedido para el cliente',
-      schema: z.object({ items: z.array(z.string()), cliente: z.string() }),
+      title: 'Crear pedido', // shown to the user in the confirmation
+      description: 'Crea un pedido para el cliente. items: claves del menú y cantidades',
+      schema: z.object({
+        items: z.array(z.object({ producto: z.enum(['pan_centeno', 'croissant']), cantidad: z.number().int().min(1) })).min(1),
+      }),
       confirm: true, // ask the user "yes/no" before running it
-      confirmMessage: (a) => `¿Creo el pedido de ${a.items.join(', ')}? (sí/no)`,
+      dedupe: 'args', // never run the very same order twice in a row
       timeoutMs: 10_000,
       handler: async (args, { ctx }) => db.orders.create({ ...args, chat: ctx?.from }),
     }),
@@ -44,12 +47,14 @@ Cada entrada de `tools` es un `AITool`; la clave es el nombre que ve el modelo.
 
 | Campo | Tipo | Descripción |
 |---|---|---|
-| `description` | `string` | Qué hace la herramienta. El modelo lo lee para decidir cuándo llamarla. |
+| `description` | `string` | Qué hace la herramienta. El modelo lo lee para decidir cuándo llamarla; nunca se le muestra al usuario. |
+| `title` | `string` | Etiqueta corta que ve el usuario en la confirmación por defecto (`'Crear pedido'`). Por defecto, el nombre humanizado (`crear_pedido` → `Crear pedido`). |
 | `schema` | JSON Schema o validador con `safeParse` | Argumentos. Si se omite, no tiene argumentos. |
 | `jsonSchema` | JSON Schema | Esquema que ve el modelo (útil con validadores `safeParse`). |
 | `handler` | `(args, tctx) => unknown` | Ejecuta la herramienta. Un string vuelve al modelo tal cual, `undefined` como `'ok'` y cualquier otra cosa serializada a JSON. |
 | `confirm` | `boolean` | Pide confirmación humana antes de ejecutarla (ver [más abajo](#confirmacion-humana)). |
 | `confirmMessage` | `string \| (args) => string` | Texto de confirmación propio. |
+| `dedupe` | `'args' \| { windowMs }` | No la vuelve a ejecutar con los mismos argumentos dentro de la ventana (`'args'`: 10 minutos) en el mismo chat (ver [Efectos secundarios repetidos](#efectos-secundarios-repetidos)). |
 | `timeoutMs` | `number` | Timeout de esta herramienta; manda sobre `toolTimeoutMs`. |
 
 `defineTool<TArgs>(tool)` es un helper identidad: solo infiere el tipo de los
@@ -59,14 +64,20 @@ argumentos del handler para que el editor autocomplete `args`.
 
 - **JSON Schema**: se envía tal cual al modelo y se valida con un subconjunto
   propio (`type`, `required`, `properties`, `enum`, `const`, `items`,
-  `additionalProperties: false`).
+  `additionalProperties: false`, `minimum`/`maximum` y sus formas exclusivas,
+  `minLength`/`maxLength`, `minItems`/`maxItems`).
 - **Validadores con `safeParse`** (zod y similares): los argumentos se validan
   con `safeParse()` y el handler recibe el `data` ya parseado. El esquema para
   el modelo sale de `toJSONSchema()` si el validador lo tiene (zod v4); si no,
   pasa `jsonSchema` a mano.
 
-Los argumentos inválidos nunca llegan al handler: el modelo recibe un resultado
-de error y puede reintentar.
+Los argumentos inválidos nunca llegan al handler **ni al usuario**: se validan
+antes de cualquier confirmación, así que nadie aprueba una llamada que no se
+puede ejecutar. El modelo recibe un resultado de error (que dice que no se le
+preguntó al usuario) y puede reintentar. Usa `enum` para conjuntos cerrados
+como las claves de producto: en una prueba real el modelo pasó
+`"torta de chocolate"` en vez de la clave `torta_chocolate`, y solo el `enum`
+lo frena antes de preguntarle al usuario.
 
 ### El contexto del handler
 
@@ -108,7 +119,7 @@ ejecuta cada handler con su timeout y le devuelve los resultados.
 | `maxSteps` | `5` | Máximo de llamadas al modelo por turno. |
 | `toolTimeoutMs` | `15000` | Timeout por defecto de cada herramienta (`0` lo desactiva). |
 | `maxStepsMessage` | mensaje localizado `ai.tools.maxSteps` (es: `'No pude completar la solicitud. Intenta de nuevo con más detalle.'`) | Respuesta cuando el bucle llega a `maxSteps`. |
-| `toolConfirm` | `{ timeout: '2m' }` | `{ yes?, timeout? }` para las herramientas `confirm: true` del autoresponder. |
+| `toolConfirm` | `{ timeout: '2m' }` | `{ yes?, no?, timeout?, systemNote? }` para las herramientas `confirm: true` del autoresponder. |
 | `onToolEvent` | — | Callback de auditoría para cada evento del bucle. |
 
 ::: tip Herramientas y streaming
@@ -124,17 +135,38 @@ Una herramienta con `confirm: true` solo se ejecuta cuando una persona la
 aprueba.
 
 **En el autoresponder** el plugin le pregunta al usuario. La pregunta
-(`confirmMessage`, o una por defecto construida con la descripción y los
-argumentos) se hace dentro de una conversación del runtime, así que el handler
-termina y libera la cola FIFO del chat: la respuesta del usuario llega a la
-conversación y el bucle continúa. Nunca bloquea el chat.
+(`confirmMessage`, o una legible por defecto, ver más abajo) se hace dentro de
+una conversación del runtime, así que el handler termina y libera la cola FIFO
+del chat: la respuesta del usuario llega a la conversación y el bucle
+continúa. Nunca bloquea el chat.
 
-- Una respuesta afirmativa ejecuta la herramienta; cualquier otra la rechaza y
-  se le dice al modelo que no reintente. Las respuestas se comparan sin
-  mayúsculas, tildes ni puntuación; las palabras de "sí" por defecto son `si`,
-  `s`, `yes`, `y`, `ok`, `okay`, `confirmo`, `confirmar`, `dale`, `claro`,
-  `de acuerdo`, `acepto` y `1` (`DEFAULT_YES`). Cámbialas con
-  `toolConfirm.yes`.
+La respuesta se clasifica con `classifyConfirmation()`:
+
+- **Un sí claro** (`sí`, `ok`, `dale`, `sí, por favor`…) ejecuta la herramienta.
+- **Un no claro** (`no`, `no, gracias`, `cancelar`…) la rechaza y se le dice
+  al modelo que no reintente.
+- **Cualquier otra cosa**, incluido un sí que pide cambios (`sí pero cambia a
+  5 unidades`), **no** ejecuta la herramienta ni se descarta: el modelo recibe
+  `{ "executed": false, "reason": "user_replied", "userReply": "…" }` para
+  volver a llamarla con los argumentos corregidos (el usuario confirma de
+  nuevo) o responder la pregunta.
+
+Las respuestas se comparan sin mayúsculas, tildes ni puntuación, y se ignoran
+las cortesías alrededor del sí/no. Las palabras de "sí" por defecto
+(`DEFAULT_YES`) son `si`, `s`, `yes`, `y`, `ok`, `okay`, `confirmo`,
+`confirmar`, `dale`, `claro`, `de acuerdo`, `acepto`, `1`, `vale`, `listo`,
+`perfecto`, `adelante`, `hazlo`, `correcto`, `está bien`, `sure`, `yeah` y
+`yep`; las de "no" (`DEFAULT_NO`) son `no`, `n`, `nop`, `nope`, `nel`,
+`cancelar`, `cancela`, `cancelo`, `cancel`, `negativo`, `mejor no`,
+`para nada`, `tampoco`, `no gracias`, `2` y `0`. Cámbialas con
+`toolConfirm.yes` / `toolConfirm.no`.
+
+- **Sin doble confirmación**: cuando el turno tiene confirmador, el prompt de
+  sistema lleva una nota localizada (`ai.tools.confirmNote`) con las
+  herramientas `confirm: true`, que le pide al modelo no preguntar "¿te lo
+  registro?" sino llamar a la herramienta en cuanto el usuario exprese la
+  intención. `toolConfirm.systemNote` la cambia por tu texto o la apaga
+  (`false`).
 - `toolConfirm.timeout` (por defecto `'2m'`) limita la espera. Un timeout o
   `/reset` cancela el turno **en silencio**; `/reset` también lo cancela
   después de la aprobación, así que el turno viejo no responde ni escribe en el
@@ -144,12 +176,25 @@ conversación y el bucle continúa. Nunca bloquea el chat.
   conversación que el usuario haya abierto entretanto; el turno se cancela y no
   responde encima de ese flujo.
 
-El texto por defecto es el mensaje localizado `ai.tools.confirm`: en español
-(`Voy a ejecutar «…». ¿Confirmas? (sí/no)`) por defecto y en inglés
-(`About to run «…». Do you confirm? (yes/no)`) cuando `ctx.lang` es `en` (ver
+El texto por defecto nunca muestra la descripción de la herramienta (escrita
+para el modelo) ni JSON crudo. Es el mensaje localizado `ai.tools.confirm` con
+el `title` de la herramienta y una línea corta por argumento; un único
+argumento lista muestra una línea por elemento, y los elementos con cantidad
+se leen como `cantidad × producto`:
+
+```text
+Voy a: Crear pedido
+• 5 × torta_chocolate
+• 2 × cafe
+¿Confirmas? (sí/no)
+```
+
+Está en español por defecto y en inglés (`About to: Create order … Do you
+confirm? (yes/no)`) cuando `ctx.lang` es `en` (ver
 [i18n](/es/guide/i18n#mensajes-internos)). Cámbialo por idioma con
-`bot.locale('es', { ai: { tools: { confirm: '¿Ejecuto {tool}?{args}' } } })`, o
-usa `confirmMessage` en la herramienta.
+`bot.locale('es', { ai: { tools: { confirm: '¿Ejecuto {tool}?{args}' } } })`
+(`{tool}` es el título y `{args}` un salto de línea más las líneas `• `, o
+vacío), o usa `confirmMessage` en la herramienta.
 
 **Dentro de tu propia conversación** pasa `confirmWith(c)`: pregunta con
 `c.ask()`, que tampoco bloquea la cola.
@@ -167,7 +212,8 @@ bot.conversation('soporte', async (c, ctx) => {
 })
 ```
 
-`confirmWith(c, { yes, timeout })` resuelve `'approved'` o `'denied'`. Un error
+`confirmWith(c, { yes, no, timeout })` clasifica la respuesta igual que el
+autoresponder: `'approved'`, `'denied'` o `{ reply }`. Un error
 de control de la conversación (timeout, cancelación, conversación
 reemplazada) sale del bucle como siempre, para que lo gestione el runtime.
 
@@ -176,9 +222,35 @@ herramientas `confirm: true` se deniegan y se le dice al modelo que no había
 confirmación humana disponible.
 
 También puedes escribir tu propio `ToolConfirmer`: una función async que
-recibe `{ tool, callId, args, description, prompt }` y resuelve `'approved'`,
-`'denied'` o `'cancelled'`. `'cancelled'` aborta el turno entero: el bucle
-lanza `AIToolCancelledError` (con el nombre en `tool`).
+recibe `{ tool, callId, args, description, title, prompt, previous? }` y
+resuelve `'approved'`, `'denied'`, `{ reply: string }` (la respuesta libre del
+usuario, que se le pasa al modelo) o `'cancelled'`. `'cancelled'` aborta el
+turno entero: el bucle lanza `AIToolCancelledError` (con el nombre en `tool`).
+
+## Efectos secundarios repetidos
+
+A veces el modelo vuelve a llamar por su cuenta a una herramienta con efectos
+(por ejemplo para "corregir" el total de un pedido después de que el usuario
+dijo "no, nada más"). El cliente recuerda por chat las ejecuciones correctas de
+las herramientas `confirm: true` y `dedupe` (en memoria, 30 minutos; `/reset` y
+`ctx.tools.ai.clearToolHistory(chatKey)` las olvidan) y las usa de tres formas:
+
+- **Aviso en la confirmación**: si una herramienta `confirm: true` ya se
+  ejecutó en el chat, la pregunta empieza con una línea localizada
+  (`ai.tools.confirmRepeat`): `Ojo: ya hice «Crear pedido» hace un momento
+  (resultado: …). Si confirmas, se hará otra vez.` El confirmador la recibe
+  también como `previous`.
+- **Prompt de sistema**: los turnos siguientes listan las acciones ya hechas
+  (`ai.tools.doneNote`) y le piden al modelo no repetirlas salvo que el usuario
+  lo pida explícitamente.
+- **`dedupe`** (opcional por herramienta): una llamada con los mismos
+  argumentos validados que una ejecución correcta dentro de la ventana no se
+  ejecuta ni se confirma; el modelo recibe
+  `{ "executed": false, "reason": "duplicate", "previous": { "result", "secondsAgo" } }`.
+  `dedupe: 'args'` usa una ventana de 10 minutos; `dedupe: { windowMs: 60_000 }`
+  fija la tuya. También sirve para herramientas sin `confirm`.
+
+`toolConfirm.systemNote: false` también apaga la lista del prompt de sistema.
 
 ## Eventos de auditoría
 
@@ -198,6 +270,8 @@ bot.on('ai.tool', (e: AIToolEvent) => {
 | `tool.call` | Argumentos validados; la herramienta va a ejecutarse (o a confirmarse). |
 | `tool.confirm.requested` | Una herramienta `confirm: true` pidió aprobación. |
 | `tool.confirm.approved` / `.denied` / `.cancelled` | Resultado de la confirmación. |
+| `tool.confirm.replied` | El usuario respondió algo distinto de un sí/no claro; el texto pasó al modelo. |
+| `tool.duplicate` | Se volvió a llamar a una herramienta `dedupe` con los mismos argumentos; no se ejecutó. |
 | `tool.result` | El handler terminó (`durationMs`). |
 | `tool.error` | El handler lanzó (`error`, `durationMs`). |
 | `tool.timeout` | El handler superó su timeout (`error`, `durationMs`). |

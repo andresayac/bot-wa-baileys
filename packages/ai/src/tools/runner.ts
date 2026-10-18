@@ -2,9 +2,12 @@ import type { MessageContext } from '@bot-wa/core'
 import { AI_MESSAGES, aiText, type AITranslatable } from '../i18n.js'
 import type { AIChatMessage, GenerateInput, GenerateResult } from '../types.js'
 import { toolDefinitions, validateArgs } from './schema.js'
+import { DEFAULT_DEDUPE_WINDOW_MS, type ChatToolLedger } from './ledger.js'
+import { agoText, argLines, summarizeValue, toolTitle } from './present.js'
 import {
   AIToolCancelledError,
-  type AITool, type AIToolCall, type AIToolEvent, type AIToolResult, type AIToolSet, type ToolConfirmer,
+  type AITool, type AIToolCall, type AIToolEvent, type AIToolExecution, type AIToolResult, type AIToolSet,
+  type ToolConfirmation, type ToolConfirmer, type ToolConfirmReply,
 } from './types.js'
 
 export const DEFAULT_MAX_STEPS = 5
@@ -27,6 +30,8 @@ export interface ToolLoopOptions {
   chatKey?: string
   ctx?: MessageContext
   signal?: AbortSignal
+  /** Successful side-effecting runs of this chat (repeat notice in confirmations, `dedupe`). */
+  ledger?: ChatToolLedger
 }
 
 export interface ToolLoopResult {
@@ -66,13 +71,48 @@ function errorMessage(err: unknown): string {
 
 /**
  * Default confirmation prompt for a `confirm: true` tool: its `confirmMessage`, else
- * the localized `ai.tools.confirm` message in `ctx`'s language (Spanish without a context).
+ * the localized `ai.tools.confirm` message in `ctx`'s language (Spanish without a context)
+ * with the tool's `title` (or humanized name) and the arguments as short `• ` lines —
+ * never the model-facing description nor raw JSON. With `previous` (the tool already
+ * ran in this chat) a localized `ai.tools.confirmRepeat` line goes first.
  */
-export function defaultConfirmPrompt(name: string, tool: AITool<unknown>, args: unknown, ctx?: AITranslatable): string {
-  if (typeof tool.confirmMessage === 'string') return tool.confirmMessage
-  if (typeof tool.confirmMessage === 'function') return tool.confirmMessage(args)
-  const shown = args && typeof args === 'object' && Object.keys(args).length > 0 ? `\n${JSON.stringify(args, null, 2)}` : ''
-  return aiText(ctx, AI_MESSAGES.toolConfirm, { tool: tool.description || name, args: shown })
+export function defaultConfirmPrompt(
+  name: string,
+  tool: AITool<unknown>,
+  args: unknown,
+  ctx?: AITranslatable,
+  previous?: AIToolExecution,
+  now: number = Date.now(),
+): string {
+  const title = toolTitle(name, tool)
+  let prompt: string
+  if (typeof tool.confirmMessage === 'string') prompt = tool.confirmMessage
+  else if (typeof tool.confirmMessage === 'function') prompt = tool.confirmMessage(args)
+  else {
+    const lines = argLines(args, ctx)
+    prompt = aiText(ctx, AI_MESSAGES.toolConfirm, { tool: title, args: lines.length ? `\n${lines.join('\n')}` : '' })
+  }
+  if (!previous) return prompt
+  const repeat = aiText(ctx, AI_MESSAGES.toolConfirmRepeat, {
+    tool: title,
+    ago: agoText(now - previous.at, ctx),
+    result: summarizeValue(previous.result, ctx) || '—',
+  })
+  return `${repeat}\n\n${prompt}`
+}
+
+/** Tool result sent to the model when a call was not executed (JSON, so the model can read the reason). */
+function notExecuted(reason: 'user_replied' | 'duplicate', extra: Record<string, unknown>): string {
+  return JSON.stringify({ executed: false, reason, ...extra })
+}
+
+function dedupeWindow(tool: AITool<unknown>): number | undefined {
+  if (!tool.dedupe) return undefined
+  return tool.dedupe === 'args' ? DEFAULT_DEDUPE_WINDOW_MS : Math.max(0, tool.dedupe.windowMs)
+}
+
+function isReply(a: ToolConfirmation): a is ToolConfirmReply {
+  return typeof a === 'object' && a !== null && typeof (a as { reply?: unknown }).reply === 'string'
 }
 
 /**
@@ -109,21 +149,59 @@ export async function runToolLoop(opts: ToolLoopOptions): Promise<ToolLoopResult
     const v = validateArgs(tool, call.args)
     if (!v.ok) {
       emit({ ...base, type: 'tool.invalid_args', args: call.args, error: v.error })
-      return fail(`Error: invalid arguments for "${call.name}": ${v.error}`)
+      // Validated BEFORE any confirmation: the user is never asked about a call that cannot run.
+      return fail(`Error: invalid arguments for "${call.name}": ${v.error}. It was not run and the user was not asked. ` +
+        'Fix the arguments (use only the allowed values of the schema) and call it again, or ask the user what they meant.')
     }
     // An aborted turn (caller signal) must not ask for confirmations nor run more tools.
     opts.signal?.throwIfAborted()
     emit({ ...base, type: 'tool.call', args: v.data })
 
+    const ledger = opts.ledger
+    const window = dedupeWindow(tool)
+    if (ledger && window !== undefined) {
+      const dup = ledger.find(call.name, v.data, window)
+      if (dup) {
+        emit({ ...base, type: 'tool.duplicate', args: v.data })
+        return {
+          callId: call.id,
+          name: call.name,
+          content: notExecuted('duplicate', {
+            previous: { result: dup.result, secondsAgo: Math.round((Date.now() - dup.at) / 1000) },
+            instruction: `"${call.name}" already ran with these same arguments a moment ago, so it was not run again. ` +
+              'Tell the user it is already done (use the previous result). Only call it again with different arguments.',
+          }),
+        }
+      }
+    }
+
     if (tool.confirm) {
-      const prompt = defaultConfirmPrompt(call.name, tool, v.data, opts.ctx)
+      const previous = ledger?.last(call.name)
+      const prompt = defaultConfirmPrompt(call.name, tool, v.data, opts.ctx, previous)
       emit({ ...base, type: 'tool.confirm.requested', args: v.data })
-      const answer = opts.confirm
-        ? await opts.confirm({ tool: call.name, callId: call.id, args: v.data, description: tool.description, prompt })
+      const answer: ToolConfirmation = opts.confirm
+        ? await opts.confirm({
+            tool: call.name, callId: call.id, args: v.data, description: tool.description,
+            title: toolTitle(call.name, tool), prompt, ...(previous ? { previous } : {}),
+          })
         : 'denied'
       if (answer === 'cancelled') {
         emit({ ...base, type: 'tool.confirm.cancelled' })
         throw new AIToolCancelledError(call.name)
+      }
+      if (isReply(answer)) {
+        // Neither yes nor no (e.g. "sí pero cambia a 5 unidades"): not run, the text goes to the model.
+        emit({ ...base, type: 'tool.confirm.replied' })
+        return {
+          callId: call.id,
+          name: call.name,
+          content: notExecuted('user_replied', {
+            userReply: answer.reply,
+            instruction: `The user answered the confirmation of "${call.name}" with this message instead of a plain yes/no, ` +
+              'so the action was NOT executed. If they asked for changes, call the tool again with the corrected arguments ' +
+              '(the system will ask them to confirm again); otherwise answer their message.',
+          }),
+        }
       }
       if (answer !== 'approved') {
         emit({ ...base, type: 'tool.confirm.denied' })
@@ -153,6 +231,8 @@ export async function runToolLoop(opts: ToolLoopOptions): Promise<ToolLoopResult
           })])
         : await exec
       emit({ ...base, type: 'tool.result', durationMs: Date.now() - started })
+      // Side-effecting runs are remembered per chat (repeat notice / dedupe).
+      if (ledger && (tool.confirm || tool.dedupe)) ledger.record(call.name, v.data, value)
       return { callId: call.id, name: call.name, content: serialize(value) }
     } catch (err) {
       const durationMs = Date.now() - started

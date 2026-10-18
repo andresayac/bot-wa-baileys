@@ -28,10 +28,13 @@ bot.plug(aiPlugin({
       handler: async ({ q }: { q: string }) => db.products.search(q),
     },
     create_order: defineTool({
-      description: 'Create an order for the customer',
-      schema: z.object({ items: z.array(z.string()), customer: z.string() }),
+      title: 'Create order', // shown to the user in the confirmation
+      description: 'Create an order for the customer. items: menu keys and quantities',
+      schema: z.object({
+        items: z.array(z.object({ product: z.enum(['rye_bread', 'croissant']), quantity: z.number().int().min(1) })).min(1),
+      }),
       confirm: true, // ask the user "yes/no" before running it
-      confirmMessage: (a) => `Shall I create the order for ${a.items.join(', ')}? (yes/no)`,
+      dedupe: 'args', // never run the very same order twice in a row
       timeoutMs: 10_000,
       handler: async (args, { ctx }) => db.orders.create({ ...args, chat: ctx?.from }),
     }),
@@ -43,12 +46,14 @@ Each entry of `tools` is an `AITool`; the key is the name the model sees.
 
 | Field | Type | Description |
 |---|---|---|
-| `description` | `string` | What the tool does. The model reads it to decide when to call it. |
+| `description` | `string` | What the tool does. The model reads it to decide when to call it; it is never shown to the user. |
+| `title` | `string` | Short label shown to the user in the default confirmation (`'Create order'`). Default: the humanized name (`create_order` → `Create order`). |
 | `schema` | JSON Schema or `safeParse` validator | Arguments. Omitted means no arguments. |
 | `jsonSchema` | JSON Schema | Model-facing schema override (useful with `safeParse` validators). |
 | `handler` | `(args, tctx) => unknown` | Runs the tool. Strings go back to the model as-is, `undefined` as `'ok'`, anything else JSON-serialized. |
 | `confirm` | `boolean` | Require human confirmation before running it (see [below](#human-confirmation)). |
 | `confirmMessage` | `string \| (args) => string` | Custom confirmation prompt. |
+| `dedupe` | `'args' \| { windowMs }` | Do not run it again with the same arguments within the window (`'args'`: 10 minutes) in the same chat (see [Repeated side effects](#repeated-side-effects)). |
 | `timeoutMs` | `number` | Per-tool timeout, overrides `toolTimeoutMs`. |
 
 `defineTool<TArgs>(tool)` is an identity helper: it only infers the argument
@@ -58,14 +63,19 @@ type for the handler, so your editor autocompletes `args`.
 
 - **JSON Schema**: sent to the model as is and validated with a built-in
   subset (`type`, `required`, `properties`, `enum`, `const`, `items`,
-  `additionalProperties: false`).
+  `additionalProperties: false`, `minimum`/`maximum` and their exclusive
+  forms, `minLength`/`maxLength`, `minItems`/`maxItems`).
 - **`safeParse` validators** (zod and similar): the arguments are validated with
   `safeParse()` and the handler receives the parsed `data`. The model-facing
   schema comes from the validator's `toJSONSchema()` when it has one (zod v4);
   otherwise pass `jsonSchema` yourself.
 
-Invalid arguments never reach the handler: the model gets an error result and
-can retry.
+Invalid arguments never reach the handler **nor the user**: they are checked
+before any confirmation, so nobody is asked to approve a call that cannot run.
+The model gets an error result (saying the user was not asked) and can retry.
+Use an `enum` for closed sets such as product keys: in a live test a model
+passed `"chocolate cake"` instead of the menu key `chocolate_cake`, and only the
+`enum` stops that before the user is asked.
 
 ### The handler context
 
@@ -105,7 +115,7 @@ handler under its timeout and send the results back.
 | `maxSteps` | `5` | Max model calls per turn. |
 | `toolTimeoutMs` | `15000` | Default per-tool timeout (`0` disables). |
 | `maxStepsMessage` | localized `ai.tools.maxSteps` (es: `'No pude completar la solicitud. Intenta de nuevo con más detalle.'`) | Reply when the loop hits `maxSteps`. |
-| `toolConfirm` | `{ timeout: '2m' }` | `{ yes?, timeout? }` for `confirm: true` tools in the autoreply. |
+| `toolConfirm` | `{ timeout: '2m' }` | `{ yes?, no?, timeout?, systemNote? }` for `confirm: true` tools in the autoreply. |
 | `onToolEvent` | — | Audit callback for every loop event. |
 
 ::: tip Tools and streaming
@@ -119,16 +129,36 @@ and replies in one message, and `streamReplyInChat()` does not run tools.
 A tool with `confirm: true` only runs after a person approves it.
 
 **In the autoresponder** the plugin asks the user itself. The question
-(`confirmMessage`, or a default built from the description and the arguments)
-is asked inside a runtime conversation, so the handler returns and the chat's
-FIFO queue is released: the user's answer reaches the conversation and the
-loop resumes. It never deadlocks the chat.
+(`confirmMessage`, or a readable default, see below) is asked inside a runtime
+conversation, so the handler returns and the chat's FIFO queue is released:
+the user's answer reaches the conversation and the loop resumes. It never
+deadlocks the chat.
 
-- An affirmative answer runs the tool; anything else declines it and the model
-  is told not to retry it. Answers are compared ignoring case, accents and
-  punctuation; the default "yes" words are `si`, `s`, `yes`, `y`, `ok`,
-  `okay`, `confirmo`, `confirmar`, `dale`, `claro`, `de acuerdo`, `acepto` and
-  `1` (`DEFAULT_YES`). Change them with `toolConfirm.yes`.
+The answer is classified with `classifyConfirmation()`:
+
+- **A clear yes** (`sí`, `ok`, `dale`, `sí, por favor`…) runs the tool.
+- **A clear no** (`no`, `no, gracias`, `cancelar`…) declines it and the model
+  is told not to retry it.
+- **Anything else**, including a yes that adds changes (`sí pero cambia a 5
+  unidades`), does **not** run the tool and is not discarded: the model gets
+  `{ "executed": false, "reason": "user_replied", "userReply": "…" }`, so it
+  can call the tool again with the corrected arguments (the user confirms
+  again) or answer the question.
+
+Answers are compared ignoring case, accents and punctuation, and courtesy
+words around a yes/no are ignored. The default "yes" words (`DEFAULT_YES`) are
+`si`, `s`, `yes`, `y`, `ok`, `okay`, `confirmo`, `confirmar`, `dale`, `claro`,
+`de acuerdo`, `acepto`, `1`, `vale`, `listo`, `perfecto`, `adelante`, `hazlo`,
+`correcto`, `está bien`, `sure`, `yeah` and `yep`; the "no" words
+(`DEFAULT_NO`) are `no`, `n`, `nop`, `nope`, `nel`, `cancelar`, `cancela`,
+`cancelo`, `cancel`, `negativo`, `mejor no`, `para nada`, `tampoco`,
+`no gracias`, `2` and `0`. Change them with `toolConfirm.yes` / `toolConfirm.no`.
+
+- **No double confirmation**: when the turn has a confirmer, the system prompt
+  gets a localized note (`ai.tools.confirmNote`) listing the `confirm: true`
+  tools and telling the model not to ask "shall I place it?" itself but to call
+  the tool as soon as the user expresses the intent. `toolConfirm.systemNote`
+  replaces it with your own text or turns it off (`false`).
 - `toolConfirm.timeout` (default `'2m'`) bounds the wait. A timeout or `/reset`
   cancels the turn **silently**; `/reset` also cancels it after the approval,
   so the stale turn neither replies nor writes into the history it just
@@ -138,12 +168,24 @@ loop resumes. It never deadlocks the chat.
   started meanwhile; the turn is cancelled instead and does not reply on top of
   that flow.
 
-The default prompt is the localized `ai.tools.confirm` message: Spanish
-(`Voy a ejecutar «…». ¿Confirmas? (sí/no)`) by default and English
-(`About to run «…». Do you confirm? (yes/no)`) when `ctx.lang` is `en` (see
+The default prompt never shows the tool description (written for the model)
+nor raw JSON. It is the localized `ai.tools.confirm` message with the tool
+`title` and one short line per argument; a single list argument shows one line
+per item, and items with a quantity read as `quantity × product`:
+
+```text
+Voy a: Crear pedido
+• 5 × torta_chocolate
+• 2 × cafe
+¿Confirmas? (sí/no)
+```
+
+It is Spanish by default and English (`About to: Create order … Do you
+confirm? (yes/no)`) when `ctx.lang` is `en` (see
 [i18n](/guide/i18n#built-in-messages)). Override it per language with
-`bot.locale('en', { ai: { tools: { confirm: 'Run {tool}?{args}' } } })`, or set
-`confirmMessage` on the tool.
+`bot.locale('en', { ai: { tools: { confirm: 'Run {tool}?{args}' } } })`
+(`{tool}` is the title, `{args}` a newline plus the `• ` lines, or empty), or
+set `confirmMessage` on the tool.
 
 **Inside your own conversation** pass `confirmWith(c)`: it asks with `c.ask()`,
 which never blocks the queue either.
@@ -161,7 +203,8 @@ bot.conversation('support', async (c, ctx) => {
 })
 ```
 
-`confirmWith(c, { yes, timeout })` resolves `'approved'` or `'denied'`. A
+`confirmWith(c, { yes, no, timeout })` classifies the answer like the
+autoresponder: `'approved'`, `'denied'` or `{ reply }`. A
 conversation control error (timeout, cancel, replaced conversation) propagates
 out of the loop as usual, so the runtime handles it.
 
@@ -170,9 +213,33 @@ true` tools are denied and the model is told human confirmation was not
 available.
 
 You can also write your own `ToolConfirmer`: an async function that receives
-`{ tool, callId, args, description, prompt }` and resolves `'approved'`,
-`'denied'` or `'cancelled'`. `'cancelled'` aborts the whole turn: the loop
-throws `AIToolCancelledError` (with the `tool` name).
+`{ tool, callId, args, description, title, prompt, previous? }` and resolves
+`'approved'`, `'denied'`, `{ reply: string }` (the user's free-text answer,
+handed to the model) or `'cancelled'`. `'cancelled'` aborts the whole turn:
+the loop throws `AIToolCancelledError` (with the `tool` name).
+
+## Repeated side effects
+
+Models sometimes call a side-effecting tool again on their own (for example to
+"fix" an order total after the user said "nothing else"). The client remembers
+the successful runs of `confirm: true` and `dedupe` tools per chat (in memory,
+for 30 minutes; `/reset` and `ctx.tools.ai.clearToolHistory(chatKey)` forget
+them) and uses them three ways:
+
+- **Confirmation notice**: when a `confirm: true` tool already ran in the chat,
+  the prompt starts with a localized line (`ai.tools.confirmRepeat`):
+  `Ojo: ya hice «Crear pedido» hace un momento (resultado: …). Si confirmas, se
+  hará otra vez.` The confirmer also receives it as `previous`.
+- **System prompt**: the next turns list the actions already run
+  (`ai.tools.doneNote`), asking the model not to repeat them unless the user
+  asks explicitly.
+- **`dedupe`** (opt-in per tool): a call with the same validated arguments as a
+  successful run within the window is not run and not confirmed; the model gets
+  `{ "executed": false, "reason": "duplicate", "previous": { "result", "secondsAgo" } }`.
+  `dedupe: 'args'` uses a 10-minute window; `dedupe: { windowMs: 60_000 }` sets
+  your own. It also works for tools without `confirm`.
+
+`toolConfirm.systemNote: false` also turns off the system prompt list.
 
 ## Audit events
 
@@ -192,6 +259,8 @@ bot.on('ai.tool', (e: AIToolEvent) => {
 | `tool.call` | Arguments validated, the tool is about to run (or to be confirmed). |
 | `tool.confirm.requested` | A `confirm: true` tool asked for approval. |
 | `tool.confirm.approved` / `.denied` / `.cancelled` | Outcome of the confirmation. |
+| `tool.confirm.replied` | The user answered with something other than a clear yes/no; the text went to the model. |
+| `tool.duplicate` | A `dedupe` tool was called again with the same arguments; it was not run. |
 | `tool.result` | The handler returned (`durationMs`). |
 | `tool.error` | The handler threw (`error`, `durationMs`). |
 | `tool.timeout` | The handler exceeded its timeout (`error`, `durationMs`). |

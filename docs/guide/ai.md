@@ -262,7 +262,8 @@ down.
 | `maxSteps` | `number` | `5` | max model calls per turn in the tool loop |
 | `toolTimeoutMs` | `number` | `15000` | default per-tool timeout (`0` disables it) |
 | `maxStepsMessage` | `string` | localized `ai.tools.maxSteps` (es: `'No pude completar la solicitud. Intenta de nuevo con más detalle.'`) | reply when the tool loop hits `maxSteps` |
-| `toolConfirm` | `{ yes?: string[]; timeout?: number \| string }` | `{ timeout: '2m' }` | confirmation dialog of `confirm: true` tools |
+| `toolConfirm` | `{ yes?: string[]; no?: string[]; timeout?: number \| string; systemNote?: boolean \| string }` | `{ timeout: '2m' }` | confirmation dialog of `confirm: true` tools (see [Human confirmation](/guide/ai-tools#human-confirmation)) |
+| `format` | `'auto' \| 'whatsapp' \| 'markdown' \| 'html' \| 'plain' \| false` | `'auto'` | converts the model's Markdown to the channel's format (see [Formatting per channel](#formatting-per-channel)) |
 | `onToolEvent` | `(event: AIToolEvent) => void` | — | audit hook for every tool loop event (also emitted as `bot.on('ai.tool')`) |
 | `memory` | `boolean \| AIMemoryConfig` | — | long-term per-user memory (see [Memory and RAG](#memory-and-rag)) |
 | `rag` | `AIRetriever \| AIRagConfig` | — | answers grounded in your documents (see [Memory and RAG](#memory-and-rag)) |
@@ -316,6 +317,26 @@ Full guide: [AI memory & RAG](/guide/ai-memory-rag).
 Telegram, live edits on Discord, sentence chunks with typing on WhatsApp.
 Turns with tools are not streamed. Full guide:
 [Streaming replies](/guide/streaming#with-bot-wa-ai).
+
+## Formatting per channel
+
+Models write Markdown (`**bold**`, `# heading`, `[link](url)`, `- item`), but
+most chat apps do not render it. The autoresponder converts each reply (also
+when streaming) to the format the provider declares in
+`capabilities.textFormat`:
+
+| `textFormat` | Providers | Result |
+|---|---|---|
+| `'whatsapp'` | `baileys`, `meta`, evolution, wppconnect, gupshup | `*bold*`, `_italic_`, `~strike~`, `•` bullets, headings in bold, links as `text (url)` |
+| `'plain'` | `telegram` (sent without `parse_mode`), messenger, instagram, tiktok | markers stripped |
+| `'markdown'` | discord | unchanged |
+| not declared | other providers | unchanged |
+
+Code spans and fenced blocks are never touched, and neither are `snake_case`
+words or `2 * 3`. The stored history keeps the model's original text.
+`format: 'whatsapp'` (or any format) forces one; `format: false` sends the text
+as is. `formatMarkdown(text, format)` and `formatMarkdownStream(source, format)`
+are exported for your own handlers.
 
 ## Voice notes
 

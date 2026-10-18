@@ -25,12 +25,12 @@ function scripted(tool: string, trigger: string) {
   })
 }
 
-const confirmTool = { borrar: { description: 'Delete order', confirm: true, handler: () => 'deleted' } }
+const confirmTool = { borrar: { description: 'Deletes an order by id (model-facing)', title: 'Delete order', confirm: true, handler: () => 'deleted' } }
 
 describe('ai i18n — built-in defaults', () => {
   it('keeps the Spanish text unchanged without a context or without i18n', () => {
-    expect(defaultConfirmPrompt('borrar', { description: 'Borrar pedido', handler: () => 'x' }, {}))
-      .toBe('Voy a ejecutar «Borrar pedido».\n¿Confirmas? (sí/no)')
+    expect(defaultConfirmPrompt('borrar_pedido', { description: 'Borra un pedido (texto para el modelo)', handler: () => 'x' }, {}))
+      .toBe('Voy a: Borrar pedido\n¿Confirmas? (sí/no)')
     expect(formatSources([{ text: 'x', source: 'a.md' }])).toBe('Fuentes: a.md')
     expect(aiText(undefined, AI_MESSAGES.maxSteps)).toBe('No pude completar la solicitud. Intenta de nuevo con más detalle.')
   })
@@ -53,7 +53,7 @@ describe('ai i18n — follows ctx.lang through the plugin', () => {
     const { bot, chat } = await createTestBot({ i18n: { defaultLocale: 'en' } })
     bot.plug(aiPlugin({ __provider: scripted('borrar', 'delete'), tools: confirmTool }))
     await chat.send('delete it')
-    await chat.expectReply('About to run «Delete order».\nDo you confirm? (yes/no)')
+    await chat.expectReply('About to: Delete order\nDo you confirm? (yes/no)')
     await chat.send('yes')
     await chat.expectReply('done: deleted')
   })

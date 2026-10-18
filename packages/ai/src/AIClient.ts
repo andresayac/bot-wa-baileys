@@ -21,6 +21,12 @@ export interface AIChatReply {
 }
 import type { AIToolEvent, AIToolSet, ToolConfirmer } from './tools/types.js'
 import { runToolLoop, type ToolLoopResult } from './tools/runner.js'
+import { DEFAULT_DEDUPE_WINDOW_MS, DEFAULT_LEDGER_RETENTION_MS, ToolLedger, type ChatToolLedger } from './tools/ledger.js'
+import { argLines, summarizeValue, toolTitle } from './tools/present.js'
+import { AI_MESSAGES, aiText } from './i18n.js'
+
+/** Most recent side-effecting runs listed in the system prompt (`ai.tools.doneNote`). */
+const DONE_NOTE_MAX = 5
 
 export interface AIClientOptions {
   persona?: string
@@ -49,6 +55,14 @@ export interface AIClientOptions {
   maxStepsMessage?: string
   /** Audit sink for every tool loop event. */
   onToolEvent?: (event: AIToolEvent) => void
+  /**
+   * System prompt notes of tool turns: the `confirm: true` tools the system
+   * confirms itself (only when the turn has a confirmer, so the model does not
+   * ask "shall I?" before calling them) and the side-effecting tools already
+   * run in the chat (so it does not repeat them). Localized (`ai.tools.confirmNote` / `ai.tools.doneNote`). `false`
+   * turns it off; a string replaces the confirm note. Default `true`.
+   */
+  toolNote?: boolean | string
 }
 
 /** Per-call options of the tool-aware methods. */
@@ -102,6 +116,8 @@ export class AITimeoutError extends Error {
 
 export class AIClient {
   private readonly timeoutMs: number
+  /** Successful runs of side-effecting tools (`confirm` / `dedupe`) per chat key. */
+  private readonly ledger: ToolLedger
 
   constructor(
     private provider: AIProvider,
@@ -109,6 +125,41 @@ export class AIClient {
     private opts: AIClientOptions = {},
   ) {
     this.timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS
+    const windows = Object.values(opts.tools ?? {}).map((t) =>
+      !t.dedupe ? 0 : t.dedupe === 'args' ? DEFAULT_DEDUPE_WINDOW_MS : t.dedupe.windowMs)
+    this.ledger = new ToolLedger(Math.max(DEFAULT_LEDGER_RETENTION_MS, ...windows))
+  }
+
+  /**
+   * Forget the side-effecting tool runs remembered for `chatKey` (or every chat):
+   * the repeat notice and `dedupe` start over. `/reset` calls it.
+   */
+  clearToolHistory(chatKey?: string): void {
+    this.ledger.clear(chatKey)
+  }
+
+  /** The tool notes appended to the system prompt of a tool turn (empty when off / not applicable). */
+  private toolNotes(opts: AIToolCallOptions, ledger: ChatToolLedger | undefined): string[] {
+    const setting = this.opts.toolNote ?? true
+    const tools = this.opts.tools ?? {}
+    if (setting === false) return []
+    const notes: string[] = []
+    const confirmed = Object.entries(tools).filter(([, t]) => t.confirm).map(([name]) => name)
+    // Without a confirmer those tools are denied: telling the model the system asks would be false.
+    if (confirmed.length && opts.confirm) {
+      notes.push(typeof setting === 'string' ? setting : aiText(opts.ctx, AI_MESSAGES.confirmNote, { tools: confirmed.join(', ') }))
+    }
+    const done = ledger?.list().slice(-DONE_NOTE_MAX) ?? []
+    if (done.length) {
+      const actions = done.map((e) => {
+        const tool = tools[e.tool]
+        const title = tool ? toolTitle(e.tool, tool) : e.tool
+        const args = argLines(e.args, opts.ctx).map((l) => l.replace(/^\s*[•◦]\s*/, '')).join('; ')
+        return `- ${title} (${e.tool}): ${args || '—'} → ${summarizeValue(e.result, opts.ctx) || 'ok'}`
+      })
+      notes.push(aiText(opts.ctx, AI_MESSAGES.doneNote, { actions: actions.join('\n') }))
+    }
+    return notes
   }
 
   /** True when tools are configured (the tool loop is used by `ask` / `replyInChat`). */
@@ -340,10 +391,15 @@ export class AIClient {
     opts: AIToolCallOptions = {},
   ): Promise<ToolLoopResult> {
     const { messages, signal: _ignored, ...rest } = input
+    const ledger = opts.chatKey !== undefined && this.hasTools ? this.ledger.forChat(opts.chatKey) : undefined
+    const base = { ...this.base([]), ...rest }
+    const notes = this.toolNotes(opts, ledger)
+    if (notes.length) base.system = [base.system, ...notes].filter(Boolean).join('\n\n')
     return runToolLoop({
       tools: this.opts.tools ?? {},
       generate: (gi) => this.withTimeout((signal) => this.provider.generate({ ...gi, signal }), opts.signal ?? input.signal),
-      base: { ...this.base([]), ...rest },
+      base,
+      ...(ledger ? { ledger } : {}),
       messages,
       maxSteps: this.opts.maxSteps,
       toolTimeoutMs: this.opts.toolTimeoutMs,

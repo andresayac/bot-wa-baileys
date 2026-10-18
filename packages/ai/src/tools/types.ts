@@ -47,8 +47,16 @@ export interface AITool<TArgs = unknown> {
   /** What the tool does — the model reads this to decide when to call it. */
   description: string
   /**
+   * Short human label of the action, shown to the user in the default
+   * confirmation prompt (e.g. `'Crear pedido'`). Default: the tool name
+   * humanized (`crear_pedido` → `Crear pedido`). The `description` is for the
+   * model and is never shown to the user.
+   */
+  title?: string
+  /**
    * Argument schema: a JSON Schema object (validated with a built-in subset
-   * validator: `type`, `required`, `properties`, `enum`, `items`) or a
+   * validator: `type`, `required`, `properties`, `enum`, `const`, `items`,
+   * `minimum`/`maximum`, `minLength`/`maxLength`, `minItems`/`maxItems`) or a
    * `safeParse`-compatible validator (zod & co). Omitted → no arguments.
    */
   schema?: JSONSchema | SafeParseSchema<TArgs>
@@ -66,8 +74,19 @@ export interface AITool<TArgs = unknown> {
    * blocking the chat's FIFO queue. Without a confirmer the call is denied.
    */
   confirm?: boolean
-  /** Custom confirmation prompt (default: description + arguments + "¿Confirmas? (sí/no)"). */
+  /**
+   * Custom confirmation prompt. Default: the localized `ai.tools.confirm`
+   * message with the `title` and the arguments as short readable lines
+   * (`• 5 × torta_chocolate`), never raw JSON.
+   */
   confirmMessage?: string | BivariantFn<TArgs, string>
+  /**
+   * Block repeated side effects: a call with the same (validated) arguments as
+   * a successful run of this tool in the same chat within the window is not
+   * run (nor confirmed); the model gets `{ executed: false, reason: 'duplicate', previous }`.
+   * `'args'` uses a 10-minute window; `{ windowMs }` sets it. Off by default.
+   */
+  dedupe?: 'args' | { windowMs: number }
   /** Per-tool timeout in ms (overrides the client-wide `toolTimeoutMs`). */
   timeoutMs?: number
 }
@@ -107,8 +126,31 @@ export interface AIToolResult {
   isError?: boolean
 }
 
-/** Answer of a {@link ToolConfirmer}. `cancelled` aborts the whole turn silently. */
-export type ToolConfirmation = 'approved' | 'denied' | 'cancelled'
+/**
+ * The user answered a confirmation with something other than a clear yes/no
+ * (e.g. "sí pero cambia a 5 unidades"): the tool is not run and `reply` is
+ * returned to the model so it can adjust the call and ask again.
+ */
+export interface ToolConfirmReply {
+  reply: string
+}
+
+/**
+ * Answer of a {@link ToolConfirmer}. `cancelled` aborts the whole turn silently;
+ * a {@link ToolConfirmReply} hands the user's free-text answer back to the model.
+ */
+export type ToolConfirmation = 'approved' | 'denied' | 'cancelled' | ToolConfirmReply
+
+/** A previous successful run of a tool in the same chat (see {@link ToolConfirmRequest.previous}). */
+export interface AIToolExecution {
+  tool: string
+  /** Validated arguments of that run. */
+  args: unknown
+  /** What the handler returned. */
+  result: unknown
+  /** ms since epoch. */
+  at: number
+}
 
 /** A pending confirmation request for a `confirm: true` tool. */
 export interface ToolConfirmRequest {
@@ -116,8 +158,12 @@ export interface ToolConfirmRequest {
   callId: string
   args: unknown
   description: string
+  /** Human label of the tool (`title`, or its humanized name). */
+  title: string
   /** Rendered prompt to show the user. */
   prompt: string
+  /** Last successful run of the same tool in this chat, when there is one (it is mentioned in `prompt`). */
+  previous?: AIToolExecution
 }
 
 /** Asks a human whether a `confirm: true` tool may run. */
@@ -130,6 +176,8 @@ export type AIToolEventType =
   | 'tool.confirm.approved'
   | 'tool.confirm.denied'
   | 'tool.confirm.cancelled'
+  | 'tool.confirm.replied'
+  | 'tool.duplicate'
   | 'tool.result'
   | 'tool.error'
   | 'tool.timeout'

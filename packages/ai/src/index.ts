@@ -23,15 +23,20 @@ export type { AIProvider, AIMessage, AIChatMessage, AIConfig, AIProviderName, Ge
 export { defineTool, AIToolCancelledError } from './tools/types.js'
 export type {
   AITool, AIToolSet, AIToolContext, AIToolDefinition, AIToolCall, AIToolResult, AIToolEvent, AIToolEventType,
-  ToolConfirmer, ToolConfirmRequest, ToolConfirmation, JSONSchema, SafeParseSchema, SafeParseResult, BivariantFn,
+  ToolConfirmer, ToolConfirmRequest, ToolConfirmation, ToolConfirmReply, AIToolExecution, JSONSchema, SafeParseSchema, SafeParseResult, BivariantFn,
 } from './tools/types.js'
 export { AI_MESSAGES, AI_LOCALES, aiText, type AIMessageKey, type AITranslatable } from './i18n.js'
 export { runToolLoop, defaultConfirmPrompt, DEFAULT_MAX_STEPS, DEFAULT_TOOL_TIMEOUT_MS } from './tools/runner.js'
 export type { ToolLoopOptions, ToolLoopResult } from './tools/runner.js'
 export { toolDefinitions, validateArgs, parametersOf } from './tools/schema.js'
 export type { ArgsValidation } from './tools/schema.js'
-export { confirmWith, isAffirmative, DEFAULT_YES } from './tools/confirm.js'
-export type { ConfirmWithOptions } from './tools/confirm.js'
+export { confirmWith, isAffirmative, classifyConfirmation, DEFAULT_YES, DEFAULT_NO } from './tools/confirm.js'
+export type { ConfirmWithOptions, ConfirmVocabulary } from './tools/confirm.js'
+export { humanizeName, toolTitle, argLines, summarizeValue } from './tools/present.js'
+export { ToolLedger, stableKey, DEFAULT_DEDUPE_WINDOW_MS, DEFAULT_LEDGER_RETENTION_MS } from './tools/ledger.js'
+export type { ChatToolLedger } from './tools/ledger.js'
+export { formatMarkdown, formatMarkdownStream } from './format.js'
+export type { FormatMarkdownOptions, TextFormat } from './format.js'
 export { toGeminiSchema } from './providers/gemini.js'
 export type { OpenAIToolCall } from './providers/openai.js'
 

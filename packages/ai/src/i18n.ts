@@ -16,8 +16,23 @@ import type { LocaleMessages, TranslateParams } from '@bot-wa/core'
 
 /** Keys of the built-in AI messages (override them under `ai.` in `bot.locale()`). */
 export const AI_MESSAGES = {
-  /** Confirmation prompt of a `confirm: true` tool (`{tool}`, `{args}`: a newline + the JSON arguments, or empty). */
+  /** Confirmation prompt of a `confirm: true` tool (`{tool}`: its title, `{args}`: a newline + one `• ` line per argument, or empty). */
   toolConfirm: 'ai.tools.confirm',
+  /** Line put before the prompt when the tool already ran in this chat (`{tool}`, `{ago}`, `{result}`). */
+  toolConfirmRepeat: 'ai.tools.confirmRepeat',
+  /** `{ago}` under a minute. */
+  agoNow: 'ai.tools.ago.now',
+  /** `{ago}` in minutes (`{n}`). */
+  agoMinutes: 'ai.tools.ago.minutes',
+  /** Boolean argument values in the confirmation prompt. */
+  yes: 'ai.tools.value.yes',
+  no: 'ai.tools.value.no',
+  /** Last line when the arguments were truncated (`{n}`: lines left out). */
+  more: 'ai.tools.more',
+  /** System prompt note listing the tools the system confirms itself (`{tools}`). */
+  confirmNote: 'ai.tools.confirmNote',
+  /** System prompt note listing actions already run in this chat (`{actions}`: one `- ` line each). */
+  doneNote: 'ai.tools.doneNote',
   /** Reply when the tool loop reaches `maxSteps` without a final answer. */
   maxSteps: 'ai.tools.maxSteps',
   /** `rag.appendSources: true` line (`{sources}`: comma-separated labels). */
@@ -31,7 +46,18 @@ export const AI_LOCALES: Readonly<Record<'es' | 'en', LocaleMessages>> = {
   es: {
     ai: {
       tools: {
-        confirm: 'Voy a ejecutar «{tool}».{args}\n¿Confirmas? (sí/no)',
+        confirm: 'Voy a: {tool}{args}\n¿Confirmas? (sí/no)',
+        confirmRepeat: 'Ojo: ya hice «{tool}» {ago} (resultado: {result}). Si confirmas, se hará otra vez.',
+        ago: { now: 'hace un momento', minutes: 'hace {n} min' },
+        value: { yes: 'sí', no: 'no' },
+        more: '… y {n} más',
+        confirmNote:
+          'Estas acciones las confirma el sistema con el usuario antes de ejecutarlas: {tools}. ' +
+          'No pidas confirmación tú mismo (nada de "¿te lo registro?"): cuando el usuario exprese la intención, ' +
+          'llama a la herramienta directamente; el sistema le mostrará un resumen y esperará su sí/no. ' +
+          'Si el resultado dice que no se ejecutó, sigue sus indicaciones.',
+        doneNote:
+          'Acciones ya ejecutadas en esta conversación (no las repitas salvo que el usuario lo pida explícitamente):\n{actions}',
         maxSteps: 'No pude completar la solicitud. Intenta de nuevo con más detalle.',
       },
       rag: { sources: 'Fuentes: {sources}' },
@@ -40,7 +66,17 @@ export const AI_LOCALES: Readonly<Record<'es' | 'en', LocaleMessages>> = {
   en: {
     ai: {
       tools: {
-        confirm: 'About to run «{tool}».{args}\nDo you confirm? (yes/no)',
+        confirm: 'About to: {tool}{args}\nDo you confirm? (yes/no)',
+        confirmRepeat: 'Heads-up: I already did «{tool}» {ago} (result: {result}). Confirming will do it again.',
+        ago: { now: 'a moment ago', minutes: '{n} min ago' },
+        value: { yes: 'yes', no: 'no' },
+        more: '… and {n} more',
+        confirmNote:
+          'The system asks the user to confirm these actions before running them: {tools}. ' +
+          'Do not ask for confirmation yourself (no "shall I place it?"): when the user expresses the intent, ' +
+          'call the tool directly; the system shows them a summary and waits for their yes/no. ' +
+          'If the result says it was not executed, follow its instructions.',
+        doneNote: 'Actions already run in this conversation (do not repeat them unless the user explicitly asks):\n{actions}',
         maxSteps: "I couldn't complete the request. Please try again with more detail.",
       },
       rag: { sources: 'Sources: {sources}' },

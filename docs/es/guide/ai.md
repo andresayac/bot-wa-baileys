@@ -265,7 +265,8 @@ el `errorMessage` configurado en vez de tumbar el bot.
 | `maxSteps` | `number` | `5` | máximo de llamadas al modelo por turno en el bucle de herramientas |
 | `toolTimeoutMs` | `number` | `15000` | timeout por defecto de cada herramienta (`0` lo desactiva) |
 | `maxStepsMessage` | `string` | mensaje localizado `ai.tools.maxSteps` (es: `'No pude completar la solicitud. Intenta de nuevo con más detalle.'`) | respuesta cuando el bucle llega a `maxSteps` |
-| `toolConfirm` | `{ yes?: string[]; timeout?: number \| string }` | `{ timeout: '2m' }` | diálogo de confirmación de las herramientas `confirm: true` |
+| `toolConfirm` | `{ yes?: string[]; no?: string[]; timeout?: number \| string; systemNote?: boolean \| string }` | `{ timeout: '2m' }` | diálogo de confirmación de las herramientas `confirm: true` (ver [Confirmación humana](/es/guide/ai-herramientas#confirmacion-humana)) |
+| `format` | `'auto' \| 'whatsapp' \| 'markdown' \| 'html' \| 'plain' \| false` | `'auto'` | convierte el Markdown del modelo al formato del canal (ver [Formato por canal](#formato-por-canal)) |
 | `onToolEvent` | `(event: AIToolEvent) => void` | — | auditoría de cada evento del bucle (también se emite como `bot.on('ai.tool')`) |
 | `memory` | `boolean \| AIMemoryConfig` | — | memoria a largo plazo por usuario (ver [Memoria y RAG](#memoria-y-rag)) |
 | `rag` | `AIRetriever \| AIRagConfig` | — | respuestas basadas en tus documentos (ver [Memoria y RAG](#memoria-y-rag)) |
@@ -321,6 +322,26 @@ borradores nativos en Telegram, ediciones en vivo en Discord y trozos por
 frases con "escribiendo…" en WhatsApp. Los turnos con herramientas no se
 transmiten. Guía completa:
 [Respuestas en streaming](/es/guide/streaming#con-bot-wa-ai).
+
+## Formato por canal
+
+Los modelos escriben Markdown (`**negrita**`, `# título`, `[enlace](url)`,
+`- elemento`), pero la mayoría de las apps de chat no lo muestran. El
+autoresponder convierte cada respuesta (también en streaming) al formato que
+declara el provider en `capabilities.textFormat`:
+
+| `textFormat` | Providers | Resultado |
+|---|---|---|
+| `'whatsapp'` | `baileys`, `meta`, evolution, wppconnect, gupshup | `*negrita*`, `_cursiva_`, `~tachado~`, viñetas `•`, títulos en negrita, enlaces como `texto (url)` |
+| `'plain'` | `telegram` (se envía sin `parse_mode`), messenger, instagram, tiktok | sin marcas |
+| `'markdown'` | discord | sin cambios |
+| sin declarar | el resto | sin cambios |
+
+Nunca se tocan los bloques ni los spans de código, ni las palabras con
+`snake_case` o un `2 * 3`. El historial guarda el texto original del modelo.
+`format: 'whatsapp'` (o cualquier formato) fija uno; `format: false` envía el
+texto tal cual. `formatMarkdown(text, format)` y
+`formatMarkdownStream(source, format)` se exportan para tus propios handlers.
 
 ## Notas de voz
 

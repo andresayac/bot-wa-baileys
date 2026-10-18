@@ -76,7 +76,7 @@ function matchesType(expected: unknown, v: unknown): boolean {
   return Array.isArray(expected) ? expected.some(one) : one(expected)
 }
 
-/** Minimal JSON Schema subset: type, enum, const, required, properties, additionalProperties:false, items. */
+/** Minimal JSON Schema subset: type, enum, const, required, properties, additionalProperties:false, items, minimum/maximum (and exclusive), minLength/maxLength, minItems/maxItems. */
 function checkJson(schema: JSONSchema, v: unknown, path: string, errors: string[]): void {
   if (schema.type !== undefined && !matchesType(schema.type, v)) {
     errors.push(`${path}: expected ${Array.isArray(schema.type) ? schema.type.join('|') : String(schema.type)}, got ${typeOf(v)}`)
@@ -86,6 +86,20 @@ function checkJson(schema: JSONSchema, v: unknown, path: string, errors: string[
     errors.push(`${path}: must be one of ${schema.enum.map((e) => JSON.stringify(e)).join(', ')}`)
   }
   if ('const' in schema && schema.const !== v) errors.push(`${path}: must be ${JSON.stringify(schema.const)}`)
+  if (typeof v === 'number') {
+    if (typeof schema.minimum === 'number' && v < schema.minimum) errors.push(`${path}: must be >= ${schema.minimum}`)
+    if (typeof schema.maximum === 'number' && v > schema.maximum) errors.push(`${path}: must be <= ${schema.maximum}`)
+    if (typeof schema.exclusiveMinimum === 'number' && v <= schema.exclusiveMinimum) errors.push(`${path}: must be > ${schema.exclusiveMinimum}`)
+    if (typeof schema.exclusiveMaximum === 'number' && v >= schema.exclusiveMaximum) errors.push(`${path}: must be < ${schema.exclusiveMaximum}`)
+  }
+  if (typeof v === 'string') {
+    if (typeof schema.minLength === 'number' && v.length < schema.minLength) errors.push(`${path}: must have at least ${schema.minLength} characters`)
+    if (typeof schema.maxLength === 'number' && v.length > schema.maxLength) errors.push(`${path}: must have at most ${schema.maxLength} characters`)
+  }
+  if (Array.isArray(v)) {
+    if (typeof schema.minItems === 'number' && v.length < schema.minItems) errors.push(`${path}: must have at least ${schema.minItems} items`)
+    if (typeof schema.maxItems === 'number' && v.length > schema.maxItems) errors.push(`${path}: must have at most ${schema.maxItems} items`)
+  }
   if (typeOf(v) === 'object') {
     const obj = v as Record<string, unknown>
     if (Array.isArray(schema.required)) {
