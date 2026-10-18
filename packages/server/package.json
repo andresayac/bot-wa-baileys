@@ -1,0 +1,74 @@
+{
+  "name": "@bot-wa/server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Webhook ingress for @bot-wa providers — raw-body capture, size limits, timeouts, concurrency limit and health endpoints for node:http, Express, Fastify and Hono (no framework dependencies).",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./express": {
+      "types": "./lib/adapters/express.d.ts",
+      "default": "./lib/adapters/express.js"
+    },
+    "./fastify": {
+      "types": "./lib/adapters/fastify.d.ts",
+      "default": "./lib/adapters/fastify.js"
+    },
+    "./hono": {
+      "types": "./lib/adapters/hono.d.ts",
+      "default": "./lib/adapters/hono.js"
+    }
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "keywords": [
+    "bot-wa",
+    "webhook",
+    "ingress",
+    "express",
+    "fastify",
+    "hono"
+  ],
+  "author": "Andres Aya",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/andresayac/bot-wa-baileys.git",
+    "directory": "packages/server"
+  },
+  "homepage": "https://github.com/andresayac/bot-wa-baileys/tree/main/packages/server#readme",
+  "bugs": {
+    "url": "https://github.com/andresayac/bot-wa-baileys/issues"
+  },
+  "files": [
+    "./lib/**/*"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "prepublishOnly": "pnpm build",
+    "typecheck": "tsc -p tsconfig.test.json"
+  },
+  "devDependencies": {
+    "@bot-wa/core": "workspace:*",
+    "@bot-wa/meta": "workspace:*",
+    "@bot-wa/telegram": "workspace:*",
+    "@types/express": "^5.0.6",
+    "@types/node": "^26.1.1",
+    "express": "^5.2.1",
+    "fastify": "^5.11.2",
+    "hono": "^4.13.13",
+    "typescript": "^7.0.2",
+    "vite": "^7.3.6",
+    "vitest": "^4.1.10"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
