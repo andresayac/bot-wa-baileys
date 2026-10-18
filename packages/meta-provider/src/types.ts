@@ -5,6 +5,8 @@
 import type { Logger } from 'pino'
 import type { SecureFetchOptions } from '@bot-wa/http'
 import type { IdentityMap } from './identity.js'
+import type { SessionWindowManager, SessionWindowOptions } from './sessionWindow.js'
+import type { UsageTracker, UsageTrackerOptions } from './pricing.js'
 
 export interface CloudAPIProviderConfig {
   /** Permanent (system-user) access token with whatsapp_business_messaging. */
@@ -40,6 +42,20 @@ export interface CloudAPIProviderConfig {
    * across restarts.
    */
   identityMap?: IdentityMap
+  /**
+   * 24 h customer-service window management: track each chat's last inbound
+   * message, reopen closed chats with an approved template and retry the
+   * original send once the user replies. Pass options (or a shared
+   * {@link SessionWindowManager}). Off by default: sends outside the window
+   * reject with `OutsideSessionWindowError`.
+   */
+  sessionWindow?: SessionWindowOptions | SessionWindowManager
+  /**
+   * Aggregate the `pricing` of status webhooks per chat/category (see
+   * `provider.usage`). Default: an in-memory bounded {@link UsageTracker};
+   * `false` disables counting (pricing still reaches `platformData`).
+   */
+  usage?: UsageTrackerOptions | UsageTracker | false
   debug?: boolean
   logger?: Logger
 }

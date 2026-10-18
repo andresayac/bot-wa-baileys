@@ -1,0 +1,21 @@
+{
+  "object": "whatsapp_business_account",
+  "entry": [{
+    "id": "WABA_ID",
+    "changes": [{
+      "field": "messages",
+      "value": {
+        "messaging_product": "whatsapp",
+        "metadata": { "display_phone_number": "15550001111", "phone_number_id": "PNID" },
+        "statuses": [{
+          "id": "wamid.CBP1",
+          "status": "sent",
+          "timestamp": "1719000000",
+          "recipient_id": "573009998877",
+          "conversation": { "id": "CONVERSATION_ID", "expiration_timestamp": "1719086400", "origin": { "type": "utility" } },
+          "pricing": { "billable": true, "pricing_model": "CBP", "category": "utility" }
+        }]
+      }
+    }]
+  }]
+}

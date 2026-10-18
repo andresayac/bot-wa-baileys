@@ -1,0 +1,29 @@
+{
+  "object": "whatsapp_business_account",
+  "entry": [{
+    "id": "WABA_ID",
+    "changes": [{
+      "field": "messages",
+      "value": {
+        "messaging_product": "whatsapp",
+        "metadata": { "display_phone_number": "15550001111", "phone_number_id": "PNID" },
+        "statuses": [
+          {
+            "id": "wamid.UTIL1",
+            "status": "sent",
+            "timestamp": "1751400100",
+            "recipient_id": "573001112233",
+            "pricing": { "billable": false, "pricing_model": "PMP", "category": "utility", "type": "free_customer_service" }
+          },
+          {
+            "id": "wamid.SVC1",
+            "status": "sent",
+            "timestamp": "1751400101",
+            "recipient_id": "573001112233",
+            "pricing": { "billable": false, "pricing_model": "PMP", "category": "service", "type": "free_customer_service" }
+          }
+        ]
+      }
+    }]
+  }]
+}

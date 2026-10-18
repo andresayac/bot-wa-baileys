@@ -70,6 +70,34 @@ app.listen(3000)
 
 Fuera de las 24h desde el último mensaje del usuario, Meta solo deja enviar **plantillas**. Un envío libre lanza `OutsideSessionWindowError` (código 131047) — respondé con un `kind: 'template'`.
 
+Con `sessionWindow` el provider lo gestiona solo: guarda la hora del último mensaje entrante de cada chat, y cuando un envío libre falla con 131047 (o la ventana ya se sabe cerrada) envía una plantilla aprobada para reabrir la conversación, encola el mensaje original y lo reintenta cuando el usuario responde.
+
+```ts
+const provider = new CloudAPIProvider({
+  /* ... */
+  sessionWindow: {
+    reopenTemplate: { kind: 'template', name: 'retomar_conversacion', language: 'es' },
+    reopenTemplateByKind: { document: { kind: 'template', name: 'documento_listo', language: 'es' } },
+    onReport: (r) => logger.info({ chatId: r.chatId, outcome: r.outcome }, 'session window'),
+    // store: miStoreRedis,          // SessionWindowStore (por defecto, en memoria y acotado)
+    // onReopened: 'resolve',        // por defecto 'reject' → SessionWindowReopenedError
+  },
+})
+await provider.sessionWindow!.isOpen('573001112233')
+```
+
+`send()` rechaza con `SessionWindowReopenedError` (subclase de `OutsideSessionWindowError`) cuando reabre y encola; con `onReopened: 'resolve'` devuelve el resultado del envío de la plantilla. La cola de reintentos vive en memoria y está acotada (`maxPendingPerChat`, `maxPendingChats`, `pendingTtlMs`); antes de entregarle el contenido, el provider sube la media una sola vez (buffer, ruta o `{ stream }`) y la cola solo guarda el id de media, así que los reintentos no vuelven a leer un stream ya consumido ni retienen bytes. La ventana es por número de negocio + usuario: las claves del store llevan el `phoneNumberId` como prefijo (`<phoneNumberId>:<chatId>`) y un `SessionWindowManager` compartido entre varios providers le da a cada número su propia vista (`manager.forScope(phoneNumberId)`), con su ventana, su cola y sus envíos. Si la propia plantilla falla (`reopen-failed`), `send()` rechaza y el mensaje **no** queda en cola. Los envíos simultáneos a un chat cerrado comparten una sola plantilla, y un 131047 tardío sobre un mensaje enviado antes de la última respuesta del usuario no cierra la ventana (el mensaje se reenvía en el momento).
+
+## Costos (pricing)
+
+Cada evento `status` incluye en `platformData.pricing` el objeto `pricing` del webhook normalizado (`billable`, `pricingModel` `PMP`/`CBP`, `category`, `type` — `regular`, `free_customer_service`, `free_entry_point`) y, si viene, `platformData.conversation`. `provider.usage` agrega por chat y por categoría (cada mensaje se cuenta una vez):
+
+```ts
+const provider = new CloudAPIProvider({ /* ... */, usage: { rates: { marketing: 0.0125, utility: 0.0008 } } })
+provider.usage!.forChat('573001112233') // { messages, billable, free, estimatedCost, byCategory }
+provider.usage!.totals()
+```
+
 ## Identidad
 
 `chatId`/`senderId` son el `wa_id` (teléfono E.164 sin `+`) cuando se conoce y, si no, el **BSUID** del usuario (ver abajo). No hay dualidad LID/PN como en Baileys, pero sí puede faltar el teléfono: el provider lo resuelve antes de emitir el evento para que la misma persona conserve siempre el mismo id.

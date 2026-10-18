@@ -23,3 +23,34 @@ export type { IdentityMap, IdentityLogger, MemoryIdentityMapOptions, MaybePromis
 export { verifyChallenge, verifySignature } from '@bot-wa/graph-core'
 export type { ChallengeQuery } from '@bot-wa/graph-core'
 export type { CloudAPIProviderConfig, GraphErrorBody, GraphSendMessageResponse } from './types.js'
+export {
+  SessionWindowManager,
+  SessionWindowReopenedError,
+  MemorySessionWindowStore,
+  SESSION_WINDOW_ERROR_CODE,
+  SESSION_WINDOW_MS,
+} from './sessionWindow.js'
+export type {
+  SessionWindowOptions,
+  SessionWindowStore,
+  SessionWindowState,
+  MemorySessionWindowStoreOptions,
+  SessionTemplate,
+  ReopenContext,
+  ReopenReason,
+  ReopenTemplateResolver,
+  SessionReport,
+  SessionReportOutcome,
+  RawSend,
+} from './sessionWindow.js'
+export { UsageTracker, parsePricing, parseConversation, statusPlatformData, pricingOf } from './pricing.js'
+export type {
+  GraphPricing,
+  GraphConversation,
+  StatusPricing,
+  StatusConversation,
+  UsageCounter,
+  UsageSummary,
+  UsageEntry,
+  UsageTrackerOptions,
+} from './pricing.js'

@@ -40,7 +40,12 @@ import { GraphClient } from './graphClient.js'
 import { toOutbound, type ResolvedMedia } from './toOutbound.js'
 import { extractDrafts, resolveDrafts, type GraphWebhookBody, type InboundDraft } from './parseInbound.js'
 import { IdentityResolver, MemoryIdentityMap, isPromiseLike, type MaybePromise } from './identity.js'
+import { SessionWindowManager } from './sessionWindow.js'
+import { UsageTracker, pricingOf } from './pricing.js'
 import { verifyChallenge, checkGraphSignature, parseGraphBody, type ChallengeQuery } from '@bot-wa/graph-core'
+
+/** Content kinds that carry a `media` source. */
+const MEDIA_KINDS: ReadonlySet<OutboundContent['kind']> = new Set(['image', 'video', 'audio', 'voice', 'document', 'sticker'])
 
 const EXT_MIME: Record<string, string> = {
   jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp',
@@ -62,6 +67,12 @@ export class CloudAPIProvider implements IProvider<unknown> {
   private readonly graph: GraphClient
   private listeners = new Set<(e: InboundEvent) => void | Promise<void>>()
   private readonly identity: IdentityResolver
+  /** 24 h window manager (undefined unless `sessionWindow` is configured). */
+  readonly sessionWindow: SessionWindowManager | undefined
+  /** Pricing/usage counters fed by status webhooks (undefined when `usage: false`). */
+  readonly usage: UsageTracker | undefined
+  private readonly rawSend = (chatId: ChatId, content: OutboundContent, options?: SendOptions): Promise<SendResult<unknown>> =>
+    this.sendNow(chatId, content, options)
   /** Tail of webhook batches waiting on an async identity lookup (keeps webhook order). */
   private pending: Promise<void> | undefined
 
@@ -76,6 +87,14 @@ export class CloudAPIProvider implements IProvider<unknown> {
       mediaDownload: this.config.mediaDownload,
     })
     this.identity = new IdentityResolver(config.identityMap ?? new MemoryIdentityMap(), this.logger)
+    // The 24 h window belongs to a business number + user pair: scope it by phone number id.
+    const sw = config.sessionWindow
+    const scope = this.config.phoneNumberId
+    this.sessionWindow = sw === undefined ? undefined
+      : sw instanceof SessionWindowManager ? sw.forScope(scope)
+      : new SessionWindowManager({ ...sw, scope })
+    const usage = config.usage
+    this.usage = usage === false ? undefined : usage instanceof UsageTracker ? usage : new UsageTracker(usage ?? {})
     if (!this.config.appSecret && !this.config.allowUnsignedWebhooks) {
       throw new Error(
         'CloudAPIProvider requires `appSecret` to authenticate webhook POSTs. ' +
@@ -99,6 +118,7 @@ export class CloudAPIProvider implements IProvider<unknown> {
     return () => this.listeners.delete(listener)
   }
   private fan(e: InboundEvent): void {
+    this.observe(e)
     for (const listener of this.listeners) {
       try {
         void Promise.resolve(listener(e))
@@ -106,6 +126,32 @@ export class CloudAPIProvider implements IProvider<unknown> {
       } catch (error) {
         this.logger.error({ err: error, eventKind: e.kind }, 'provider event listener failed')
       }
+    }
+  }
+
+  /** Feed window/usage bookkeeping from an inbound event before listeners see it. */
+  private observe(e: InboundEvent): void {
+    try {
+      const sw = this.sessionWindow
+      if (e.kind === 'status') {
+        const st = e.status
+        const pricing = this.usage ? pricingOf(st.platformData) : undefined
+        if (pricing && st.ref.id) this.usage?.record(st.ref.chatId, st.ref.id, pricing)
+        if (sw && st.status === 'failed' && st.ref.id) {
+          void sw.noteFailedStatus(st.ref.chatId, st.ref.id, st.error?.code, this.rawSend, st.timestamp > 0 ? st.timestamp * 1000 : undefined)
+            .catch((err: unknown) => this.logger.error({ err }, 'session window status handling failed'))
+        }
+        return
+      }
+      if (!sw) return
+      const inbound = e.kind === 'message' ? { chatId: e.message.chatId, ts: e.message.timestamp }
+        : e.kind === 'interaction' ? { chatId: e.interaction.chatId, ts: e.interaction.timestamp }
+        : undefined // reactions/statuses do not open the customer-service window
+      if (!inbound) return
+      void sw.noteInbound(inbound.chatId, this.rawSend, inbound.ts > 0 ? inbound.ts * 1000 : undefined)
+        .catch((err: unknown) => this.logger.error({ err }, 'session window inbound handling failed'))
+    } catch (err) {
+      this.logger.error({ err }, 'session window/usage bookkeeping failed')
     }
   }
 
@@ -205,8 +251,30 @@ export class CloudAPIProvider implements IProvider<unknown> {
     throw new UnsupportedContentError('image', 'Unsupported MediaSource for Cloud API')
   }
 
+  /**
+   * Send `content`. With `sessionWindow` configured, a free-form send to a chat
+   * whose 24 h window is closed reopens it with the configured template and
+   * queues the content until the user replies (see {@link SessionWindowManager}).
+   */
   async send(chatId: ChatId, content: OutboundContent, options?: SendOptions): Promise<SendResult<unknown>> {
-    const needsMedia = ['image', 'video', 'audio', 'voice', 'document', 'sticker'].includes(content.kind)
+    if (this.sessionWindow) return this.sessionWindow.send(chatId, await this.replayable(content), options, this.rawSend)
+    return this.sendNow(chatId, content, options)
+  }
+
+  /**
+   * Resolve media once (upload → media id, URL → link) so the session window
+   * manager can resend the content (a `{ stream }` is drained by its first
+   * read) and never keeps media bytes in its queue or tracked sends.
+   */
+  private async replayable(content: OutboundContent): Promise<OutboundContent> {
+    if (!MEDIA_KINDS.has(content.kind)) return content
+    const media = (content as { media: MediaSource }).media
+    if (typeof media === 'object' && media !== null && !Buffer.isBuffer(media) && 'native' in media) return content
+    return { ...content, media: { native: await this.resolveMedia(media) } } as OutboundContent
+  }
+
+  private async sendNow(chatId: ChatId, content: OutboundContent, options?: SendOptions): Promise<SendResult<unknown>> {
+    const needsMedia = MEDIA_KINDS.has(content.kind)
     const media = needsMedia ? await this.resolveMedia((content as { media: MediaSource }).media) : undefined
     const message = toOutbound(content, media)
     if (options?.quoted) {

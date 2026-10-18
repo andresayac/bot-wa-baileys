@@ -29,6 +29,7 @@ import {
   type Party,
   type ResolvedParty,
 } from './identity.js'
+import { statusPlatformData, type GraphConversation, type GraphPricing } from './pricing.js'
 
 /* Loose Graph webhook shapes (only the fields we read). Everything is optional:
  * the payload is external JSON and Meta omits fields (e.g. `from`/`wa_id` for
@@ -85,6 +86,10 @@ export interface GraphStatus {
   status?: string
   timestamp?: string
   errors?: Array<{ code?: number; title?: string }>
+  /** Billing info (PMP since 2025-07; CBP before). See `pricing.ts`. */
+  pricing?: GraphPricing
+  /** Legacy conversation-based pricing (CBP) / free entry-point conversation. */
+  conversation?: GraphConversation
 }
 
 export interface GraphContact {
@@ -376,6 +381,7 @@ export function extractDrafts(body: GraphWebhookBody, logger: IdentityLogger): I
         if (id === undefined) { drop('status', 'missing message id'); continue }
         const timestamp = st.timestamp ? Number(st.timestamp) : 0
         const error = st.errors?.[0] ? { code: st.errors[0].code, message: st.errors[0].title } : undefined
+        const platformData = statusPlatformData(st)
         pendingEvents.push({
           kind: 'event',
           party,
@@ -387,6 +393,7 @@ export function extractDrafts(body: GraphWebhookBody, logger: IdentityLogger): I
               recipient: who.id,
               error,
               timestamp,
+              ...(platformData ? { platformData } : {}),
             },
           }),
         })

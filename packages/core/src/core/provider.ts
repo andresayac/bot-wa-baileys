@@ -223,6 +223,11 @@ export interface DeliveryStatus {
   recipient?: UserId
   error?: { code?: string | number; message?: string }
   timestamp: number
+  /**
+   * Transport-specific receipt data the core never interprets (e.g. the
+   * Cloud API `pricing` / `conversation` objects of a status webhook).
+   */
+  platformData?: Record<string, unknown>
 }
 
 export interface InboundReaction {
