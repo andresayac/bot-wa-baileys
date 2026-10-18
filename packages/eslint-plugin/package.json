@@ -1,0 +1,57 @@
+{
+  "name": "eslint-plugin-bot-wa",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "ESLint rules for @bot-wa bots: v1 API leftovers, blocking runtime.enter, async plugin install, empty triggers, asks without timeout and global per-user state.",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    }
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "keywords": [
+    "bot-wa",
+    "eslint",
+    "eslintplugin",
+    "eslint-plugin",
+    "lint"
+  ],
+  "author": "Andres Aya",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/andresayac/bot-wa-baileys.git",
+    "directory": "packages/eslint-plugin"
+  },
+  "homepage": "https://github.com/andresayac/bot-wa-baileys/tree/main/packages/eslint-plugin#readme",
+  "bugs": {
+    "url": "https://github.com/andresayac/bot-wa-baileys/issues"
+  },
+  "files": [
+    "./lib/**/*"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "prepublishOnly": "pnpm build",
+    "typecheck": "tsc -p tsconfig.test.json"
+  },
+  "peerDependencies": {
+    "eslint": ">=9.0.0"
+  },
+  "devDependencies": {
+    "@types/estree": "^1.0.8",
+    "@types/node": "^26.1.1",
+    "create-bot-wa": "workspace:*",
+    "eslint": "^10.13.0",
+    "typescript": "^7.0.2",
+    "vite": "^7.3.6",
+    "vitest": "^4.1.10"
+  }
+}

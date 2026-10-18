@@ -30,9 +30,9 @@ describe('generated projects follow the defineBot factory pattern', () => {
     expect(pkg.scripts.dev).toBe('bot-wa dev src/bot.js --env-file .env')
 
     const bot = await readFile(join(target, 'src/bot.js'), 'utf8')
-    expect(bot).toContain("import { Bot, defineBot, flow, isMainModule } from '@bot-wa/core'")
-    expect(bot).toContain('const createBot = defineBot((provider) => {')
-    expect(bot).toContain('  const bot = new Bot({ provider })')
+    expect(bot).toMatch(/^import \{ Bot, defineBot, flow, isMainModule(, \w+)* \} from '@bot-wa\/core'$/m)
+    expect(bot).toMatch(/^const createBot = defineBot\(\(provider(, store)?\) => \{$/m)
+    expect(bot).toMatch(/^ {2}const bot = new Bot\(\{ provider(,| \})/m)
     expect(bot).toContain('  return bot\n})')
     expect(bot).toContain('export default createBot')
     expect(bot).toContain('if (isMainModule(import.meta)) {')
@@ -79,8 +79,15 @@ const STUBS = [
   '',
 ].join('\n')
 
+/** Transport templates share the hola + menu demo handlers (use-case templates: domain-templates.test.ts). */
+const TRANSPORT_TEMPLATES = TEMPLATE_NAMES.filter((t) => ['baileys', 'meta', 'telegram', 'ai'].includes(t))
+
 describe.skipIf(!existsSync(devEntry))('generated bots run in the bot-wa dev simulator', () => {
-  it.each(TEMPLATE_NAMES)('template "%s" answers in the simulator without building the real provider', async (template) => {
+  it('covers the four transport templates', () => {
+    expect(TRANSPORT_TEMPLATES).toHaveLength(4)
+  })
+
+  it.each(TRANSPORT_TEMPLATES)('template "%s" answers in the simulator without building the real provider', async (template) => {
     const target = join(await makeTempDir(), 'sim-bot')
     await scaffold({ targetDir: target, template })
 
@@ -98,7 +105,7 @@ describe.skipIf(!existsSync(devEntry))('generated bots run in the bot-wa dev sim
       write: (text) => { output += text },
     })
     const until = async (needle: string) => {
-      for (let i = 0; i < 400 && !output.includes(needle); i++) await new Promise((r) => setTimeout(r, 5))
+      for (let i = 0; i < 1000 && !output.includes(needle); i++) await new Promise((r) => setTimeout(r, 5))
       expect(output).toContain(needle)
     }
 

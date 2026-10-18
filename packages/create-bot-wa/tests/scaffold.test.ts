@@ -27,8 +27,19 @@ afterEach(async () => {
 })
 
 describe('scaffold — every template', () => {
-  it('knows the four documented templates', () => {
-    expect([...TEMPLATE_NAMES].sort()).toEqual(['ai', 'baileys', 'meta', 'telegram'])
+  it('knows the documented templates', () => {
+    expect([...TEMPLATE_NAMES].sort()).toEqual([
+      'ai',
+      'ai-full',
+      'baileys',
+      'clinic',
+      'games',
+      'meta',
+      'restaurant',
+      'store',
+      'support',
+      'telegram',
+    ])
   })
 
   it.each(TEMPLATE_NAMES)('template "%s" generates the full project', async (template) => {
@@ -39,7 +50,7 @@ describe('scaffold — every template', () => {
 
     expect(result.name).toBe('my-bot')
     expect(result.template).toBe(template)
-    expect(result.files.sort()).toEqual(['.env.example', '.gitignore', 'README.md', 'package.json', 'src/bot.js'])
+    expect(result.files.sort()).toEqual(['.env.example', '.gitignore', 'AGENTS.md', 'README.md', 'package.json', 'src/bot.js'])
 
     // package.json — valid JSON, ESM, right deps + start script.
     const pkg = JSON.parse(await read(target, 'package.json'))
@@ -54,6 +65,9 @@ describe('scaffold — every template', () => {
     expect(bot).toContain('bot.when(\'hola\'')
     expect(bot).toContain('flow(')
     expect(bot).toContain('await bot.start()')
+    // The QR pairing payload is a secret (SECURITY.md): never forward it to the logger.
+    expect(bot).not.toMatch(/on\('qr',\s*\(\w+\)/)
+    expect(bot).not.toMatch(/logger\.\w+\([^)]*\bqr\b\s*\)/)
 
     // .gitignore — standard ignores for every template.
     const gitignore = await read(target, '.gitignore')

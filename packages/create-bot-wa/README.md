@@ -30,6 +30,20 @@ npm create bot-wa@latest my-bot -- --template telegram --yes
 | `telegram` | Telegram Bot API (long-polling)    | a bot token from @BotFather         |
 | `ai`       | Baileys + `@bot-wa/ai` business-scoped customer-support autoresponder | `ANTHROPIC_API_KEY` (Claude), `BUSINESS_NAME` |
 
+### Use-case templates
+
+All of them run on WhatsApp via Baileys (scan a QR), use the v2 API (`flow()`, `bot.conversation()`, `ctx.user`)
+and work in `npm run dev` with no phone.
+
+| Template     | What it does |
+| ------------ | ------------ |
+| `games`      | Guess the number, hangman, trivia, tic-tac-toe and rock-paper-scissors; scores in `ctx.user.ns('games')` |
+| `support`    | Tickets per user, FAQ menu, human handoff (`agente` → `ctx.handoff()`, `/bot` resumes) |
+| `store`      | Catalog, per-user cart with a 7-day TTL, checkout flow (name → address → payment → confirm) |
+| `restaurant` | Menu, delivery/pickup orders, "repeat my last order", table reservations |
+| `clinic`     | Appointment booking (specialty → working day → time), list/cancel appointments, sites, emergency notice |
+| `ai-full`    | Business-scoped AI (`@bot-wa/ai`) + regex intents + SQLite store + scheduler + slash commands + handoff (`ANTHROPIC_API_KEY`) |
+
 ### The `ai` template and Meta's AI policy
 
 Since **2026-01-15** the Meta terms for the WhatsApp Business Platform prohibit **general-purpose AI assistants**
@@ -48,7 +62,8 @@ my-bot/
 ├── src/bot.js        # runnable bot: provider + bot.when('hola', …) + a small flow
 ├── .env.example      # the env vars the bot reads (copy to .env)
 ├── .gitignore        # node_modules/, sessions/, .env, *.qr.png
-└── README.md         # how to run this specific bot
+├── README.md         # how to run this specific bot
+└── AGENTS.md         # instructions for AI coding agents: the v2 API, what does NOT exist (addAnswer, capture…), commands
 ```
 
 Then:
@@ -65,7 +80,8 @@ npm start              # or: npm run dev (auto-reload)
 ```
 create-bot-wa <dir> [options]
 
-  -t, --template <t>  baileys | meta | telegram | ai   (default: baileys when non-interactive)
+  -t, --template <t>  baileys | meta | telegram | ai | games | support | store | restaurant | clinic | ai-full
+                      (default: baileys when non-interactive)
   --name <name>       package name (default: derived from the directory name)
   -y, --yes           skip prompts; use defaults for anything missing
   --overwrite         allow scaffolding into a non-empty directory

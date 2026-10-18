@@ -5,7 +5,8 @@
  * Thin bin: parses argv, prompts for anything missing when interactive,
  * then delegates to `scaffold()` (the testable core in scaffold.ts).
  *
- * Usage: create-bot-wa <dir> [--template baileys|meta|telegram|ai] [--name <n>] [--yes] [--overwrite]
+ * Usage: create-bot-wa <dir> [--template <name>] [--name <n>] [--yes] [--overwrite]
+ * Templates: baileys, meta, telegram, ai, games, support, store, restaurant, clinic, ai-full.
  */
 
 import { realpathSync } from 'node:fs'
@@ -60,6 +61,7 @@ function printUsage(log = console.log) {
   log('Examples:')
   log('  npm create bot-wa@latest my-bot')
   log('  npm create bot-wa@latest my-bot -- --template telegram')
+  log('  npm create bot-wa@latest my-shop -- --template store')
 }
 
 /** Prompt for missing options (interactive TTY only). */
@@ -79,7 +81,7 @@ async function completeInteractively(args) {
     }
     if (!args.template) {
       console.log('Templates:')
-      TEMPLATE_NAMES.forEach((t, i) => console.log('  ' + (i + 1) + ') ' + t.padEnd(9) + '— ' + getTemplate(t).description))
+      TEMPLATE_NAMES.forEach((t, i) => console.log('  ' + (i + 1) + ') ' + t.padEnd(11) + '— ' + getTemplate(t).description))
       const answer = ((await rl.question('Template [1]: ')) || '').trim() || '1'
       const idx = Number(answer)
       args.template = Number.isInteger(idx) && idx >= 1 && idx <= TEMPLATE_NAMES.length ? TEMPLATE_NAMES[idx - 1] : answer
