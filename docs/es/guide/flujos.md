@@ -24,7 +24,15 @@ bot.use(greet)
 ```ts
 flow('x').say('text')                                // texto fijo
 flow('x').say((_ctx, c) => `Hi ${c.state.name}`)      // dinámico, lee c.state
+flow('x').say('Pensando…').say('¡Listo!', { delay: '2s' }) // pausa 2 s antes de enviar
 ```
+
+`{ delay }` (`'500ms'`, `'2s'`, `'1m'` o milisegundos) también funciona en
+`ask`, `choose` y `media`. Para pausar entre pasos sin enviar nada, usa
+`.delay('3s')`. Un delay inválido, o mayor de lo que admite un timer de
+Node (2^31 − 1 ms, unos 24 días), lanza un error al construir el flow.
+Terminar la conversación (`/reset`, un reemplazo, `bot.stop()`) cancela el
+delay pendiente.
 
 ### ask — enviar un mensaje y esperar la respuesta
 
@@ -43,6 +51,26 @@ Si `validate` devuelve un string de error, el bot lo envía de vuelta y
 vuelve a preguntar (hasta `retries`, por defecto 3, antes de lanzar
 `RetriesExceeded`).
 
+#### Validación con schema (compatible con zod)
+
+`schema` acepta cualquier objeto con un método `safeParse()`: zod,
+adaptadores de valibot o tu propio validador. El core no depende de zod. En
+`c.state` se guarda el valor **parseado**, y una respuesta rechazada vuelve
+a preguntar con `otherwise` o, si no está definido, con el mensaje del
+primer issue del schema:
+
+```ts
+import { z } from 'zod'
+
+flow('registro')
+  .ask('¿Cuántos años tienes?', 'edad', { schema: z.coerce.number().min(18, 'Debes ser mayor de edad') })
+  .say((_ctx, c) => `El año que viene tendrás ${c.state.edad + 1}`)   // c.state.edad: number
+```
+
+`schema` corre después de `validate` y comparte su presupuesto de
+`retries`. También funciona en conversaciones: `await c.ask(q, { schema })`
+y `await c.waitText({ schema })` resuelven con el valor parseado.
+
 ### do — ejecutar una acción, sin mensaje
 
 ```ts
@@ -54,8 +82,19 @@ flow('x').do((ctx, c) => {
 ### media — enviar media
 
 ```ts
-flow('x').media('https://picsum.photos/400/300', 'caption')
+flow('x')
+  .media('image', 'https://picsum.photos/400/300', 'Nuestro menú')
+  .media('document', './factura.pdf', 'Tu factura', { filename: 'factura.pdf' })
+  .media('voice', './saludo.ogg')
+  .media('location', { lat: 4.71, lng: -74.07 }, 'Bogotá')
 ```
+
+`kind` es `image`, `video`, `audio`, `voice`, `document`, `sticker` o
+`location`. La fuente puede ser una URL, una ruta, un `Buffer` o una
+función `(ctx, c) => fuente` calculada en tiempo de ejecución. El cuarto
+argumento acepta `delay` y opciones por tipo (`filename`, `ptv`,
+`gifPlayback`, `pack`, `author`). La forma antigua de dos argumentos,
+`.media(fuente, caption?)`, sigue enviando una imagen.
 
 ### choose — branching (menú numerado)
 
@@ -80,6 +119,20 @@ flow('menu')
     soporte: { label: 'Support 🛠️', then: (_ctx, c) => { c.state.interest = 'soporte' } },
   })
   .say((_ctx, c) => `Got it: ${c.state.interest}`)
+```
+
+`then` también puede ser un flow completo (se ejecuta en línea y vuelve,
+como `.use()` más abajo). Una opción con `goto` sale del flow actual hacia
+otra conversación; así se construye una opción de "volver al menú
+principal":
+
+```ts
+const menu = flow('menu').choose('Menú principal', { pedidos: 'Pedidos', ayuda: 'Ayuda' })
+
+flow('ayuda').choose('Temas de ayuda', {
+  envios: { label: 'Envíos', then: flow('envios').say('Enviamos en 48 h') },
+  volver: { label: '⬅️ Volver', goto: menu },
+})
 ```
 
 ### timeout — expiración por inactividad
@@ -114,6 +167,38 @@ flow('a').say('Redirecting you...').goto('b')
 El destino también tiene que estar registrado (`bot.use(flow('b')...)` o
 `bot.conversation('b', ...)`); `bot.lint()` avisa de un `goto` a un flujo
 inexistente con `goto-target-missing`.
+
+### use — ejecutar un sub-flow y volver
+
+```ts
+const direccion = flow('direccion').ask('¿Calle?', 'calle').ask('¿Ciudad?', 'ciudad')
+
+flow('pedido')
+  .say('Datos de envío')
+  .use(direccion)
+  .say((_ctx, c) => `Envío a ${c.state.calle}, ${c.state.ciudad}`)
+```
+
+`.use(subFlow)` ejecuta otro flow en línea y luego sigue con el paso
+siguiente. El sub-flow comparte `c.state`, así que lo que captura se ve en
+el padre (y con tipos, ver [Estado tipado](#estado-tipado)). El sub-flow se
+copia al llamar a `.use()`; los cambios posteriores a su builder no afectan
+al padre. Un `c.retry()` en un paso del padre después de `.use()` vuelve a
+ejecutar el sub-flow cuando su última espera estaba ahí.
+
+### guard — detener si no se cumple una condición
+
+```ts
+flow('admin')
+  .guard((ctx) => admins.includes(ctx.sender), '⛔ Este menú es solo para admins')
+  .guard(() => esHorarioLaboral(), { redirect: 'fuera-de-horario' })
+  .say('Menú de admin')
+```
+
+Si el predicado devuelve un valor falsy, el flow se detiene: con un mensaje
+(un string o `(ctx, c) => string`) lo envía y termina la conversación; con
+`{ redirect, message? }` salta a otra conversación como `goto`.
+`bot.lint()` revisa los destinos de `redirect` igual que los de `goto`.
 
 ### persistent — sobrevive reinicios
 
@@ -153,6 +238,29 @@ flow('x')
   .do((_ctx, c) => { c.state.name = c.state.name.trim() })
   .say((_ctx, c) => `Hi ${c.state.name}`)
 ```
+
+### Estado tipado
+
+`.ask()`, `.choose()` y `.use()` añaden al tipo del flow las keys que
+capturan, así que `c.state` queda tipado sin casts. Con `schema`, la key
+toma el tipo de salida del schema; sin él es `string`, y `.choose()` da la
+unión de las keys de las opciones. Declara de antemano el estado que el
+flow espera con `flow<S>()`, y obtén el tipo de un builder con
+`FlowStateOf<typeof f>`:
+
+```ts
+const f = flow<{ plan: 'free' | 'pro' }>('alta')
+  .ask('¿Edad?', 'edad', { schema: z.coerce.number() })
+  .choose('¿Cómo pagas?', { tarjeta: 'Tarjeta', efectivo: 'Efectivo' }, 'pago')
+  .do((_ctx, c) => {
+    c.state.edad   // number
+    c.state.pago   // 'tarjeta' | 'efectivo'
+    c.state.plan   // 'free' | 'pro'
+  })
+```
+
+Una key que no es un literal de string no se puede seguir; esos valores
+quedan accesibles como `unknown`.
 
 ## Ejemplo completo: registro
 
@@ -237,7 +345,7 @@ flow('juego')
   .say((_ctx, c) => `✅ ${c.state.letra}`)
 ```
 
-- Funciona en sub-flujos (`then: subFlow`) y en flujos `.persistent()`
+- Funciona en sub-flujos (`then: subFlow`, `.use(subFlow)`) y en flujos `.persistent()`
   reanudados tras un reinicio. Si la espera se hizo en el mismo `.do()`
   (`await c.waitText()`), reintenta en el sitio.
 - **Límite:** cada `c.retry()` cuenta como un intento inválido de esa

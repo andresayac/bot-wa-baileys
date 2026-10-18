@@ -29,6 +29,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
 import type { CompiledFlow } from '../flows/FlowBuilder.js'
 import { ConcurrentWaitError, ConversationError, RetriesExceeded } from './errors.js'
+import { sleep } from '../utils/timers.js'
 
 /** Default invalid-answer budget of a wait (`WaitOptions.retries`). */
 export const DEFAULT_RETRIES = 3
@@ -65,7 +66,7 @@ export class ConversationRetry extends ConversationError {
 
 /**
  * `c.retry()` had nothing to re-run: no wait happened yet in this conversation (or, in a
- * flow, no earlier `.ask()`/`.choose()` step exists). It is a programming error — the
+ * flow, no earlier `.ask()`/`.choose()` step — or `.use()` of a sub-flow that waits — exists). It is a programming error — the
  * conversation ends through the error path (`onError` / bot `'error'` event + `errorMessage`).
  */
 export class RetryUnavailableError extends ConversationError {
@@ -98,6 +99,11 @@ interface WaitRecord {
 export interface WaitTrackerDeps {
   assertAlive(): void
   reply(text: string): Promise<unknown>
+  /**
+   * Sleep `ms`, waking early (and clearing the timer) when the conversation ends, is aborted or
+   * replaced — so a flow delay never outlives its conversation or `bot.stop()`.
+   */
+  sleep?(ms: number): Promise<void>
 }
 
 /** Rewind carried from a caught {@link ConversationRetry} into the target step's first wait. */
@@ -127,11 +133,23 @@ export class WaitTracker {
     return outOfBand.getStore() === this
   }
 
+  /** Throw the conversation's control error if it was cancelled/replaced (interpreter hook). */
+  assertAlive(): void {
+    this.deps.assertAlive()
+  }
+
+  /** Interpreter hook: a cancellable pause (see {@link WaitTrackerDeps.sleep}). */
+  sleep(ms: number): Promise<void> {
+    return this.deps.sleep ? this.deps.sleep(ms) : sleep(ms)
+  }
+
   /** Interpreter hook: a flow step (or a new phase of it, e.g. a choose's `then`) starts. */
   mark(flow: CompiledFlow, index: number): void {
     this.current = { flow, index, phase: ++this.phase }
-    // A carried rewind is only valid for the step it targets.
-    if (this.rewind && (this.rewind.flow !== flow || this.rewind.index !== index)) this.rewind = undefined
+    // A carried rewind is valid while its target step runs, including the steps of a sub-flow
+    // it starts (`.use()` target): it is dropped once its flow moves to another step or is left.
+    const r = this.rewind
+    if (r && ((r.flow === flow && r.index !== index) || !this.frames.includes(r.flow))) this.rewind = undefined
   }
 
   /** Interpreter hook: a flow frame is running (rewinds may target it). Returns the pop. */
@@ -247,8 +265,7 @@ export class WaitTracker {
 
   private takeRewind(): Rewind | undefined {
     const r = this.rewind
-    const cur = this.current
-    if (!r || !cur || r.flow !== cur.flow || r.index !== cur.index) return undefined
+    if (!r || !this.current || !this.frames.includes(r.flow)) return undefined
     this.rewind = undefined
     return r
   }
@@ -270,9 +287,19 @@ export class WaitTracker {
       return new ConversationRetry(message, rec.step.flow, rec.step.index, attempts)
     }
     // No usable record (e.g. a persistent flow resumed after a restart, or the wait lived in a
-    // sub-flow that already returned): rewind to the nearest earlier prompt step of this flow.
+    // sub-flow that already returned): rewind to the nearest earlier prompt step of this flow —
+    // an `.ask()`/`.choose()`, or a `.use()` whose sub-flow waits (it is re-run from its start
+    // and its first wait carries the retry message).
     for (let i = cur.index; i >= 0; i--) {
       const step = cur.flow.steps[i]
+      if (step.kind === 'use') {
+        if (!flowWaits(step.flow)) continue
+        // The record of a returned sub-flow keeps its budget; otherwise start a fresh one.
+        const carried = rec?.step && !this.frames.includes(rec.step.flow) ? rec : undefined
+        const attempts = (carried?.attempts ?? 0) + 1
+        if (attempts >= (carried?.retries ?? DEFAULT_RETRIES)) return new RetriesExceeded()
+        return new ConversationRetry(message, cur.flow, i, attempts)
+      }
       if (step.kind !== 'ask' && step.kind !== 'choose') continue
       const retries = step.opts?.retries ?? DEFAULT_RETRIES
       if (1 >= retries) return new RetriesExceeded()
@@ -280,6 +307,13 @@ export class WaitTracker {
     }
     return new RetryUnavailableError()
   }
+}
+
+/** Whether running `flow` reaches a declarative wait (`.ask()`/`.choose()`, also inside `.use()`). */
+function flowWaits(flow: CompiledFlow, seen = new Set<CompiledFlow>()): boolean {
+  if (seen.has(flow)) return false
+  seen.add(flow)
+  return flow.steps.some((s) => s.kind === 'ask' || s.kind === 'choose' || (s.kind === 'use' && flowWaits(s.flow, seen)))
 }
 
 /* ---------------------------------------------------------------------------
@@ -296,6 +330,27 @@ export function bindTracker(controls: object, tracker: WaitTracker): void {
 /** Interpreter hook: step `index` of `flow` (or a new phase of it) starts. No-op for foreign controls. */
 export function markStep(controls: object, flow: CompiledFlow, index: number): void {
   trackers.get(controls)?.mark(flow, index)
+}
+
+/**
+ * Interpreter hook: pause `ms` and then throw if the conversation is no longer alive. The pause
+ * ends early when the conversation is aborted/replaced (`abort`, `abortAll`, `bot.stop()`,
+ * `/reset`), so its timer never keeps the event loop alive. Foreign controls get a plain sleep.
+ */
+export async function pauseControls(controls: object, ms: number): Promise<void> {
+  const tracker = trackers.get(controls)
+  if (tracker) {
+    tracker.assertAlive()
+    await tracker.sleep(ms)
+    tracker.assertAlive()
+  } else {
+    await sleep(ms)
+  }
+}
+
+/** Interpreter hook: throw if the conversation behind `controls` is no longer alive. No-op for foreign controls. */
+export function assertControlsAlive(controls: object): void {
+  trackers.get(controls)?.assertAlive()
 }
 
 /**

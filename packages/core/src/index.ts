@@ -280,3 +280,26 @@ export { recordTranscript, RecordingProvider, DEFAULT_MAX_TURNS } from './testin
 export type { RecordTranscriptOptions, TranscriptRecorder } from './testing/transcripts/record.js'
 export { redactTranscript, createRedactionMap } from './testing/transcripts/redact.js'
 export type { RedactOptions, RedactionRule, RedactionMap } from './testing/transcripts/redact.js'
+// flow-dsl
+// Flow composition (.use), guards, schema validation, full .media(), per-step delays and typed state.
+export type {
+  EmptyFlowState,
+  FlowControls,
+  FlowStateWith,
+  FlowStateMerge,
+  FlowStateOf,
+  FlowGuard,
+  FlowDelay,
+  SayStepOptions,
+  AskStepOptions,
+  ChooseStepOptions,
+  ChooseOption,
+  GuardFailure,
+  CompiledAskOptions,
+  CompiledChooseOption,
+} from './flows/FlowBuilder.js'
+export { FLOW_MEDIA_KINDS, isFlowMediaKind } from './flows/media.js'
+export type { FlowMediaKind, FlowFileMediaKind, FlowLocation, FlowMediaOptions, FlowMediaSource, DynamicMediaSource } from './flows/media.js'
+export { isSchemaLike, DEFAULT_SCHEMA_MESSAGE } from './flows/schema.js'
+export type { SchemaLike, SchemaParseResult, SchemaIssueLike, InferSchema } from './flows/schema.js'
+export type { SchemaWaitOptions } from './conversations/controls.js'

@@ -2,11 +2,21 @@ import type { CompiledFlow, CompiledStep, FlowAction } from '../flows/FlowBuilde
 import { isCompiledFlow } from '../flows/FlowBuilder.js'
 import type { ConversationFn, RuntimeMessage } from './ConversationRuntime.js'
 import type { ConversationControls } from './controls.js'
-import { ConversationGoto } from './errors.js'
-import { markStep, replayable } from './retry.js'
+import { ConversationEnded, ConversationGoto } from './errors.js'
+import { assertControlsAlive, markStep, pauseControls, replayable } from './retry.js'
+import { sendFlowMedia } from '../flows/media.js'
 
 async function resolveText(t: CompiledStep & { kind: 'say' | 'ask' }, ctx: RuntimeMessage, c: ConversationControls): Promise<string> {
   return typeof t.text === 'function' ? await t.text(ctx, c) : t.text
+}
+
+/**
+ * Per-step `{ delay }` / `.delay()`: pause, then make sure the conversation is still alive before
+ * sending. Aborting the conversation (abort, abortAll, `bot.stop()`, `/reset`) cuts the pause short.
+ */
+async function pause(ms: number | undefined, c: ConversationControls): Promise<void> {
+  if (ms === undefined || ms <= 0) return
+  await pauseControls(c, ms)
 }
 
 /** Run `flow` from `startAt`; a `c.retry()` inside a step replays it from the retried step (see retry.ts). */
@@ -32,26 +42,51 @@ async function runStepsFrom(
     markStep(c, flow, i)
     switch (step.kind) {
       case 'say':
+        await pause(step.delayMs, c)
         await c.say(await resolveText(step, ctx, c))
         break
       case 'ask': {
+        await pause(step.delayMs, c)
         const text = await resolveText(step, ctx, c)
-        const answer = await c.ask(text, { timeout: flow.opts.timeoutMs, ...step.opts })
+        // With `opts.schema` the controls resolve the PARSED value (not the raw body).
+        const answer: unknown = await c.ask(text, { timeout: flow.opts.timeoutMs, ...step.opts })
         c.state[step.stateKey] = answer
         break
       }
+      case 'media':
+        await pause(step.delayMs, c)
+        assertControlsAlive(c)
+        await sendFlowMedia(ctx, c, step)
+        break
+      case 'delay':
+        await pause(step.ms, c)
+        break
+      case 'guard': {
+        if (await step.check(ctx, c)) break
+        const message = typeof step.message === 'function' ? await step.message(ctx, c) : step.message
+        if (step.redirect === undefined) throw new ConversationEnded(message)
+        if (message) await c.say(message)
+        throw new ConversationGoto(step.redirect)
+      }
+      case 'use':
+        // Inline sub-flow sharing c.state; returns here when it finishes.
+        await runSteps(step.flow, ctx, c, 0, undefined)
+        break
       case 'do':
         await step.fn(ctx, c)
         break
       case 'choose': {
+        await pause(step.delayMs, c)
         const labels = Object.fromEntries(Object.entries(step.options).map(([k, v]) => [k, v.label]))
         const picked = await c.choose(step.prompt, labels, { timeout: flow.opts.timeoutMs, ...step.opts })
         // Persist the selection so downstream steps can read it (default key: 'choice').
         c.state[step.stateKey ?? 'choice'] = picked
         markStep(c, flow, i)   // new phase: a c.retry() inside `then` re-prompts this menu
-        const then = step.options[picked]?.then
+        const option = step.options[picked]
+        const then = option?.then
         if (isCompiledFlow(then)) await runSteps(then, ctx, c, 0, undefined)   // sub-flow y RETORNA al padre
         else if (typeof then === 'function') await (then as FlowAction)(ctx, c)
+        if (option?.goto !== undefined) throw new ConversationGoto(option.goto)
         break
       }
       case 'goto':

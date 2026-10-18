@@ -21,7 +21,8 @@
 
 import type { WaitOptions } from '../core/types.js'
 import { parseDuration } from '../utils/duration.js'
-import { isCompiledFlow, type CompiledFlow, type CompiledStep } from './FlowBuilder.js'
+import { isCompiledFlow, type CompiledChooseOption, type CompiledFlow, type CompiledStep } from './FlowBuilder.js'
+import { describeFlowMediaSource } from './media.js'
 import {
   describeTrigger,
   functionName,
@@ -48,6 +49,12 @@ export type FlowGraphNodeKind =
   | 'media'
   | 'choose'
   | 'goto'
+  /** A `.guard()` precondition (fails → farewell, or `redirect` goto edge). */
+  | 'guard'
+  /** A `.use(subFlow)` call; the sub-flow is drawn inline as a group returning to the parent. */
+  | 'use'
+  /** A `.delay()` pause. */
+  | 'delay'
   /** End of a flow (or an explicit end step). */
   | 'end'
   /** An opaque async-function conversation (single node). */
@@ -80,6 +87,8 @@ export interface FlowGraphOption {
   then?: 'flow' | 'action'
   /** Id of the inline sub-flow, when `then === 'flow'`. */
   thenFlow?: string
+  /** Conversation the option jumps to (`{ goto }`), after its `then` if both are set. */
+  goto?: string
 }
 
 /** A node of the flow graph. Ids are stable and identical to the Mermaid node ids. */
@@ -109,8 +118,18 @@ export interface FlowGraphNode {
   target?: string
   /** Options of a `choose`, in menu order. */
   options?: FlowGraphOption[]
-  /** What a `media` step sends. */
-  media?: { source: string; caption?: string }
+  /** What a `media` step sends (`type`: image, video, audio, voice, document, sticker, location). */
+  media?: { source: string; caption?: string; type?: string }
+  /** Pause before the step runs (`{ delay }` option, or a `.delay()` step), in ms. */
+  delayMs?: number
+  /** `true` when an `ask` validates its answer with a `schema`. */
+  schema?: boolean
+  /** Conversation a failing `guard` redirects to (absent: the conversation ends). */
+  redirect?: string
+  /** Farewell text of a failing `guard`, when literal. */
+  message?: string
+  /** Id of the sub-flow a `use` node runs inline. */
+  subflow?: string
   /** Name of the function behind a do/then/dynamic text, when it has a meaningful one. */
   action?: string
   /** Raw step kind of an unknown (`step`) or explicit `end` step. */
@@ -143,6 +162,8 @@ export interface FlowGraphEdge {
 export interface FlowGraphGroup {
   id: string
   label: string
+  /** How the sub-flow is entered: a `choose` option's `then` (default) or a `.use()` step. */
+  via?: 'then' | 'use'
   /** Owning {@link FlowGraphFlow} id. */
   flow: string
   /** Enclosing group id, for sub-flows nested inside sub-flows. */
@@ -258,6 +279,11 @@ export function effectiveWaitTimeout(stepOpts: WaitOptions | undefined, owner: C
   }
 }
 
+/** Label suffix for a step `{ delay }`. */
+function delaySuffix(ms: number | undefined): string {
+  return ms !== undefined && ms > 0 ? ` ⏳ ${formatDuration(ms)}` : ''
+}
+
 /** Compact duration for labels: 120000 → `2m`, 1500 → `1500ms`, 0 → `never`. */
 function formatDuration(ms: number): string {
   if (ms <= 0) return 'never'
@@ -294,6 +320,8 @@ function runsUserCode(step: CompiledStep): boolean {
     case 'do': return !step.media
     case 'say':
     case 'ask': return typeof step.text === 'function'
+    case 'media': return typeof step.source === 'function'
+    case 'guard': return true
     default: return false
   }
 }
@@ -371,17 +399,51 @@ export function buildFlowGraph(inventory: FlowInventory, maxLabelLength = 60): B
     switch (step.kind) {
       case 'say': {
         const t = textOf(step.text)
-        addNode({ ...base, kind: 'say', ...t.fields }, (s) => [`say: ${t.show(s)}`], scope.items)
+        addNode({ ...base, kind: 'say', ...t.fields, delayMs: step.delayMs }, (s) => [`say: ${t.show(s)}${delaySuffix(step.delayMs)}`], scope.items)
         return
       }
       case 'ask': {
         const t = textOf(step.text)
         const w = timeoutOf(step.opts)
+        const schema = step.opts?.schema !== undefined ? true : undefined
         addNode(
-          { ...base, kind: 'ask', ...t.fields, stateKey: step.stateKey, ...w.fields },
-          (s) => [`ask: ${t.show(s)} → ${s(step.stateKey)}${w.suffix}`],
+          { ...base, kind: 'ask', ...t.fields, stateKey: step.stateKey, ...w.fields, delayMs: step.delayMs, schema },
+          (s) => [`ask: ${t.show(s)} → ${s(step.stateKey)}${schema ? ' ✓schema' : ''}${w.suffix}${delaySuffix(step.delayMs)}`],
           scope.items,
         )
+        return
+      }
+      case 'media': {
+        const source = describeFlowMediaSource(step.source, functionName)
+        const caption = step.caption
+        const prefix = step.type === 'image' ? 'media' : `media (${step.type})`
+        addNode(
+          { ...base, kind: 'media', media: pruned({ source, caption, type: step.type }), delayMs: step.delayMs },
+          (s) => [`${prefix}: ${s(source)}${caption ? ` — ${s(caption)}` : ''}${delaySuffix(step.delayMs)}`],
+          scope.items,
+        )
+        return
+      }
+      case 'guard': {
+        const check = functionName(step.check)
+        const message = typeof step.message === 'string' ? step.message : undefined
+        const dynamic = typeof step.message === 'function' ? true : undefined
+        const redirect = step.redirect
+        addNode(
+          { ...base, kind: 'guard', action: check, redirect, message, dynamic },
+          (s) => [`guard: ${check ? `${check}()` : '(check)'}${redirect !== undefined ? ` ✗→ ${s(redirect)}` : ''}`],
+          scope.items,
+        )
+        return
+      }
+      case 'use': {
+        const sub = step.flow.id
+        addNode({ ...base, kind: 'use', subflow: sub }, (s) => [`use: ${s(sub)}`], scope.items)
+        return
+      }
+      case 'delay': {
+        const ms = step.ms
+        addNode({ ...base, kind: 'delay', delayMs: ms }, () => [`delay: ${formatDuration(ms)}`], scope.items)
         return
       }
       case 'do': {
@@ -408,11 +470,12 @@ export function buildFlowGraph(inventory: FlowInventory, maxLabelLength = 60): B
             index: i + 1,
             then: isCompiledFlow(opt.then) ? 'flow' : typeof opt.then === 'function' ? 'action' : undefined,
             thenFlow: isCompiledFlow(opt.then) ? opt.then.id : undefined,
+            goto: opt.goto,
           }),
         )
         addNode(
-          { ...base, kind: 'choose', text: step.prompt, stateKey, options, ...w.fields },
-          (s) => [`choose: ${s(step.prompt)} → ${s(stateKey)}${w.suffix}`],
+          { ...base, kind: 'choose', text: step.prompt, stateKey, options, ...w.fields, delayMs: step.delayMs },
+          (s) => [`choose: ${s(step.prompt)} → ${s(stateKey)}${w.suffix}${delaySuffix(step.delayMs)}`],
           scope.items,
         )
         return
@@ -446,12 +509,27 @@ export function buildFlowGraph(inventory: FlowInventory, maxLabelLength = 60): B
       return []
     }
     if (kind === 'end') return []
+    if (step.kind === 'guard') {
+      if (step.redirect !== undefined) gotos.push({ from: id, target: step.redirect })
+      return [{ from: id, kind: 'next' }]
+    }
+    if (step.kind === 'use') {
+      const sub = step.flow
+      const groupId = `${id}_u`
+      const enter: Tail = { from: id, kind: 'next' }
+      if (scope.ancestry.has(sub) || sub.steps.length === 0) return [enter]
+      const items: LayoutItem[] = []
+      scope.items.push({ group: groupId, items })
+      graph.groups.push(pruned({ id: groupId, label: `use: ${sub.id}`, via: 'use' as const, flow: scope.fid, parent: scope.group, subflow: sub.id }))
+      const inner = walk(sub, groupId, `${path}.flow.`, [enter], {
+        ...scope, group: groupId, items, ancestry: new Set([...scope.ancestry, sub]),
+      })
+      return inner.map((t) => (t.kind === 'next' ? { ...t, kind: 'return' as const } : t))
+    }
     if (step.kind !== 'choose') return [{ from: id, kind: 'next' }]
 
-    const out: Tail[] = []
-    Object.entries(step.options).forEach(([key, opt], i) => {
-      const label = `${i + 1}) ${opt.label}`
-      const enter: Tail = { from: id, kind: 'option', label, option: key }
+    const branch = (opt: CompiledChooseOption, key: string, i: number, enter: Tail): Tail[] => {
+      const out: Tail[] = []
       const then = opt.then
       const optionPath = `${path}.options[${JSON.stringify(key)}].then`
       const optionId = `${id}_o${i}`
@@ -482,6 +560,25 @@ export function buildFlowGraph(inventory: FlowInventory, maxLabelLength = 60): B
       } else {
         out.push(enter)
       }
+      return out
+    }
+
+    const out: Tail[] = []
+    Object.entries(step.options).forEach(([key, opt], i) => {
+      const enter: Tail = { from: id, kind: 'option', label: `${i + 1}) ${opt.label}`, option: key }
+      const tails = branch(opt, key, i, enter)
+      const target = opt.goto
+      if (target === undefined) { out.push(...tails); return }
+      // `{ goto }` option: its `then` (if any) runs first, then the flow is left.
+      const gotoId = `${id}_g${i}`
+      addNode(
+        { id: gotoId, kind: 'goto', flow: scope.fid, group: scope.group, path: `${path}.options[${JSON.stringify(key)}].goto`, target },
+        (s) => [`goto: ${s(target)}`],
+        scope.items,
+      )
+      meta.set(gotoId, { step: { kind: 'goto', target }, conversation: scope.conversation })
+      connect(tails, gotoId)
+      gotos.push({ from: gotoId, target })
     })
     return out
   }
@@ -572,6 +669,9 @@ const SHAPES: Record<FlowGraphNodeKind, readonly [string, string]> = {
   media: ['[', ']'],
   choose: ['{', '}'],
   goto: ['{{', '}}'],
+  guard: ['{{', '}}'],
+  use: ['[[', ']]'],
+  delay: ['(', ')'],
   end: ['((', '))'],
   conversation: ['[[', ']]'],
   missing: ['>', ']'],
@@ -602,7 +702,7 @@ function renderMermaid(built: BuiltFlowGraph, options: DescribeOptions): string 
         continue
       }
       const group = graph.groups.find((g) => g.id === item.group)
-      out.push(`${indent}subgraph ${item.group} ["then: ${short(group?.subflow ?? '')}"]`)
+      out.push(`${indent}subgraph ${item.group} ["${group?.via ?? 'then'}: ${short(group?.subflow ?? '')}"]`)
       renderItems(item.items, depth + 1)
       out.push(`${indent}end`)
     }
