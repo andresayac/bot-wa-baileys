@@ -63,7 +63,7 @@ const baileys: ProjectTemplate = {
           '// Secrets/config come from .env (loaded via `node --env-file=.env`).',
           "// The session name just picks which sessions/<name> auth folder to use.",
           "const bot = await createBot(new BaileysProvider({ session: process.env.BOT_SESSION ?? 'my-bot' }))",
-          "bot.on('qr', (qr) => bot.logger.info('Scan the QR to link WhatsApp: ' + qr))",
+          "bot.on('qr', () => bot.logger.info('Scan the QR printed in the terminal to link WhatsApp'))",
           "bot.on('ready', () => bot.logger.info('✅ Bot connected — send it \"hola\"'))",
           'await bot.start()',
         ],
@@ -287,7 +287,7 @@ const ai: ProjectTemplate = {
         main: [
           '// Secrets come from .env (loaded via `node --env-file=.env`; `npm run dev` loads it too).',
           "const bot = await createBot(new BaileysProvider({ session: process.env.BOT_SESSION ?? 'my-ai-bot' }))",
-          "bot.on('qr', (qr) => bot.logger.info('Scan the QR to link WhatsApp: ' + qr))",
+          "bot.on('qr', () => bot.logger.info('Scan the QR printed in the terminal to link WhatsApp'))",
           "bot.on('ready', () => bot.logger.info('✅ Bot connected — unhandled text messages get a business-scoped AI reply'))",
           'await bot.start()',
         ],

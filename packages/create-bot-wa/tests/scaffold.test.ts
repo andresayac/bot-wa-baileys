@@ -65,6 +65,9 @@ describe('scaffold — every template', () => {
     expect(bot).toContain('bot.when(\'hola\'')
     expect(bot).toContain('flow(')
     expect(bot).toContain('await bot.start()')
+    // The QR pairing payload is a secret (SECURITY.md): never forward it to the logger.
+    expect(bot).not.toMatch(/on\('qr',\s*\(\w+\)/)
+    expect(bot).not.toMatch(/logger\.\w+\([^)]*\bqr\b\s*\)/)
 
     // .gitignore — standard ignores for every template.
     const gitignore = await read(target, '.gitignore')

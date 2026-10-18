@@ -156,7 +156,7 @@ export function baileysMain(defaultSession: string, readyLine: string, createArg
     '// Secrets/config come from .env (loaded via `node --env-file=.env`; `npm run dev` loads it too).',
     '// The session name just picks which sessions/<name> auth folder to use.',
     "const bot = await createBot(new BaileysProvider({ session: process.env.BOT_SESSION ?? '" + defaultSession + "' })" + createArgs + ')',
-    "bot.on('qr', (qr) => bot.logger.info('Scan the QR to link WhatsApp: ' + qr))",
+    "bot.on('qr', () => bot.logger.info('Scan the QR printed in the terminal to link WhatsApp'))",
     "bot.on('ready', () => bot.logger.info('" + readyLine.replace(/\\/g, '\\\\').replace(/'/g, "\\'") + "'))",
     'await bot.start()',
   ]
