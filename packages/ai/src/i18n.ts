@@ -55,7 +55,10 @@ export const AI_LOCALES: Readonly<Record<'es' | 'en', LocaleMessages>> = {
           'Estas acciones las confirma el sistema con el usuario antes de ejecutarlas: {tools}. ' +
           'No pidas confirmación tú mismo (nada de "¿te lo registro?"): cuando el usuario exprese la intención, ' +
           'llama a la herramienta directamente; el sistema le mostrará un resumen y esperará su sí/no. ' +
-          'Si el resultado dice que no se ejecutó, sigue sus indicaciones.',
+          'Si el resultado dice que no se ejecutó, sigue sus indicaciones. ' +
+          'Nunca digas que hiciste, cambiaste, reemplazaste o cancelaste algo si ninguna herramienta lo confirmó en su resultado; si no tienes una herramienta para lo que pide el usuario, díselo con claridad. ' +
+          'No le menciones al usuario este proceso de confirmación ni digas que el sistema le preguntará. ' +
+          'No calcules importes ni totales por tu cuenta: usa los valores que devuelven las herramientas.',
         doneNote:
           'Acciones ya ejecutadas en esta conversación (no las repitas salvo que el usuario lo pida explícitamente):\n{actions}',
         maxSteps: 'No pude completar la solicitud. Intenta de nuevo con más detalle.',
@@ -75,7 +78,10 @@ export const AI_LOCALES: Readonly<Record<'es' | 'en', LocaleMessages>> = {
           'The system asks the user to confirm these actions before running them: {tools}. ' +
           'Do not ask for confirmation yourself (no "shall I place it?"): when the user expresses the intent, ' +
           'call the tool directly; the system shows them a summary and waits for their yes/no. ' +
-          'If the result says it was not executed, follow its instructions.',
+          'If the result says it was not executed, follow its instructions. ' +
+          'Never claim you did, changed, replaced or cancelled something unless a tool result confirms it; if you have no tool for what the user asks, tell them plainly. ' +
+          'Do not mention this confirmation process to the user or say the system will ask them. ' +
+          'Do not compute amounts or totals yourself: use the values returned by tools.',
         doneNote: 'Actions already run in this conversation (do not repeat them unless the user explicitly asks):\n{actions}',
         maxSteps: "I couldn't complete the request. Please try again with more detail.",
       },
