@@ -117,7 +117,12 @@ export interface VoicePluginConfig {
 /** Cap on chats remembered as "in voice mode" (oldest evicted first). */
 const MAX_VOICE_CHATS = 10_000
 
-type SendPayload = { chatId: ChatId; content: OutboundContent; options?: SendOptions }
+/**
+ * `before('send')` payload. `edit` is set by `ctx.edit` (an in-place edit of a sent
+ * message) and `stream` by `ctx.stream()` live previews: neither is a new message, so
+ * neither is turned into a voice note (a text edit cannot become audio).
+ */
+type SendPayload = { chatId: ChatId; content: OutboundContent; options?: SendOptions; edit?: unknown; stream?: unknown }
 
 export function voicePlugin(config: VoicePluginConfig = {}): PluginSpec<VoicePluginConfig> {
   return definePlugin<VoicePluginConfig>({
@@ -209,6 +214,8 @@ export function voicePlugin(config: VoicePluginConfig = {}): PluginSpec<VoicePlu
           const content = payload.content
           if (
             content.kind === 'text' &&
+            payload.edit === undefined &&
+            payload.stream === undefined &&
             voiceChats.has(payload.chatId) &&
             content.text.trim().length > 0 &&
             content.text.length <= maxChars &&

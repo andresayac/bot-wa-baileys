@@ -286,7 +286,7 @@ describe('REST API — messaging, conversations, flows, idempotency', () => {
     await new Promise((r) => setTimeout(r, 5))
     expect(providers.get('b')!.outbox.at(-1)!.content).toEqual({ kind: 'text', text: '¿Nombre?' })
     const convs = await call(api, 'GET', '/v1/bots/b/conversations', { token: OPS })
-    expect(convs.body.data).toEqual([{ key: 'chat-9', state: { source: 'api' }, waiting: true, queued: 0 }])
+    expect(convs.body.data).toEqual([{ key: 'chat-9', state: { source: 'api' }, waiting: true, queued: 0, accepts: 'text' }])
     expect((await call(api, 'POST', '/v1/bots/b/conversations/chat-9/cancel', { token: OPS })).status).toBe(200)
     expect((await call(api, 'POST', '/v1/bots/b/conversations/chat-9/cancel', { token: OPS })).status).toBe(404)
 

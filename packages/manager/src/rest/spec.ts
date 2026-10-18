@@ -243,7 +243,11 @@ export const COMPONENT_SCHEMAS: Record<string, JsonSchema> = {
   },
   Conversation: {
     type: 'object', required: ['key', 'waiting', 'queued'],
-    properties: { key: { type: 'string' }, state: stringMap, waiting: { type: 'boolean' }, queued: { type: 'integer' } },
+    properties: {
+      key: { type: 'string' }, state: stringMap, waiting: { type: 'boolean' }, queued: { type: 'integer' },
+      // What the pending wait takes: 'text', 'any' or a list of message types (absent when not waiting).
+      accepts: { oneOf: [{ type: 'string', enum: ['text', 'any'] }, { type: 'array', items: { type: 'string' } }] },
+    },
   },
   Message: {
     type: 'object', required: ['id', 'chatId', 'timestamp', 'type'],

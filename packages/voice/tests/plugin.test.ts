@@ -353,3 +353,25 @@ describe('voicePlugin — install', () => {
     }
   })
 })
+
+describe('voicePlugin — autoReplyWithVoice + ctx.edit / ctx.stream', () => {
+  it('never turns an in-place edit or a stream preview into a voice note', async () => {
+    const { logger } = recordingLogger()
+    const t = await createTestBot({ logger }, { provider: { streaming: 'edit' } })
+    t.provider.downloadMedia = async () => makeOgg(2)
+    const tts = fakeTts()
+    t.bot.plug(voicePlugin({ stt: fakeStt('hola'), tts, autoReplyWithVoice: true }))
+    let done = false
+    t.bot.onMessage(async (ctx) => {
+      const sent = await ctx.reply('uno')
+      await ctx.edit(sent.ref, 'dos')
+      done = true
+    })
+    await t.chat.send('', { type: 'voice' })
+    await waitFor(() => done)
+    expect(t.provider.outbox[0]!.content).toEqual({ kind: 'voice', media: Buffer.from('audio:uno') })
+    expect(t.provider.edits.at(-1)!.content).toEqual({ kind: 'text', text: 'dos' })
+    expect(tts.texts).toEqual(['uno'])
+    await t.bot.stop()
+  })
+})
