@@ -1,0 +1,19 @@
+{
+  "name": "@bot-wa/chatwoot",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Chatwoot integration for @bot-wa/core — bidirectional message sync and human handoff driven by Chatwoot agents.",
+  "main": "lib/index.js", "types": "lib/index.d.ts",
+  "exports": { ".": { "types": "./lib/index.d.ts", "default": "./lib/index.js" } },
+  "engines": { "node": ">=22" },
+  "keywords": ["bot-wa", "chatwoot", "handoff", "crm", "helpdesk"],
+  "author": "Andres Aya", "license": "MIT",
+  "repository": { "type": "git", "url": "git+https://github.com/andresayac/bot-wa-baileys.git", "directory": "packages/chatwoot" },
+  "homepage": "https://github.com/andresayac/bot-wa-baileys/tree/main/packages/chatwoot#readme",
+  "bugs": { "url": "https://github.com/andresayac/bot-wa-baileys/issues" },
+  "files": ["./lib/**/*"],
+  "scripts": { "build": "tsc", "test": "vitest run", "prepublishOnly": "pnpm build", "typecheck": "tsc -p tsconfig.test.json" },
+  "dependencies": { "@bot-wa/core": "workspace:*", "@bot-wa/http": "workspace:*" },
+  "devDependencies": { "@types/node": "^26.1.1", "typescript": "^7.0.2", "vite": "^7.3.6", "vitest": "^4.1.10" }
+}
