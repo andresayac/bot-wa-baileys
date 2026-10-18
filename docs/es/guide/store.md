@@ -136,7 +136,7 @@ estado del bot, respetando `tablePrefix` / `collectionPrefix`:
 | --- | --- |
 | `MemoryStore` | en memoria; el `file` JSON suma el campo `userData` (los archivos antiguos siguen cargando) |
 | `SQLiteStore` | tabla `user_data` (`user_id`, `namespace`, `key`, `value_json`, `expires_at`, `updated_at`) + índice sobre `expires_at` |
-| `PostgresStore` | tabla `{prefix}user_data` (valor como `TEXT`, no JSONB, para conservar el JSON exacto) + índice de expiración |
+| `PostgresStore` | tabla `{prefix}user_data` (valor como `TEXT`, no JSONB, para conservar el JSON exacto: U+0000 y los surrogates sueltos vuelven sin cambios, como escapes JSON `\u0000`) + índice de expiración |
 | `MysqlStore` | tabla `{prefix}user_data`: ids, namespace y clave como `VARBINARY` (exactos byte a byte), valor `MEDIUMTEXT` (16 MiB) |
 | `MongoStore` | colección `{prefix}user_data`, índices sobre `{ userId, namespace }` y `expiresAt` |
 | `RedisStore` | una clave por entrada, `{prefix}:ud:{user}:{ns}:{key}`, con expiración nativa `PX`; para listar y borrar namespaces usa `KEYS`, como `listChats` |

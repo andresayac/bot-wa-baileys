@@ -1,5 +1,6 @@
 /**
- * JSONB-safe serialisation shared by {@link PostgresStore} and its user-data table.
+ * JSONB-safe serialisation for the JSONB columns of {@link PostgresStore}. The
+ * user-data table (TEXT) stores values exactly and does not use it (see userData.ts).
  */
 
 /* JSONB encoding ------------------------------------------------------------- *

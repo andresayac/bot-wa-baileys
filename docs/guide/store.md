@@ -135,7 +135,7 @@ state, honouring `tablePrefix` / `collectionPrefix`:
 | --- | --- |
 | `MemoryStore` | in memory; the JSON `file` gains a `userData` field (older files still load) |
 | `SQLiteStore` | table `user_data` (`user_id`, `namespace`, `key`, `value_json`, `expires_at`, `updated_at`) + index on `expires_at` |
-| `PostgresStore` | table `{prefix}user_data` (value as `TEXT`, not JSONB, to keep the exact JSON) + expiry index |
+| `PostgresStore` | table `{prefix}user_data` (value as `TEXT`, not JSONB, to keep the exact JSON: U+0000 and unpaired surrogates round-trip unchanged, as JSON `\u0000` escapes) + expiry index |
 | `MysqlStore` | table `{prefix}user_data`: ids, namespace and key as `VARBINARY` (byte-exact), value `MEDIUMTEXT` (16 MiB) |
 | `MongoStore` | collection `{prefix}user_data`, indexes on `{ userId, namespace }` and `expiresAt` |
 | `RedisStore` | one key per entry, `{prefix}:ud:{user}:{ns}:{key}`, with native `PX` expiry; listing and namespace deletes use `KEYS`, like `listChats` |

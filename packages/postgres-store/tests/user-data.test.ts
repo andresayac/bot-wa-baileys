@@ -78,4 +78,33 @@ describe('PostgresStore — user data', () => {
     })
     expect(await viaStrings.listUserData('u1')).toEqual([{ userId: 'u1', namespace: 'n', key: 'k', value: 'v', expiresAt, updatedAt: 42 }])
   })
+
+  it('stores values exactly: U+0000, lone surrogates and U+FFFD round-trip unchanged (no sanitising)', async () => {
+    const value = {
+      nul: 'a\u0000b',
+      lone: 'x\ud83d',
+      low: '\udc00y',
+      ok: '👍',
+      fffd: '�',
+      literal: '\\u0000 is text',
+      'k\u0000': 1,
+      nested: [{ v: '\u0000\ud800' }],
+    }
+    await store.setUserData({ userId: 'u1', namespace: 'n', key: 'k', value, updatedAt: 1 })
+    expect((await store.getUserData('u1', 'n', 'k'))?.value).toEqual(value)
+    expect((await store.listUserData('u1', 'n'))[0]?.value).toEqual(value)
+    for (const s of ['\u0000', 'a\ud83d', '\udfff']) {
+      await store.setUserData({ userId: 'u1', namespace: 'n', key: 's', value: s, updatedAt: 1 })
+      expect((await store.getUserData('u1', 'n', 's'))?.value).toBe(s)
+    }
+  })
+
+  it('the stored text is the plain JSON.stringify output (NUL travels as the \\u0000 escape, never a raw byte)', async () => {
+    const value = { nul: 'a\u0000b', lone: 'x\ud83d' }
+    await store.setUserData({ userId: 'u1', namespace: 'n', key: 'k', value, updatedAt: 1 })
+    const row = [...(fake.tables.get('user_data')?.rows.values() ?? [])][0] as { value: string }
+    expect(row.value).toBe(JSON.stringify(value))
+    expect(row.value).not.toContain('\u0000') // no raw NUL reaches the TEXT column…
+    expect(row.value).toContain('\\u0000')    // …only the six-character JSON escape
+  })
 })

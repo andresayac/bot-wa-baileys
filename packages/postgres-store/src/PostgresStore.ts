@@ -162,7 +162,7 @@ export class PostgresStore implements IStore {
    *   {prefix}checkpoints   key TEXT PK, cp JSONB
    *   {prefix}conversations key TEXT PK, messages JSONB
    *   {prefix}cursors       key TEXT PK, value TEXT
-   *   {prefix}user_data     (user_id, namespace, key) PK, value TEXT (JSON),
+   *   {prefix}user_data     (user_id, namespace, key) PK, value TEXT (exact JSON),
    *                         expires_at BIGINT NULL (indexed), updated_at BIGINT  — ctx.user
    * -------------------------------------------------------------------------- */
 

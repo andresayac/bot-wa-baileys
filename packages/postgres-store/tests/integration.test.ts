@@ -124,13 +124,27 @@ describe.skipIf(!URL)('PostgresStore — real PostgreSQL integration', () => {
   })
 
   describe('user data (ctx.user)', () => {
-    it('stores values with U+0000 and lone surrogates like every other document (toJsonb → U+FFFD)', async () => {
+    it('stores values exactly: U+0000, lone surrogates and U+FFFD round-trip unchanged (TEXT, not JSONB)', async () => {
       const store = makeStore()
       await store.start()
-      const value = { nul: 'a\u0000b', lone: 'x\ud83d', ok: '👍', 'k\u0000': 1 }
+      const value = {
+        nul: 'a\u0000b', lone: 'x\ud83d', low: '\udc00y', ok: '👍', fffd: FFFD,
+        literal: '\\u0000 is text', 'k\u0000': 1, nested: [{ v: '\u0000\ud800' }],
+      }
       await store.setUserData({ userId: 'u', namespace: 'default', key: 'k', value, updatedAt: 1 })
-      const got = await store.getUserData('u', 'default', 'k')
-      expect(got?.value).toEqual({ nul: `a${FFFD}b`, lone: `x${FFFD}`, ok: '👍', [`k${FFFD}`]: 1 })
+      expect((await store.getUserData('u', 'default', 'k'))?.value).toEqual(value)
+      expect((await store.listUserData('u'))[0]?.value).toEqual(value)
+      for (const s of ['\u0000', 'a\ud83d', '\udfff', '\u0000\u0000\u0000']) {
+        await store.setUserData({ userId: 'u', namespace: 'default', key: 's', value: s, updatedAt: 1 })
+        expect((await store.getUserData('u', 'default', 's'))?.value).toBe(s)
+      }
+    })
+
+    it('a raw U+0000 cannot live in a PostgreSQL TEXT value; its JSON escape can (why values are JSON text)', async () => {
+      await expect(admin.query('SELECT $1::text AS v', ['a\u0000b'])).rejects.toMatchObject({ code: '22021' })
+      const { rows } = await admin.query<{ v: string }>('SELECT $1::text AS v', [JSON.stringify('a\u0000b')])
+      expect(rows[0].v).toBe('"a\\u0000b"')
+      expect(JSON.parse(rows[0].v)).toBe('a\u0000b')
     })
   })
 

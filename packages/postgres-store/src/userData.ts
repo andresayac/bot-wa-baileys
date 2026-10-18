@@ -5,16 +5,19 @@
  *                      expires_at BIGINT NULL, updated_at BIGINT,
  *                      PRIMARY KEY (user_id, namespace, key))
  *
- * The value is JSON TEXT (not JSONB) so it keeps its key order. It is serialised
- * with the store's `toJsonb()` like every other document: U+0000 and unpaired
- * surrogates become U+FFFD, so it reads back as it would from a JSONB column. Expiry is enforced in the
- * WHERE clause of every read and purged physically by `purge()` through the
- * `expires_at` index. node-postgres returns BIGINT as strings, so numeric
- * columns are converted on the way out.
+ * The value is JSON TEXT (not JSONB) so it keeps its key order and is stored
+ * EXACTLY: no U+FFFD sanitising (that is only needed for the JSONB tables). It
+ * is the plain `JSON.stringify` output, which is lossless in a TEXT column:
+ * U+0000 and unpaired surrogates, the characters PostgreSQL text cannot hold
+ * raw (a NUL byte is SQLSTATE 22021; UTF-8 cannot carry a lone surrogate),
+ * are always written as six-character `\uXXXX` escapes (plain ASCII) and
+ * `JSON.parse` restores them. Expiry is enforced in the WHERE clause of every
+ * read and purged physically by `purge()` through the `expires_at` index.
+ * node-postgres returns BIGINT as strings, so numeric columns are converted on
+ * the way out.
  */
 
 import type { UserDataEntry, UserId } from '@bot-wa/core'
-import { toJsonb } from './jsonb.js'
 
 type Query = <T>(text: string, values?: unknown[]) => Promise<{ rows: T[]; rowCount?: number | null }>
 
@@ -41,6 +44,15 @@ function toEntry(row: UserDataRow): UserDataEntry {
   return entry
 }
 
+/**
+ * Exact, TEXT-safe JSON for a user-data value. `JSON.stringify` escapes every
+ * control character (U+0000 included) and, since ES2019, every unpaired
+ * surrogate, so the text never holds a raw NUL or a lone surrogate.
+ */
+function serializeValue(value: unknown): string {
+  return JSON.stringify(value)
+}
+
 export class PostgresUserData {
   constructor(private readonly query: Query, private readonly table: string) {}
 
@@ -64,7 +76,7 @@ export class PostgresUserData {
   async set(entry: UserDataEntry): Promise<void> {
     await this.query(
       `INSERT INTO ${this.table} (${COLUMNS}) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (user_id, namespace, key) DO UPDATE SET value = EXCLUDED.value, expires_at = EXCLUDED.expires_at, updated_at = EXCLUDED.updated_at`,
-      [entry.userId, entry.namespace, entry.key, toJsonb(entry.value), entry.expiresAt ?? null, entry.updatedAt],
+      [entry.userId, entry.namespace, entry.key, serializeValue(entry.value), entry.expiresAt ?? null, entry.updatedAt],
     )
   }
 
