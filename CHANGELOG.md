@@ -11,6 +11,7 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/). Versionado po
   - **Experimentales** (`private`, implementación real, sin publicar): `discord`, `messenger`, `instagram`, `mongo-store`, `postgres-store`, `mysql-store`, `nlu`, `manager`, `events`.
   - **Prototipos** (`private`, mínimos y en memoria): `inbox`, `crm`, `hub`, `campaigns`, `deployments`.
 - **`@bot-wa/graph-core`**: helpers Meta Graph compartidos (verificación de webhook, mapeo de errores, guard de ingest) usados por meta/messenger/instagram — elimina la triplicación previa.
+- **Modo prerelease `alpha` de Changesets** (`.changeset/pre.json`): `changeset version` genera `@bot-wa/core@2.0.0-alpha.N` y `x.y.z-alpha.N` en el resto, y `changeset publish` publica bajo el dist-tag `alpha`. Se sale con `pnpm changeset pre exit`.
 - CI en GitHub Actions: `build` + `test` en Node 22 y 24 por PR.
 - Docs VitePress + TypeDoc desde la raíz (`pnpm docs`). Paquetes compilados con TypeScript 7 (native port); TypeDoc corre con TS 5.9 en la raíz.
 

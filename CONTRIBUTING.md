@@ -105,13 +105,18 @@ pnpm release               # pnpm build && changeset publish: publica y crea los
 git push --follow-tags
 ```
 
-### Primera publicación
+### Modo prerelease `alpha`
 
-Ninguna versión está todavía en npm, así que el primer `pnpm release` publica las versiones actuales de los 10 paquetes públicos (`@bot-wa/core@2.0.0-alpha.1`, el resto `0.1.0`) bajo el dist-tag `latest`, sin necesidad de `version-packages`. Si prefieres que la serie alpha salga bajo su propio dist-tag:
+El repo está en **modo prerelease `alpha`** de Changesets (`.changeset/pre.json`, creado con `pnpm changeset pre enter alpha`). Mientras siga así:
+
+- `pnpm version-packages` genera versiones de prerelease: `@bot-wa/core` sale como `2.0.0-alpha.N` y el resto como `x.y.z-alpha.N` (p. ej. `0.2.0-alpha.0`). `pnpm changeset status --verbose` muestra las versiones que se generarían.
+- `pnpm release` publica con el dist-tag `alpha`, no `latest`: quien instala sin indicar tag no recibe la serie alpha (`npm i @bot-wa/core@alpha` sí).
+- `.changeset/pre.json` registra el estado del modo pre; no lo borres ni lo edites a mano.
+
+Para salir del modo prerelease cuando la API se estabilice:
 
 ```bash
-pnpm changeset pre enter alpha   # changeset version genera x.y.z-alpha.N y publica con --tag alpha
-pnpm changeset pre exit          # al terminar la serie
+pnpm changeset pre exit    # la siguiente version-packages genera las versiones estables (sin -alpha.N) y publica bajo latest
 ```
 
 Antes de la primera publicación, el mantenedor debe crear o reclamar el scope **`@bot-wa`** en npm (una organización con ese nombre) y comprobar que el nombre `create-bot-wa` sigue libre.

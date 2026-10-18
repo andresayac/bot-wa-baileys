@@ -30,13 +30,18 @@ Para ver qué se publicaría sin publicar nada: `pnpm changeset publish-plan`.
 
 Un paquete público no puede depender (en `dependencies`/`peerDependencies`) de uno privado: Changesets lo rechaza con `Invalid tree`.
 
-## Prereleases
+## Prereleases (modo `alpha` activo)
 
-Para publicar una serie `alpha`/`beta` bajo su propio dist-tag de npm en lugar de `latest`:
+El repo está en **modo prerelease `alpha`**: `pnpm changeset pre enter alpha` creó `pre.json` en esta carpeta (no lo borres ni lo edites a mano). Mientras siga ahí:
+
+- `changeset version` genera versiones de prerelease: `@bot-wa/core` sale como `2.0.0-alpha.N` y el resto como `x.y.z-alpha.N`.
+- `changeset publish` publica bajo el dist-tag `alpha`, no `latest`.
+- `pnpm changeset status --verbose` muestra qué versión recibiría cada paquete.
+
+Para salir de la serie alpha y publicar versiones estables bajo `latest`:
 
 ```bash
-pnpm changeset pre enter alpha   # a partir de aquí, changeset version genera x.y.z-alpha.N
-pnpm changeset pre exit          # al salir, la siguiente versión es la estable
+pnpm changeset pre exit
 ```
 
 Más detalle en [`CONTRIBUTING.md`](../CONTRIBUTING.md#publicar-una-versión).
