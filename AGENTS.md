@@ -4,22 +4,30 @@ Guía para agentes de código (y humanos) que trabajan en este repositorio. Comp
 
 ## Qué es
 
-Framework de bots de mensajería **agnóstico de transporte**, en un **monorepo pnpm** (`packages/*`). El motor es `@bot-wa/core`; los canales (WhatsApp vía Baileys o Cloud API, Messenger, Instagram, Telegram, Discord) son paquetes que implementan `IProvider`. Todo es **ESM-only**, **Node >= 22** y está en alpha; todavía no hay nada en npm (la publicación va por Changesets, ver [Publicar una versión](#publicar-una-versión)).
+Framework de bots de mensajería **agnóstico de transporte**, en un **monorepo pnpm** (`packages/*`). El motor es `@bot-wa/core`; los canales (WhatsApp vía Baileys, Cloud API, Evolution API, WPPConnect, Twilio o Gupshup; Messenger, Instagram, Telegram, Discord, GoHighLevel, email y TikTok) son paquetes que implementan `IProvider`. Hay **39 paquetes**. Todo es **ESM-only**, **Node >= 22** y está en alpha; todavía no hay nada en npm (la publicación va por Changesets, ver [Publicar una versión](#publicar-una-versión)).
 
 Capas (las dependencias van siempre hacia abajo, nunca al revés):
 
 | Capa | Paquetes |
 | --- | --- |
 | Motor | `core` (`@bot-wa/core`, la única dependencia runtime es `pino`) |
-| Infra compartida | `http` (cliente anti-SSRF), `graph-core` (helpers de Meta Graph) |
-| Canales | `baileys-provider`, `meta-provider`, `messenger-provider`, `instagram-provider`, `telegram-provider`, `discord-provider` |
+| Infra compartida | `http` (cliente anti-SSRF), `graph-core` (helpers de Meta Graph), `server` (ingress de webhooks: body crudo, límites, health) |
+| Canales (13) | `baileys-provider`, `meta-provider`, `messenger-provider`, `instagram-provider`, `telegram-provider`, `discord-provider`, `evolution-provider`, `wppconnect-provider`, `twilio-provider`, `gohighlevel-provider`, `gupshup-provider`, `email-provider`, `tiktok-provider` |
 | Stores | `sqlite-store`, `redis-store`, `mongo-store`, `postgres-store`, `mysql-store` |
-| Plugins / producto | `ai`, `nlu`, `manager`, `events`, `inbox`, `crm`, `hub`, `campaigns`, `deployments` |
-| Tooling | `create-bot-wa` (CLI scaffolder) |
+| Plugins | `ai`, `rag`, `voice`, `nlu`, `dialogflow`, `chatwoot`, `tickets`, `moderation`, `manager`, `events` |
+| Prototipos de producto | `inbox`, `crm`, `hub`, `campaigns`, `deployments` |
+| Tooling | `create-bot-wa` (CLI scaffolder), `eslint-plugin` (`eslint-plugin-bot-wa`) |
 
-El nombre del directorio no siempre coincide con el del paquete (`packages/baileys-provider` → `@bot-wa/baileys`, `packages/meta-provider` → `@bot-wa/meta`). Mira el `name` en su `package.json` antes de usar `--filter`.
+El nombre del directorio no siempre coincide con el del paquete (`packages/baileys-provider` → `@bot-wa/baileys`, `packages/meta-provider` → `@bot-wa/meta`, `packages/*-provider` → `@bot-wa/<canal>`, `packages/eslint-plugin` → `eslint-plugin-bot-wa`). Mira el `name` en su `package.json` antes de usar `--filter`.
 
-Solo 10 paquetes son **públicos**: `core`, `baileys`, `meta`, `telegram`, `sqlite-store`, `redis-store`, `ai`, `http`, `graph-core` y `create-bot-wa`. El resto (`discord`, `messenger`, `instagram`, `mongo-store`, `postgres-store`, `mysql-store`, `nlu`, `manager`, `events`, `inbox`, `crm`, `hub`, `campaigns`, `deployments`) lleva `"private": true` y nunca se publica. Un paquete público no puede depender de uno privado.
+Solo 10 paquetes son **públicos**: `core`, `baileys`, `meta`, `telegram`, `sqlite-store`, `redis-store`, `ai`, `http`, `graph-core` y `create-bot-wa`. Los otros 29 llevan `"private": true` y nunca se publican:
+
+- Canales: `discord`, `messenger`, `instagram`, `evolution`, `wppconnect`, `twilio`, `gohighlevel`, `gupshup`, `email`, `tiktok`.
+- Stores: `mongo-store`, `postgres-store`, `mysql-store`.
+- Plugins e infra: `server`, `rag`, `voice`, `nlu`, `dialogflow`, `chatwoot`, `tickets`, `moderation`, `manager`, `events`.
+- Tooling: `eslint-plugin-bot-wa`.
+- Prototipos: `inbox`, `crm`, `hub`, `campaigns`, `deployments`.
+ Un paquete público no puede depender de uno privado.
 
 ## Comandos
 
@@ -74,7 +82,7 @@ Las dependencias internas se declaran como `"workspace:*"`. Un paquete nuevo cop
 - **Sin `console.*` en `src/`.** Usa el `logger` inyectado (compatible con pino). Excepciones que ya existen: el render del QR en terminal (escribe en `process.stdout`), `create-bot-wa/src/cli.js` y el aviso de API sin autenticar en `manager/src/http.ts`.
 - **Sin `any` en tipos públicos exportados.** Usa `unknown` y estrecha el tipo. En los parámetros de listeners de interfaces, `unknown` en lugar de `never` (que rompe los sitios `implements` con TS2420).
 - **Errores de envío tipados:** los providers rechazan con las subclases de `ProviderError` del core (`UnsupportedContentError`, `RateLimitedError`, `RecipientUnreachableError`, `PayloadTooLargeError`, `OutsideSessionWindowError`), no con `Error` genérico.
-- **SDKs opcionales con carga lazy:** en `@bot-wa/ai`, los SDKs de proveedor (`@anthropic-ai/sdk`, `openai`, `@google/generative-ai`) son `peerDependencies` opcionales y se cargan con `loadModule()`. Nunca los importes al top level. Lo mismo vale para `better-sqlite3` en `sqlite-store`.
+- **SDKs opcionales con carga lazy:** en `@bot-wa/ai`, los SDKs de proveedor (`@anthropic-ai/sdk`, `openai`, `@google/generative-ai`) son `peerDependencies` opcionales y se cargan con `loadModule()`. Nunca los importes al top level. Lo mismo vale para `better-sqlite3` en `sqlite-store`, `imapflow`/`nodemailer` en `@bot-wa/email` y `pdf-parse` en `@bot-wa/rag`.
 - **Comentarios y código en inglés**; la documentación de usuario (README, guías, CHANGELOG) está en español (más la versión en inglés del sitio).
 - **TDD:** escribe primero el test que falla. Todo cambio de comportamiento lleva su test.
 
@@ -85,9 +93,9 @@ Son los errores que más caro han salido. Respétalos aunque un cambio "parezca"
 ### Core agnóstico de transporte
 - `@bot-wa/core` no conoce **ningún** concepto de transporte: nada de JID, LID, PN, `@g.us`, `WAMessageKey`, `proto` ni QR. Todo eso vive en `@bot-wa/baileys`.
 - Los IDs (`ChatId`, `UserId`, `MessageId`) son **strings opacos**. El core nunca los parsea ni infiere nada de su forma; `ChatKind`/`isGroup` los rellena el provider.
-- **Contrato de estabilidad de identidad:** el provider resuelve los alias (LID/PN en WhatsApp, `sender_chat` en Telegram, member/user en Discord) **antes** de emitir el evento. La misma persona produce siempre el mismo `senderId`. El core nunca re-deriva identidad.
+- **Contrato de estabilidad de identidad:** el provider resuelve los alias (LID/PN en WhatsApp, también en Evolution y WPPConnect vía `WaIdentityStore`; `sender_chat` en Telegram, member/user en Discord) **antes** de emitir el evento. La misma persona produce siempre el mismo `senderId`. El core nunca re-deriva identidad.
 - En Baileys, el cambio LID↔PN es la causa número 1 de flujos rotos. Todo keying o enrutado nuevo debe pasar por la identidad canónica (`IdentityStore` en `baileys-provider/src/identity.ts` + `getPNForLID`), nunca por el `remoteJid` crudo.
-- El contrato completo está documentado en `packages/core/src/core/provider.ts`. Si cambias `IProvider`, revisa los seis canales y `MockProvider`.
+- El contrato completo está documentado en `packages/core/src/core/provider.ts`. Si cambias `IProvider`, revisa los trece canales y `MockProvider`.
 
 ### Dispatcher y conversaciones
 - El dispatcher procesa una **cola FIFO por chat**. Un mensaje lo consume el primer handler que lo maneja (`ctx.pass()` para dejarlo pasar al siguiente). Orden completo de entrada (doc comment de `Dispatcher.run`): en el `Bot`, dedupe de entrada → blacklist/whitelist → persistencia → filtro `groupMode`; en el dispatcher, resolución del idioma (`prepare`, solo con i18n activo) → before-hooks (si un hook reescribió `ctx.body`, p. ej. la transcripción de voz, el idioma se re-resuelve con `reprepare` para que `detect` vea el texto final) → gate de handoff → comando → conversación activa → reanudación dormida → matchers por especificidad (`WELCOME` primero; texto; función; tipo único; multi-tipo) → catch-all → after-hooks + evento `'message'`. Los comandos siempre ganan a una conversación activa (por eso `/reset` funciona como escape). Las llamadas (`CALL`) van por `dispatchEvent`: mismos gates de acceso y handoff, resolución del idioma y solo triggers de tipo. `bot.trigger()` (y `bot.triggerFlow()`, un wrapper fino con `ifActive: 'replace'`) tampoco pasa por `run`: listas de acceso → turno FIFO del chat (`runExclusive`) → gate de handoff → resolución del idioma → inicio de la conversación.

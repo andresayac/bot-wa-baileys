@@ -3,7 +3,8 @@
 > Transport-agnostic messaging bot framework, ALPHA. The core (@bot-wa/core)
 > runs any IProvider: @bot-wa/baileys (WhatsApp Web via Baileys 7, unofficial),
 > @bot-wa/meta (official WhatsApp Cloud API), @bot-wa/telegram, plus
-> experimental Messenger, Instagram and Discord transports.
+> experimental Messenger, Instagram, Discord, TikTok, email and WhatsApp-gateway
+> (Evolution API, WPPConnect, Twilio, Gupshup) and GoHighLevel transports.
 > Flows for beginners (flow().say().ask()) compile to an async conversation
 > runtime (bot.conversation with c.ask/c.waitText/c.choose). Inbound pipeline:
 > dedupe > blacklist/whitelist > persist > groupMode > before hooks > handoff
@@ -20,30 +21,72 @@
 - README: https://github.com/andresayac/bot-wa-baileys#readme
 - Migration v1→v2: https://github.com/andresayac/bot-wa-baileys/blob/main/docs/MIGRATION-v1-to-v2.md
 
-## Package status (24 packages)
+## Guide pages (English; Spanish mirrors live in docs/es/guide/)
+- [Installation](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/guide/getting-started.md)
+- [Your first bot](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/guide/first-bot.md)
+- [Core concepts: pipeline, dispatcher, identity, dedupe](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/guide/concepts.md)
+- [Channels: one provider per transport, capabilities](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/guide/channels.md)
+- [Messages & media, broadcasts, bot.trigger()](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/guide/messages.md)
+- [Conversation flows (flow() DSL, bot.conversation)](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/guide/flows.md)
+- [Special triggers (WELCOME, media types, CALL)](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/guide/triggers.md)
+- [Forms (WhatsApp Flows)](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/guide/forms.md)
+- [Persistent user data (ctx.user)](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/guide/user-data.md)
+- [Internationalization](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/guide/i18n.md)
+- [Human handoff & access lists](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/guide/handoff.md)
+- [Hooks (middleware)](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/guide/hooks.md)
+- [Plugins](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/guide/plugins.md)
+- [AI plugin (@bot-wa/ai)](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/guide/ai.md)
+- [AI tool calling](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/guide/ai-tools.md)
+- [AI long-term memory & RAG](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/guide/ai-memory-rag.md)
+- [Streaming replies (ctx.stream)](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/guide/streaming.md)
+- [Voice: speech-to-text and text-to-speech (@bot-wa/voice)](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/guide/voice.md)
+- [Integrations (Chatwoot, tickets, moderation, Dialogflow, ...)](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/guide/integrations.md)
+- [Dependency injection (bot.provide)](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/guide/di.md)
+- [Scheduler](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/guide/scheduler.md)
+- [Rate limiting (anti-ban)](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/guide/rate-limiting.md)
+- [Persistent stores](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/guide/store.md)
+- [Control plane (@bot-wa/manager: BotManager, /v1 REST API, OpenAPI, JSON flows)](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/guide/control-plane.md)
+- [Webhook server (@bot-wa/server)](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/guide/server.md)
+- [WhatsApp Cloud API 24h window and pricing](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/guide/session-window.md)
+- [Operations: bot.metrics(), Prometheus, conversation events, ops packages](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/guide/operations.md)
+- [Terminal simulator (bot-wa dev)](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/guide/dev-simulator.md)
+- [Testing (createTestBot, MockProvider, chaos)](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/guide/testing.md)
+- [Inspect & lint flows (bot.describe/bot.lint)](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/guide/flow-tools.md)
+- [Golden transcripts](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/guide/golden-transcripts.md)
+- [ESLint plugin (eslint-plugin-bot-wa)](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/guide/eslint.md)
+- [Sub-APIs: v1 sub-APIs → v2 capabilities and provider.socket](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/guide/sub-apis.md)
+- [Deployment](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/guide/deploy.md)
+- [FAQ](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/guide/faq.md)
+
+## Package status (39 packages)
 Alpha = in the first publishable alpha (not on npm yet). Experimental = real, tested
 implementation but private/unpublished, API may change. Prototype = private, minimal,
 in-memory sketch; not for production.
 
 Alpha:
-- @bot-wa/core — Bot engine, IProvider v2, flows/conversations, hooks, plugins, scheduler, DI, MemoryStore, ctx.user, handoff, access lists, testing kit (createTestBot/MockProvider/ChaosProvider from '@bot-wa/core/testing'), `bot-wa dev` terminal simulator
-- @bot-wa/baileys — BaileysProvider (WhatsApp Web, unofficial; QR or pairing code), RateLimiter, JID helpers, LID/PN identity resolution
-- @bot-wa/meta — CloudAPIProvider (official WhatsApp Cloud API, webhook; native buttons/lists/templates/WhatsApp Flows forms; feed inbound via provider.ingest(rawBody, headers))
-- @bot-wa/telegram — TelegramProvider (Bot API, long-poll or webhook)
+- @bot-wa/core — Bot engine, IProvider v2, flows/conversations, hooks, plugins, scheduler, DI, MemoryStore, ctx.user, handoff, access lists, i18n, ctx.stream, bot.broadcast/trigger/metrics, golden transcripts, testing kit (createTestBot/MockProvider/ChaosProvider/replayTranscript from '@bot-wa/core/testing'), `bot-wa dev` terminal simulator
+- @bot-wa/baileys — BaileysProvider (WhatsApp Web, unofficial; QR or pairing code), RateLimiter, JID helpers, LID/PN identity resolution, poll votes (pluggable pollStore)
+- @bot-wa/meta — CloudAPIProvider (official WhatsApp Cloud API, webhook; native buttons/lists/templates/WhatsApp Flows forms; 24h session window manager (sessionWindow) and pricing usage (provider.usage); feed inbound via provider.ingest(rawBody, headers))
+- @bot-wa/telegram — TelegramProvider (Bot API, long-poll or webhook; native drafts/edits for ctx.stream)
 - @bot-wa/sqlite-store — SQLiteStore (better-sqlite3 peer dependency, WAL)
-- @bot-wa/redis-store — RedisStore (shared state across replicas + acquireLock/releaseLock)
-- @bot-wa/ai — aiPlugin + AIClient (multi-provider LLM autoresponder)
-- create-bot-wa — project scaffolder CLI (templates: baileys, meta, telegram, ai)
+- @bot-wa/redis-store — RedisStore (shared state across replicas + acquireLock/releaseLock; atomic cross-replica upserts)
+- @bot-wa/ai — aiPlugin + AIClient (multi-provider LLM autoresponder, tool calling, long-term user memory, RAG hook)
+- create-bot-wa — project scaffolder CLI (templates: baileys, meta, telegram, ai, games, support, store, restaurant, clinic, ai-full; every project ships an AGENTS.md)
 - @bot-wa/http (secureFetch: anti-SSRF downloads) and @bot-wa/graph-core (shared Meta Graph webhook/error helpers) — internal dependencies of the alpha packages
 
 Experimental (private, not published):
-- @bot-wa/messenger — MessengerProvider · @bot-wa/instagram — InstagramProvider · @bot-wa/discord — DiscordProvider
-- @bot-wa/mongo-store — MongoStore · @bot-wa/postgres-store — PostgresStore · @bot-wa/mysql-store — MysqlStore
+- Channels: @bot-wa/messenger — MessengerProvider · @bot-wa/instagram — InstagramProvider · @bot-wa/discord — DiscordProvider · @bot-wa/evolution (Evolution API WhatsApp gateway) · @bot-wa/wppconnect (WPPConnect Server) · @bot-wa/twilio (WhatsApp + SMS) · @bot-wa/gupshup (WhatsApp) · @bot-wa/gohighlevel (LeadConnector Conversations) · @bot-wa/email (IMAP IDLE + SMTP) · @bot-wa/tiktok (Business Messaging DMs + comment replies)
+- @bot-wa/server — webhook ingress (raw body, size limits, timeouts, health) for node:http, Express, Fastify and Hono
+- Stores: @bot-wa/mongo-store — MongoStore · @bot-wa/postgres-store — PostgresStore · @bot-wa/mysql-store — MysqlStore
 - @bot-wa/nlu — local intent matching (IntentEngine, nluPlugin, whenIntent)
-- @bot-wa/manager — BotManager multi-bot registry + HTTP control plane (createControlPlaneApi, /v1, API keys)
+- @bot-wa/rag — RAG for @bot-wa/ai (createRag: loaders, chunking, embeddings, in-memory vector index)
+- @bot-wa/voice — voicePlugin (speech-to-text for voice notes, text-to-speech replies)
+- @bot-wa/chatwoot (Chatwoot handoff bridge) · @bot-wa/tickets (support tickets and queues) · @bot-wa/moderation (group moderation) · @bot-wa/dialogflow (Dialogflow ES/CX intents to flows)
+- @bot-wa/manager — BotManager multi-bot registry (persisted per-tenant configs, auto-reconnect) + HTTP control plane: createRestApi (full /v1 REST API with scoped tokens, OpenAPI 3.1, idempotency, rate limiting), plus createControlPlaneApi and the legacy createManagerApi; JSON flow documents (compileFlowDocument)
 - @bot-wa/events — event envelopes, idempotent journal, EventWorker retries + dead-letter
+- eslint-plugin-bot-wa — ESLint rules (v1 API leftovers, awaited runtime.enter, async Plugin.install, asks without timeout, ...)
 
-Prototypes (private, in-memory, minimal): @bot-wa/inbox, @bot-wa/crm, @bot-wa/hub, @bot-wa/campaigns, @bot-wa/deployments
+Prototypes (private, in-memory, minimal): @bot-wa/inbox, @bot-wa/crm, @bot-wa/hub, @bot-wa/campaigns, @bot-wa/deployments (includes a golden-transcript publish gate)
 
 ## API essentials (v2)
 - import { Bot, flow } from '@bot-wa/core'; import { BaileysProvider } from '@bot-wa/baileys'
