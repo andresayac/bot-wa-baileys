@@ -722,6 +722,7 @@ const PERSONA = [
   'Si te piden algo ajeno al negocio, explica con amabilidad que solo puedes ayudar con temas de ' + BUSINESS + ' y ofrece hablar con una persona.',
   'Responde breve y en el idioma del cliente. Si no sabes un dato, dilo; no lo inventes.',
   'Para pedidos usa las herramientas: consulta ver_menu y usa solo sus claves de producto.',
+  'Para precios o totales usa cotizar_pedido: nunca calcules importes por tu cuenta.',
 ].join(' ')
 
 // Catalog the AI can sell from. The product keys are an enum in the tool schemas, so the
@@ -747,9 +748,19 @@ const ITEMS = {
   },
 }
 const ORDER_ID = { type: 'string', description: 'Id del pedido (mis_pedidos)' }
-const priced = (items) => {
-  const lines = items.map((i) => ({ ...i, subtotal: MENU[i.producto].price * i.cantidad }))
+// Money is always computed here, never by the model (LLMs miscount totals).
+const money = (n) => '$' + String(n).replace(/\B(?=(\d{3})+(?!\d))/g, '.')
+const quote = (items) => {
+  const lines = items.map((i) => {
+    const p = MENU[i.producto]
+    return { producto: i.producto, nombre: p.name, cantidad: i.cantidad, precio: p.price, subtotal: p.price * i.cantidad }
+  })
   return { items: lines, total: lines.reduce((sum, i) => sum + i.subtotal, 0) }
+}
+// What the customer confirms: product names (not menu keys) and the code-computed total.
+const quoteLines = (items, totalLabel = 'Total') => {
+  const q = quote(items)
+  return [...q.items.map((i) => '• ' + i.cantidad + ' × ' + i.nombre + ': ' + money(i.subtotal)), totalLabel + ': ' + money(q.total)]
 }
 // Orders live in ctx.user (per customer, persisted by the store).
 const ordersOf = (tctx) => {
@@ -757,19 +768,24 @@ const ordersOf = (tctx) => {
   return tctx.ctx.user.ns('pedidos')
 }
 const loadOrders = async (tctx) => (await ordersOf(tctx).get('list')) ?? []
-const findOrder = (orders, id) => {
-  const order = orders.find((o) => o.id === id && o.estado !== 'cancelado')
-  if (!order) throw new Error('No existe un pedido activo con id ' + id + '. Consulta mis_pedidos.')
-  return order
-}
+const findOrder = (orders, id) => orders.find((o) => o.id === id && o.estado !== 'cancelado')
+// An unknown id gets an explicit error, so the model never claims a change that did not happen.
+const noOrder = (id) => ({ error: 'No existe un pedido activo con id ' + id + '. Consulta mis_pedidos.' })
 
 // AI tools. confirm: true → the bot shows the customer a readable summary and waits for
 // "sí"/"no" (a reply with changes goes back to the model, which re-proposes). The model is
 // told not to ask for confirmation itself. dedupe blocks the same order twice in a row.
+// confirmLines puts the code-computed prices and total in that summary. Every create has
+// its update / cancel / list tools, so the model never has to pretend it changed an order.
 const TOOLS = {
   ver_menu: {
     description: 'Lista los productos del menú: clave, nombre y precio.',
     handler: () => Object.entries(MENU).map(([clave, p]) => ({ clave, nombre: p.name, precio: p.price })),
+  },
+  cotizar_pedido: {
+    description: 'Calcula precios, subtotales y total de una lista de productos sin registrar nada. Úsala siempre que el cliente pregunte cuánto cuesta algo.',
+    schema: { type: 'object', properties: { items: ITEMS }, required: ['items'], additionalProperties: false },
+    handler: ({ items }) => quote(items),
   },
   mis_pedidos: {
     description: 'Lista los pedidos del cliente con su id, productos, total y estado.',
@@ -780,10 +796,11 @@ const TOOLS = {
     description: 'Registra un pedido nuevo. items: lista de { producto, cantidad } con claves del menú.',
     schema: { type: 'object', properties: { items: ITEMS }, required: ['items'], additionalProperties: false },
     confirm: true,
+    confirmLines: ({ items }) => quoteLines(items),
     dedupe: 'args',
     handler: async ({ items }, tctx) => {
       const orders = await loadOrders(tctx)
-      const order = { id: 'P-' + Date.now().toString(36).toUpperCase(), ...priced(items), estado: 'confirmado' }
+      const order = { id: 'P-' + Date.now().toString(36).toUpperCase(), ...quote(items), estado: 'confirmado' }
       await ordersOf(tctx).set('list', [...orders, order].slice(-20))
       return order
     },
@@ -793,11 +810,14 @@ const TOOLS = {
     description: 'Reemplaza los productos de un pedido existente (por id) con la nueva lista completa.',
     schema: { type: 'object', properties: { id: ORDER_ID, items: ITEMS }, required: ['id', 'items'], additionalProperties: false },
     confirm: true,
+    confirmLines: ({ id, items }) => ['• Pedido: ' + id, ...quoteLines(items, 'Total nuevo')],
     handler: async ({ id, items }, tctx) => {
       const orders = await loadOrders(tctx)
-      Object.assign(findOrder(orders, id), priced(items))
+      const order = findOrder(orders, id)
+      if (!order) return noOrder(id)
+      Object.assign(order, quote(items))
       await ordersOf(tctx).set('list', orders)
-      return findOrder(orders, id)
+      return order
     },
   },
   cancelar_pedido: {
@@ -807,7 +827,9 @@ const TOOLS = {
     confirm: true,
     handler: async ({ id }, tctx) => {
       const orders = await loadOrders(tctx)
-      findOrder(orders, id).estado = 'cancelado'
+      const order = findOrder(orders, id)
+      if (!order) return noOrder(id)
+      order.estado = 'cancelado'
       await ordersOf(tctx).set('list', orders)
       return { id, estado: 'cancelado' }
     },
@@ -922,9 +944,11 @@ bot.use(
         '',
         '- **Intents** (`INTENTS`): regex triggers for hours, prices, "talk to a human" and "me llamo …", answered before the AI.',
         '- **AI** (`@bot-wa/ai`, Anthropic): answers any other text, scoped to `BUSINESS_NAME`; `/reset` clears the chat context.',
-        '- **AI tools** (`TOOLS`): `ver_menu`, `mis_pedidos`, `crear_pedido`, `actualizar_pedido` and `cancelar_pedido`.',
-        '  Products are an `enum` of the `MENU` keys (the model cannot order what does not exist); the order tools use',
-        '  `confirm: true`, so the customer approves a readable summary first, and `crear_pedido` has `dedupe`.',
+        '- **AI tools** (`TOOLS`): `ver_menu`, `cotizar_pedido`, `mis_pedidos`, `crear_pedido`, `actualizar_pedido` and `cancelar_pedido`.',
+        '  Products are an `enum` of the `MENU` keys (the model cannot order what does not exist); prices and totals are',
+        '  computed in code (`cotizar_pedido`, `quote()`), never by the model; the order tools use `confirm: true`, so the',
+        '  customer approves a summary with product names and the computed total (`confirmLines`) first; `crear_pedido`',
+        '  has `dedupe`, and an unknown order id returns `{ error }`.',
         '- **Store** (`@bot-wa/sqlite-store` + `better-sqlite3`): everything persists in `bot.db` on `npm start`;',
         '  `npm run dev` uses the in-memory store.',
         '- **Scheduler**: `bot.every(\'1h\')` purges expired user data, `bot.schedule(\'0 9 * * 1-5\')` logs a daily summary.',

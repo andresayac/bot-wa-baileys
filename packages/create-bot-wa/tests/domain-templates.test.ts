@@ -114,6 +114,8 @@ describe('AGENTS.md in every generated project', () => {
 const coreLib = fileURLToPath(new URL('../../core/lib/', import.meta.url))
 const devEntry = join(coreLib, 'dev', 'index.js')
 const testingEntry = join(coreLib, 'testing', 'index.js')
+// The real @bot-wa/ai (built), to render the template tools' confirmation prompts.
+const aiEntry = fileURLToPath(new URL('../../ai/lib/index.js', import.meta.url))
 
 interface DevSessionLike {
   start(): Promise<boolean>
@@ -255,14 +257,18 @@ describe.skipIf(!existsSync(devEntry))('use-case bots run in the bot-wa dev simu
     expect(output).not.toContain('must not be built')
   })
 
-  it('ai-full order tools: enum products, confirm, create → update → cancel on ctx.user', async () => {
+  it('ai-full order tools: enum products, quote, confirm with code totals, create → update → cancel on ctx.user', async () => {
     const entry = await prepare('ai-full')
     const mod = (await import(pathToFileURL(entry).href)) as { default: (provider: unknown) => Promise<unknown> }
     const testing = (await import(pathToFileURL(testingEntry).href)) as { MockProvider: new () => unknown }
+    const ai = (await import(pathToFileURL(aiEntry).href)) as { defaultConfirmPrompt: (name: string, tool: unknown, args: unknown) => string }
     await mod.default(new testing.MockProvider())
-    type Tool = { schema?: Record<string, any>; confirm?: boolean; dedupe?: unknown; title?: string; handler: (args: any, tctx: any) => any }
+    type Tool = { schema?: Record<string, any>; confirm?: boolean; dedupe?: unknown; title?: string; labels?: Record<string, Record<string, string>>; handler: (args: any, tctx: any) => any }
     const tools = (globalThis as { __botwaAiConfig?: { tools: Record<string, Tool> } }).__botwaAiConfig!.tools
+    expect(Object.keys(tools).sort()).toEqual(['actualizar_pedido', 'cancelar_pedido', 'cotizar_pedido', 'crear_pedido', 'mis_pedidos', 'ver_menu'])
     expect(tools.crear_pedido!.schema!.properties.items.items.properties.producto.enum).toEqual(['torta_chocolate', 'pan_queso', 'cafe'])
+    expect(tools.cotizar_pedido!.schema!.properties.items.items.properties.producto.enum).toEqual(['torta_chocolate', 'pan_queso', 'cafe'])
+    expect(tools.cotizar_pedido!.confirm).toBeFalsy()
     for (const name of ['crear_pedido', 'actualizar_pedido', 'cancelar_pedido']) {
       expect(tools[name]!.confirm, name).toBe(true)
       expect(tools[name]!.title, name).toBeTruthy()
@@ -272,12 +278,37 @@ describe.skipIf(!existsSync(devEntry))('use-case bots run in the bot-wa dev simu
     const data = new Map<string, unknown>()
     const tctx = { ctx: { user: { ns: () => ({ get: async (k: string) => data.get(k), set: async (k: string, v: unknown) => { data.set(k, v) } }) } } }
     expect(tools.ver_menu!.handler({}, tctx)).toContainEqual({ clave: 'cafe', nombre: 'Café', precio: 4000 })
+    // The quote is computed in code, with human names.
+    const items = [{ producto: 'torta_chocolate', cantidad: 2 }, { producto: 'cafe', cantidad: 1 }]
+    expect(tools.cotizar_pedido!.handler({ items }, tctx)).toEqual({
+      items: [
+        { producto: 'torta_chocolate', nombre: 'Torta de chocolate', cantidad: 2, precio: 45000, subtotal: 90000 },
+        { producto: 'cafe', nombre: 'Café', cantidad: 1, precio: 4000, subtotal: 4000 },
+      ],
+      total: 94000,
+    })
+    // The confirmations show human names and the code-computed total, never raw keys.
+    const createPrompt = ai.defaultConfirmPrompt('crear_pedido', tools.crear_pedido, { items })
+    expect(createPrompt).toBe([
+      'Voy a: Crear pedido',
+      '• 2 × Torta de chocolate: $90.000',
+      '• 1 × Café: $4.000',
+      'Total: $94.000',
+      '¿Confirmas? (sí/no)',
+    ].join('\n'))
+    const updatePrompt = ai.defaultConfirmPrompt('actualizar_pedido', tools.actualizar_pedido, { id: 'P-1', items: [{ producto: 'pan_queso', cantidad: 3 }] })
+    expect(updatePrompt).toBe('Voy a: Cambiar pedido\n• Pedido: P-1\n• 3 × Pan de queso: $10.500\nTotal nuevo: $10.500\n¿Confirmas? (sí/no)')
+    expect(ai.defaultConfirmPrompt('cancelar_pedido', tools.cancelar_pedido, { id: 'P-1' })).toBe('Voy a: Cancelar pedido\n• Id: P-1\n¿Confirmas? (sí/no)')
+    for (const prompt of [createPrompt, updatePrompt]) expect(prompt).not.toMatch(/torta_chocolate|pan_queso/)
+
     const order = await tools.crear_pedido!.handler({ items: [{ producto: 'torta_chocolate', cantidad: 2 }] }, tctx)
     expect(order).toMatchObject({ total: 90000, estado: 'confirmado' })
     const updated = await tools.actualizar_pedido!.handler({ id: order.id, items: [{ producto: 'cafe', cantidad: 5 }] }, tctx)
     expect(updated).toMatchObject({ id: order.id, total: 20000 })
     expect(await tools.cancelar_pedido!.handler({ id: order.id }, tctx)).toEqual({ id: order.id, estado: 'cancelado' })
-    await expect(tools.cancelar_pedido!.handler({ id: order.id }, tctx)).rejects.toThrow(/No existe un pedido activo/)
+    // Unknown / already cancelled ids: an explicit { error } for the model, nothing changes.
+    expect(await tools.cancelar_pedido!.handler({ id: order.id }, tctx)).toEqual({ error: expect.stringMatching(/No existe un pedido activo/) })
+    expect(await tools.actualizar_pedido!.handler({ id: 'P-NOPE', items }, tctx)).toEqual({ error: expect.stringMatching(/P-NOPE/) })
     expect(await tools.mis_pedidos!.handler({}, tctx)).toMatchObject([{ id: order.id, estado: 'cancelado' }])
   })
 
