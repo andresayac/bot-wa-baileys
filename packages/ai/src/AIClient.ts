@@ -1,5 +1,5 @@
-import type { AIMessage } from '@bot-wa/core'
-import type { AIProvider, GenerateInput, GenerateResult, Effort } from './types.js'
+import type { AIMessage, MessageContext } from '@bot-wa/core'
+import type { AIChatMessage, AIProvider, GenerateInput, GenerateResult, Effort } from './types.js'
 import type { ContextManager } from './ContextManager.js'
 import type { MemoryFact, MemoryManager, RememberOptions } from './memory/MemoryManager.js'
 import { extractionPrompt, parseFacts } from './memory/extract.js'
@@ -19,6 +19,8 @@ export interface AIChatReply {
   /** User facts injected into this turn (empty without memory). */
   facts: string[]
 }
+import type { AIToolEvent, AIToolSet, ToolConfirmer } from './tools/types.js'
+import { runToolLoop, type ToolLoopResult } from './tools/runner.js'
 
 export interface AIClientOptions {
   persona?: string
@@ -37,16 +39,40 @@ export interface AIClientOptions {
    * These failures never fail the reply: the turn continues without them.
    */
   onError?: (err: unknown, stage: AIAugmentStage) => void
+  /** Tools the model may call from `ask` / `replyInChat` / `runTools`. */
+  tools?: AIToolSet
+  /** Max model calls per turn in the tool loop. Default 5. */
+  maxSteps?: number
+  /** Default per-tool timeout (ms). Default 15000; 0 disables. */
+  toolTimeoutMs?: number
+  /** Reply when the loop reaches `maxSteps` without a final answer. */
+  maxStepsMessage?: string
+  /** Audit sink for every tool loop event. */
+  onToolEvent?: (event: AIToolEvent) => void
+}
+
+/** Per-call options of the tool-aware methods. */
+export interface AIToolCallOptions {
+  signal?: AbortSignal
+  /** Message context of the turn — handed to tool handlers as `tctx.ctx`. */
+  ctx?: MessageContext
+  /**
+   * Asks a human before running `confirm: true` tools. Inside your own
+   * conversation use `confirmWith(c)`. Without it those tools are denied.
+   */
+  confirm?: ToolConfirmer
+  /** Conversation key passed to tool handlers and audit events. */
+  chatKey?: string
 }
 
 const NO_MEMORY = 'AI memory is not available: build the AIClient with `memory` (aiPlugin does it for you)'
 
 const DEFAULT_TIMEOUT_MS = 60_000
 const DEFAULT_RAG_TIMEOUT_MS = 10_000
+const DEFAULT_REFUSAL = 'No puedo ayudar con eso.'
 
-/** Per-turn options of {@link AIClient.replyInChat}. */
-export interface AIReplyOptions {
-  signal?: AbortSignal
+/** Per-turn options of {@link AIClient.replyInChat} (tool options plus memory scoping). */
+export interface AIReplyOptions extends AIToolCallOptions {
   /** Canonical sender id: enables long-term memory for the turn. */
   userId?: string
   /** The chat is a group: facts are injected only with `memory.injectInGroups`. */
@@ -72,7 +98,12 @@ export class AIClient {
     this.timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS
   }
 
-  private base(messages: AIMessage[]): GenerateInput {
+  /** True when tools are configured (the tool loop is used by `ask` / `replyInChat`). */
+  get hasTools(): boolean {
+    return !!this.opts.tools && Object.keys(this.opts.tools).length > 0
+  }
+
+  private base(messages: AIChatMessage[]): GenerateInput {
     return {
       system: this.opts.persona,
       messages,
@@ -116,15 +147,20 @@ export class AIClient {
     }
   }
 
-  async ask(prompt: string, opts?: { signal?: AbortSignal }): Promise<string> {
+  async ask(prompt: string, opts?: AIToolCallOptions): Promise<string> {
+    const messages: AIChatMessage[] = [{ role: 'user', content: prompt }]
+    if (this.hasTools) {
+      const r = await this.runTools({ messages }, opts)
+      return r.stopReason === 'refusal' ? (this.opts.refusalMessage ?? DEFAULT_REFUSAL) : r.text
+    }
     const r = await this.withTimeout(
-      (signal) => this.provider.generate({ ...this.base([{ role: 'user', content: prompt }]), signal }),
+      (signal) => this.provider.generate({ ...this.base(messages), signal }),
       opts?.signal,
     )
-    return r.stopReason === 'refusal' ? (this.opts.refusalMessage ?? 'No puedo ayudar con eso.') : r.text
+    return r.stopReason === 'refusal' ? (this.opts.refusalMessage ?? DEFAULT_REFUSAL) : r.text
   }
 
-  async generate(input: Partial<GenerateInput> & { messages: AIMessage[] }): Promise<GenerateResult> {
+  async generate(input: Partial<GenerateInput> & { messages: AIChatMessage[] }): Promise<GenerateResult> {
     // `signal` (the internal timeout controller) MUST win over input.signal:
     // withTimeout already bridges the caller's input.signal into it, and only
     // this signal is aborted on timeout — so the provider socket gets cancelled.
@@ -134,17 +170,45 @@ export class AIClient {
     )
   }
 
-  stream(input: Partial<GenerateInput> & { messages: AIMessage[] }): AsyncIterable<string> {
+  stream(input: Partial<GenerateInput> & { messages: AIChatMessage[] }): AsyncIterable<string> {
     // Streaming passes the caller's signal straight through; the timeout guard
     // applies to non-streaming calls (a stream's duration is legitimately open-ended).
     return this.provider.stream({ ...this.base(input.messages), ...input })
   }
 
   /**
+   * Run the multi-step tool loop over `input.messages` with the configured
+   * tools (or `input.tools`-less when none). Each model call gets the client's
+   * timeout; each tool its own (`toolTimeoutMs` / `tool.timeoutMs`). Throws
+   * `AIToolCancelledError` when a confirmation is cancelled.
+   */
+  async runTools(
+    input: Partial<Omit<GenerateInput, 'tools'>> & { messages: AIChatMessage[] },
+    opts: AIToolCallOptions = {},
+  ): Promise<ToolLoopResult> {
+    const { messages, signal: _ignored, ...rest } = input
+    return runToolLoop({
+      tools: this.opts.tools ?? {},
+      generate: (gi) => this.withTimeout((signal) => this.provider.generate({ ...gi, signal }), opts.signal ?? input.signal),
+      base: { ...this.base([]), ...rest },
+      messages,
+      maxSteps: this.opts.maxSteps,
+      toolTimeoutMs: this.opts.toolTimeoutMs,
+      maxStepsMessage: this.opts.maxStepsMessage,
+      confirm: opts.confirm,
+      onEvent: this.opts.onToolEvent,
+      chatKey: opts.chatKey,
+      ctx: opts.ctx,
+      signal: opts.signal ?? input.signal,
+    })
+  }
+
+  /**
    * Answer `userText` in the conversation `chatKey` (history in, turn out).
-   * With `userId` and memory enabled, the user's facts are injected and, with
-   * `autoExtract`, new facts are extracted in the background after the turn.
-   * With RAG configured, retrieved passages are injected with citations.
+   * With tools configured the multi-step tool loop runs. With `userId` and
+   * memory enabled, the user's facts are injected and, with `autoExtract`, new
+   * facts are extracted in the background after the turn. With RAG configured,
+   * retrieved passages are injected with citations.
    */
   async replyInChat(chatKey: string, userText: string, opts?: AIReplyOptions): Promise<string> {
     return (await this.replyInChatDetailed(chatKey, userText, opts)).text
@@ -160,21 +224,32 @@ export class AIClient {
       // Taken BEFORE generating: an erasure during the turn invalidates its extraction.
       this.extractionEpoch(userId),
     ])
-    const messages: AIMessage[] = [...history, { role: 'user', content: userText }]
+    const messages: AIChatMessage[] = [...history, { role: 'user', content: userText }]
     const system = this.composeSystem(facts, citations)
-    const r = await this.withTimeout(
-      (signal) => this.provider.generate({ ...this.base(messages), ...(system !== undefined ? { system } : {}), signal }),
-      opts?.signal,
-    )
+    const withSystem = system !== undefined ? { system } : {}
+    let r: { text: string; stopReason?: string }
+    if (this.hasTools) {
+      r = await this.runTools({ messages, ...withSystem }, { ...opts, chatKey: opts?.chatKey ?? chatKey })
+    } else {
+      r = await this.withTimeout(
+        (signal) => this.provider.generate({ ...this.base(messages), ...withSystem, signal }),
+        opts?.signal,
+      )
+    }
+    // Cancelled while the turn was running (e.g. `/reset` cleared the history meanwhile):
+    // never write the stale turn back nor answer it.
+    opts?.signal?.throwIfAborted()
     if (r.stopReason === 'refusal') {
-      const text = this.opts.refusalMessage ?? 'No puedo ayudar con eso.'
+      const text = this.opts.refusalMessage ?? DEFAULT_REFUSAL
       return { text, answer: text, citations: [], facts }
     }
-    // Single store write for the whole turn (user + assistant).
-    await this.ctx.appendMany(chatKey, [
+    // Single store write for the whole turn (user + assistant). Intermediate tool
+    // turns are not persisted: the history stays plain user/assistant text.
+    const turn: AIMessage[] = [
       { role: 'user', content: userText },
       { role: 'assistant', content: r.text },
-    ])
+    ]
+    await this.ctx.appendMany(chatKey, turn)
     if (userId && epoch !== undefined && this.opts.memory?.extraction) {
       // Background: never block the chat's FIFO queue on the extraction call.
       this.track(this.extractMemory(userId, userText, r.text, { epoch }).catch((err) => this.report(err, 'memory-extract')))

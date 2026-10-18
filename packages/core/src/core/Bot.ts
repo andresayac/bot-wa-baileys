@@ -811,6 +811,36 @@ export class Bot extends EventEmitter {
     return this.registerEnterMatcher(opts?.trigger ?? name, name)
   }
 
+  /**
+   * Enter a conversation programmatically for the chat (or group participant) of `ctx` —
+   * either a registered one by name or an inline {@link ConversationHandler}.
+   *
+   * Fire-and-forget by design: it returns immediately, so a handler can start a
+   * conversation and return, releasing the chat's FIFO queue for the user's next
+   * message (which the conversation then receives). Any conversation already active
+   * on that key is replaced. Failures (e.g. an unknown name) are reported through
+   * the `'error'` event, never as an unhandled rejection.
+   *
+   * The returned promise settles (it never rejects) once the conversation has ended
+   * and released its key. Never `await` it inside a handler: that blocks the chat's
+   * queue, so the user's answer could never reach the conversation.
+   *
+   * @example
+   * ```ts
+   * bot.when('pedido', async (ctx) => {
+   *   bot.enterConversation(async (c) => {
+   *     const ok = await c.ask('¿Confirmas? (sí/no)')
+   *     await c.say(ok === 'sí' ? 'Hecho' : 'Cancelado')
+   *   }, ctx)
+   * })
+   * ```
+   */
+  enterConversation(target: string | ConversationHandler, ctx: MessageContext): Promise<void> {
+    const fn = typeof target === 'string' ? target : (target as ConversationFn)
+    return this.runtime.enter(fn, ctx as unknown as Parameters<ConversationRuntime['enter']>[1])
+      .catch((error) => this.emitError({ error, ctx }))
+  }
+
   use(item: FlowBuilder | CompiledFlow | Plugin | Array<FlowBuilder | CompiledFlow | Plugin>): this {
     const items = Array.isArray(item) ? item : [item]
     for (const i of items) {

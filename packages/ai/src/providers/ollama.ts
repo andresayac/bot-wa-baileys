@@ -1,17 +1,21 @@
-import type { AIProvider, GenerateInput, GenerateResult, AIConfig } from '../types.js'
+import type { AIProvider, GenerateInput, GenerateResult, AIConfig, AIChatMessage } from '../types.js'
+import type { AIToolCall } from '../tools/types.js'
 
-interface OllamaChatMessage {
-  role: string
-  content: string
+type OllamaChatMessage = Record<string, unknown>
+interface OllamaToolCall {
+  id?: string
+  function?: { name?: string; arguments?: unknown }
 }
 interface OllamaChatResponse {
-  message?: { content?: string }
+  message?: { content?: string; tool_calls?: OllamaToolCall[] }
   model?: string
+  done_reason?: string
 }
 
 export class OllamaProvider implements AIProvider {
   readonly name = 'ollama'
   private base: string
+  private callSeq = 0
   constructor(
     private cfg: AIConfig,
     private fetchImpl: typeof fetch = fetch,
@@ -25,19 +29,37 @@ export class OllamaProvider implements AIProvider {
     return m
   }
   private messagesFor(input: GenerateInput): OllamaChatMessage[] {
-    return input.system ? [{ role: 'system', content: input.system }, ...input.messages] : [...input.messages]
+    const out: OllamaChatMessage[] = input.system ? [{ role: 'system', content: input.system }] : []
+    for (const m of input.messages) out.push(...toOllamaMessages(m))
+    return out
   }
 
   async generate(input: GenerateInput): Promise<GenerateResult> {
+    const body: Record<string, unknown> = { model: this.model(input), messages: this.messagesFor(input), stream: false }
+    if (input.tools?.length) {
+      body.tools = input.tools.map((t) => ({
+        type: 'function',
+        function: { name: t.name, description: t.description, parameters: t.parameters },
+      }))
+    }
     const res = await this.fetchImpl(`${this.base}/api/chat`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ model: this.model(input), messages: this.messagesFor(input), stream: false }),
+      body: JSON.stringify(body),
       signal: input.signal,
     })
     if (!res.ok) throw new Error(`Ollama respondió ${res.status}`)
     const data = (await res.json()) as OllamaChatResponse
-    return { text: data.message?.content ?? '', model: data.model ?? this.model(input) }
+    // Ollama does not id its tool calls; synthesize stable-per-provider ids.
+    const toolCalls: AIToolCall[] = (data.message?.tool_calls ?? [])
+      .filter((c) => typeof c.function?.name === 'string')
+      .map((c) => ({ id: c.id ?? `call_${++this.callSeq}`, name: c.function?.name as string, args: parseArgs(c.function?.arguments) }))
+    return {
+      text: data.message?.content ?? '',
+      model: data.model ?? this.model(input),
+      ...(data.done_reason ? { stopReason: data.done_reason } : {}),
+      ...(toolCalls.length ? { toolCalls } : {}),
+    }
   }
 
   async *stream(input: GenerateInput): AsyncIterable<string> {
@@ -64,4 +86,28 @@ export class OllamaProvider implements AIProvider {
       }
     }
   }
+}
+
+function parseArgs(raw: unknown): unknown {
+  if (typeof raw !== 'string') return raw ?? {}
+  try {
+    return JSON.parse(raw) as unknown
+  } catch {
+    return raw
+  }
+}
+
+/** Map a provider-neutral turn to Ollama `/api/chat` messages (a tool turn → one message per result). */
+function toOllamaMessages(m: AIChatMessage): OllamaChatMessage[] {
+  if (m.role === 'tool') {
+    return m.results.map((r) => ({ role: 'tool', content: r.content, tool_name: r.name }))
+  }
+  if (m.role === 'assistant' && m.toolCalls?.length) {
+    return [{
+      role: 'assistant',
+      content: m.content,
+      tool_calls: m.toolCalls.map((c) => ({ function: { name: c.name, arguments: c.args ?? {} } })),
+    }]
+  }
+  return [{ role: m.role, content: m.content }]
 }

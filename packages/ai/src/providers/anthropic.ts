@@ -1,8 +1,13 @@
-import type { AIProvider, GenerateInput, GenerateResult, AIConfig } from '../types.js'
+import type { AIProvider, GenerateInput, GenerateResult, AIConfig, AIChatMessage } from '../types.js'
+import type { AIToolCall } from '../tools/types.js'
 
 export interface AnthropicContentBlock {
   type: string
   text?: string
+  /** `tool_use` blocks. */
+  id?: string
+  name?: string
+  input?: unknown
 }
 export interface AnthropicUsage {
   input_tokens: number
@@ -44,12 +49,15 @@ export class AnthropicProvider implements AIProvider {
     const args: Record<string, unknown> = {
       model: input.model ?? this.cfg.model ?? DEFAULT_MODEL,
       max_tokens: input.maxTokens ?? this.cfg.maxTokens ?? DEFAULT_MAX_TOKENS,
-      messages: input.messages,
+      messages: input.messages.map(toAnthropicMessage),
       thinking: { type: 'adaptive' },
     }
     if (input.system) args.system = input.system
     const effort = input.effort ?? this.cfg.effort
     if (effort) args.output_config = { effort }
+    if (input.tools?.length) {
+      args.tools = input.tools.map((t) => ({ name: t.name, description: t.description, input_schema: t.parameters }))
+    }
     return args
   }
 
@@ -63,11 +71,17 @@ export class AnthropicProvider implements AIProvider {
       .filter((b) => b.type === 'text')
       .map((b) => b.text ?? '')
       .join('')
+    const toolCalls: AIToolCall[] = res.content
+      .filter((b) => b.type === 'tool_use' && typeof b.name === 'string')
+      .map((b, i) => ({ id: b.id ?? `toolu_${i}`, name: b.name as string, args: b.input ?? {} }))
     return {
       text,
       model: res.model,
       stopReason: res.stop_reason,
       usage: res.usage ? { input: res.usage.input_tokens, output: res.usage.output_tokens } : undefined,
+      // Replay the full content (thinking + tool_use blocks) verbatim in the next step,
+      // as the Messages API requires when tool use is combined with thinking.
+      ...(toolCalls.length ? { toolCalls, providerData: res.content } : {}),
     }
   }
 
@@ -84,4 +98,29 @@ export class AnthropicProvider implements AIProvider {
       }
     }
   }
+}
+
+/** Map a provider-neutral turn to the Anthropic Messages shape. Plain text turns pass through unchanged. */
+function toAnthropicMessage(m: AIChatMessage): Record<string, unknown> {
+  if (m.role === 'tool') {
+    return {
+      role: 'user',
+      content: m.results.map((r) => ({
+        type: 'tool_result',
+        tool_use_id: r.callId,
+        content: r.content,
+        ...(r.isError ? { is_error: true } : {}),
+      })),
+    }
+  }
+  if (m.role === 'assistant' && m.toolCalls?.length) {
+    const content = Array.isArray(m.providerData)
+      ? m.providerData
+      : [
+          ...(m.content ? [{ type: 'text', text: m.content }] : []),
+          ...m.toolCalls.map((c) => ({ type: 'tool_use', id: c.id, name: c.name, input: c.args ?? {} })),
+        ]
+    return { role: 'assistant', content }
+  }
+  return { role: m.role, content: m.content }
 }

@@ -1,8 +1,25 @@
 export type { AIMessage } from '@bot-wa/core'
-import type { AIMessage } from '@bot-wa/core'
 import type { PresetName } from './providers/presets.js'
 import type { AIMemoryConfig } from './memory/MemoryManager.js'
 import type { AIRagConfig, AIRetriever } from './rag.js'
+import type { AIToolCall, AIToolDefinition, AIToolEvent, AIToolResult, AIToolSet } from './tools/types.js'
+
+/**
+ * One turn of a model exchange. Plain `AIMessage`s (user/assistant text) are the
+ * persisted history; the tool loop adds assistant turns carrying `toolCalls`
+ * and `tool` turns carrying the results. Providers map them to their native shape.
+ */
+export type AIChatMessage =
+  | { role: 'user'; content: string }
+  | {
+      role: 'assistant'
+      content: string
+      /** Tool calls the model requested in this turn. */
+      toolCalls?: AIToolCall[]
+      /** Provider-native turn content to replay verbatim (e.g. Anthropic thinking + tool_use blocks). */
+      providerData?: unknown
+    }
+  | { role: 'tool'; content: string; results: AIToolResult[] }
 
 export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 
@@ -16,17 +33,23 @@ export type AIProviderName = 'anthropic' | 'openai' | 'ollama' | 'gemini' | Pres
 
 export interface GenerateInput {
   system?: string
-  messages: AIMessage[]
+  messages: AIChatMessage[]
   model?: string
   maxTokens?: number
   effort?: Effort
   signal?: AbortSignal
+  /** Tools the model may call this turn (native function/tool calling). */
+  tools?: AIToolDefinition[]
 }
 export interface GenerateResult {
   text: string
   model: string
   stopReason?: string
   usage?: { input: number; output: number }
+  /** Tool calls requested by the model (empty/absent → final answer). */
+  toolCalls?: AIToolCall[]
+  /** Provider-native assistant content to replay in the next step (see {@link AIChatMessage}). */
+  providerData?: unknown
 }
 export interface AIProvider {
   readonly name: string
@@ -65,4 +88,25 @@ export interface AIConfig {
    * `createRag({ documents })` from `@bot-wa/rag`, or `{ retriever, topK, appendSources }`.
    */
   rag?: AIRetriever | AIRagConfig
+  /**
+   * Tools the model may call (native tool/function calling). Each tool has a
+   * `description`, an argument `schema` (JSON Schema or `safeParse`-compatible),
+   * a `handler` and optional `confirm: true` for human approval.
+   */
+  tools?: AIToolSet
+  /** Max model calls per turn in the tool loop (tool calls of the last one are not run). Default 5. */
+  maxSteps?: number
+  /** Default per-tool timeout (ms). Default 15000. */
+  toolTimeoutMs?: number
+  /** Reply when the tool loop hits `maxSteps` without a final answer. */
+  maxStepsMessage?: string
+  /** Confirmation dialog for `confirm: true` tools (autoreply). */
+  toolConfirm?: {
+    /** Answers accepted as "yes" (normalized, case/accents-insensitive). Default: sí, si, s, yes, y, ok, confirmo, dale, 1. */
+    yes?: string[]
+    /** How long to wait for the answer. Default '2m'. */
+    timeout?: number | string
+  }
+  /** Audit hook for every tool loop event (also emitted on the bot as `'ai.tool'`). */
+  onToolEvent?: (event: AIToolEvent) => void
 }
