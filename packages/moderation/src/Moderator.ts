@@ -6,7 +6,7 @@
  */
 
 import type { ChatId, MessageContext, UserId } from '@bot-wa/core'
-import { findInviteLinks, findLinks, hostMatches, linkHost } from './links.js'
+import { allowedInviteCodes, findInviteLinks, findLinks, hostMatches, isAllowedInviteLink, linkHost } from './links.js'
 import { RateWindow } from './rateWindow.js'
 import { compileTerms, firstMatch, type CompiledTerm } from './words.js'
 import type {
@@ -257,17 +257,19 @@ export class Moderator implements ModerationController {
 
   private checkLinks(body: string, rule: LinkFilterRule): string | undefined {
     if (!body) return undefined
-    const allowed = rule.allowInvites ?? []
+    const patterns = rule.invitePatterns ?? []
+    // Exact code match only: a substring match would let any URL that merely
+    // contains an allowed code through.
+    const allowed = allowedInviteCodes(rule.allowInvites ?? [], patterns)
     if (rule.groupInvites ?? true) {
-      for (const invite of findInviteLinks(body, rule.invitePatterns ?? [])) {
-        const ok = allowed.some((a) => a === invite.code || invite.url.includes(a))
-        if (!ok) return invite.url
+      for (const invite of findInviteLinks(body, patterns)) {
+        if (!allowed.has(invite.code)) return invite.url
       }
     }
     if (rule.allLinks) {
       const domains = rule.allowDomains ?? []
       for (const link of findLinks(body)) {
-        if (allowed.some((a) => link.includes(a))) continue
+        if (isAllowedInviteLink(link, allowed, patterns)) continue
         const host = linkHost(link)
         if (host && domains.some((d) => hostMatches(host, d))) continue
         return link

@@ -32,7 +32,15 @@ export interface WhenDialogflowIntentOptions {
   stateKey?: string
 }
 
-/** Prepend a step that copies the matched parameters into `c.state`. */
+/**
+ * Prepend a step that copies the matched parameters into `c.state`.
+ *
+ * The wrapped flow gets its own id (`<id>#dialogflow`, plus `:<stateKey>` when
+ * nested). The runtime registers flows by id, so reusing the original id would
+ * let a plain registration of the same flow (`bot.when`, `bot.use`) replace the
+ * wrapped one or be replaced by it, and the extra step would shift the step
+ * indices that `.persistent()` checkpoints are keyed on.
+ */
 export function withDialogflowState(flow: CompiledFlow, df: DialogflowContext, stateKey?: string): CompiledFlow {
   const inject: CompiledStep = {
     kind: 'do',
@@ -43,7 +51,8 @@ export function withDialogflowState(flow: CompiledFlow, df: DialogflowContext, s
       else Object.assign(c.state, result.parameters)
     },
   }
-  return { ...flow, steps: [inject, ...flow.steps] }
+  const id = `${flow.id}#dialogflow${stateKey ? `:${stateKey}` : ''}`
+  return { ...flow, id, steps: [inject, ...flow.steps] }
 }
 
 /**

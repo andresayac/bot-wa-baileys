@@ -2,14 +2,23 @@
  * Word / regex filters over message text.
  *
  * Plain strings match case- and diacritic-insensitively (`'Estafa'` matches
- * `'estafá'`); by default only as whole words, so `'spam'` does not match
- * `'spammer'` unless `wholeWord: false`. RegExps are tested against the raw
- * body exactly as written (their `g`/`y` flags are dropped so tests are stateless).
+ * `'estafá'`), except that `ñ` stays distinct from `n`. By default they match
+ * only as whole words, so `'spam'` does not match `'spammer'` unless
+ * `wholeWord: false`. RegExps are tested against the raw body exactly as
+ * written (their `g`/`y` flags are dropped so tests are stateless).
  */
 
-/** Lowercase, strip diacritics. Keeps punctuation so word boundaries survive. */
+/**
+ * Lowercase and strip diacritics, except the tilde of `ñ`: in Spanish `ñ` is
+ * its own letter (`año` is not `ano`), so folding it would make a banned term
+ * match unrelated words. Keeps punctuation so word boundaries survive.
+ */
 export function foldText(text: string): string {
-  return text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+  return text
+    .normalize('NFD')
+    .toLowerCase()
+    .replace(/n\u0303/g, '\u00f1')
+    .replace(/[\u0300-\u036f]/g, '')
 }
 
 function escapeRegExp(s: string): string {

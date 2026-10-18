@@ -37,6 +37,18 @@ export function moderationPlugin(config: ModerationConfig = {}): PluginSpec<Mode
       )
       ctx.tools.moderation = moderator
 
+      // The Bot's groupMode filter runs BEFORE before('message') hooks, so with
+      // 'mentions' or 'commands' most group messages never reach moderation.
+      // There is no earlier hook point; tell the operator at install time.
+      const groupMode = (bot as unknown as { config?: { groupMode?: unknown } }).config?.groupMode
+      if (groupMode === 'mentions' || groupMode === 'commands') {
+        logger.warn(
+          { groupMode },
+          `moderation: the bot groupMode is '${groupMode}', so group messages it filters out ` +
+            "(no mention / not a command) never reach moderation; use groupMode 'all' to moderate every message",
+        )
+      }
+
       bot.before(
         'message',
         async (mctx: MessageContext & { abort(): void }, next: () => Promise<void>) => {

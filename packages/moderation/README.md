@@ -34,6 +34,8 @@ bot.on('moderation', (report) => {
 
 El plugin se engancha en `before('message')` con prioridad `100` (antes que otros hooks y que cualquier handler). Un mensaje que infringe una regla ejecuta sus acciones y **no** llega a los handlers. Los mensajes de un usuario silenciado (`mute`) se ignoran hasta que vence el silencio.
 
+**Ojo con `groupMode`:** el filtro `groupMode` del `Bot` corre **antes** de los hooks `before('message')`. Con `groupMode: 'mentions'` o `'commands'`, los mensajes de grupo que no mencionan al bot o no son comandos nunca llegan a la moderación (ni anti-spam, ni filtros de palabras o enlaces). Si el bot debe moderar todo el grupo, usa `groupMode: 'all'` (el valor por defecto); el plugin avisa en el log al instalarse si detecta un `groupMode` restrictivo.
+
 Por defecto solo modera **grupos** (`applyTo: 'all'` incluye chats privados). Las interacciones (botones, slash commands) y los mensajes propios nunca se moderan.
 
 ## Reglas
@@ -44,7 +46,8 @@ Por defecto solo modera **grupos** (`applyTo: 'all'` incluye chats privados). La
 | `wordFilter` | `banned: (string \| RegExp)[]`, `wholeWord` (defecto `true`) | `'delete'` |
 | `linkFilter` | `groupInvites` (defecto `true`), `allLinks`, `allowInvites`, `allowDomains`, `invitePatterns` | `['delete', 'warn']` |
 
-- Las palabras se comparan sin mayúsculas ni tildes (`'estafa'` detecta `'ESTAFÁ'`) y como palabra completa (`'spam'` no detecta `'spammer'` salvo `wholeWord: false`). Las RegExp se prueban sobre el texto crudo.
+- Las palabras se comparan sin mayúsculas ni tildes (`'estafa'` detecta `'ESTAFÁ'`), salvo la `ñ`, que es una letra distinta de la `n` (`'ano'` no detecta `'año'`), y como palabra completa (`'spam'` no detecta `'spammer'` salvo `wholeWord: false`). Las RegExp se prueban sobre el texto crudo.
+- `allowInvites` acepta códigos o enlaces de invitación completos (con o sin `https://`) y compara el **código exacto**: una URL que solo contiene el código (p. ej. en la query) no queda permitida.
 - Invitaciones reconocidas: WhatsApp (`chat.whatsapp.com/…`), Telegram (`t.me/+…`, `t.me/joinchat/…`) y Discord (`discord.gg/…`, `discord.com/invite/…`). Añade otras con `invitePatterns` (el primer grupo de captura es el código).
 - `action` acepta una acción o varias en orden: `['delete', 'warn']`.
 

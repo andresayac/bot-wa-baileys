@@ -190,3 +190,29 @@ describe('dialogflowContext alias / install', () => {
     await bot.stop()
   })
 })
+
+describe('whenDialogflowIntent — flow identity', () => {
+  it('the wrapped flow does not collide with the same flow registered elsewhere', async () => {
+    const { bot, chat, df } = await setup()
+    const book = flow('book').say((_ctx, c) => `people=${String(c.state.people)}`)
+    whenDialogflowIntent(bot, df, 'book.table', book)
+    bot.when('reservar ya', book)
+
+    await chat.send('reservar')
+    await chat.expectReply('people=2')
+    await chat.send('reservar ya')
+    await chat.expectReply('people=undefined')
+    await bot.stop()
+  })
+
+  it('two routes with different stateKey on the same flow keep their own injection', async () => {
+    const { bot, chat, df } = await setup()
+    const show = flow('show').say((_ctx, c) => `a=${JSON.stringify(c.state.a)} b=${JSON.stringify(c.state.b)}`)
+    whenDialogflowIntent(bot, df, 'book.table', show, { stateKey: 'a' })
+    whenDialogflowIntent(bot, df, 'order.status', show, { stateKey: 'b' })
+
+    await chat.send('reservar')
+    await chat.expectReply('a={"people":2,"date":"2026-10-20"} b=undefined')
+    await bot.stop()
+  })
+})

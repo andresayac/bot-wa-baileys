@@ -72,3 +72,35 @@ export function hostMatches(host: string, domain: string): boolean {
   const d = domain.toLowerCase().replace(/^\.+/, '')
   return host === d || host.endsWith(`.${d}`)
 }
+
+/**
+ * Normalize `allowInvites` entries to the set of allowed invite codes. An
+ * entry may be a bare code (`'ABC123'`) or a full invite link with or without
+ * scheme (`'https://chat.whatsapp.com/ABC123'`); for a link, its code is used,
+ * so the same invite matches however it is typed.
+ */
+export function allowedInviteCodes(entries: readonly string[], extra: readonly RegExp[] = []): Set<string> {
+  const codes = new Set<string>()
+  for (const raw of entries) {
+    const entry = raw.trim()
+    if (!entry) continue
+    const invites = findInviteLinks(entry, extra)
+    if (invites.length > 0) for (const invite of invites) codes.add(invite.code)
+    else codes.add(entry)
+  }
+  return codes
+}
+
+/**
+ * True when `link` IS an allowed invite link: it starts with an invite (so its
+ * host is the invite host) whose code is exactly an allowed code. An allowed
+ * code that merely appears somewhere in another URL (query string, path) does
+ * not whitelist that URL.
+ */
+export function isAllowedInviteLink(link: string, allowed: ReadonlySet<string>, extra: readonly RegExp[] = []): boolean {
+  if (allowed.size === 0) return false
+  const lower = link.toLowerCase()
+  return findInviteLinks(link, extra).some(
+    (invite) => allowed.has(invite.code) && lower.startsWith(invite.url.toLowerCase()),
+  )
+}

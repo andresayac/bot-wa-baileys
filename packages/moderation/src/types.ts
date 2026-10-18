@@ -32,7 +32,11 @@ export interface LinkFilterRule {
   groupInvites?: boolean
   /** Flag every link, not only invites. Default `false`. */
   allLinks?: boolean
-  /** Invite codes (or full links) that are allowed — e.g. your own groups. */
+  /**
+   * Invite codes (or full invite links) that are allowed, e.g. your own groups.
+   * Matched by exact code: a link entry is reduced to its code, so it matches
+   * with or without scheme, and a URL that merely contains the code is not allowed.
+   */
   allowInvites?: readonly string[]
   /** Domains allowed when `allLinks` is on (subdomains included). */
   allowDomains?: readonly string[]
