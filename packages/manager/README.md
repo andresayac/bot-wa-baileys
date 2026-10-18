@@ -1,11 +1,11 @@
 # @bot-wa/manager
 
-> **Experimental — aún no publicado en npm** (experimental, not yet published to npm). A real, tested implementation, but the package is `private`: it is not part of the first alpha and its API may change. Use it from this monorepo (`workspace:*`).
+> **Experimental — aún no publicado en npm.** Es una implementación real y con tests, pero el paquete es `private`: no forma parte de la primera alpha y su API puede cambiar. Úsalo desde este monorepo (`workspace:*`).
 
-Multi-bot orchestrator for [`@bot-wa/core`](../core) — manage many `Bot`
-instances behind one registry: add/remove by id, track running state,
-start/stop individually or all at once, and (optionally) expose everything
-over a tiny zero-dependency HTTP API.
+Orquestador multi-bot para [`@bot-wa/core`](../core): gestiona muchas
+instancias de `Bot` desde un único registro. Añade y quita bots por id, sigue
+su estado de ejecución, arráncalos o detenlos uno a uno o todos a la vez y,
+si quieres, exponlo todo con una pequeña API HTTP sin dependencias.
 
 ```ts
 import { Bot } from '@bot-wa/core'
@@ -16,52 +16,53 @@ import { createServer } from 'node:http'
 const manager = new BotManager()
 
 manager.on('error', ({ id, error }) => console.error(`[${id}]`, error))
-manager.on('started', (id) => console.log(`[${id}] up`))
+manager.on('started', (id) => console.log(`[${id}] arriba`))
 
 const bot = new Bot({ provider: new BaileysProvider({ session: 'acme' }) })
 bot.when('hola', async (ctx) => ctx.reply('¡Hola! 👋'))
 
 const id = manager.add(bot, { id: 'acme', meta: { tenant: 'Acme Corp' } })
-// id === 'acme' (auto-generated 'bot-N' when no id is given)
+// id === 'acme' (se genera 'bot-N' si no pasas id)
 
 await manager.start(id)
 console.log(manager.list()) // [{ id: 'acme', running: true, meta: { tenant: 'Acme Corp' } }]
 
-// Control plane over HTTP (optional). Always set a token: without `auth` the API is unauthenticated.
+// Plano de control por HTTP (opcional). Define siempre un token: sin `auth` la API no tiene autenticación.
 createServer(createManagerApi(manager, { prefix: '/api', auth: { token: process.env.MANAGER_TOKEN! } })).listen(3000)
 ```
 
 ## BotManager
 
-`BotManager extends EventEmitter`. A bot is considered **running** between a
-successful `start(id)` and `stop(id)` — the manager keeps an internal set of
-running ids, updated around each bot's `start()`/`stop()`.
+`BotManager extends EventEmitter`. Un bot se considera **en ejecución** entre
+un `start(id)` correcto y su `stop(id)`: el manager guarda internamente el
+conjunto de ids en ejecución y lo actualiza alrededor del `start()`/`stop()`
+de cada bot.
 
-Anything with `start()` / `stop()` is manageable — a core `Bot` or a plain
-stub — via the structural `ManageableBot` interface.
+Cualquier objeto con `start()` / `stop()` se puede gestionar (un `Bot` del
+core o un stub) a través de la interfaz estructural `ManageableBot`.
 
-### Registry
+### Registro
 
-| Method | Returns | Notes |
+| Método | Devuelve | Notas |
 | --- | --- | --- |
-| `add(bot, opts?: { id?, tenantId?, name?, meta? })` | `string` (the id) | Auto id `bot-N` when omitted (never collides); **throws on duplicate id**. Emits `added`. |
-| `get(id)` | `ManageableBot \| undefined` | The bot instance. |
+| `add(bot, opts?: { id?, tenantId?, name?, meta? })` | `string` (el id) | Id automático `bot-N` si se omite (nunca colisiona); **lanza si el id está repetido**. Emite `added`. |
+| `get(id)` | `ManageableBot \| undefined` | La instancia del bot. |
 | `has(id)` | `boolean` | |
-| `remove(id)` | `Promise<boolean>` | Stops the bot first if running (a failed stop emits `error` but does not block removal). Emits `removed`. `false` when unknown. |
-| `list()` | `Array<{ id, running, tenantId?, name?, meta? }>` | Status snapshot of every bot. |
-| `status(id)` | `{ id, running, tenantId?, name?, meta? } \| undefined` | Snapshot of one bot. |
-| `entries()` | `BotEntry[]` | Full entries: `{ id, bot, createdAt, tenantId?, name?, meta? }`. |
+| `remove(id)` | `Promise<boolean>` | Detiene antes el bot si está en ejecución (un `stop` fallido emite `error` pero no impide quitarlo). Emite `removed`. `false` si el id no existe. |
+| `list()` | `Array<{ id, running, tenantId?, name?, meta? }>` | Foto del estado de todos los bots. |
+| `status(id)` | `{ id, running, tenantId?, name?, meta? } \| undefined` | Foto del estado de un bot. |
+| `entries()` | `BotEntry[]` | Entradas completas: `{ id, bot, createdAt, tenantId?, name?, meta? }`. |
 | `isRunning(id)` | `boolean` | |
-| `size` | `number` (getter) | Registered bot count. |
+| `size` | `number` (getter) | Número de bots registrados. |
 
-### Lifecycle
+### Ciclo de vida
 
-| Method | Behavior |
+| Método | Comportamiento |
 | --- | --- |
-| `start(id)` / `stop(id)` | `Promise<void>`. Idempotent (no-op if already running / not running). Throw for unknown ids; re-throw bot failures after emitting `error`. A failed `stop` leaves the bot marked running. |
-| `restart(id, { recreate? })` | Stop (when running) and start again; emits `restarted`. `recreate: true` rebuilds a config-backed bot through the factory. |
-| `startAll()` / `stopAll()` | `Promise<Record<string, 'ok' \| Error>>`. Run **in parallel** and never throw — failures are collected per id in the results map. |
-| `shutdown()` | Cancel pending reconnects and stop every bot **without** changing the persisted desired state (so `restore()` brings them back). |
+| `start(id)` / `stop(id)` | `Promise<void>`. Idempotentes (no hacen nada si ya está en ejecución / detenido). Lanzan con ids desconocidos; relanzan los fallos del bot tras emitir `error`. Un `stop` fallido deja el bot marcado como en ejecución. |
+| `restart(id, { recreate? })` | Detiene (si está en ejecución) y vuelve a arrancar; emite `restarted`. `recreate: true` reconstruye con la factory un bot respaldado por configuración. |
+| `startAll()` / `stopAll()` | `Promise<Record<string, 'ok' \| Error>>`. Corren **en paralelo** y nunca lanzan: los fallos se recogen por id en el mapa de resultados. |
+| `shutdown()` | Cancela las reconexiones pendientes y detiene todos los bots **sin** cambiar el estado deseado persistido (así `restore()` los vuelve a levantar). |
 
 ```ts
 const results = await manager.startAll()
@@ -72,26 +73,27 @@ for (const [id, outcome] of Object.entries(results)) {
 await manager.stopAll()
 ```
 
-### Events
+### Eventos
 
-| Event | Payload | When |
+| Evento | Payload | Cuándo |
 | --- | --- | --- |
-| `added` | `id: string` | After `add()` registers a bot. |
-| `removed` | `id: string` | After `remove()` unregisters a bot. |
-| `started` | `id: string` | After `start(id)` succeeds. |
-| `stopped` | `id: string` | After `stop(id)` succeeds. |
-| `restarted` | `id: string` | After `restart(id)` (manual or by the supervisor). |
-| `error` | `{ id: string, error: unknown }` | A lifecycle operation failed (also re-thrown / present in results maps). |
-| `connection` | `{ id, state, reason?, authPayload?, updatedAt? }` | A bot's connection state changed (bots that emit `connection`). |
-| `reconnecting` / `reconnected` / `reconnectFailed` | `{ id, attempt, delayMs, reason }` / `{ id, attempts }` / `{ id, attempts, error? }` | Supervisor activity (see *Reconexión automática*). |
+| `added` | `id: string` | Tras registrar un bot con `add()`. |
+| `removed` | `id: string` | Tras quitar un bot con `remove()`. |
+| `started` | `id: string` | Tras un `start(id)` correcto. |
+| `stopped` | `id: string` | Tras un `stop(id)` correcto. |
+| `restarted` | `id: string` | Tras un `restart(id)` (manual o del supervisor). |
+| `error` | `{ id: string, error: unknown }` | Falló una operación del ciclo de vida (también se relanza o aparece en los mapas de resultados). |
+| `connection` | `{ id, state, reason?, authPayload?, updatedAt? }` | Cambió el estado de conexión de un bot (bots que emiten `connection`). |
+| `reconnecting` / `reconnected` / `reconnectFailed` | `{ id, attempt, delayMs, reason }` / `{ id, attempts }` / `{ id, attempts, error? }` | Actividad del supervisor (ver *Reconexión automática*). |
 
-Listeners are typed via `ManagerEventMap`. A no-op default `error` listener
-is installed so an unobserved failure can never crash the process through
-`EventEmitter` semantics — attach your own `error` listener to handle them.
+Los listeners están tipados con `ManagerEventMap`. Se instala un listener
+`error` por defecto que no hace nada, para que un fallo sin observar nunca
+tumbe el proceso por la semántica de `EventEmitter`; añade tu propio listener
+`error` para tratarlos.
 
-## HTTP API
+## API HTTP
 
-Three HTTP surfaces are available. The complete one is **`createRestApi`** (see *API REST `/v1` completa* below). `createControlPlaneApi(manager, { tenantId, apiKeys })` is a minimal, audited `/v1` surface with no anonymous mode (it also defaults to the `/v1` prefix, so do not mount it next to `createRestApi` on the same prefix). Every API key carries scopes, every response includes `x-request-id`, and lifecycle operations accept an `Idempotency-Key`.
+Hay tres superficies HTTP. La completa es **`createRestApi`** (ver *API REST `/v1` completa* más abajo). `createControlPlaneApi(manager, { tenantId, apiKeys })` es una superficie `/v1` mínima y auditada, sin modo anónimo (también usa el prefijo `/v1` por defecto, así que no la montes junto a `createRestApi` en el mismo prefijo). Cada API key lleva scopes, cada respuesta incluye `x-request-id` y las operaciones del ciclo de vida aceptan un `Idempotency-Key`.
 
 ```ts
 createServer(createControlPlaneApi(manager, {
@@ -100,32 +102,33 @@ createServer(createControlPlaneApi(manager, {
 })).listen(3000)
 ```
 
-Initial routes: `GET /v1/health`, `GET /v1/bots`, `POST /v1/bots/:id/start`, `POST /v1/bots/:id/stop` and `GET /v1/audit`. See the [control plane guide](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/guide/control-plane.md).
+Rutas iniciales: `GET /v1/health`, `GET /v1/bots`, `POST /v1/bots/:id/start`, `POST /v1/bots/:id/stop` y `GET /v1/audit`. Consulta la [guía del plano de control](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/es/guide/control-plane.md).
 
-The compact legacy API, `createManagerApi(manager, opts?: { prefix?, auth?: { token, header? } })`, returns a plain Node
-`(req, res) => void` handler (uses `node:http` only — mount it on
-`http.createServer` or call it from any framework). Every response is JSON.
-With `auth`, every request must present the token (`Authorization: Bearer <token>`
-by default, or the header named by `auth.header`; timing-safe compare) or it gets
-`401`. **Without `auth` the API is unauthenticated** — anyone who can reach the socket
-can list, start and stop bots — and a one-time warning is logged.
+La API compacta heredada, `createManagerApi(manager, opts?: { prefix?, auth?: { token, header? } })`,
+devuelve un handler de Node `(req, res) => void` (solo usa `node:http`: móntalo
+en `http.createServer` o llámalo desde cualquier framework). Todas las
+respuestas son JSON. Con `auth`, cada petición debe presentar el token
+(`Authorization: Bearer <token>` por defecto, o la cabecera indicada en
+`auth.header`; comparación timing-safe) o recibe `401`. **Sin `auth` la API no
+tiene autenticación**: cualquiera que alcance el socket puede listar, arrancar
+y detener bots, y se registra un aviso una sola vez.
 
-| Route | Success | Errors |
+| Ruta | Éxito | Errores |
 | --- | --- | --- |
 | `GET {prefix}/health` | `200` — `{ status: 'ok', bots, running }` | |
-| `GET {prefix}/metrics` | `200` — Prometheus text (`botwa_manager_bots_registered`, `botwa_manager_bots_running`) | |
+| `GET {prefix}/metrics` | `200` — texto Prometheus (`botwa_manager_bots_registered`, `botwa_manager_bots_running`) | |
 | `GET {prefix}/bots` | `200` — `Array<{ id, running, meta }>` | |
-| `GET {prefix}/bots/:id` | `200` — `{ id, running, meta }` | `404 { error }` unknown id |
-| `POST {prefix}/bots/:id/start` | `200` — `{ id, running: true }` | `404` unknown id · `500 { error }` start failure |
-| `POST {prefix}/bots/:id/stop` | `200` — `{ id, running: false }` | `404` unknown id · `500 { error }` stop failure |
+| `GET {prefix}/bots/:id` | `200` — `{ id, running, meta }` | `404 { error }` id desconocido |
+| `POST {prefix}/bots/:id/start` | `200` — `{ id, running: true }` | `404` id desconocido · `500 { error }` fallo al arrancar |
+| `POST {prefix}/bots/:id/stop` | `200` — `{ id, running: false }` | `404` id desconocido · `500 { error }` fallo al detener |
 
-Any other route/method → `404 { "error": "not found" }`. Ids in URLs may be
-percent-encoded.
+Cualquier otra ruta o método → `404 { "error": "not found" }`. Los ids de las
+URLs pueden ir codificados con porcentaje.
 
 ```bash
 H="Authorization: Bearer $MANAGER_TOKEN"
-curl -H "$H" localhost:3000/api/bots                 # list
-curl -H "$H" localhost:3000/api/bots/acme            # status
+curl -H "$H" localhost:3000/api/bots                 # listar
+curl -H "$H" localhost:3000/api/bots/acme            # estado
 curl -H "$H" -X POST localhost:3000/api/bots/acme/start
 curl -H "$H" -X POST localhost:3000/api/bots/acme/stop
 ```
@@ -185,13 +188,13 @@ Con `autoReconnect`, si la conexión se cae (`connection: closed`, salvo `sessio
 
 ## Logging
 
-The manager logs lifecycle events through pino at `debug`/`warn`. Inject your
-own logger (`new BotManager({ logger })`) or enable the default one with
-`BOTWA_MANAGER_LOG_LEVEL=debug` (default: `silent`).
+El manager registra los eventos del ciclo de vida con pino en `debug`/`warn`.
+Inyecta tu propio logger (`new BotManager({ logger })`) o activa el de por
+defecto con `BOTWA_MANAGER_LOG_LEVEL=debug` (por defecto: `silent`).
 
-## Development
+## Desarrollo
 
 ```bash
 pnpm --filter @bot-wa/manager build   # tsc → lib/
-pnpm --filter @bot-wa/manager test    # vitest (hermetic: fake bots, no network)
+pnpm --filter @bot-wa/manager test    # vitest (herméticos: bots falsos, sin red)
 ```
