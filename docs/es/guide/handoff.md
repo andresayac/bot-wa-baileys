@@ -43,7 +43,10 @@ para todos los miembros del grupo, pero no en sus DMs.
   `'message'` se emite**, así que una integración de inbox lo ve todo.
 - Comandos, conversaciones, checkpoints dormidos, matchers y catch-all
   **no corren**, y no se emite `'command:unknown'`. También se bloquean las
-  interacciones (botones y listas) y los [triggers `CALL`](./triggers#call).
+  interacciones (botones y listas).
+- Las **llamadas** al chat se bloquean por completo: sin hooks
+  `before`/`after('call')`, sin evento `'call'` y sin
+  [trigger `CALL`](./triggers#call) (cuentan en `metrics().dropped.handoff`).
 - **Comandos de escape** (`handoff.allowCommands`): con o sin prefijo, se
   comparan como los comandos (sin distinguir mayúsculas ni acentos). Solo
   pasan si hay un `bot.command()` registrado con ese nombre; si no, siguen
@@ -124,8 +127,10 @@ Se descarta **antes de persistir**: no se guardan el mensaje, el chat ni el
 contacto; no corren hooks, comandos, conversaciones ni la reanudación
 dormida (el checkpoint queda intacto), y no se emite `'message'`. Se
 registra en debug con `{ gate, chatId, senderId }`, nunca el cuerpo. Aplica
-a mensajes, interacciones y triggers `CALL`; no filtra reacciones, votos de
-encuestas, presencia ni eventos de grupo.
+a mensajes, interacciones y llamadas (una llamada bloqueada no corre hooks
+`'call'`, no emite el evento `'call'` ni llega a triggers `CALL`); no filtra
+reacciones, votos de encuestas, presencia ni eventos de grupo. Los mensajes
+y llamadas bloqueados cuentan en `metrics().dropped.blocked`.
 
 Bloquear a alguien **no** cancela una conversación que ya esté en curso
 (simplemente dejan de llegar sus respuestas). Usa

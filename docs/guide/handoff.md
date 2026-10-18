@@ -43,8 +43,10 @@ for every member of that group, but not their DMs.
   fires**, so an inbox integration sees everything.
 - Commands, conversations, dormant checkpoints, matchers and the catch-all
   **do not run**, and `'command:unknown'` is not emitted. Interactions
-  (button and list taps) and [`CALL` triggers](./triggers#call) are blocked
-  too.
+  (button and list taps) are blocked too.
+- **Calls** into the chat are blocked completely: no `before`/`after('call')`
+  hooks, no `'call'` event and no [`CALL` trigger](./triggers#call) (counted
+  in `metrics().dropped.handoff`).
 - **Escape commands** (`handoff.allowCommands`): with or without the prefix,
   compared like commands (case and accents ignored). They only pass when a
   `bot.command()` with that name is registered; otherwise they stay blocked
@@ -123,8 +125,10 @@ It is dropped **before persistence**: the message, chat and contact are not
 stored, no hooks, commands, conversations or dormant resumes run (the
 checkpoint stays as it is), and `'message'` is not emitted. The drop is
 debug-logged with `{ gate, chatId, senderId }`, never the body. It applies
-to messages, interactions and `CALL` triggers; reactions, poll votes,
-presence and group events are not filtered.
+to messages, interactions and calls (a blocked call runs no `'call'` hooks,
+emits no `'call'` event and reaches no `CALL` trigger); reactions, poll
+votes, presence and group events are not filtered. Blocked messages and
+calls count in `metrics().dropped.blocked`.
 
 Blocking someone does **not** cancel a conversation already in progress
 (their replies just stop arriving). Use `bot.abortConversation(...)` if you

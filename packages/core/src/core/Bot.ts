@@ -1796,21 +1796,30 @@ export class Bot extends EventEmitter {
   }
 
   /**
-   * A call event: hooks + `'call'` event as before, then — only when a `CALL`
-   * type trigger is registered — the first event of each call id is projected
-   * into a `type: 'call'` context and dispatched to the type-trigger matchers.
-   * Group calls follow `groupMode`: anything but `'all'` keeps them away from triggers.
+   * A call event. Access lists (blacklist / whitelist) and human handoff gate it first, like a
+   * message: a blocked call runs no `'call'` hooks, emits no `'call'` event and reaches no `CALL`
+   * trigger (it is counted in `metrics().dropped` and debug-logged). An admitted call runs the
+   * hooks + `'call'` event, then — only when a `CALL` type trigger is registered — the first event
+   * of each call id is projected into a `type: 'call'` context and dispatched to the type-trigger
+   * matchers. Group calls follow `groupMode`: anything but `'all'` keeps them away from triggers.
    */
   private async handleCall(call: CallEvent): Promise<void> {
+    const inbound = callToInbound(call)
+    const access = checkAccess(this.blacklist, this.whitelist, inbound)
+    if (access !== 'allowed') {
+      this.counters.blockedDropped()
+      this.logger.debug({ gate: access, chatId: inbound.chatId, senderId: inbound.senderId }, 'call dropped by access list')
+      return
+    }
+    if (!this.handoffs.admits(inbound)) {
+      this.counters.handoffDropped()
+      this.logger.debug({ gate: 'handoff', chatId: inbound.chatId, senderId: inbound.senderId }, 'call dropped: chat handed off')
+      return
+    }
     const proceed = await this.dispatchHookEvent('call', call)
     if (!proceed || !this.acceptingInbound || !this.dispatcher.hasTypeMatcher('call')) return
     // A call can never mention the bot nor be a command: a restrictive groupMode keeps group calls out.
     if (call.isGroup === true && this.config.groupMode && this.config.groupMode !== 'all') return
-    const inbound = callToInbound(call)
-    // Same gates as messages: a blacklisted / non-whitelisted caller or chat and a chat in human
-    // handoff never reach CALL triggers (the 'call' hooks and event above still run).
-    if (checkAccess(this.blacklist, this.whitelist, inbound) !== 'allowed') return
-    if (!this.handoffs.admits(inbound)) return
     if (call.id && !this.seenCalls.add(call.id)) return
     const ctx = buildMessageContext({
       inbound,

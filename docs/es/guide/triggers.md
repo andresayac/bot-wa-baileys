@@ -131,8 +131,9 @@ bot.when(CALL, (ctx) => { ctx.call?.status; ctx.call?.isVideo })      // CallEve
   aplican `scope` y `groupMode`.
 - Corre después de los hooks `before`/`after('call')` y del evento
   `'call'`. Un `before('call', (ev) => ev.abort())` lo suprime (junto con los
-  hooks `after('call')` y el evento `'call'`). También se
-  aplican la blacklist, la whitelist y el gate de handoff.
+  hooks `after('call')` y el evento `'call'`). La blacklist, la whitelist y
+  el gate de handoff se aplican **antes** de los hooks: una llamada
+  bloqueada tampoco corre hooks `'call'` ni emite el evento `'call'`.
 - Las llamadas nunca llegan a comandos, triggers de texto o de función,
   `onMessage` ni al evento `'message'`, y no se guardan como mensajes. Con
   el bot detenido se ignoran.

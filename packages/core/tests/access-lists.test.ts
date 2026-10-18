@@ -464,3 +464,94 @@ describe('access lists vs. handoff ordering', () => {
     expect(cmd).not.toHaveBeenCalled()
   })
 })
+
+/* ------------------------------------------------------------------------- */
+
+describe('calls × access lists and handoff (fully blocked, like a message)', () => {
+  function watchCalls(bot: Bot) {
+    const seen: string[] = []
+    bot.before('call', async (e: { from: string }, next: () => Promise<void>) => { seen.push(`before:${e.from}`); await next() })
+    bot.after('call', (e: { from: string }) => { seen.push(`after:${e.from}`) })
+    bot.on('call', (e) => { seen.push(`event:${e.from}`) })
+    bot.onType('call', (ctx) => { seen.push(`trigger:${ctx.sender}`) })
+    return seen
+  }
+
+  it('a blacklisted caller runs no call hooks, emits no call event and reaches no CALL trigger', async () => {
+    const { bot, provider } = setup()
+    const seen = watchCalls(bot)
+    await bot.start()
+    bot.blacklist.add('spammer')
+    provider.call({ id: 'c1', from: 'spammer', status: 'offer' })
+    provider.call({ id: 'c2', from: 'friend', status: 'offer' })
+    await tick()
+    expect(seen).toEqual(['before:friend', 'after:friend', 'event:friend', 'trigger:friend'])
+    expect(bot.metrics().dropped).toMatchObject({ blocked: 1, handoff: 0 })
+  })
+
+  it('a blacklisted group blocks the calls made in it', async () => {
+    const { bot, provider } = setup()
+    const seen = watchCalls(bot)
+    await bot.start()
+    bot.blacklist.add(G)
+    provider.call({ id: 'g1', from: 'caller', chatId: G, isGroup: true, status: 'offer' })
+    await tick()
+    expect(seen).toEqual([])
+  })
+
+  it('a caller outside an enabled whitelist is fully blocked', async () => {
+    const { bot, provider } = setup()
+    const seen = watchCalls(bot)
+    await bot.start()
+    bot.whitelist.enable().add('friend')
+    provider.call({ id: 'c1', from: 'stranger', status: 'offer' })
+    provider.call({ id: 'c2', from: 'friend', status: 'offer' })
+    await tick()
+    expect(seen).toEqual(['before:friend', 'after:friend', 'event:friend', 'trigger:friend'])
+    expect(bot.metrics().dropped.blocked).toBe(1)
+  })
+
+  it('a call into a handed-off chat runs no call hooks, emits no call event and reaches no CALL trigger', async () => {
+    const { bot, provider } = setup({ handoff: { allowCommands: ['bot'] } })
+    const seen = watchCalls(bot)
+    await bot.start()
+    await bot.handoff('with-agent')
+    provider.call({ id: 'c1', from: 'with-agent', status: 'offer' })
+    await tick()
+    expect(seen).toEqual([])
+    expect(bot.metrics().dropped).toMatchObject({ blocked: 0, handoff: 1 })
+
+    await bot.resume('with-agent')
+    provider.call({ id: 'c2', from: 'with-agent', status: 'offer' })
+    await tick()
+    expect(seen).toEqual(['before:with-agent', 'after:with-agent', 'event:with-agent', 'trigger:with-agent'])
+  })
+
+  it('a blocked call does not burn its call id: once allowed again, the same call reaches the trigger', async () => {
+    const { bot, provider } = setup()
+    const seen = watchCalls(bot)
+    await bot.start()
+    bot.blacklist.add('u1')
+    provider.call({ id: 'c1', from: 'u1', status: 'offer' })
+    await tick()
+    bot.blacklist.remove('u1')
+    provider.call({ id: 'c1', from: 'u1', status: 'ringing' })
+    await tick()
+    expect(seen).toEqual(['before:u1', 'after:u1', 'event:u1', 'trigger:u1'])
+  })
+
+  it('debug-logs a blocked call', async () => {
+    const debug = vi.fn()
+    const logger: any = {
+      debug, info: vi.fn(), warn: vi.fn(), error: vi.fn(), trace: vi.fn(), fatal: vi.fn(),
+      child() { return logger },
+    }
+    const { bot, provider } = setup({ logger })
+    await bot.start()
+    bot.blacklist.add('u1')
+    provider.call({ id: 'c1', from: 'u1', status: 'offer' })
+    await tick()
+    const drop = debug.mock.calls.find((args) => String(args[1]).includes('call dropped'))
+    expect(drop?.[0]).toMatchObject({ gate: 'blacklisted', chatId: 'u1', senderId: 'u1' })
+  })
+})

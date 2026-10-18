@@ -85,7 +85,7 @@ describe('describe/lint × WELCOME and type triggers', () => {
 describe('CALL trigger × access lists and handoff', () => {
   const tick = (ms = 10) => new Promise((r) => setTimeout(r, ms))
 
-  it('a blacklisted caller and a handed-off chat never reach CALL triggers; the call event still fires', async () => {
+  it('a blacklisted caller and a handed-off chat are fully blocked: no CALL trigger and no call event', async () => {
     const { createTestBot } = await import('../src/testing/createTestBot.js')
     const { CALL } = await import('../src/core/triggers.js')
     const { bot, provider } = await createTestBot()
@@ -100,7 +100,7 @@ describe('CALL trigger × access lists and handoff', () => {
     provider.call({ id: 'c3', from: 'friend' })
     await tick()
     expect(handled).toEqual(['friend'])
-    expect(raw).toEqual(['spammer', 'with-agent', 'friend'])
+    expect(raw).toEqual(['friend'])
     await bot.stop()
   })
 })

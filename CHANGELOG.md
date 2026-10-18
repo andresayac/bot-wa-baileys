@@ -86,6 +86,7 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/). Versionado po
 - La forma antigua `.media(source, caption?)` sigue enviando una imagen, pero compila a un paso `media`.
 - El rechazo de un `schema` sin mensaje propio usa `core.wait.invalid`; `DEFAULT_SCHEMA_MESSAGE` queda deprecado. `parseFieldAnswer()` y `validateFormValues()` aceptan un traductor opcional (por defecto, español) y la multiselección acepta también `and` como separador.
 - Los timestamps de entrada con precisión de segundos se persisten con la hora de recepción, para que el log ordene bien los mensajes frente a las respuestas.
+- **Llamadas bloqueadas por completo:** una llamada de un remitente o chat en la blacklist (o fuera de una whitelist activa), o a un chat en handoff, ya no corre los hooks `before`/`after('call')` ni emite `bot.on('call')`, además de no llegar a los triggers `CALL`, igual que un mensaje bloqueado. Cuenta en `metrics().dropped.blocked` / `dropped.handoff` y se registra en debug.
 
 **Corregido**
 - Un `flow(CALL)` o `bot.conversation(..., { trigger: CALL })` ya no reemplaza una conversación activa ni borra un checkpoint persistente; los triggers `CALL` respetan las listas de acceso y el handoff; los contextos `CALL` tienen `ctx.user`.

@@ -83,10 +83,13 @@ flowchart TD
 12. **Cierre**: hooks `after('message')` y luego el evento `'message'` (aquí
     se rearman los temporizadores de `bot.onIdle`).
 
-Las **llamadas** entrantes siguen un camino aparte: los mismos gates de
-listas de acceso y handoff, la misma resolución del idioma y después solo
-los [triggers `CALL`](./triggers#call). Sin hooks de mensaje, comandos ni
-evento `'message'`.
+Las **llamadas** entrantes siguen un camino aparte: los gates de listas de
+acceso y handoff van **primero** y bloquean la llamada por completo (sin
+hooks `'call'`, sin evento `'call'` ni trigger `CALL`; cuenta en
+`metrics().dropped`). Una llamada admitida corre los hooks
+`before`/`after('call')` y el evento `'call'`, después la misma resolución
+del idioma y solo los [triggers `CALL`](./triggers#call). Sin hooks de
+mensaje, comandos ni evento `'message'`.
 
 `bot.trigger(name, { chatId })` (arrancar un flujo sin mensaje entrante;
 `bot.triggerFlow()` es un wrapper fino sobre él con `ifActive: 'replace'`)

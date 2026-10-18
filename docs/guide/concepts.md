@@ -78,10 +78,12 @@ flowchart TD
 12. **Finish**: `after('message')` hooks, then the `'message'` event
     (`bot.onIdle` timers re-arm here).
 
-Incoming **calls** take a separate path: the same access-list and handoff
-gates, the same language resolution, then only
-[`CALL` triggers](./triggers#call). No message hooks,
-commands or `'message'` event.
+Incoming **calls** take a separate path: the access-list and handoff gates
+come **first** and block a call completely (no `'call'` hooks, no `'call'`
+event, no `CALL` trigger; it counts in `metrics().dropped`). An admitted call
+runs the `before`/`after('call')` hooks and the `'call'` event, then the same
+language resolution and only [`CALL` triggers](./triggers#call). No message
+hooks, commands or `'message'` event.
 
 `bot.trigger(name, { chatId })` (start a flow without an inbound message;
 `bot.triggerFlow()` is a thin wrapper over it with `ifActive: 'replace'`)

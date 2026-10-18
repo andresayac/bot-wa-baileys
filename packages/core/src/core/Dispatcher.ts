@@ -202,9 +202,10 @@ export class Dispatcher {
    * costs a store write or reaches hooks; a handed-off chat is still persisted, still
    * runs hooks and still emits 'message' (inbox/agents see it) but nothing routes it;
    * WELCOME sits after commands/conversations so those never spend the welcome. Call
-   * events take a separate path (`dispatchEvent`): same access/handoff gates in the Bot,
-   * then `prepare` (so `ctx.lang` is resolved) and only CALL type triggers — no message
-   * hooks, commands or 'message' event. `prepare` runs inside the queue so the language
+   * events take a separate path: access/handoff gates first in the Bot (a blocked call
+   * runs no 'call' hooks and emits no 'call' event), then the 'call' hooks + event, then
+   * `dispatchEvent`: `prepare` (so `ctx.lang` is resolved) and only CALL type triggers —
+   * no message hooks, commands or 'message' event. `prepare` runs inside the queue so the language
    * read from the store never reorders a chat's messages.
    * `bot.trigger()` bypasses this method too: access lists in the Bot, then
    * {@link runExclusive} (the chat's FIFO slot) → handoff gate → language resolution →
