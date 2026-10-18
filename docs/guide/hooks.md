@@ -22,10 +22,13 @@ bot.before('message', async (ctx, next) => {
 })
 ```
 
-::: warning Block with abort(), not by skipping next()
-Returning without calling `next()` only skips the **remaining `before`
-hooks**; the message is still routed. To stop it, call `ctx.abort()`
-(see `abort()` below). Useful for blocking messages (rate limiting, filters).
+::: warning Forgetting next() blocks the event
+A `before` hook that returns **without calling `next()`** stops the chain
+and the event, exactly like `ctx.abort()`: the message is not routed (a
+`'send'` is skipped, a provider event is not emitted). A hook that only
+observes or rewrites must always end with `await next()`. To block on
+purpose (rate limiting, filters) either return without `next()` or call
+`ctx.abort()` (see `abort()` below) — `abort()` reads more explicitly.
 :::
 
 ### after — after processing
@@ -92,10 +95,13 @@ bot.before('message', async (ctx, next) => {
 
 ```ts
 bot.before('message', async (ctx, next) => {
-  if (ctx.isGroup) { ctx.abort(); return }
+  if (ctx.isGroup) return  // no next(): the message stops here (same as ctx.abort())
   await next()
 })
 ```
+
+For group messages the built-in [`groupMode`](./concepts#the-inbound-pipeline) option is usually
+simpler: it filters before the hooks even run.
 
 ### Block users
 
@@ -163,6 +169,10 @@ bot.before('send', async (payload, next) => {
 ```
 
 ## abort() — stop the pipeline
+
+`abort()` stops the remaining `before` hooks and the event itself. Returning
+without `next()` has the same effect; `abort()` also works from code that has
+no `next` at hand (a helper that receives only `ctx`).
 
 ```ts
 bot.before('message', async (ctx, next) => {

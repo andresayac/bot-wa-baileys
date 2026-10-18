@@ -370,7 +370,7 @@ describe('ctx.stream (Bot integration)', () => {
   it('uses native drafts in private chats and sends the final message through the send pipeline', async () => {
     const { bot, provider, chat } = await createTestBot({}, { provider: { streaming: 'draft' } })
     const seen: string[] = []
-    bot.before('send', (p) => { const c = (p as { content: OutboundContent }).content; if (c.kind === 'text') seen.push(c.text) })
+    bot.before('send', async (p, next) => { const c = (p as { content: OutboundContent }).content; if (c.kind === 'text') seen.push(c.text); await next() })
     let done = false
     bot.when('hola', async (ctx) => { await ctx.stream(gen(['Hola', ' humano'], 5), { throttleMs: 0, canStop: true }); done = true })
     await chat.send('hola')
@@ -385,10 +385,11 @@ describe('ctx.stream (Bot integration)', () => {
   it('runs before(send) on every edit: a redacting hook covers the live edits too', async () => {
     const { bot, provider, chat } = await createTestBot({}, { provider: { streaming: 'edit' } })
     const kinds: Array<string | undefined> = []
-    bot.before('send', (p) => {
+    bot.before('send', async (p, next) => {
       const payload = p as { content: OutboundContent; stream?: string }
       kinds.push(payload.stream)
       if (payload.content.kind === 'text') payload.content = { kind: 'text', text: payload.content.text.replaceAll('secret', '***') }
+      await next()
     })
     let done = false
     bot.when('x', async (ctx) => {
@@ -409,7 +410,7 @@ describe('ctx.stream (Bot integration)', () => {
     for (const streaming of ['none', 'edit', 'draft'] as const) {
       const { bot, chat } = await createTestBot({}, { provider: { streaming } })
       const kinds: Array<string | undefined> = []
-      bot.before('send', (p) => { kinds.push((p as { stream?: string }).stream) })
+      bot.before('send', async (p, next) => { kinds.push((p as { stream?: string }).stream); await next() })
       let done = false
       bot.when('x', async (ctx) => {
         await ctx.stream(gen(['Una frase. ', 'Otra frase.'], 5), { throttleMs: 0 })
@@ -429,9 +430,10 @@ describe('ctx.stream (Bot integration)', () => {
 
   it('an aborting before(send) hook also blocks the native drafts', async () => {
     const { bot, provider, chat } = await createTestBot({}, { provider: { streaming: 'draft' } })
-    bot.before('send', (p) => {
+    bot.before('send', async (p, next) => {
       const payload = p as { content: OutboundContent; abort(): void }
       if (payload.content.kind === 'text' && payload.content.text.includes('blocked')) payload.abort()
+      else await next()
     })
     let done = false
     bot.when('x', async (ctx) => { await ctx.stream(gen(['blocked ', 'content'], 10), { throttleMs: 0 }); done = true })

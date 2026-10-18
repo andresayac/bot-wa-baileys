@@ -2,7 +2,8 @@
  * HookSystem — middleware pipeline inspired by Koa (chains of `next()`).
  *
  * Phases per event:
- *   before(msg, next)  → run in order; can mutate / abort; pass via next()
+ *   before(msg, next)  → run in order; can mutate; pass via next() — returning
+ *                        without next() or calling abort() stops the event
  *   handler(msg)       → core handler (the flow matcher / user callback)
  *   after(msg)         → cleanup / metrics
  *   error(msg, err)    → if anything else throws
@@ -70,13 +71,18 @@ export class HookSystem {
   }
 
   /**
-   * Run the `before` pipeline. Handlers may call `next()` to pass control.
-   * If a handler doesn't call next() (and doesn't `abort()`), the chain stops.
-   * Throws `AbortSignal` if a handler aborts.
+   * Run the `before` pipeline (Koa-style). Each handler receives `(ctx, next)`
+   * and must call `next()` to hand control to the next hook; the event proceeds
+   * only when the whole chain ran (the last hook called `next()` too).
+   *
+   * A handler that returns without calling `next()` stops the chain AND the
+   * event, exactly like `ctx.abort()`: the message is not routed, the send is
+   * skipped, the provider event is not emitted. Resolves `false` in both cases.
    */
   async runBefore<T>(event: HookEvent, ctx: T & { abort(): void }): Promise<boolean> {
     const hooks = this.list(event, 'before')
     let aborted = false
+    let completed = false
 
     // Wrap abort so we can detect it without mutating the original method
     const ctxAny = ctx as any
@@ -86,17 +92,11 @@ export class HookSystem {
     let index = -1
     const dispatch = async (i: number): Promise<void> => {
       if (aborted) return
-      if (i >= hooks.length) return
       if (i <= index) throw new Error('next() called multiple times')
       index = i
+      if (i >= hooks.length) { completed = true; return }
       const handler = hooks[i].handler as any
-      let calledNext = false
-      const next = async () => {
-        calledNext = true
-        await dispatch(i + 1)
-      }
-      await handler(ctxAny, next)
-      if (!calledNext && !aborted && i < hooks.length - 1) return
+      await handler(ctxAny, () => dispatch(i + 1))
     }
 
     try {
@@ -106,7 +106,7 @@ export class HookSystem {
       if (userAbort) ctxAny.abort = userAbort
       else delete ctxAny.abort
     }
-    return !aborted
+    return completed && !aborted
   }
 
   /** Run the `after` pipeline. Errors are reported but don't propagate. */

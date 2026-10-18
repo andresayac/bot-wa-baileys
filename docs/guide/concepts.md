@@ -183,6 +183,8 @@ bot.onError('message', async (ctx, error) => {
 
 Hooks run **before** or **after** each message, like Express middleware.
 `'message'` is the main hook event; `'send'` fires on every outbound send.
+A `before` hook that returns without calling `next()` stops the event, like
+`ctx.abort()`.
 
 ### 5. Plugins — packaged functionality
 

@@ -191,7 +191,8 @@ bot.onError('message', async (ctx, error) => {
 
 Los hooks se ejecutan **antes** o **después** de cada mensaje, como el
 middleware de Express. `'message'` es el evento principal de hooks;
-`'send'` se dispara en cada envío saliente.
+`'send'` se dispara en cada envío saliente. Un hook `before` que vuelve sin
+llamar a `next()` detiene el evento, igual que `ctx.abort()`.
 
 ### 5. Plugins — funcionalidad empaquetada
 

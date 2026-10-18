@@ -23,10 +23,13 @@ bot.before('message', async (ctx, next) => {
 })
 ```
 
-::: warning Bloquea con abort(), no saltándote next()
-Volver sin llamar a `next()` solo se salta los **hooks `before` restantes**;
-el mensaje se sigue enrutando. Para detenerlo, llama a `ctx.abort()` (ver
-`abort()` más abajo). Útil para bloquear mensajes (rate limiting, filtros).
+::: warning Olvidar next() bloquea el evento
+Un hook `before` que vuelve **sin llamar a `next()`** detiene la cadena y el
+evento, igual que `ctx.abort()`: el mensaje no se enruta (un `'send'` se
+omite, un evento del provider no se emite). Un hook que solo observa o
+reescribe debe terminar siempre con `await next()`. Para bloquear a
+propósito (rate limiting, filtros), vuelve sin `next()` o llama a
+`ctx.abort()` (ver `abort()` más abajo); `abort()` se lee más explícito.
 :::
 
 ### after — después de procesar
@@ -93,10 +96,13 @@ bot.before('message', async (ctx, next) => {
 
 ```ts
 bot.before('message', async (ctx, next) => {
-  if (ctx.isGroup) { ctx.abort(); return }
+  if (ctx.isGroup) return  // sin next(): el mensaje se detiene aquí (igual que ctx.abort())
   await next()
 })
 ```
+
+Para mensajes de grupo suele ser más simple la opción integrada
+[`groupMode`](./conceptos#el-pipeline-de-entrada), que filtra antes incluso de que corran los hooks.
 
 ### Bloquear usuarios
 
@@ -164,6 +170,10 @@ bot.before('send', async (payload, next) => {
 ```
 
 ## abort() — detener el pipeline
+
+`abort()` detiene los hooks `before` restantes y el propio evento. Volver sin
+`next()` tiene el mismo efecto; `abort()` sirve además desde código que no
+tiene `next` a mano (un helper que solo recibe `ctx`).
 
 ```ts
 bot.before('message', async (ctx, next) => {

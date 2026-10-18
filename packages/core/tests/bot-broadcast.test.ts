@@ -158,7 +158,7 @@ describe('bot.broadcast', () => {
 
   it('counts sends a before(send) hook skipped as skipped', async () => {
     const { bot } = await setup()
-    bot.before('send', (p: { chatId: string; abort(): void }) => { if (p.chatId === 'c1') p.abort() })
+    bot.before('send', async (p: { chatId: string; abort(): void }, next: () => Promise<void>) => { if (p.chatId === 'c1') p.abort(); else await next() })
     const res = await bot.broadcast(ids(2), 'x')
     expect(res).toMatchObject({ sent: 1, skipped: 1, failed: 0 })
     await bot.stop()

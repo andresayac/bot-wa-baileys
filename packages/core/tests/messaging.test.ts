@@ -441,8 +441,9 @@ describe('ctx.edit', () => {
     const provider = new MessagingMock({ edit: true })
     const bot = await makeBot(provider)
     const seen: unknown[] = []
-    bot.before('send', (p: { content: OutboundContent; edit?: MessageRef }) => {
+    bot.before('send', async (p: { content: OutboundContent; edit?: MessageRef }, next: () => Promise<void>) => {
       if (p.content.kind === 'text') p.content = { kind: 'text', text: p.content.text.replace('secreto', '***') }
+      await next()
     })
     bot.after('send', (p: { content: OutboundContent; edit?: MessageRef }) => { seen.push({ content: p.content, edit: p.edit }) })
     let first: MessageRef | undefined
@@ -460,7 +461,7 @@ describe('ctx.edit', () => {
   it('a before(send) hook can block an edit', async () => {
     const provider = new MessagingMock({ edit: true })
     const bot = await makeBot(provider)
-    bot.before('send', (p: { abort(): void; edit?: MessageRef }) => { if (p.edit) p.abort() })
+    bot.before('send', async (p: { abort(): void; edit?: MessageRef }, next: () => Promise<void>) => { if (p.edit) p.abort(); else await next() })
     const res = await runHandler(bot, provider, async (ctx) => {
       await ctx.reply('v1')
       return ctx.edit('v2')
@@ -516,8 +517,9 @@ describe('ctx.edit', () => {
   it('does not record a send skipped by a before(send) hook', async () => {
     const provider = new MessagingMock({ edit: true })
     const bot = await makeBot(provider)
-    bot.before('send', (p: { abort(): void; content: OutboundContent }) => {
+    bot.before('send', async (p: { abort(): void; content: OutboundContent }, next: () => Promise<void>) => {
       if (p.content.kind === 'text' && p.content.text === 'bloqueado') p.abort()
+      else await next()
     })
     const res = await runHandler(bot, provider, async (ctx) => {
       await ctx.reply('bloqueado')
