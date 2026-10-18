@@ -197,8 +197,8 @@ bot.before('message', handler, 0)   // default
 |---|---|
 | `message` | The main pipeline — an incoming message being processed |
 | `send` | Any outbound message, from a `ctx` reply helper or `bot.send*` (also edits and streamed output, see above) |
-| `reaction`, `poll`, `group`, `presence`, `status` | Provider events (a reaction, a poll vote, a group update, presence, a delivery/read receipt): `before` and `after` hooks run, then the matching `bot.on(...)` event |
-| `call` | An incoming call. `before('call', (ev) => ev.abort())` keeps it away from [`CALL` triggers](./triggers#call) |
+| `reaction`, `poll`, `group`, `presence`, `status` | Provider events (a reaction, a poll vote, a group update, presence, a delivery/read receipt): `before` and `after` hooks run, then the matching `bot.on(...)` event. A `before` hook that aborts (or skips `next()`) suppresses the `after` hooks and the event |
+| `call` | An incoming call. `before('call', (ev) => ev.abort())` keeps it away from [`CALL` triggers](./triggers#call), the `after('call')` hooks and the `'call'` event |
 
 Provider-level connection events (`qr`, `ready`, `connection`, ...) are
 plain `bot.on(...)` listeners, not hook phases — see [Core concepts](./concepts).

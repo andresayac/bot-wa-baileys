@@ -198,8 +198,8 @@ bot.before('message', handler, 0)   // valor por defecto
 |---|---|
 | `message` | El pipeline principal — un mensaje entrante siendo procesado |
 | `send` | Cualquier mensaje saliente, desde un helper de respuesta de `ctx` o `bot.send*` (también ediciones y salida en streaming, ver arriba) |
-| `reaction`, `poll`, `group`, `presence`, `status` | Eventos del provider (una reacción, un voto de encuesta, un cambio de grupo, presencia, un acuse de entrega/lectura): corren los hooks `before` y `after` y luego el evento `bot.on(...)` correspondiente |
-| `call` | Una llamada entrante. `before('call', (ev) => ev.abort())` la aparta de los [triggers `CALL`](./triggers#call) |
+| `reaction`, `poll`, `group`, `presence`, `status` | Eventos del provider (una reacción, un voto de encuesta, un cambio de grupo, presencia, un acuse de entrega/lectura): corren los hooks `before` y `after` y luego el evento `bot.on(...)` correspondiente. Un hook `before` que aborta (o no llama a `next()`) suprime los hooks `after` y el evento |
+| `call` | Una llamada entrante. `before('call', (ev) => ev.abort())` la aparta de los [triggers `CALL`](./triggers#call), de los hooks `after('call')` y del evento `'call'` |
 
 Los eventos de conexión a nivel de provider (`qr`, `ready`, `connection`,
 ...) son listeners `bot.on(...)` normales, no fases de hooks — ver

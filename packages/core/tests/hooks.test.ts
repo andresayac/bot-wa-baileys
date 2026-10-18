@@ -1,6 +1,8 @@
 import { describe, it, expect, vi } from 'vitest'
 import { HookSystem } from '../src/hooks/HookSystem.js'
 import { createTestBot } from '../src/testing/createTestBot.js'
+import type { InboundEvent } from '../src/core/provider.js'
+import type { HookEvent } from '../src/core/types.js'
 
 const tick = (ms = 10) => new Promise((r) => setTimeout(r, ms))
 
@@ -51,4 +53,43 @@ describe('before("message") without next()', () => {
     await tick()
     expect(handler).not.toHaveBeenCalled()
   })
+})
+
+describe('provider events: before-hook abort() suppresses after-hooks and bot.on', () => {
+  const cases: Array<{ hook: HookEvent; event: InboundEvent }> = [
+    { hook: 'reaction', event: { kind: 'reaction', reaction: { ref: { id: 'm1', chatId: 'c1' }, emoji: '👍', senderId: 'u1' } } },
+    { hook: 'poll', event: { kind: 'poll-vote', vote: { ref: { id: 'm1', chatId: 'c1' }, senderId: 'u1', options: [] } } },
+    { hook: 'group', event: { kind: 'group', event: { chatId: 'g1', action: 'add', participants: ['u1'] } } },
+    { hook: 'presence', event: { kind: 'presence', event: { chatId: 'c1', presences: {} } } },
+    { hook: 'status', event: { kind: 'status', status: { ref: { id: 'm1', chatId: 'c1' }, status: 'read', timestamp: 1 } } },
+    { hook: 'call', event: { kind: 'call', event: { id: 'call-1', from: 'u1', status: 'offer' } } },
+  ]
+
+  for (const { hook, event } of cases) {
+    it(`${hook}: aborted → no after-hook, no event`, async () => {
+      const { bot, provider } = await createTestBot()
+      const after = vi.fn()
+      const listener = vi.fn()
+      bot.before(hook, (p: { abort(): void }) => { p.abort() })
+      bot.after(hook, after)
+      bot.on(hook, listener)
+      provider['emitEvent'](event)
+      await tick()
+      expect(after).not.toHaveBeenCalled()
+      expect(listener).not.toHaveBeenCalled()
+    })
+
+    it(`${hook}: passed → after-hook and event`, async () => {
+      const { bot, provider } = await createTestBot()
+      const after = vi.fn()
+      const listener = vi.fn()
+      bot.before(hook, async (_p: unknown, next: () => Promise<void>) => { await next() })
+      bot.after(hook, after)
+      bot.on(hook, listener)
+      provider['emitEvent'](event)
+      await tick()
+      expect(after).toHaveBeenCalledOnce()
+      expect(listener).toHaveBeenCalledOnce()
+    })
+  }
 })

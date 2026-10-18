@@ -127,7 +127,8 @@ bot.when(CALL, (ctx) => { ctx.call?.status; ctx.call?.isVideo })      // typed C
   into the group: replies go to the group, `ctx.sender` is the caller, the
   conversation is per participant, and `scope` and `groupMode` apply.
 - It runs after the `before`/`after('call')` hooks and the `'call'` event. A
-  `before('call', (ev) => ev.abort())` suppresses it. The blacklist,
+  `before('call', (ev) => ev.abort())` suppresses it (and the `after('call')`
+  hooks and the `'call'` event). The blacklist,
   whitelist and handoff gates also apply.
 - Calls never reach commands, text or function triggers, `onMessage` or the
   `'message'` event, and are not stored as messages. They are ignored while

@@ -179,7 +179,8 @@ export const POLL: TypeTrigger = freezeTypeTrigger(['poll'], 'POLL')
  *   listen to `bot.on('call')` to observe every update. `ctx.call.offline` flags a
  *   notification delivered late (e.g. replayed after a reconnect).
  * - Runs after the `before('call')`/`after('call')` hooks and the `'call'` event;
- *   a `before('call')` hook that calls `abort()` suppresses it.
+ *   a `before('call')` hook that calls `abort()` suppresses it (and the after-hooks
+ *   and the `'call'` event).
  * - Calls never reach text/function triggers, commands, active conversations,
  *   the catch-all or the `'message'` event, and are not persisted as messages.
  *   Message-bound helpers (`react`, `quote`, `markRead`, `delete`) are meaningless here.

@@ -130,7 +130,8 @@ bot.when(CALL, (ctx) => { ctx.call?.status; ctx.call?.isVideo })      // CallEve
   `ctx.sender` es quien llama, la conversación es por participante y se
   aplican `scope` y `groupMode`.
 - Corre después de los hooks `before`/`after('call')` y del evento
-  `'call'`. Un `before('call', (ev) => ev.abort())` lo suprime. También se
+  `'call'`. Un `before('call', (ev) => ev.abort())` lo suprime (junto con los
+  hooks `after('call')` y el evento `'call'`). También se
   aplican la blacklist, la whitelist y el gate de handoff.
 - Las llamadas nunca llegan a comandos, triggers de texto o de función,
   `onMessage` ni al evento `'message'`, y no se guardan como mensajes. Con

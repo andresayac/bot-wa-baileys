@@ -77,6 +77,7 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/). Versionado po
 - `bot.deleteSubject()` también olvida el handoff del chat del usuario y rearma su `WELCOME`.
 - Las escrituras de chats del Bot (ledger de entrada y de salida, handoff) se serializan por chat.
 - **Rompe:** un hook `before` que vuelve **sin llamar a `next()`** detiene la cadena **y el evento**, igual que `abort()` (el mensaje no se enruta, el envío se omite, el evento del provider no se emite). Antes solo se saltaba los hooks `before` restantes y el mensaje seguía enrutándose, en contra del doc comment de `HookSystem.runBefore`. Los hooks que solo observan o reescriben deben terminar con `await next()`.
+- Los eventos del provider (`reaction`, `poll`, `group`, `presence`, `status`, `call`) siguen el mismo contrato que `message`/`send`: un hook `before` que aborta suprime los hooks `after` y el evento `bot.on(...)`. Antes se ejecutaban y emitían igualmente.
 - **Rompe:** `bot.broadcast()` resuelve `{ total, sent, failed, skipped, errors, messages, cancelled, pending }`: `sent`/`failed` pasan a ser contadores; los envíos aceptados están en `messages` y los fallos en `errors`.
 - `bot.triggerFlow()` devuelve `Promise<boolean>` (wrapper de `bot.trigger()`); `TriggerOptions` gana `body`.
 - La forma antigua `.media(source, caption?)` sigue enviando una imagen, pero compila a un paso `media`.

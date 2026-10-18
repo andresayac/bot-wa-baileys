@@ -1776,13 +1776,18 @@ export class Bot extends EventEmitter {
     }
   }
 
-  /** Run hooks + emit for a provider event. Resolves `false` if a before-hook aborted or it threw. */
+  /**
+   * Run hooks + emit for a provider event: `before` → `after` → `bot.on(event)`. A `before`
+   * hook that aborts (or skips `next()`) suppresses the after-hooks and the event.
+   * Resolves `false` if a before-hook aborted or it threw.
+   */
   private async dispatchHookEvent(event: HookEvent, payload: unknown): Promise<boolean> {
     try {
-      const proceed = await this.hooks.runBefore(event, payload as { abort(): void })
+      // Same contract as 'message' / 'send': an aborted event runs no after-hook and is not emitted.
+      if (!(await this.hooks.runBefore(event, payload as { abort(): void }))) return false
       await this.hooks.runAfter(event, payload)
       this.emit(event, payload)
-      return proceed
+      return true
     } catch (error) {
       try { await this.hooks.runError(event, payload, error) } catch { /* no error hook registered */ }
       this.emitError({ error })
