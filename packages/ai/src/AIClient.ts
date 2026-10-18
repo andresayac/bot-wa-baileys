@@ -71,6 +71,17 @@ const DEFAULT_TIMEOUT_MS = 60_000
 const DEFAULT_RAG_TIMEOUT_MS = 10_000
 const DEFAULT_REFUSAL = 'No puedo ayudar con eso.'
 
+/** Options of {@link AIClient.streamReplyInChat}. */
+export interface AIStreamReplyOptions {
+  signal?: AbortSignal
+  /** Store the partial answer when the stream is stopped early (default true). */
+  keepPartial?: boolean
+  /** Canonical sender id: enables long-term memory for the turn (facts in, background extraction out). */
+  userId?: string
+  /** The chat is a group: facts are injected only with `memory.injectInGroups`. */
+  isGroup?: boolean
+}
+
 /** Per-turn options of {@link AIClient.replyInChat} (tool options plus memory scoping). */
 export interface AIReplyOptions extends AIToolCallOptions {
   /** Canonical sender id: enables long-term memory for the turn. */
@@ -189,14 +200,16 @@ export class AIClient {
    *
    * A refusal (`stopReason === 'refusal'`) yields `refusalMessage` (after a blank
    * line when some text was already streamed) and the turn is not stored, like
-   * {@link replyInChat}.
+   * {@link replyInChat}. Long-term memory (`userId`) and RAG apply as in
+   * {@link replyInChat}; with `rag.appendSources` the sources are yielded last.
+   * Tools are not run while streaming (use {@link replyInChat} for the tool loop).
    *
    * @example
    * ```ts
    * await ctx.stream(ctx.tools.ai.streamReplyInChat(chatKeyOf(ctx), ctx.body))
    * ```
    */
-  streamReplyInChat(chatKey: string, userText: string, opts?: { signal?: AbortSignal; keepPartial?: boolean }): AsyncIterableIterator<string> {
+  streamReplyInChat(chatKey: string, userText: string, opts?: AIStreamReplyOptions): AsyncIterableIterator<string> {
     // A plain async generator queues return() until its pending await settles, so
     // the provider request would keep running (and its next chunk be recorded).
     // Abort first, then hand the return to the generator.
@@ -215,7 +228,7 @@ export class AIClient {
     chatKey: string,
     userText: string,
     ctrl: AbortController,
-    opts?: { signal?: AbortSignal; keepPartial?: boolean },
+    opts?: AIStreamReplyOptions,
   ): AsyncGenerator<string, void, undefined> {
     const onUserAbort = () => ctrl.abort()
     if (opts?.signal) {
@@ -227,12 +240,25 @@ export class AIClient {
     let failed = false
     let refused = false
     let iterator: AsyncIterator<string> | undefined
+    let citations: AIRetrievedChunk[] = []
+    let epoch: string | undefined
     try {
-      const history = await this.ctx.history(chatKey)
-      const messages: AIMessage[] = [...history, { role: 'user', content: userText }]
+      const userId = opts?.userId
+      const [history, facts, retrieved, turnEpoch] = await Promise.all([
+        this.ctx.history(chatKey),
+        this.factsForPrompt(userId, opts?.isGroup === true),
+        this.retrieveFor(userText, ctrl.signal),
+        // Taken BEFORE generating: an erasure during the turn invalidates its extraction.
+        this.extractionEpoch(userId),
+      ])
+      citations = retrieved
+      epoch = turnEpoch
+      const messages: AIChatMessage[] = [...history, { role: 'user', content: userText }]
+      const system = this.composeSystem(facts, citations)
       let stopReason: string | undefined
       iterator = this.provider.stream({
         ...this.base(messages),
+        ...(system !== undefined ? { system } : {}),
         signal: ctrl.signal,
         onStreamEnd: (info) => { stopReason = info.stopReason },
       })[Symbol.asyncIterator]()
@@ -247,7 +273,11 @@ export class AIClient {
       completed = !ctrl.signal.aborted
       if (completed && stopReason === 'refusal') {
         refused = true
-        yield (text ? '\n\n' : '') + (this.opts.refusalMessage ?? 'No puedo ayudar con eso.')
+        yield (text ? '\n\n' : '') + (this.opts.refusalMessage ?? DEFAULT_REFUSAL)
+      } else if (completed) {
+        // RAG `appendSources`: the sources go out as a last piece (not stored in the history).
+        const shown = this.withSources(text, citations)
+        if (shown !== text) yield shown.slice(text.length)
       }
     } catch (error) {
       failed = true
@@ -264,6 +294,11 @@ export class AIClient {
           { role: 'user', content: userText },
           { role: 'assistant', content: text },
         ])
+        const userId = opts?.userId
+        if (completed && userId && epoch !== undefined && this.opts.memory?.extraction) {
+          // Background: never block the chat's FIFO queue on the extraction call.
+          this.track(this.extractMemory(userId, userText, text, { epoch }).catch((err) => this.report(err, 'memory-extract')))
+        }
       }
     }
   }

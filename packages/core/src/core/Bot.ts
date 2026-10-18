@@ -686,6 +686,7 @@ export class Bot extends EventEmitter {
       user: this.users.for(inbound.senderId),
       i18n: this.i18n,
       ...this.messagingDeps(),
+      ...this.streamDeps(),
     })
     return this.dispatcher.runExclusive(ctx, async (): Promise<TriggerResult> => {
       if (!this.acceptingInbound) return { ...base, started: false, reason: 'stopped' }

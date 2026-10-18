@@ -107,11 +107,12 @@ export function aiPlugin(config: AIPluginConfig = {}): PluginSpec<AIPluginConfig
         bot.onMessage(async (mctx: MessageContext) => {
           if (mctx.type !== 'text' || !mctx.body) return
           const key = chatKeyOf(mctx)
-          if (streamCfg && typeof mctx.stream === 'function') {
+          // Tool turns (loop + confirmations) are not streamed: they take the one-shot path below.
+          if (streamCfg && !client.hasTools && typeof mctx.stream === 'function') {
             try {
               // A discarded (cancelled) answer was never shown in full: keep it out of the context too.
               const keepPartial = streamCfg.onCancel !== 'discard'
-              const result = await mctx.stream(client.streamReplyInChat(key, mctx.body, { keepPartial }), {
+              const result = await mctx.stream(client.streamReplyInChat(key, mctx.body, { keepPartial, userId: mctx.sender, isGroup: mctx.isGroup }), {
                 typing: cfg.humanizeTyping !== false,
                 ...streamCfg,
               })

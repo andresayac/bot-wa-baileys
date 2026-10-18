@@ -8,7 +8,8 @@ export class AdminMockProvider extends MockProvider {
   admins: Record<string, string[]> = {}
   adminLookups = 0
 
-  async deleteMessage(ref: MessageRef): Promise<void> {
+  // A property (not a method): MockProvider declares deleteMessage as an optional property.
+  override deleteMessage?: (ref: MessageRef) => Promise<void> = async (ref) => {
     this.deleted.push(ref)
   }
 

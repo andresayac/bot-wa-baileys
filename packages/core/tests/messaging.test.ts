@@ -48,7 +48,8 @@ class MessagingMock extends MockProvider {
     this.log.push({ op: 'typing', chatId, state })
     return this.typingError ? Promise.reject(this.typingError) : Promise.resolve()
   }
-  async editMessage(ref: MessageRef, content: OutboundContent): Promise<SendResult> {
+  // A property (not a method): MockProvider declares editMessage as an optional property.
+  override editMessage?: (ref: MessageRef, content: OutboundContent) => Promise<SendResult> = async (ref, content) => {
     if (this.editError) throw this.editError
     this.log.push({ op: 'edit', ref, content })
     return { ref }

@@ -57,7 +57,7 @@ export class GupshupProvider implements IProvider<GupshupCallback> {
     maxTextLength: 4096,
     buttons: true, lists: true, polls: false, reactions: false, edit: false,
     typing: false, presence: false, readReceipts: false, groups: false, templates: true,
-    interactionsRequireAck: false, pushIngress: true,
+    interactionsRequireAck: false, pushIngress: true, streaming: 'none',
   }
 
   private readonly config: GupshupProviderConfig & { baseUrl: string; webhookTokenHeader: string; webhookTokenParam: string }

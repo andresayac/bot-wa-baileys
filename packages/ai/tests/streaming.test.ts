@@ -202,3 +202,39 @@ describe('aiPlugin with stream', () => {
     await bot.stop()
   })
 })
+
+describe('streaming + memory / RAG / tools', () => {
+  it('streamReplyInChat injects user facts and RAG passages, yields the sources last and keeps them out of the history', async () => {
+    const { MemoryStore, UserDataService } = await import('@bot-wa/core')
+    const { MemoryManager } = await import('../src/memory/MemoryManager.js')
+    const store = new MemoryStore()
+    const users = new UserDataService(store)
+    const memory = new MemoryManager((id) => users.for(id), {})
+    const ai = new SlowStream(['Tarda', ' 3 días [1]'])
+    const retriever = { async retrieve() { return [{ text: 'Los envíos tardan 3 días.', citation: 'faq.md', score: 0.9 }] } }
+    const client = new AIClient(ai, new ContextManager(store), { persona: 'ACME', memory, rag: { retriever, appendSources: true } })
+    await client.remember('u1', 'Vive en Bogotá')
+    const out: string[] = []
+    for await (const t of client.streamReplyInChat('k', '¿cuánto tarda?', { userId: 'u1' })) out.push(t)
+    expect(out.join('')).toBe('Tarda 3 días [1]\n\nFuentes: faq.md')
+    const system = ai.inputs[0]!.system!
+    expect(system.startsWith('ACME')).toBe(true)
+    expect(system).toContain('- Vive en Bogotá')
+    expect(system).toContain('Los envíos tardan 3 días.')
+    const history = await new ContextManager(store).history('k')
+    expect(history.at(-1)).toEqual({ role: 'assistant', content: 'Tarda 3 días [1]' })
+  })
+
+  it('stream: true with tools configured keeps the one-shot tool loop', async () => {
+    const mock = new MockAIProvider({
+      reply: (input) => input.messages.at(-1)?.role === 'tool' ? 'son las 12' : { toolCalls: [{ name: 'hora', args: {} }] },
+    })
+    const streamSpy = vi.spyOn(mock, 'stream')
+    const tb = await createTestBot({}, { provider: { streaming: 'edit' } })
+    tb.bot.plug(aiPlugin({ __provider: mock, stream: true, tools: { hora: { description: 'Hora', handler: () => '12:00' } } }))
+    await tb.chat.send('hora?')
+    await tb.chat.expectReply('son las 12')
+    expect(streamSpy).not.toHaveBeenCalled()
+    await tb.bot.stop()
+  })
+})

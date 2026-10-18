@@ -127,6 +127,7 @@ export class TikTokProvider implements IProvider<unknown> {
     templates: false,
     interactionsRequireAck: false,
     pushIngress: true,
+    streaming: 'none',
   }
 
   private readonly config: TikTokProviderConfig

@@ -35,7 +35,7 @@ export { toGeminiSchema } from './providers/gemini.js'
 export type { OpenAIToolCall } from './providers/openai.js'
 
 // ai-memory-rag (FEATURES.md #29 RAG + #30 long-term memory)
-export type { AIChatReply, AIAugmentStage, AIReplyOptions } from './AIClient.js'
+export type { AIChatReply, AIAugmentStage, AIReplyOptions, AIStreamReplyOptions } from './AIClient.js'
 export { MemoryManager, DEFAULT_MEMORY_NAMESPACE } from './memory/MemoryManager.js'
 export type { MemoryFact, AIMemoryConfig, AIMemoryExtractConfig, RememberOptions, UserDataAccessor } from './memory/MemoryManager.js'
 export { factsSchema, parseFacts } from './memory/extract.js'

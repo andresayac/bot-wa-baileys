@@ -484,3 +484,27 @@ describe('ctx.stream (Bot integration)', () => {
     await bot.stop()
   })
 })
+
+describe('ctx.stream + BotConfig.typing (messaging)', () => {
+  it('stream messages skip the reply pacer (no BotConfig.typing wait on top of the stream own typing)', async () => {
+    const { Bot } = await import('../src/core/Bot.js')
+    const { MockProvider } = await import('../src/testing/MockProvider.js')
+    class TypingMock extends MockProvider {
+      typings: string[] = []
+      async typing(chatId: string): Promise<void> { this.typings.push(chatId) }
+    }
+    const provider = new TypingMock({ streaming: 'edit' })
+    // A huge minimum typing time: any paced send would visibly stall the test.
+    const bot = new Bot({ provider, typing: { minMs: 60_000, maxMs: 60_000 } })
+    await bot.start()
+    let done = false
+    bot.when('cuento', async (ctx) => {
+      await ctx.stream(gen(['Había', ' una', ' vez'], 2), { throttleMs: 0 })
+      done = true
+    })
+    provider.incoming('cuento', { from: 'u1' })
+    await vi.waitFor(() => expect(done).toBe(true), { timeout: 2000 })
+    expect(provider.edits.at(-1)!.content).toEqual({ kind: 'text', text: 'Había una vez' })
+    await bot.stop()
+  })
+})
