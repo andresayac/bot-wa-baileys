@@ -82,8 +82,8 @@ commands or `'message'` event.
 
 `bot.trigger(name, { chatId })` (start a flow without an inbound message)
 takes its own path too: the access lists, then the chat's FIFO slot, the
-handoff gate and the conversation start. No dedupe, persistence, message
-hooks, matchers or `'message'` event.
+handoff gate, the language resolution and the conversation start. No dedupe,
+persistence, message hooks, matchers or `'message'` event.
 
 If a handler throws, the `onError('message')` hooks run and the error is
 always emitted on `bot.on('error', ({ error, ctx }) => ...)`, even when no

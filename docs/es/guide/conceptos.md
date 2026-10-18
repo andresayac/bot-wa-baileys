@@ -86,8 +86,9 @@ evento `'message'`.
 
 `bot.trigger(name, { chatId })` (arrancar un flujo sin mensaje entrante)
 también va por su propio camino: las listas de acceso, después el turno de
-la cola FIFO del chat, el gate de handoff y el inicio de la conversación.
-Sin dedupe, persistencia, hooks de mensaje, matchers ni evento `'message'`.
+la cola FIFO del chat, el gate de handoff, la resolución del idioma y el
+inicio de la conversación. Sin dedupe, persistencia, hooks de mensaje,
+matchers ni evento `'message'`.
 
 Si un handler lanza, corren los hooks `onError('message')` y el error se
 emite siempre en `bot.on('error', ({ error, ctx }) => ...)`, aunque no haya

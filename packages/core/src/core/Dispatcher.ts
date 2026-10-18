@@ -199,8 +199,8 @@ export class Dispatcher {
    * hooks, commands or 'message' event. `prepare` runs inside the queue so the language
    * read from the store never reorders a chat's messages.
    * `bot.trigger()` bypasses this method too: access lists in the Bot, then
-   * {@link runExclusive} (the chat's FIFO slot) → handoff gate → conversation start —
-   * no dedupe, persistence, message hooks, matchers or 'message' event.
+   * {@link runExclusive} (the chat's FIFO slot) → handoff gate → language resolution →
+   * conversation start — no dedupe, persistence, message hooks, matchers or 'message' event.
    */
   private async run(ctx: DispatchContext): Promise<void> {
     const { hooks, runtime, emit } = this.deps

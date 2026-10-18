@@ -528,3 +528,17 @@ describe('resolution pipeline', () => {
     await bot.stop()
   })
 })
+
+describe('i18n + bot.trigger', () => {
+  it('a triggered conversation speaks the stored language of the subject', async () => {
+    const { bot, provider } = await makeBot()
+    bot.locale('es', ES).locale('en', EN)
+    await bot.user('u1').set('lang', 'en')
+    bot.conversation('aviso', async (c, ctx) => {
+      await c.say(`${ctx.lang ?? '?'}:${ctx.t?.('menu.title') ?? '?'}`)
+    })
+    await bot.trigger('aviso', { chatId: 'u1' })
+    await vi.waitFor(() => expect(texts(provider)).toEqual(['en:Main menu']), { timeout: 1000, interval: 5 })
+    await bot.stop()
+  })
+})

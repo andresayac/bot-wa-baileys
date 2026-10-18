@@ -662,6 +662,7 @@ export class Bot extends EventEmitter {
       typing: async (chatId, state) => { await this.provider.typing?.(chatId, state) },
       handoff: (chatId, o) => this.handoff(chatId, o),
       user: this.users.for(inbound.senderId),
+      i18n: this.i18n,
       ...this.messagingDeps(),
     })
     return this.dispatcher.runExclusive(ctx, async (): Promise<TriggerResult> => {
@@ -670,6 +671,8 @@ export class Bot extends EventEmitter {
         this.counters.handoffDropped()
         return { ...base, started: false, reason: 'handoff' }
       }
+      // Same language resolution as an inbound message (Dispatcher `prepare`), in the chat's slot.
+      if (this.i18n.enabled) ctx.lang = await this.i18n.resolve(ctx)
       const key = this.runtime.keyFor(ctx)
       if (this.runtime.hasActive(key) || this.runtime.hasDormant(key)) {
         if (opts.ifActive !== 'replace') return { ...base, started: false, reason: 'busy' }
