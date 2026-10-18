@@ -108,7 +108,7 @@ export interface AIConfig {
   maxStepsMessage?: string
   /** Confirmation dialog for `confirm: true` tools (autoreply). */
   toolConfirm?: {
-    /** Answers accepted as "yes" (normalized, case/accents-insensitive). Default: sí, si, s, yes, y, ok, confirmo, dale, 1. */
+    /** Answers accepted as "yes" (normalized, case/accents-insensitive). Default `DEFAULT_YES`: si (also "sí"), s, yes, y, ok, okay, confirmo, confirmar, dale, claro, de acuerdo, acepto, 1. */
     yes?: string[]
     /** How long to wait for the answer. Default '2m'. */
     timeout?: number | string

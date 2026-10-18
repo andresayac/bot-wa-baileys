@@ -112,7 +112,7 @@ export function aiPlugin(config: AIPluginConfig = {}): PluginSpec<AIPluginConfig
             try {
               // A discarded (cancelled) answer was never shown in full: keep it out of the context too.
               const keepPartial = streamCfg.onCancel !== 'discard'
-              const result = await mctx.stream(client.streamReplyInChat(key, mctx.body, { keepPartial, userId: mctx.sender, isGroup: mctx.isGroup }), {
+              const result = await mctx.stream(client.streamReplyInChat(key, mctx.body, { keepPartial, userId: mctx.sender, isGroup: mctx.isGroup, ctx: mctx }), {
                 typing: cfg.humanizeTyping !== false,
                 ...streamCfg,
               })

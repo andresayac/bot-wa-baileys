@@ -1,4 +1,5 @@
 import type { MessageContext } from '@bot-wa/core'
+import { AI_MESSAGES, aiText, type AITranslatable } from '../i18n.js'
 import type { AIChatMessage, GenerateInput, GenerateResult } from '../types.js'
 import { toolDefinitions, validateArgs } from './schema.js'
 import {
@@ -8,6 +9,7 @@ import {
 
 export const DEFAULT_MAX_STEPS = 5
 export const DEFAULT_TOOL_TIMEOUT_MS = 15_000
+/** Spanish default of `maxStepsMessage`; the loop sends the localized `ai.tools.maxSteps` (same Spanish text). */
 export const DEFAULT_MAX_STEPS_MESSAGE = 'No pude completar la solicitud. Intenta de nuevo con más detalle.'
 
 export interface ToolLoopOptions {
@@ -62,12 +64,15 @@ function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
 }
 
-/** Default confirmation prompt for a `confirm: true` tool. */
-export function defaultConfirmPrompt(name: string, tool: AITool<unknown>, args: unknown): string {
+/**
+ * Default confirmation prompt for a `confirm: true` tool: its `confirmMessage`, else
+ * the localized `ai.tools.confirm` message in `ctx`'s language (Spanish without a context).
+ */
+export function defaultConfirmPrompt(name: string, tool: AITool<unknown>, args: unknown, ctx?: AITranslatable): string {
   if (typeof tool.confirmMessage === 'string') return tool.confirmMessage
   if (typeof tool.confirmMessage === 'function') return tool.confirmMessage(args)
   const shown = args && typeof args === 'object' && Object.keys(args).length > 0 ? `\n${JSON.stringify(args, null, 2)}` : ''
-  return `Voy a ejecutar «${tool.description || name}».${shown}\n¿Confirmas? (sí/no)`
+  return aiText(ctx, AI_MESSAGES.toolConfirm, { tool: tool.description || name, args: shown })
 }
 
 /**
@@ -111,7 +116,7 @@ export async function runToolLoop(opts: ToolLoopOptions): Promise<ToolLoopResult
     emit({ ...base, type: 'tool.call', args: v.data })
 
     if (tool.confirm) {
-      const prompt = defaultConfirmPrompt(call.name, tool, v.data)
+      const prompt = defaultConfirmPrompt(call.name, tool, v.data, opts.ctx)
       emit({ ...base, type: 'tool.confirm.requested', args: v.data })
       const answer = opts.confirm
         ? await opts.confirm({ tool: call.name, callId: call.id, args: v.data, description: tool.description, prompt })
@@ -184,7 +189,7 @@ export async function runToolLoop(opts: ToolLoopOptions): Promise<ToolLoopResult
 
   emit({ type: 'loop.max_steps', step: maxSteps })
   return {
-    text: opts.maxStepsMessage ?? DEFAULT_MAX_STEPS_MESSAGE,
+    text: opts.maxStepsMessage ?? aiText(opts.ctx, AI_MESSAGES.maxSteps),
     model: last?.model ?? '',
     stopReason: 'max_steps',
     steps: maxSteps,

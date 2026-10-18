@@ -80,6 +80,8 @@ export interface AIStreamReplyOptions {
   userId?: string
   /** The chat is a group: facts are injected only with `memory.injectInGroups`. */
   isGroup?: boolean
+  /** Message context of the turn: localizes the built-in texts (`appendSources`) to `ctx.lang`. */
+  ctx?: MessageContext
 }
 
 /** Per-turn options of {@link AIClient.replyInChat} (tool options plus memory scoping). */
@@ -276,7 +278,7 @@ export class AIClient {
         yield (text ? '\n\n' : '') + (this.opts.refusalMessage ?? DEFAULT_REFUSAL)
       } else if (completed) {
         // RAG `appendSources`: the sources go out as a last piece (not stored in the history).
-        const shown = this.withSources(text, citations)
+        const shown = this.withSources(text, citations, opts?.ctx)
         if (shown !== text) yield shown.slice(text.length)
       }
     } catch (error) {
@@ -405,7 +407,7 @@ export class AIClient {
       // Background: never block the chat's FIFO queue on the extraction call.
       this.track(this.extractMemory(userId, userText, r.text, { epoch }).catch((err) => this.report(err, 'memory-extract')))
     }
-    return { text: this.withSources(r.text, citations), answer: r.text, citations, facts }
+    return { text: this.withSources(r.text, citations, opts?.ctx), answer: r.text, citations, facts }
   }
 
   /* ---------------------------------------------------------------- RAG */
@@ -432,11 +434,11 @@ export class AIClient {
     }
   }
 
-  private withSources(text: string, citations: readonly AIRetrievedChunk[]): string {
+  private withSources(text: string, citations: readonly AIRetrievedChunk[], ctx?: MessageContext): string {
     const append = this.opts.rag?.appendSources
     if (!append || citations.length === 0) return text
     const used = citedChunks(text, citations)
-    const sources = typeof append === 'function' ? append(used) : formatSources(used)
+    const sources = typeof append === 'function' ? append(used) : formatSources(used, ctx)
     return sources ? `${text}\n\n${sources}` : text
   }
 

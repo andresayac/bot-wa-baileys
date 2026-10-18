@@ -25,6 +25,7 @@ export type {
   AITool, AIToolSet, AIToolContext, AIToolDefinition, AIToolCall, AIToolResult, AIToolEvent, AIToolEventType,
   ToolConfirmer, ToolConfirmRequest, ToolConfirmation, JSONSchema, SafeParseSchema, SafeParseResult, BivariantFn,
 } from './tools/types.js'
+export { AI_MESSAGES, AI_LOCALES, aiText, type AIMessageKey, type AITranslatable } from './i18n.js'
 export { runToolLoop, defaultConfirmPrompt, DEFAULT_MAX_STEPS, DEFAULT_TOOL_TIMEOUT_MS } from './tools/runner.js'
 export type { ToolLoopOptions, ToolLoopResult } from './tools/runner.js'
 export { toolDefinitions, validateArgs, parametersOf } from './tools/schema.js'

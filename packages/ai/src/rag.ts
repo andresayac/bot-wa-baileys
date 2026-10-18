@@ -7,6 +7,8 @@
  * retriever (a vector DB, a search API...) works too.
  */
 
+import { AI_MESSAGES, aiText, type AITranslatable } from './i18n.js'
+
 /** A retrieved passage. `@bot-wa/rag`'s `RetrievedChunk` is assignable to it. */
 export interface AIRetrievedChunk {
   text: string
@@ -34,6 +36,7 @@ export interface AIRagConfig {
   minScore?: number
   /**
    * Append the sources to the reply: `true` → `"\n\nFuentes: a.md, b.md"`
+   * (the localized `ai.rag.sources` message, which follows `ctx.lang`)
    * (only the passages the model cited as `[n]`, or all retrieved when it
    * cited none), or a function to render them yourself. Default false.
    */
@@ -85,8 +88,11 @@ export function citedChunks(text: string, chunks: readonly AIRetrievedChunk[]): 
   return cited.size ? [...cited].sort((a, b) => a - b).map((i) => chunks[i]!) : [...chunks]
 }
 
-/** Default `appendSources: true` rendering: unique labels after a blank line. */
-export function formatSources(chunks: readonly AIRetrievedChunk[]): string {
+/**
+ * Default `appendSources: true` rendering: the unique labels in the localized
+ * `ai.rag.sources` message (`ctx`'s language; Spanish `Fuentes: …` without a context).
+ */
+export function formatSources(chunks: readonly AIRetrievedChunk[], ctx?: AITranslatable): string {
   const labels = [...new Set(chunks.map((c, i) => labelOf(c, i)))]
-  return labels.length ? `Fuentes: ${labels.join(', ')}` : ''
+  return labels.length ? aiText(ctx, AI_MESSAGES.sources, { sources: labels.join(', ') }) : ''
 }

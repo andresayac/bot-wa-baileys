@@ -112,9 +112,19 @@ bot.conversation('reclamo', async (c, ctx) => {
 
 `ctx.tools.ai` (la clase `AIClient`) expone:
 
-- `ask(prompt: string): Promise<string>` — pregunta suelta, **sin** historial
+- `ask(prompt: string, opts?): Promise<string>` — pregunta suelta, **sin** historial
   de chat (no lee ni escribe el contexto guardado). Usa la `persona`/`model`/
-  `maxTokens`/`effort` configurados en `aiPlugin`.
+  `maxTokens`/`effort` configurados en `aiPlugin` (y las tools, si hay).
+- `replyInChat(chatKey, text, opts?): Promise<string>` — responde dentro del
+  historial de un chat (lo lee y guarda el turno), como el autoresponder.
+  `opts`: `{ userId, isGroup }` (memoria) y `{ ctx, confirm, signal }` (tools).
+  `replyInChatDetailed()` devuelve además `citations` y `facts`.
+- `streamReplyInChat(chatKey, text, opts?)` — gemelo en streaming de
+  `replyInChat`, para `ctx.stream()` (ver [Streaming](#streaming)).
+- `runTools(input, opts?)` — ejecuta el bucle de tools y devuelve su resultado
+  completo (`text`, `steps`, `toolResults`, `maxStepsReached`).
+- `memory()` / `memoryFacts()` / `remember()` / `forget()` / `extractMemory()` /
+  `idle()` — memoria a largo plazo (ver [Memoria](#memoria-a-largo-plazo-por-usuario)).
 - `generate(input: { messages, system?, model?, maxTokens?, effort?, signal? }): Promise<GenerateResult>` —
   control total: mensajes explícitos y overrides puntuales.
 - `stream(input): AsyncIterable<string>` — igual que `generate` pero
@@ -245,9 +255,12 @@ configurado en vez de tumbar el bot.
 | `tools` | `Record<string, AITool>` | — | herramientas que el modelo puede llamar (ver [Tool calling](#tool-calling)) |
 | `maxSteps` | `number` | `5` | máximo de llamadas al modelo por turno en el bucle de tools |
 | `toolTimeoutMs` | `number` | `15000` | timeout por defecto de cada tool (`0` lo desactiva) |
-| `maxStepsMessage` | `string` | `'No pude completar la solicitud…'` | respuesta si se agota `maxSteps` |
+| `maxStepsMessage` | `string` | mensaje localizado `ai.tools.maxSteps` (es: `'No pude completar la solicitud…'`) | respuesta si se agota `maxSteps` |
 | `toolConfirm` | `{ yes?: string[]; timeout?: number \| string }` | `{ timeout: '2m' }` | diálogo de confirmación de las tools `confirm: true` |
 | `onToolEvent` | `(e: AIToolEvent) => void` | — | auditoría: recibe cada evento del bucle (también se emite como `bot.on('ai.tool')`) |
+| `memory` | `boolean \| AIMemoryConfig` | — | memoria a largo plazo por usuario (ver [Memoria](#memoria-a-largo-plazo-por-usuario)) |
+| `rag` | `AIRetriever \| AIRagConfig` | — | RAG: pasajes de tus documentos con citas (ver [RAG](#rag-respuestas-con-tus-documentos)) |
+| `stream` | `boolean \| AIStreamConfig` | apagado | transmite el autoresponder con `ctx.stream()` (ver [Streaming](#streaming)) |
 
 ## Tool calling
 
@@ -288,7 +301,7 @@ bot.plug(aiPlugin({
   tool desconocida, un timeout o una negativa del usuario se devuelven al
   modelo como resultado fallido; nunca llegan al usuario como crash.
 - **Esquemas**: JSON Schema (validado con un subconjunto: `type`, `required`,
-  `properties`, `enum`, `items`, `additionalProperties: false`) o cualquier
+  `properties`, `enum`, `const`, `items`, `additionalProperties: false`) o cualquier
   validador con `safeParse()`. Con zod v4 se usa su `toJSONSchema()`; si no,
   pasa `jsonSchema` a mano.
 - **Confirmación humana** (`confirm: true`): el autoresponder pregunta al
@@ -376,6 +389,7 @@ inyectan en las respuestas a grupos (las lee todo el grupo) salvo con
 ```ts
 bot.plug(aiPlugin({
   provider: 'openai',
+  model: 'gpt-5-mini',
   memory: {
     maxFacts: 50,        // se descartan los más antiguos
     ttl: '90d',          // cada hecho caduca a los 90 días (re-afirmarlo lo renueva)
@@ -412,6 +426,7 @@ import { createRag } from '@bot-wa/rag'
 
 bot.plug(aiPlugin({
   provider: 'openai',
+  model: 'gpt-5-mini',
   rag: {
     retriever: createRag({ documents: ['./docs/faq.md', './docs/productos.pdf'], embeddings: 'openai', chunkSize: 1000, topK: 3 }),
     appendSources: true, // añade "Fuentes: faq.md › Envíos" a la respuesta
@@ -424,6 +439,37 @@ Los pasajes se inyectan numerados en el prompt de sistema y el modelo cita con
 `facts`. Si la recuperación falla o tarda más de `rag.timeoutMs` (10 s por
 defecto, incluida la primera construcción del índice), se registra y la
 respuesta sigue sin contexto, sin bloquear la cola del chat.
+
+## Streaming
+
+Con `stream`, el autoresponder envía la respuesta mientras se genera con
+`ctx.stream()` de `@bot-wa/core`: borradores nativos en Telegram, ediciones en
+vivo en Discord y trozos por frases con "escribiendo…" en WhatsApp.
+
+```ts
+bot.plug(aiPlugin({
+  provider: 'anthropic',
+  stream: true, // o { cursor: ' ▌', canStop: true, onCancel: 'discard' }
+}))
+```
+
+- Acepta `true` o las `StreamOptions` del core (sin `signal` ni
+  `sendOptions`), más `enabled: false`. Por defecto está apagado.
+- Un rechazo responde `refusalMessage` (no se guarda); una respuesta vacía o un
+  stream que falla responde `errorMessage`. Con `onCancel: 'discard'`, una
+  respuesta cancelada tampoco entra en el contexto.
+- Con `tools` configuradas los turnos **no** se transmiten (el bucle de tools
+  responde en un solo mensaje).
+
+En tus handlers, `streamReplyInChat()` aplica historial, memoria y RAG:
+
+```ts
+await ctx.stream(ctx.tools.ai.streamReplyInChat(chatKeyOf(ctx), ctx.body, { userId: ctx.sender, isGroup: ctx.isGroup }))
+```
+
+Parar el stream aborta la petición; la respuesta parcial se guarda salvo con
+`keepPartial: false`. `timeoutMs` funciona como timeout de inactividad entre
+fragmentos.
 
 ## Roadmap
 
