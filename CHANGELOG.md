@@ -159,6 +159,7 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/). Versionado po
 - La autorespuesta one-shot ya no muestra "escribiendo…" dos veces con `BotConfig.typing` activo: con `humanizeTyping` el indicador sale mientras se genera la respuesta y esta se envía con `typing: false`.
 
 ### create-bot-wa (2026-10)
+- **Cambiado**: la CLI (y `scaffold()`) se niega a generar un proyecto dentro de una copia del propio monorepo de bot-wa (`pnpm-workspace.yaml` + `packages/core` = `@bot-wa/core`), donde acabaría formando parte del workspace del framework; `--force` (`force: true`) lo permite. Otros workspaces pnpm no se ven afectados. Exporta `findBotWaMonorepo()`.
 - **Añadido**: plantillas de caso de uso `games`, `support`, `store`, `restaurant`, `clinic` y `ai-full` (IA + intents por regex + store SQLite + scheduler + comandos slash + handoff), todas con la API v2, la factory `defineBot` y `npm run dev` (FEATURES #39).
 - **Añadido**: cada proyecto generado incluye un `AGENTS.md` para agentes de código, con la API v2 vigente, los modismos v1 que no existen (`addAnswer`, `capture`, `flowDynamic`…) y los comandos del proyecto. Exportado como `agentsMd()`.
 - **Cambiado**: la plantilla `ai` trae una persona de atención al cliente limitada a un negocio (`BUSINESS_NAME` en `.env`), según la política de IA de WhatsApp Business vigente desde 2026-01-15.

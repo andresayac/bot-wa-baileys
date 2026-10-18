@@ -33,7 +33,9 @@ packages from the pnpm workspace (`workspace:*`).
 
 The fastest start is the `create-bot-wa` CLI, which generates a runnable
 project (it is part of the same alpha, so until the first publish run it from
-the monorepo: `pnpm --filter create-bot-wa build && node packages/create-bot-wa/lib/cli.js my-bot`):
+the monorepo, pointing it **outside** the repo:
+`pnpm --filter create-bot-wa build && node packages/create-bot-wa/lib/cli.js ../my-bot`;
+a target inside the bot-wa monorepo is refused unless you pass `--force`):
 
 ```bash
 npm create bot-wa@latest my-bot
@@ -61,6 +63,7 @@ The use-case templates (`games` to `ai-full`) run on Baileys.
 | `--name <name>` | Package name (default: derived from the directory) |
 | `-y, --yes` | Skip prompts and use defaults |
 | `--overwrite` | Allow scaffolding into a non-empty directory |
+| `--force` | Allow a directory inside the bot-wa monorepo itself (refused by default) |
 | `-h, --help` | Show help |
 
 Every project gets `package.json` (with `npm start` and `npm run dev`, the

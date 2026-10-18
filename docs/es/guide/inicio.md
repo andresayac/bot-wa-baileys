@@ -34,8 +34,9 @@ los paquetes desde el workspace de pnpm (`workspace:*`).
 
 La forma más rápida de empezar es la CLI `create-bot-wa`, que genera un
 proyecto listo para ejecutar (forma parte de la misma alpha, así que hasta la
-primera publicación ejecútala desde el monorepo:
-`pnpm --filter create-bot-wa build && node packages/create-bot-wa/lib/cli.js my-bot`):
+primera publicación ejecútala desde el monorepo apuntando **fuera** del repo:
+`pnpm --filter create-bot-wa build && node packages/create-bot-wa/lib/cli.js ../my-bot`;
+un destino dentro del monorepo de bot-wa se rechaza salvo que pases `--force`):
 
 ```bash
 npm create bot-wa@latest my-bot
@@ -63,6 +64,7 @@ Las plantillas de casos de uso (de `games` a `ai-full`) usan Baileys.
 | `--name <name>` | Nombre del paquete (por defecto, el del directorio) |
 | `-y, --yes` | Omite las preguntas y usa los valores por defecto |
 | `--overwrite` | Permite generar en un directorio que no está vacío |
+| `--force` | Permite un directorio dentro del propio monorepo de bot-wa (rechazado por defecto) |
 | `-h, --help` | Muestra la ayuda |
 
 Cada proyecto incluye `package.json` (con `npm start` y `npm run dev`, el

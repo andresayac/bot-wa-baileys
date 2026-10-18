@@ -5,7 +5,7 @@
  * Thin bin: parses argv, prompts for anything missing when interactive,
  * then delegates to `scaffold()` (the testable core in scaffold.ts).
  *
- * Usage: create-bot-wa <dir> [--template <name>] [--name <n>] [--yes] [--overwrite]
+ * Usage: create-bot-wa <dir> [--template <name>] [--name <n>] [--yes] [--overwrite] [--force]
  * Templates: baileys, meta, telegram, ai, games, support, store, restaurant, clinic, ai-full.
  */
 
@@ -23,15 +23,16 @@ const DEFAULT_TEMPLATE = 'baileys'
 /**
  * Parse CLI arguments (exported for tests — pure, no I/O).
  * @param {string[]} argv process.argv without node + script
- * @returns {{ targetDir?: string, template?: string, name?: string, yes: boolean, overwrite: boolean, help: boolean }}
+ * @returns {{ targetDir?: string, template?: string, name?: string, yes: boolean, overwrite: boolean, force: boolean, help: boolean }}
  */
 export function parseArgs(argv) {
-  const out = { targetDir: undefined, template: undefined, name: undefined, yes: false, overwrite: false, help: false }
+  const out = { targetDir: undefined, template: undefined, name: undefined, yes: false, overwrite: false, force: false, help: false }
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]
     if (arg === '--help' || arg === '-h') out.help = true
     else if (arg === '--yes' || arg === '-y') out.yes = true
     else if (arg === '--overwrite') out.overwrite = true
+    else if (arg === '--force') out.force = true
     else if (arg === '--template' || arg === '-t') out.template = argv[++i]
     else if (arg.startsWith('--template=')) out.template = arg.slice('--template='.length)
     else if (arg === '--name') out.name = argv[++i]
@@ -56,6 +57,7 @@ function printUsage(log = console.log) {
   log('  --name <name>       package name (default: directory name)')
   log('  -y, --yes           skip prompts; use defaults for anything missing')
   log('  --overwrite         allow scaffolding into a non-empty directory')
+  log('  --force             allow a directory inside the bot-wa monorepo itself')
   log('  -h, --help          show this help')
   log('')
   log('Examples:')
@@ -118,6 +120,7 @@ export async function main(argv = process.argv.slice(2)) {
       name: args.name,
       template: /** @type {import('./templates.js').TemplateName} */ (args.template),
       overwrite: args.overwrite,
+      force: args.force,
     })
 
     const template = getTemplate(result.template)

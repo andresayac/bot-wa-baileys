@@ -5,7 +5,9 @@ Scaffold a new [@bot-wa](https://github.com/andresayac/bot-wa-baileys) bot proje
 > **Alpha — first npm publish pending.** `create-bot-wa` and the `@bot-wa/*` packages it stamps into
 > generated projects are part of the first alpha, which is **not on npm yet**. Until it is, `npm create bot-wa`
 > will not resolve and a generated project cannot `npm install` its dependencies from the public registry;
-> run the CLI from this monorepo instead (`pnpm --filter create-bot-wa build && node packages/create-bot-wa/lib/cli.js my-bot`).
+> run the CLI from this monorepo instead, targeting a directory **outside** the repo
+> (`pnpm --filter create-bot-wa build && node packages/create-bot-wa/lib/cli.js ../my-bot`). A target inside the
+> bot-wa monorepo is refused (it would join the framework workspace) unless you pass `--force`.
 
 ## Usage
 
@@ -85,6 +87,7 @@ create-bot-wa <dir> [options]
   --name <name>       package name (default: derived from the directory name)
   -y, --yes           skip prompts; use defaults for anything missing
   --overwrite         allow scaffolding into a non-empty directory
+  --force             allow a directory inside the bot-wa monorepo itself
   -h, --help          show help
 ```
 

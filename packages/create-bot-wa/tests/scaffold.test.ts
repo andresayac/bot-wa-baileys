@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { execFileSync } from 'node:child_process'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -7,7 +7,7 @@ import { join } from 'node:path'
 import { sanitizeName, scaffold } from '../src/scaffold.js'
 import { TEMPLATE_NAMES, TEMPLATES } from '../src/templates.js'
 // Plain-JS bin; typed through its JSDoc because tsconfig sets `allowJs`.
-import { parseArgs } from '../src/cli.js'
+import { main, parseArgs } from '../src/cli.js'
 
 /** Temp dirs created per test, removed after each test (hermetic). */
 const tempDirs: string[] = []
@@ -279,8 +279,10 @@ describe('cli parseArgs', () => {
       name: 'pkg',
       yes: true,
       overwrite: true,
+      force: false,
       help: false,
     })
+    expect(parseArgs(['dir', '--force'])).toMatchObject({ force: true })
   })
 
   it('supports short flags and --opt=value syntax', () => {
@@ -293,5 +295,54 @@ describe('cli parseArgs', () => {
   it('rejects unknown options and stray positionals', () => {
     expect(() => parseArgs(['--bogus'])).toThrow(/unknown option/i)
     expect(() => parseArgs(['a', 'b'])).toThrow(/unexpected argument/i)
+  })
+})
+
+describe('inside the bot-wa monorepo', () => {
+  /** A fake checkout of this repo: pnpm-workspace.yaml + packages/core named @bot-wa/core. */
+  async function fakeMonorepo(): Promise<string> {
+    const root = await makeTempDir()
+    await writeFile(join(root, 'pnpm-workspace.yaml'), "packages:\n  - 'packages/*'\n")
+    await writeFile(join(root, 'package.json'), JSON.stringify({ name: 'bot-wa-monorepo', private: true }))
+    await mkdir(join(root, 'packages', 'core'), { recursive: true })
+    await writeFile(join(root, 'packages', 'core', 'package.json'), JSON.stringify({ name: '@bot-wa/core' }))
+    return root
+  }
+
+  it('refuses to scaffold anywhere inside the bot-wa workspace', async () => {
+    const root = await fakeMonorepo()
+    await expect(scaffold({ targetDir: join(root, 'my-bot'), template: 'baileys' })).rejects.toThrow(/inside the bot-wa monorepo/)
+    await expect(scaffold({ targetDir: join(root, 'packages', 'x', 'my-bot'), template: 'baileys' })).rejects.toThrow(/--force/)
+    await expect(readFile(join(root, 'my-bot', 'package.json'), 'utf8')).rejects.toThrow()
+  })
+
+  it('scaffolds there anyway with force', async () => {
+    const root = await fakeMonorepo()
+    const res = await scaffold({ targetDir: join(root, 'my-bot'), template: 'baileys', force: true })
+    expect(res.files).toContain('package.json')
+  })
+
+  it('does not block other pnpm workspaces (a user monorepo)', async () => {
+    const root = await makeTempDir()
+    await writeFile(join(root, 'pnpm-workspace.yaml'), "packages:\n  - 'apps/*'\n")
+    await writeFile(join(root, 'package.json'), JSON.stringify({ name: 'acme', private: true }))
+    const res = await scaffold({ targetDir: join(root, 'apps', 'bot'), template: 'baileys' })
+    expect(res.files).toContain('package.json')
+  })
+
+  it('the CLI exits with code 1 and writes nothing', async () => {
+    const root = await fakeMonorepo()
+    const errors: string[] = []
+    const spy = vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => { errors.push(args.join(' ')) })
+    const previous = process.exitCode
+    try {
+      await main([join(root, 'my-bot'), '--yes'])
+      expect(process.exitCode).toBe(1)
+      expect(errors.join('\n')).toMatch(/inside the bot-wa monorepo/)
+      await expect(readFile(join(root, 'my-bot', 'package.json'), 'utf8')).rejects.toThrow()
+    } finally {
+      spy.mockRestore()
+      process.exitCode = previous
+    }
   })
 })

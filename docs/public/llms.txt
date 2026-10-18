@@ -71,7 +71,7 @@ Alpha:
 - @bot-wa/sqlite-store — SQLiteStore (better-sqlite3 peer dependency, WAL)
 - @bot-wa/redis-store — RedisStore (shared state across replicas + acquireLock/releaseLock; atomic cross-replica upserts)
 - @bot-wa/ai — aiPlugin + AIClient (multi-provider LLM autoresponder, tool calling, long-term user memory, RAG hook)
-- create-bot-wa — project scaffolder CLI (templates: baileys, meta, telegram, ai, games, support, store, restaurant, clinic, ai-full; every project ships an AGENTS.md)
+- create-bot-wa — project scaffolder CLI (templates: baileys, meta, telegram, ai, games, support, store, restaurant, clinic, ai-full; every project ships an AGENTS.md; refuses a target inside the bot-wa monorepo itself unless --force, so from a checkout run `node packages/create-bot-wa/lib/cli.js ../my-bot`)
 - @bot-wa/http (secureFetch: anti-SSRF downloads) and @bot-wa/graph-core (shared Meta Graph webhook/error helpers) — internal dependencies of the alpha packages
 
 Experimental (private, not published):
