@@ -99,6 +99,112 @@ describe('aiPlugin tools (autoreply)', () => {
     await chat.expectReply('eco: hola')
   })
 
+  describe('after the first confirmation (turn detached from the chat queue)', () => {
+    /** Model: 'paga' → tool A; after A's result → tool B; after B's result → final text. */
+    function twoStep() {
+      return new MockAIProvider({
+        reply: (input: GenerateInput) => {
+          const last = input.messages[input.messages.length - 1]
+          if (last?.role === 'tool') {
+            if (last.results[0]?.name === 'a') return { toolCalls: [{ name: 'b', args: {} }] }
+            return `resultado: ${last.results.map((r) => r.content).join(' | ')}`
+          }
+          if (last?.role === 'user' && last.content.includes('paga')) return { toolCalls: [{ name: 'a', args: {} }] }
+          return `eco: ${last?.content ?? ''}`
+        },
+      })
+    }
+    function gate() {
+      let open!: () => void
+      const p = new Promise<void>((r) => { open = r })
+      return { p, open }
+    }
+
+    it('a second confirmation never replaces a flow the user started meanwhile', async () => {
+      const g = gate()
+      const ran: string[] = []
+      const { bot, chat } = await botWithTools({
+        a: { description: 'A', confirm: true, confirmMessage: '¿A?', handler: async () => { await g.p; ran.push('a'); return 'A ok' } },
+        b: { description: 'B', confirm: true, confirmMessage: '¿B?', handler: () => { ran.push('b'); return 'B ok' } },
+      }, twoStep())
+      let flowCancelled = false
+      bot.conversation('menu', async (c) => {
+        let pick: string
+        try { pick = await c.ask('elige') } catch (e) { flowCancelled = true; throw e }
+        await c.say(`elegiste ${pick}`)
+      })
+      await chat.send('paga')
+      await chat.expectReply('¿A?')
+      await chat.send('si')
+      await tick()
+      await chat.send('menu')
+      await chat.expectReply('elige')
+      g.open()
+      await tick(60)
+      expect(flowCancelled).toBe(false)
+      expect(chat.replies()).not.toContain('¿B?')
+      await chat.send('2')
+      await chat.expectReply('elegiste 2')
+      expect(ran).toEqual(['a'])
+      expect(chat.replies().some((r) => r.startsWith('resultado:'))).toBe(false)
+    })
+
+    it('serialises turns per chat: a new message waits for the detached turn to finish', async () => {
+      const g = gate()
+      const { chat } = await botWithTools({
+        a: { description: 'A', confirm: true, confirmMessage: '¿A?', handler: async () => { await g.p; return 'A ok' } },
+      }, scripted('a', {}, 'paga'))
+      await chat.send('paga')
+      await chat.expectReply('¿A?')
+      await chat.send('si')
+      await tick()
+      await chat.send('hola')
+      await tick(60)
+      expect(chat.replies()).not.toContain('eco: hola')
+      g.open()
+      await chat.expectReply('eco: hola')
+      const r = chat.replies()
+      expect(r.indexOf('resultado: A ok')).toBeGreaterThan(-1)
+      expect(r.indexOf('resultado: A ok')).toBeLessThan(r.indexOf('eco: hola'))
+    })
+
+    it('/reset after approval cancels the detached turn: no reply, nothing written to the cleared history', async () => {
+      const g = gate()
+      const mock = scripted('a', {}, 'paga')
+      const { chat } = await botWithTools({
+        a: { description: 'A', confirm: true, confirmMessage: '¿A?', handler: async () => { await g.p; return 'A ok' } },
+      }, mock)
+      await chat.send('paga')
+      await chat.expectReply('¿A?')
+      await chat.send('si')
+      await tick()
+      await chat.send('/reset')
+      await chat.expectReply(/reiniciada/)
+      g.open()
+      await tick(60)
+      expect(chat.replies().some((r) => r.startsWith('resultado:'))).toBe(false)
+      await chat.send('hola')
+      await chat.expectReply('eco: hola')
+      // The cancelled turn left nothing in the history the user just cleared.
+      expect(mock.calls.at(-1)?.messages).toEqual([{ role: 'user', content: 'hola' }])
+    })
+
+    it('a second confirmation is still asked when the chat is idle', async () => {
+      const ran: string[] = []
+      const { chat } = await botWithTools({
+        a: { description: 'A', confirm: true, confirmMessage: '¿A?', handler: () => { ran.push('a'); return 'A ok' } },
+        b: { description: 'B', confirm: true, confirmMessage: '¿B?', handler: () => { ran.push('b'); return 'B ok' } },
+      }, twoStep())
+      await chat.send('paga')
+      await chat.expectReply('¿A?')
+      await chat.send('si')
+      await chat.expectReply('¿B?')
+      await chat.send('si')
+      await chat.expectReply('resultado: B ok')
+      expect(ran).toEqual(['a', 'b'])
+    })
+  })
+
   it('custom yes words', async () => {
     let ran = false
     const { chat } = await botWithTools(

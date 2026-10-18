@@ -622,6 +622,10 @@ export class Bot extends EventEmitter {
    * on that key is replaced. Failures (e.g. an unknown name) are reported through
    * the `'error'` event, never as an unhandled rejection.
    *
+   * The returned promise settles (it never rejects) once the conversation has ended
+   * and released its key. Never `await` it inside a handler: that blocks the chat's
+   * queue, so the user's answer could never reach the conversation.
+   *
    * @example
    * ```ts
    * bot.when('pedido', async (ctx) => {
@@ -632,9 +636,9 @@ export class Bot extends EventEmitter {
    * })
    * ```
    */
-  enterConversation(target: string | ConversationHandler, ctx: MessageContext): void {
+  enterConversation(target: string | ConversationHandler, ctx: MessageContext): Promise<void> {
     const fn = typeof target === 'string' ? target : (target as ConversationFn)
-    void this.runtime.enter(fn, ctx as unknown as Parameters<ConversationRuntime['enter']>[1])
+    return this.runtime.enter(fn, ctx as unknown as Parameters<ConversationRuntime['enter']>[1])
       .catch((error) => this.emitError({ error, ctx }))
   }
 

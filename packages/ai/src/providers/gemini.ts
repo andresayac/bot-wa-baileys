@@ -23,6 +23,9 @@ export interface GeminiPart {
   text?: string
   functionCall?: GeminiFunctionCall
   functionResponse?: { name: string; response: Record<string, unknown> }
+  /** Opaque signature of a thinking model's reasoning; must be replayed with its part. */
+  thoughtSignature?: string
+  thought?: boolean
 }
 export interface GeminiResponse {
   text(): string
@@ -89,19 +92,28 @@ export class GeminiProvider implements AIProvider {
   async generate(input: GenerateInput): Promise<GenerateResult> {
     const res = await this.model(input).generateContent(this.buildArgs(input), this.reqOpts(input))
     const usage = res.response.usageMetadata
+    const parts = res.response.candidates?.[0]?.content?.parts
     const calls = res.response.functionCalls?.()
-      ?? (res.response.candidates?.[0]?.content?.parts ?? []).flatMap((p) => (p.functionCall ? [p.functionCall] : []))
+      ?? (parts ?? []).flatMap((p) => (p.functionCall ? [p.functionCall] : []))
     // Gemini does not id function calls; synthesize ids so results can be matched.
     const toolCalls: AIToolCall[] = calls.map((c) => ({ id: `gemini_call_${++this.callSeq}`, name: c.name, args: c.args ?? {} }))
     let text = ''
-    try { text = res.response.text() } catch { text = '' }
+    try {
+      text = res.response.text()
+    } catch (err) {
+      // The SDK throws from text() for blocked responses (SAFETY, RECITATION, ...):
+      // keep that an error. Only a pure function-call turn may have no text.
+      if (!toolCalls.length) throw err
+    }
     const finish = res.response.candidates?.[0]?.finishReason
     return {
       text,
       model: input.model ?? this.cfg.model ?? DEFAULT_MODEL,
       usage: usage ? { input: usage.promptTokenCount ?? 0, output: usage.candidatesTokenCount ?? 0 } : undefined,
       ...(finish ? { stopReason: finish } : {}),
-      ...(toolCalls.length ? { toolCalls } : {}),
+      // Raw parts carry the thoughtSignature that thinking models (2.5 / 3) require
+      // to be sent back unchanged in the next step of a function-calling loop.
+      ...(toolCalls.length ? { toolCalls, ...(parts?.length ? { providerData: parts } : {}) } : {}),
     }
   }
 
@@ -130,6 +142,7 @@ function toGeminiContent(m: AIChatMessage): GeminiContent {
     }
   }
   if (m.role === 'assistant') {
+    if (Array.isArray(m.providerData) && m.providerData.length) return { role: 'model', parts: m.providerData as GeminiPart[] }
     const parts: GeminiPart[] = []
     if (m.content || !m.toolCalls?.length) parts.push({ text: m.content })
     for (const c of m.toolCalls ?? []) parts.push({ functionCall: { name: c.name, args: c.args ?? {} } })

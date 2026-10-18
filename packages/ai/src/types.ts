@@ -81,7 +81,7 @@ export interface AIConfig {
    * a `handler` and optional `confirm: true` for human approval.
    */
   tools?: AIToolSet
-  /** Max model calls per turn in the tool loop. Default 5. */
+  /** Max model calls per turn in the tool loop (tool calls of the last one are not run). Default 5. */
   maxSteps?: number
   /** Default per-tool timeout (ms). Default 15000. */
   toolTimeoutMs?: number

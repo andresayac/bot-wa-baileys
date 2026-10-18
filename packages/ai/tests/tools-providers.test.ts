@@ -133,6 +133,33 @@ describe('GeminiProvider tools', () => {
     expect(r.text).toBe('')
     expect(r.toolCalls?.[0]).toMatchObject({ name: 'buscar', args: { q: 'x' } })
   })
+  it('keeps the raw candidate parts (thoughtSignature) as providerData and replays them verbatim', async () => {
+    const raw = [
+      { text: 'pienso' },
+      { functionCall: { name: 'buscar', args: { q: 'pan' } }, thoughtSignature: 'sig-1' },
+    ]
+    const { client, generateContent } = fakeGemini({
+      text: () => 'pienso',
+      candidates: [{ content: { parts: raw }, finishReason: 'STOP' }],
+    })
+    const p = new GeminiProvider(client, {})
+    const r = await p.generate({ messages: [{ role: 'user', content: 'x' }], tools: TOOLS })
+    expect(r.providerData).toEqual(raw)
+    await p.generate({ messages: [
+      { role: 'user', content: 'x' },
+      { role: 'assistant', content: r.text, toolCalls: r.toolCalls, providerData: r.providerData },
+      { role: 'tool', content: '[1]', results: [{ callId: r.toolCalls![0]!.id, name: 'buscar', content: '[1]' }] },
+    ], tools: TOOLS })
+    const [args] = generateContent.mock.calls[1]!
+    expect((args.contents as Args[])[1]).toEqual({ role: 'model', parts: raw })
+  })
+  it('a blocked response (text() throws, no tool calls) still rejects', async () => {
+    const { client } = fakeGemini({
+      text: () => { throw new Error('Response was blocked due to SAFETY') },
+      candidates: [{ finishReason: 'SAFETY' }],
+    })
+    await expect(new GeminiProvider(client, {}).generate({ messages: [{ role: 'user', content: 'x' }] })).rejects.toThrow(/SAFETY/)
+  })
   it('maps history to model functionCall + function functionResponse parts', async () => {
     const { client, generateContent } = fakeGemini({ text: () => 'listo' })
     await new GeminiProvider(client, {}).generate({ messages: HISTORY })

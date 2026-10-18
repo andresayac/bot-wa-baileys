@@ -177,6 +177,9 @@ export class AIClient {
         opts?.signal,
       )
     }
+    // Cancelled while the turn was running (e.g. `/reset` cleared the history meanwhile):
+    // never write the stale turn back nor answer it.
+    opts?.signal?.throwIfAborted()
     if (r.stopReason === 'refusal') {
       return this.opts.refusalMessage ?? DEFAULT_REFUSAL
     }

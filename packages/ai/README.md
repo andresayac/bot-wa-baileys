@@ -281,7 +281,9 @@ bot.plug(aiPlugin({
 ```
 
 - **Bucle multi-paso**: mientras el modelo pida tools se ejecutan y se le
-  devuelve el resultado, hasta `maxSteps` (default 5).
+  devuelve el resultado, hasta `maxSteps` (default 5). Las tools que el modelo
+  pida en la última llamada permitida no se ejecutan (nunca vería su resultado):
+  el turno responde `maxStepsMessage`.
 - **Errores al modelo**: una excepción del handler, argumentos inválidos, una
   tool desconocida, un timeout o una negativa del usuario se devuelven al
   modelo como resultado fallido; nunca llegan al usuario como crash.
@@ -292,7 +294,12 @@ bot.plug(aiPlugin({
 - **Confirmación humana** (`confirm: true`): el autoresponder pregunta al
   usuario dentro de una conversación del runtime y devuelve la cola FIFO del
   chat, así que la respuesta llega sin bloqueos. `/reset` o el timeout
-  cancelan el turno en silencio. Dentro de tu propia conversación usa
+  cancelan el turno en silencio; `/reset` también lo cancela después de la
+  aprobación (no responde ni escribe en el historial recién borrado). Tras una confirmación el turno sigue fuera de
+  la cola, pero los turnos de un mismo chat se serializan (un mensaje nuevo
+  espera a que termine) y una segunda confirmación nunca reemplaza un flujo que
+  el usuario haya abierto entretanto: el turno se cancela en silencio y no
+  responde encima de ese flujo. Dentro de tu propia conversación usa
   `confirmWith(c)`:
 
   ```ts

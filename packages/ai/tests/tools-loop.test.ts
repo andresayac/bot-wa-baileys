@@ -124,12 +124,28 @@ describe('tool loop (AIClient)', () => {
 
   it('stops at maxSteps with maxStepsMessage and an audit event', async () => {
     const mock = new MockAIProvider({ reply: { toolCalls: [{ name: 'loop', args: {} }] } })
-    const { c, events } = client(mock, { loop: { description: 'l', handler: () => 'again' } }, { maxSteps: 3, maxStepsMessage: 'demasiados pasos' })
+    let runs = 0
+    const { c, events } = client(mock, { loop: { description: 'l', handler: () => { runs++; return 'again' } } }, { maxSteps: 3, maxStepsMessage: 'demasiados pasos' })
     const r = await c.runTools({ messages: [{ role: 'user', content: 'x' }] })
     expect(r.text).toBe('demasiados pasos')
     expect(r.maxStepsReached).toBe(true)
     expect(mock.calls).toHaveLength(3)
+    // The last step's calls are never run: the model would not see their results.
+    expect(runs).toBe(2)
+    expect(r.toolResults).toHaveLength(2)
     expect(events.at(-1)?.type).toBe('loop.max_steps')
+  })
+
+  it('does not run (or ask to confirm) tool calls of the last step', async () => {
+    const mock = new MockAIProvider({ reply: { toolCalls: [{ name: 'pay', args: {} }] } })
+    let runs = 0
+    let asked = 0
+    const { c } = client(mock, { pay: { description: 'p', confirm: true, handler: () => { runs++; return 'paid' } } }, { maxSteps: 1 })
+    const r = await c.runTools({ messages: [{ role: 'user', content: 'x' }] }, { confirm: async () => { asked++; return 'approved' } })
+    expect(r.maxStepsReached).toBe(true)
+    expect(asked).toBe(0)
+    expect(runs).toBe(0)
+    expect(r.toolResults).toEqual([])
   })
 
   it('returns handler errors to the model instead of throwing', async () => {
@@ -220,6 +236,20 @@ describe('tool loop (AIClient)', () => {
       { role: 'user', content: 'hola' },
       { role: 'assistant', content: 'final: R' },
     ])
+  })
+
+  it('replyInChat aborted mid-turn persists nothing and runs no further tools', async () => {
+    const store = new MemoryStore()
+    const ctrl = new AbortController()
+    let runs = 0
+    // The model keeps calling `t`; the first run aborts the turn.
+    const mock = new MockAIProvider({ reply: { toolCalls: [{ name: 't', args: {} }] } })
+    const c = new AIClient(mock, new ContextManager(store), {
+      tools: { t: { description: 't', handler: () => { runs++; ctrl.abort(); return 'R' } } },
+    })
+    await expect(c.replyInChat('k', 'hola', { signal: ctrl.signal })).rejects.toThrow()
+    expect(runs).toBe(1)
+    expect(await store.getConversation('k')).toBeUndefined()
   })
 
   it('a throwing audit sink never breaks the turn', async () => {

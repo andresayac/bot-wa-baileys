@@ -76,7 +76,8 @@ export function defaultConfirmPrompt(name: string, tool: AITool<unknown>, args: 
  * each handler under its timeout and feed the results back. Handler errors,
  * invalid arguments, unknown tools, timeouts and denials are all returned to
  * the model as failed tool results so it can recover. A cancelled confirmation
- * throws {@link AIToolCancelledError}.
+ * throws {@link AIToolCancelledError}. Tool calls requested in the last allowed
+ * step (`maxSteps`) are not run, since the model could never see their results.
  */
 export async function runToolLoop(opts: ToolLoopOptions): Promise<ToolLoopResult> {
   const maxSteps = Math.max(1, opts.maxSteps ?? DEFAULT_MAX_STEPS)
@@ -105,6 +106,8 @@ export async function runToolLoop(opts: ToolLoopOptions): Promise<ToolLoopResult
       emit({ ...base, type: 'tool.invalid_args', args: call.args, error: v.error })
       return fail(`Error: invalid arguments for "${call.name}": ${v.error}`)
     }
+    // An aborted turn (caller signal) must not ask for confirmations nor run more tools.
+    opts.signal?.throwIfAborted()
     emit({ ...base, type: 'tool.call', args: v.data })
 
     if (tool.confirm) {
@@ -161,6 +164,7 @@ export async function runToolLoop(opts: ToolLoopOptions): Promise<ToolLoopResult
   }
 
   for (let step = 1; step <= maxSteps; step++) {
+    opts.signal?.throwIfAborted()
     const r = await opts.generate({ ...opts.base, messages, tools: definitions.length ? definitions : undefined })
     last = r
     if (r.usage) { sawUsage = true; usage.input += r.usage.input; usage.output += r.usage.output }
@@ -168,6 +172,9 @@ export async function runToolLoop(opts: ToolLoopOptions): Promise<ToolLoopResult
     if (calls.length === 0) {
       return { text: r.text, model: r.model, stopReason: r.stopReason, steps: step, toolResults, usage: sawUsage ? usage : undefined, maxStepsReached: false }
     }
+    // Last step: running these calls would be pointless (the model never sees their
+    // results) and harmful for side-effecting / `confirm: true` tools — stop here.
+    if (step === maxSteps) break
     messages.push({ role: 'assistant', content: r.text, toolCalls: calls, providerData: r.providerData })
     const results: AIToolResult[] = []
     for (const call of calls) results.push(await runOne(call, step))

@@ -44,6 +44,26 @@ describe('bot.enterConversation', () => {
     expect(String(errors[0])).toMatch(/no-existe/)
   })
 
+  it('returns a promise that settles (never rejects) once the conversation has ended and been cleaned up', async () => {
+    const { bot, chat } = await createTestBot()
+    let ended: Promise<void> | undefined
+    let activeAfterEnd: boolean | undefined
+    bot.when('go', async (ctx) => {
+      ended = bot.enterConversation(async (c) => { await c.ask('¿Sí?') }, ctx)
+      void ended.then(() => { activeAfterEnd = bot.inspectConversation(ctx) !== undefined })
+    })
+    await chat.send('go')
+    await chat.expectReply('¿Sí?')
+    expect(activeAfterEnd).toBeUndefined()
+    await chat.send('ok')
+    await ended
+    expect(activeAfterEnd).toBe(false)
+    bot.on('error', () => {})
+    bot.when('bad', async (ctx) => { ended = bot.enterConversation('no-existe', ctx) })
+    await chat.send('bad')
+    await expect(ended).resolves.toBeUndefined()
+  })
+
   it('is available on the plugin-scoped bot', async () => {
     const { bot, chat } = await createTestBot()
     bot.plug(definePlugin({
