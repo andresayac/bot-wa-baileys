@@ -100,8 +100,12 @@ export class WPPConnectProvider implements IProvider<unknown> {
   private readonly logger: Logger
   private readonly identity: WaIdentityStore
   private readonly listeners = new Set<(e: InboundEvent) => void | Promise<void>>()
-  /** LIDs the pn-lid endpoint could not resolve — not retried for this process. */
-  private readonly unresolvable = new Set<string>()
+  /** LIDs whose pn-lid lookup failed or found no PN → time they may be retried (bounded). */
+  private readonly lidRetryAt = new Map<string, number>()
+  /** pn-lid lookups in flight, shared by concurrent webhooks. */
+  private readonly lidInFlight = new Map<string, Promise<void>>()
+  /** Settles when the previous webhook has emitted its events (per-provider FIFO). */
+  private emitTail: Promise<void> = Promise.resolve()
   private token: string | undefined
   private _selfId: string | null
 
@@ -121,7 +125,7 @@ export class WPPConnectProvider implements IProvider<unknown> {
     this.baseUrl = (config.baseUrl ?? 'http://localhost:21465').replace(/\/+$/, '')
     this.sessionPath = encodeURIComponent(config.session)
     this.http = resolveHttpPolicy(this.baseUrl, config.http)
-    this.identity = new WaIdentityStore(config.identityCacheSize)
+    this.identity = new WaIdentityStore(config.identityCacheSize, config.identityPersistence)
     this.token = config.token
     this._selfId = normalizeJid(config.selfId) ?? null
   }
@@ -175,12 +179,12 @@ export class WPPConnectProvider implements IProvider<unknown> {
     return token
   }
 
-  private async api<T = unknown>(method: string, endpoint: string, body?: unknown, chatId: ChatId = ''): Promise<T> {
+  private async api<T = unknown>(method: string, endpoint: string, body?: unknown, chatId: ChatId = '', http: RestHttpOptions = this.http): Promise<T> {
     if (!this.token) await this.generateToken()
     const call = () => restCall(
       `${this.baseUrl}/api/${this.sessionPath}/${endpoint}`,
       { method, headers: { authorization: `Bearer ${this.token}` }, body, label: `/api/{session}/${endpoint.split('/')[0]}` },
-      this.http,
+      http,
     )
     let res = await call()
     if (res.status === 401 && this.config.secretKey) {
@@ -240,20 +244,62 @@ export class WPPConnectProvider implements IProvider<unknown> {
     return false
   }
 
-  /** Link unknown LIDs to their phone number via `contact/pn-lid` (best effort, cached). */
-  private async resolveLids(lids: string[]): Promise<void> {
-    for (const lid of lids) {
-      if (this.identity.has(lid) || this.unresolvable.has(lid)) continue
+  /**
+   * Link unknown LIDs to their phone number via `contact/pn-lid` (best effort).
+   * Lookups run in parallel, capped per payload, with a short timeout; a LID
+   * whose lookup is already in flight is awaited instead of re-requested, and a
+   * failed one cools down for `lidRetryMs` before it is tried again.
+   */
+  private resolveLids(lids: string[]): Promise<void> {
+    const now = Date.now()
+    const todo = lids
+      .filter((lid) => {
+        const canonical = this.identity.lookup(lid)
+        if (canonical && !isLidJid(canonical)) return false // already linked to a PN
+        if (this.lidInFlight.has(lid)) return true
+        const retryAt = this.lidRetryAt.get(lid)
+        return retryAt === undefined || retryAt <= now
+      })
+      .slice(0, this.config.maxLidLookups ?? 5)
+    return Promise.all(todo.map((lid) => this.lookupLid(lid))).then(() => undefined)
+  }
+
+  private lookupLid(lid: string): Promise<void> {
+    const pending = this.lidInFlight.get(lid)
+    if (pending) return pending
+    const run = (async () => {
       try {
-        const res = await this.api<unknown>('GET', `contact/pn-lid/${encodeURIComponent(lid)}`)
+        const res = await this.api<unknown>('GET', `contact/pn-lid/${encodeURIComponent(lid)}`, undefined, '', {
+          ...this.http,
+          timeoutMs: this.config.lidLookupTimeoutMs ?? 5_000,
+        })
         const entry = isRecord(res) && isRecord(res.response) ? res.response : res
         const pn = isRecord(entry) ? jidOf(entry.phoneNumber) : undefined
-        if (pn && !isLidJid(pn)) this.identity.resolve(pn, lid)
-        else this.unresolvable.add(lid)
+        if (pn && !isLidJid(pn)) {
+          this.identity.resolve(pn, lid)
+          this.lidRetryAt.delete(lid)
+        } else {
+          this.coolDown(lid)
+        }
       } catch (err) {
-        this.unresolvable.add(lid)
+        this.coolDown(lid)
         this.logger.debug({ err }, 'WPPConnect pn-lid lookup failed')
+      } finally {
+        this.lidInFlight.delete(lid)
       }
+    })()
+    this.lidInFlight.set(lid, run)
+    return run
+  }
+
+  private coolDown(lid: string): void {
+    this.lidRetryAt.delete(lid)
+    this.lidRetryAt.set(lid, Date.now() + (this.config.lidRetryMs ?? 300_000))
+    const max = this.config.identityCacheSize ?? 10_000
+    while (this.lidRetryAt.size > max) {
+      const oldest = this.lidRetryAt.keys().next().value
+      if (oldest === undefined) break
+      this.lidRetryAt.delete(oldest)
     }
   }
 
@@ -286,8 +332,16 @@ export class WPPConnectProvider implements IProvider<unknown> {
       const to = jidOf(body.to)
       if (to && !isGroupJid(to) && !isLidJid(to)) this._selfId = to
     }
-    if (this.config.resolveLid !== false) await this.resolveLids(lidsIn(body))
-    for (const e of parseWebhook(body, { identity: this.identity, selfId: this._selfId })) this.fan(e)
+    // Lookups start now (in parallel with other webhooks), but events are parsed
+    // and emitted strictly in arrival order: the dispatcher's per-chat FIFO
+    // (e.g. `.ask()` answers) depends on it.
+    const lookups = this.config.resolveLid !== false ? this.resolveLids(lidsIn(body)) : Promise.resolve()
+    const payload = body
+    const emitted = this.emitTail.then(() => lookups).then(() => {
+      for (const e of parseWebhook(payload, { identity: this.identity, selfId: this._selfId })) this.fan(e)
+    })
+    this.emitTail = emitted.catch(() => undefined)
+    await emitted
     return 200
   }
 

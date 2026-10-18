@@ -126,7 +126,9 @@ export function parseMessage(data: EvolutionMessage, ctx: ParseContext): Inbound
   const broadcast = remote.endsWith('@broadcast')
   const chatId = group || channel || broadcast
     ? remote
-    : ctx.identity.resolve(remote, key.remoteJidAlt, key.senderPn, key.senderLid) ?? remote
+    // senderPn/senderLid describe the stanza sender — the bot itself on fromMe — so only
+    // remoteJidAlt (the peer's twin) may be linked to the chat then.
+    : ctx.identity.resolve(remote, key.remoteJidAlt, ...(key.fromMe ? [] : [key.senderPn, key.senderLid])) ?? remote
   const senderId = senderFor(key, group, chatId, ctx) ?? (key.fromMe ? 'me' : chatId)
 
   const reaction = rec(m.reactionMessage)

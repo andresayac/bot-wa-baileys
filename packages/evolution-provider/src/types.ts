@@ -6,6 +6,7 @@
  */
 
 import type { Logger } from 'pino'
+import type { IdentityPersistence } from './identity.js'
 import type { RestHttpOptions } from './rest.js'
 
 export interface EvolutionProviderConfig {
@@ -37,6 +38,12 @@ export interface EvolutionProviderConfig {
   http?: RestHttpOptions
   /** Max aliases kept by the LID↔PN identity map. Default 10 000. */
   identityCacheSize?: number
+  /**
+   * Durable LID↔PN map (sync read-through + write-on-change). Without it the
+   * canonical id of a contact first seen LID-only can differ after a restart;
+   * back it with persistent storage to keep `senderId` stable across restarts.
+   */
+  identityPersistence?: IdentityPersistence
   /** Ask Evolution to transcode inbound audio to MP4 when downloading. Default false. */
   convertAudioToMp4?: boolean
   debug?: boolean

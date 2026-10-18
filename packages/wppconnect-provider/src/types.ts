@@ -7,6 +7,7 @@
  */
 
 import type { Logger } from 'pino'
+import type { IdentityPersistence } from './identity.js'
 import type { RestHttpOptions } from './rest.js'
 
 export interface WPPConnectProviderConfig {
@@ -43,12 +44,24 @@ export interface WPPConnectProviderConfig {
    * `GET /api/{session}/contact/pn-lid/{lid}` before emitting. Default true.
    */
   resolveLid?: boolean
+  /** Max `pn-lid` lookups per webhook (sender/chat LIDs first, then mentions). Default 5. */
+  maxLidLookups?: number
+  /** Timeout of one `pn-lid` lookup. Default 5 000 ms. */
+  lidLookupTimeoutMs?: number
+  /** Cool-down before a LID whose lookup failed or found no PN is looked up again. Default 300 000 ms. */
+  lidRetryMs?: number
   /** The connected number (`573…@c.us`); learned from inbound DMs when omitted. */
   selfId?: string
   /** Network policy for REST calls to wppconnect-server. */
   http?: RestHttpOptions
   /** Max aliases kept by the LID↔PN identity map. Default 10 000. */
   identityCacheSize?: number
+  /**
+   * Durable LID↔PN map (sync read-through + write-on-change). Without it the
+   * canonical id of a contact first seen LID-only can differ after a restart;
+   * back it with persistent storage to keep `senderId` stable across restarts.
+   */
+  identityPersistence?: IdentityPersistence
   debug?: boolean
   logger?: Logger
 }

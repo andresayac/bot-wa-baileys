@@ -10,6 +10,7 @@ export type { ParseContext } from './parseInbound.js'
 export { toOutbound, keyFromRef, numberedMenu } from './toOutbound.js'
 export type { EvolutionOutbound } from './toOutbound.js'
 export { WaIdentityStore, normalizeJid } from './identity.js'
+export type { IdentityPersistence } from './identity.js'
 export { verifyHs256Jwt, signHs256Jwt } from './webhookAuth.js'
 export type { RestHttpOptions } from './rest.js'
 export type {

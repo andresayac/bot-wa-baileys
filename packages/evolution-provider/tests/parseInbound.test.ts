@@ -77,6 +77,19 @@ describe('parseWebhook — messages.upsert', () => {
     expect(ev.message.chatId).toBe(PN)
   })
 
+  it('ignores sender twins of fromMe DMs (they describe the bot, not the peer)', () => {
+    const c = ctx()
+    const own = fixture('messages-upsert-lid-only')
+    own.data.key.fromMe = true
+    own.data.key.senderPn = '573009998877@s.whatsapp.net'
+    const [ev] = parseWebhook(own, c)
+    if (ev.kind !== 'message') throw new Error('expected message')
+    expect(ev.message.chatId).toBe(LID)
+    const [next] = parseWebhook(fixture('messages-upsert-lid-only'), c)
+    if (next.kind !== 'message') throw new Error('expected message')
+    expect(next.message.senderId).toBe(LID)
+  })
+
   it('accepts an array of messages in data', () => {
     const one = fixture('messages-upsert-text-dm')
     const two = fixture('messages-upsert-lid-only')

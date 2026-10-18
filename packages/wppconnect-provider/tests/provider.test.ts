@@ -242,3 +242,68 @@ describe('WPPConnectProvider.ingest — webhook authentication', () => {
     expect(got[0]).toMatchObject({ kind: 'message', message: { senderId: '184523390222111@lid' } })
   })
 })
+
+describe('WPPConnectProvider.ingest — LID lookups', () => {
+  const H = { 'x-webhook-token': 'wh-secret' }
+  const pnLid = fixture('pn-lid-response')
+
+  it('emits in arrival order even when an earlier lookup is slower, sharing in-flight lookups', async () => {
+    let lookups = 0
+    let release!: () => void
+    const gate = new Promise<void>((r) => { release = r })
+    const { fetch } = fakeFetch(() => ({ body: pnLid }))
+    const slowFetch = (async (input: string | URL, init?: RequestInit) => {
+      if (String(input).includes('pn-lid')) { lookups++; await gate }
+      return fetch(input, init)
+    }) as typeof globalThis.fetch
+    const { provider } = make(undefined, { http: { fetch: slowFetch, resolver } })
+    const order: string[] = []
+    provider.onEvent((e) => { if (e.kind === 'message') order.push(e.message.body) })
+    const first = fixture('onmessage-lid-dm'); first.body = 'first'
+    const second = { ...fixture('onmessage-text-dm'), body: 'second' }
+    const third = fixture('onmessage-lid-dm'); third.body = 'third'; third.id = 'false_184523390222111@lid_3EB0F00DBABE00000099'
+    const p = Promise.all([provider.ingest(first, H), provider.ingest(second, H), provider.ingest(third, H)])
+    await new Promise((r) => setTimeout(r, 30))
+    expect(order).toEqual([])
+    release()
+    await p
+    expect(order).toEqual(['first', 'second', 'third'])
+    expect(lookups).toBe(1)
+  })
+
+  it('retries a LID whose lookup failed transiently and then links it to the known PN', async () => {
+    let n = 0
+    const { provider, calls } = make((call) => {
+      if (!call.url.includes('pn-lid')) return { body: {} }
+      return n++ === 0 ? { status: 503, body: { status: 'error' } } : { body: pnLid }
+    }, { lidRetryMs: 0 })
+    const ids: string[] = []
+    provider.onEvent((e) => { if (e.kind === 'message') ids.push(e.message.senderId) })
+    await provider.ingest(fixture('onmessage-text-dm'), H)
+    await provider.ingest(fixture('onmessage-lid-dm'), H)
+    await provider.ingest(fixture('onmessage-lid-dm'), H)
+    expect(calls.filter((c) => c.url.includes('pn-lid'))).toHaveLength(2)
+    expect(ids[0]).toBe('573001112233@c.us')
+    expect(ids[2]).toBe('573001112233@c.us')
+  })
+
+  it('does not hammer the gateway while a failed LID is cooling down', async () => {
+    const { provider, calls } = make(() => ({ status: 503, body: { status: 'error' } }))
+    await provider.ingest(fixture('onmessage-lid-dm'), H)
+    await provider.ingest(fixture('onmessage-lid-dm'), H)
+    expect(calls.filter((c) => c.url.includes('pn-lid'))).toHaveLength(1)
+  })
+})
+
+
+describe('WPPConnectProvider.ingest — LID lookup budget', () => {
+  it('caps lookups per webhook and runs them in parallel with a short timeout', async () => {
+    const { provider, calls } = make(() => ({ status: 404, body: { status: 'error' } }), { maxLidLookups: 3 })
+    const msg = fixture('onmessage-lid-dm')
+    msg.mentionedJidList = Array.from({ length: 50 }, (_, i) => `${1000 + i}@lid`)
+    expect(await provider.ingest(msg, { 'x-webhook-token': 'wh-secret' })).toBe(200)
+    const lookups = calls.filter((c) => c.url.includes('pn-lid'))
+    expect(lookups).toHaveLength(3)
+    expect(lookups[0].url).toContain(encodeURIComponent('184523390222111@lid'))
+  })
+})

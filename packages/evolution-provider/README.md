@@ -80,7 +80,8 @@ firma, caducidad y los claims `app: 'evolution'` / `action: 'webhook'`.
 | `allowUnsignedWebhooks` | `false` | Solo desarrollo local aislado. Sin secreto ni JWT, el constructor falla. |
 | `selfId` | — | JID propio; si falta, se lee de `/instance/fetchInstances` o del `connection.update`. |
 | `http` | — | `allowHttp` (por defecto, sí si `baseUrl` es `http://`), `allowPrivateHosts` (por defecto `true`: el gateway suele ser local), `timeoutMs` (30 s), `maxBytes` (64 MiB), `resolver`, `fetch`. |
-| `identityCacheSize` | `10000` | Tamaño máximo del mapa LID↔PN. |
+| `identityCacheSize` | `10000` | Tamaño máximo del mapa LID↔PN (LRU). |
+| `identityPersistence` | — | Mapa LID↔PN durable (`get`/`set` síncronos). Sin él, el id canónico de un contacto visto primero solo con LID puede cambiar tras un reinicio. |
 | `convertAudioToMp4` | `false` | Pide a Evolution el audio en MP4 al descargar. |
 
 `ingest()` devuelve el código HTTP: `200` (aceptado; también para otra instancia o

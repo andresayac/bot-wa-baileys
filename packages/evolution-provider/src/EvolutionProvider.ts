@@ -117,7 +117,7 @@ export class EvolutionProvider implements IProvider<unknown> {
     this.baseUrl = config.baseUrl.replace(/\/+$/, '')
     this.instancePath = encodeURIComponent(config.instance)
     this.http = resolveHttpPolicy(this.baseUrl, config.http)
-    this.identity = new WaIdentityStore(config.identityCacheSize)
+    this.identity = new WaIdentityStore(config.identityCacheSize, config.identityPersistence)
     this._selfId = normalizeJid(config.selfId) ?? null
   }
 

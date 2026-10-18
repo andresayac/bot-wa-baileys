@@ -77,9 +77,13 @@ Pasa la URL de la petición (`req.originalUrl` basta) como tercer argumento de
 | `startSession` | `true` | Llama a `start-session` en `start()`. |
 | `webhookUrl` | — | Webhook por sesión enviado en `start-session` (debe estar en `allowedUrls` del servidor). |
 | `resolveLid` | `true` | Resolver LIDs con `contact/pn-lid`. |
+| `maxLidLookups` | `5` | Máximo de consultas `pn-lid` por webhook (en paralelo). |
+| `lidLookupTimeoutMs` | `5000` | Timeout de cada consulta `pn-lid`. |
+| `lidRetryMs` | `300000` | Espera antes de reintentar un LID cuya consulta falló. |
 | `selfId` | — | Número propio (`573…@c.us`); si falta se aprende del `to` de un DM entrante. |
 | `http` | — | `allowHttp`, `allowPrivateHosts` (por defecto `true`), `timeoutMs` (30 s), `maxBytes` (64 MiB), `resolver`, `fetch`. |
-| `identityCacheSize` | `10000` | Tamaño máximo del mapa LID↔PN. |
+| `identityCacheSize` | `10000` | Tamaño máximo del mapa LID↔PN (LRU). |
+| `identityPersistence` | — | Mapa LID↔PN durable (`get`/`set` síncronos). Sin él, el id canónico de un contacto visto primero solo con LID puede cambiar tras un reinicio. |
 
 `ingest()` resuelve al código HTTP: `200` (aceptado; también para otra sesión o
 eventos desconocidos), `401` (token inválido) o `400` (no es un webhook válido).

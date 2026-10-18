@@ -25,4 +25,37 @@ describe('WaIdentityStore', () => {
     expect(ids.has('9@lid')).toBe(true)
     expect(ids.has('0@lid')).toBe(false)
   })
+  it('keeps the PN/LID link of an active contact (recency, not insertion order)', () => {
+    const ids = new WaIdentityStore(4)
+    ids.resolve('111@s.whatsapp.net', '999@lid')
+    for (let i = 0; i < 4; i++) {
+      expect(ids.resolve('999@lid')).toBe('111@s.whatsapp.net')
+      ids.resolve(`2${i}@s.whatsapp.net`)
+    }
+    expect(ids.resolve('999@lid')).toBe('111@s.whatsapp.net')
+  })
+})
+
+describe('WaIdentityStore persistence', () => {
+  it('reuses the canonical id stored by a previous process', () => {
+    const db = new Map<string, string>()
+    const persistence = { get: (a: string) => db.get(a), set: (a: string, c: string) => { db.set(a, c) } }
+    const before = new WaIdentityStore(100, persistence)
+    expect(before.resolve('999@lid')).toBe('999@lid')
+    // restart: the first message now carries the PN twin
+    const after = new WaIdentityStore(100, persistence)
+    expect(after.resolve('111@s.whatsapp.net', '999@lid')).toBe('999@lid')
+    expect(after.lookup('111@s.whatsapp.net')).toBe('999@lid')
+  })
+
+  it('recovers evicted links from the persistence and only writes on change', () => {
+    const db = new Map<string, string>()
+    let writes = 0
+    const ids = new WaIdentityStore(2, { get: (a) => db.get(a), set: (a, c) => { writes++; db.set(a, c) } })
+    ids.resolve('111@s.whatsapp.net', '999@lid')
+    ids.resolve('2@s.whatsapp.net')
+    ids.resolve('3@s.whatsapp.net')
+    expect(ids.resolve('999@lid')).toBe('111@s.whatsapp.net')
+    expect(writes).toBe(4)
+  })
 })
