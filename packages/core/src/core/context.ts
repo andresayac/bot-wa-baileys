@@ -18,6 +18,7 @@ import { humanTypingDelay, sleep } from '../utils/timers.js'
 import { unavailableUserData } from '../user/UserDataService.js'
 import { isEditableSend, isMessageRef, type EditOptions, type EditResult, type ReplyOptions } from './messaging.js'
 import { UnsupportedContentError } from './provider.js'
+import { defaultI18n, normalizeLocale } from '../i18n/I18n.js'
 import type {
   BuildContextDeps,
   Button,
@@ -188,6 +189,27 @@ export function buildMessageContext(deps: BuildContextDeps): IMessageContext {
     abort() { (ctx as unknown as { _aborted?: boolean })._aborted = true },
 
     user: deps.user ?? unavailableUserData(inbound.senderId),
+
+    /* i18n — ctx.lang is re-resolved by the Bot inside the per-chat queue */
+    lang: (deps.i18n ?? defaultI18n).defaultLocale,
+    t(key, params) { return (deps.i18n ?? defaultI18n).translate(ctx.lang, key, params) },
+    async setLang(code: string) {
+      const i18n = deps.i18n ?? defaultI18n
+      const requested = normalizeLocale(code)
+      if (!requested) throw new TypeError('setLang() expects a non-empty locale code')
+      // Without i18n turned on the next message would ignore the preference, so refuse
+      // instead of switching for a single reply.
+      if (!i18n.enabled) {
+        throw new Error('setLang(): i18n is not enabled; call bot.locale(...) or set BotConfig.i18n first')
+      }
+      const lang = i18n.supported(requested)
+      if (!lang) {
+        const shown = requested.length > 32 ? `${requested.slice(0, 32)}…` : requested
+        throw new TypeError(`setLang(): no registered locale serves "${shown}" (see bot.locale())`)
+      }
+      await ctx.user.set(i18n.userKey, lang)
+      ctx.lang = lang
+    },
 
     tools: tools as DefaultTools,
   }

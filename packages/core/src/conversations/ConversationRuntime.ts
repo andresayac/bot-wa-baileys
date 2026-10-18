@@ -9,6 +9,9 @@ import type { FlowCheckpoint } from '../store/IStore.js'
 import type { UserData } from '../user/types.js'
 import type { ReplyOptions } from '../core/messaging.js'
 import { randomId } from '../utils/timers.js'
+import { translateFor } from '../i18n/I18n.js'
+import { CORE_MESSAGES } from '../i18n/builtins.js'
+import type { TranslateParams } from '../i18n/types.js'
 
 export interface RuntimeMessage {
   from: string; sender: string; body: string; type: string; isGroup: boolean
@@ -16,6 +19,10 @@ export interface RuntimeMessage {
   reply(text: string, opts?: ReplyOptions): Promise<unknown>
   /** Sender profile when the message came through a Bot (`userOf(ctx)` gives a non-optional handle). */
   user?: UserData
+  /** Resolved language when the message came through a Bot (see `MessageContext.lang`). */
+  lang?: string
+  /** Bound translator when the message came through a Bot (see `MessageContext.t`). */
+  t?(key: string, params?: TranslateParams): string
 }
 
 export interface ResolvedWaitOptions {
@@ -136,6 +143,8 @@ interface ActiveConversation extends ConversationHandle {
   observers?: Set<ConversationObserver>
   /** Lifecycle bookkeeping for start/end observers; `ended` makes the end report fire once. */
   life?: { info: ConversationStartInfo; startedAt: number; ended: boolean }
+  /** Most recent inbound message routed to this conversation (drives c.t / built-in messages). */
+  latest?: RuntimeMessage
 }
 
 const INBOX_CAP = 10
@@ -287,6 +296,15 @@ export class ConversationRuntime {
   }
 
   async enter(nameOrFn: string | ConversationFn, ctx: RuntimeMessage, opts: EnterOptions = {}): Promise<void> {
+    return this.run(nameOrFn, ctx, opts)
+  }
+
+  /**
+   * `latest` seeds the new entry's latest message: on `c.goto()` the target inherits the
+   * newest message of the conversation it replaces, so `c.t`/`c.lang` and the built-in
+   * messages keep the language the user switched to mid-conversation.
+   */
+  private async run(nameOrFn: string | ConversationFn, ctx: RuntimeMessage, opts: EnterOptions = {}, latest?: RuntimeMessage): Promise<void> {
     const fn = typeof nameOrFn === 'string' ? this.registry.get(nameOrFn) : nameOrFn
     if (!fn) throw new Error(`Conversation "${String(nameOrFn)}" is not registered`)
     const name = typeof nameOrFn === 'string' ? nameOrFn : (opts.name ?? (fn.name || '(anonymous)'))
@@ -297,7 +315,7 @@ export class ConversationRuntime {
     this.preserveOnAbort.delete(key)
     if (this.active.has(key)) this.abort(key)
 
-    const entry: ActiveConversation = { key, state: opts.state ? { ...opts.state } : {}, inbox: [] }
+    const entry: ActiveConversation = { key, state: opts.state ? { ...opts.state } : {}, inbox: [], ...(latest ? { latest } : {}) }
     this.active.set(key, entry)
     const startInfo: ConversationStartInfo = { id: randomId('conv'), name, key, ctx }
     entry.life = { info: startInfo, startedAt: Date.now(), ended: false }
@@ -319,30 +337,31 @@ export class ConversationRuntime {
         goto = e
       } else if (e instanceof ConversationTimeout) {
         outcome = 'timedOut'
-        await this.safeReply(ctx, this.cfg.timeoutMessage ?? '⏰ La conversación expiró por inactividad.')
+        await this.safeReply(ctx, this.cfg.timeoutMessage ?? translateFor(entry.latest ?? ctx, CORE_MESSAGES.timeout))
       } else if (e instanceof ConversationCancelled) {
         outcome = 'cancelled'
         if (!e.silent && this.cfg.cancelledMessage) await this.safeReply(ctx, this.cfg.cancelledMessage)
       } else if (e instanceof RetriesExceeded) {
         outcome = 'retriesExceeded'
-        await this.safeReply(ctx, this.cfg.retriesMessage ?? '❌ Demasiados intentos. Conversación terminada.')
+        await this.safeReply(ctx, this.cfg.retriesMessage ?? translateFor(entry.latest ?? ctx, CORE_MESSAGES.retries))
       } else {
         outcome = 'error'
         this.cfg.onError?.(e, ctx)
         this.cfg.logger?.error?.('conversation error', e)
-        await this.safeReply(ctx, this.cfg.errorMessage ?? '⚠️ Ocurrió un error. La conversación terminó.')
+        await this.safeReply(ctx, this.cfg.errorMessage ?? translateFor(entry.latest ?? ctx, CORE_MESSAGES.error))
       }
     } finally {
       this.cleanup(entry)
       // An aborted conversation already reported its end (as cancelled) from abort().
       this.reportEnd(entry, entry.cancelled ? 'cancelled' : outcome, entry.cancelled ? undefined : goto?.target)
     }
-    if (goto && !entry.cancelled) await this.enter(goto.target, ctx)
+    if (goto && !entry.cancelled) await this.run(goto.target, ctx, {}, entry.latest)
   }
 
   deliver(ctx: RuntimeMessage): boolean {
     const entry = this.active.get(this.keyFor(ctx))
     if (!entry) return false
+    entry.latest = ctx
     if (entry.observers) for (const o of [...entry.observers]) { try { o.inbound?.(ctx) } catch { /* observers must not break delivery */ } }
     if (entry.pending) {
       if (entry.pending.filter && !entry.pending.filter(ctx)) return false
@@ -447,6 +466,15 @@ export class ConversationRuntime {
       if (timeoutMs > 0) pending.timer = setTimeout(() => pending.reject(new ConversationTimeout()), timeoutMs)
       entry.pending = pending
     })
+  }
+
+  /**
+   * The most recent inbound message routed to the conversation of `handle` (the one that
+   * entered it until another arrives), or `undefined` when none was delivered yet. Used
+   * by `c.t` so a language switch mid-conversation is honoured.
+   */
+  latestMessage(handle: ConversationHandle): RuntimeMessage | undefined {
+    return (handle as ActiveConversation).latest
   }
 
   getState(handle: ConversationHandle): Record<string, unknown> {

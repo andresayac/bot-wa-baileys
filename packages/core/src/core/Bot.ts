@@ -94,6 +94,8 @@ import type { UserDataEntry } from './provider.js'
 import { MetricsCollector, type BotMetricsSnapshot, type ConversationEndedEvent, type ConversationStartedEvent } from '../ops/metrics.js'
 import { runBroadcast, type BroadcastOptions, type BroadcastResult } from '../ops/broadcast.js'
 import { assertTriggerArgs, triggerInbound, type TriggerOptions, type TriggerResult } from '../ops/trigger.js'
+import { I18n } from '../i18n/I18n.js'
+import type { I18nConfig, LocaleMessages, TranslateParams } from '../i18n/types.js'
 
 /** A user message handler — receives the full inbound {@link MessageContext}. */
 export type MessageHandler = (ctx: MessageContext) => unknown | Promise<unknown>
@@ -242,6 +244,8 @@ export class Bot extends EventEmitter {
   private counters = new MetricsCollector()
   /** Aborted by {@link stop}: cancels running broadcasts so nothing is sent through a stopped provider. */
   private lifecycleAbort = new AbortController()
+  /** Locale registry behind `bot.locale()` / `ctx.t()` (see i18n/I18n.ts). */
+  private i18n: I18n
 
   constructor(config: BotConfig) {
     super()
@@ -294,6 +298,8 @@ export class Bot extends EventEmitter {
       this.store = new NamespacedStore(baseStore, this.namespace)
     }
     this.users = new UserDataService(this.store, { logger: this.logger.child({ module: 'user-data' }) })
+    this.i18n = new I18n({ logger: this.logger.child({ module: 'i18n' }) })
+    if (this.config.i18n !== undefined) this.i18n.configure(this.config.i18n)
 
     const conv = this.config.conversation ?? {}
     this.runtime = new ConversationRuntime({
@@ -342,6 +348,11 @@ export class Bot extends EventEmitter {
         const admitted = this.handoffs.admits(ctx)
         if (!admitted) this.counters.handoffDropped()
         return admitted
+      },
+      prepare: async (ctx) => {
+        if (!this.i18n.enabled) return
+        const mctx = this.asMessage(ctx)
+        mctx.lang = await this.i18n.resolve(mctx)
       },
     })
 
@@ -968,6 +979,61 @@ export class Bot extends EventEmitter {
   }
 
   /* =========================================================================
+   * I18N  (see i18n/I18n.ts)
+   * ====================================================================== */
+
+  /**
+   * Register (deep-merge) the messages of locale `code`, or — with an options
+   * object — configure i18n (`defaultLocale`, `detect`, `providerLanguage`,
+   * `userKey`). Either form turns on per-message language resolution:
+   * `ctx.user` preference → provider-reported language → `detect` → default.
+   * Keys nest (`ctx.t('menu.title')`), `{param}` placeholders are interpolated
+   * and `{ one, other, zero? }` leaves pick a plural form from `params.count`.
+   * The built-in core messages live under `core.*` (`es` and `en` ship) and
+   * can be overridden here. Throws `TypeError` on an invalid code or message tree.
+   *
+   * @example
+   * ```ts
+   * bot.locale('es', { greeting: '¡Hola, {name}!', cart: { one: '{count} producto', other: '{count} productos' } })
+   * bot.locale('en', { greeting: 'Hello, {name}!', cart: { one: '{count} item', other: '{count} items' } })
+   * bot.locale({ defaultLocale: 'es' })
+   * bot.when('hola', (ctx) => ctx.reply(ctx.t('greeting', { name: ctx.pushName ?? '' })))
+   * bot.command('lang', async (ctx, [code]) => {
+   *   if (!code || !bot.locales().includes(code.toLowerCase())) return ctx.reply(bot.locales().join(', '))
+   *   await ctx.setLang(code)
+   * })
+   * ```
+   */
+  locale(code: string, messages: LocaleMessages): this
+  locale(options: I18nConfig): this
+  locale(codeOrOptions: string | I18nConfig, messages?: LocaleMessages): this {
+    if (typeof codeOrOptions === 'string') this.i18n.add(codeOrOptions, messages as LocaleMessages)
+    else this.i18n.configure(codeOrOptions)
+    return this
+  }
+
+  /**
+   * Translate outside a handler (scheduled jobs, broadcasts): `lang` defaults to the
+   * default locale. Pair it with {@link langOf} to use a user's stored preference.
+   */
+  t(key: string, params?: TranslateParams, lang?: string): string {
+    return this.i18n.translate(lang ?? this.i18n.defaultLocale, key, params)
+  }
+
+  /**
+   * The stored language preference of `userId` (`ctx.setLang`) when a registered locale
+   * serves it, else the default locale — the same language `ctx.lang` would resolve from
+   * the stored value (always the default while i18n is off). A store read failure
+   * resolves the default (logged at debug level).
+   */
+  async langOf(userId: UserId): Promise<string> {
+    return this.i18n.languageOf(this.users.for(userId))
+  }
+
+  /** Registered locale codes, built-in `es`/`en` included. */
+  locales(): string[] { return this.i18n.locales() }
+
+  /* =========================================================================
    * DEPENDENCY INJECTION
    * ====================================================================== */
 
@@ -1472,6 +1538,7 @@ export class Bot extends EventEmitter {
       interaction,
       user: this.users.for(inbound.senderId),
       ...this.messagingDeps(),
+      i18n: this.i18n,
     })
 
     // Group mode filter.
@@ -1556,6 +1623,7 @@ export class Bot extends EventEmitter {
       handoff: (chatId, opts) => this.handoff(chatId, opts),
       user: this.users.for(inbound.senderId),
       ...this.messagingDeps(),
+      i18n: this.i18n,
     })
     ctx.call = call
     await this.dispatcher.dispatchEvent(ctx as unknown as DispatchContext)

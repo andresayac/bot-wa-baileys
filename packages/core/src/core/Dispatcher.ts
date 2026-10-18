@@ -41,6 +41,12 @@ export interface DispatcherDeps {
    * wires a store-backed `WelcomeTracker`; when omitted, an in-memory one is used.
    */
   firstContact?: (ctx: DispatchContext) => Promise<boolean>
+  /**
+   * Per-context preparation run INSIDE the per-chat FIFO, before `before('message')`
+   * hooks (and before type matchers for projected events) — e.g. resolving `ctx.lang`
+   * from the store without reordering a chat's messages. Must not reject.
+   */
+  prepare?: (ctx: DispatchContext) => Promise<void>
 }
 
 interface MatcherEntry {
@@ -173,7 +179,8 @@ export class Dispatcher {
    *   3. persistence — chat, contact and message upserts
    *   4. groupMode filter — a group message the bot must ignore stops here (still persisted)
    *  Dispatcher (per-chat FIFO queue, this method)
-   *   5. before('message') hooks — may abort
+   *   5. language resolution (`prepare`: `ctx.lang` from ctx.user → provider → detector
+   *      → default, only while i18n is on), then before('message') hooks — may abort
    *   6. handoff gate — a handed-off chat skips 7–11 (except `handoff.allowCommands`)
    *   7. commands — always beat an active conversation (`/reset` escape)
    *   8. active conversation (`c.ask`/`c.retry`/… waits)
@@ -188,7 +195,9 @@ export class Dispatcher {
    * runs hooks and still emits 'message' (inbox/agents see it) but nothing routes it;
    * WELCOME sits after commands/conversations so those never spend the welcome. Call
    * events take a separate path (`dispatchEvent`): same access/handoff gates in the Bot,
-   * then only CALL type triggers — no message hooks, commands or 'message' event.
+   * then `prepare` (so `ctx.lang` is resolved) and only CALL type triggers — no message
+   * hooks, commands or 'message' event. `prepare` runs inside the queue so the language
+   * read from the store never reorders a chat's messages.
    * `bot.trigger()` bypasses this method too: access lists in the Bot, then
    * {@link runExclusive} (the chat's FIFO slot) → handoff gate → conversation start —
    * no dedupe, persistence, message hooks, matchers or 'message' event.
@@ -197,6 +206,7 @@ export class Dispatcher {
     const { hooks, runtime, emit } = this.deps
     const prefix = this.deps.commandPrefix ?? '/'
     try {
+      if (this.deps.prepare) await this.deps.prepare(ctx)
       if (!(await hooks.runBefore('message', ctx))) return
 
       // 0. routing gate (human handoff): skip every routing stage, still finish()
@@ -294,6 +304,7 @@ export class Dispatcher {
     const { runtime } = this.deps
     const key = runtime.keyFor(ctx)
     try {
+      if (this.deps.prepare) await this.deps.prepare(ctx)
       for (const m of this.matchers) {
         if (!isTypeTrigger(m.trigger) || !matchTrigger(m.trigger, ctx)) continue
         // Never let an event replace a conversation in progress: enter() would abort it and

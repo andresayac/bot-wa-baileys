@@ -341,3 +341,20 @@ export type { BotMetricsSnapshot, ConversationCounters, ConversationStartedEvent
 export { toPrometheus, PROMETHEUS_CONTENT_TYPE } from './ops/prometheus.js'
 export type { PrometheusOptions } from './ops/prometheus.js'
 export type { ConversationOutcome, EnterOptions, ConversationStartInfo, ConversationEndInfo } from './conversations/ConversationRuntime.js'
+// i18n
+// Native i18n: `bot.locale()`, `ctx.t()` / `c.t()`, `ctx.setLang()` and the
+// localizable built-in core messages (`core.*`, `es` + `en`).
+export { I18n, normalizeLocale, providerLanguageOf } from './i18n/I18n.js'
+export type { I18nOptions, I18nLogger } from './i18n/I18n.js'
+export { CORE_MESSAGES, BUILTIN_LOCALES } from './i18n/builtins.js'
+export type { CoreMessageKey } from './i18n/builtins.js'
+export type {
+  I18nConfig,
+  LanguageDetector,
+  LocaleMessages,
+  PluralCategory,
+  PluralForms,
+  Translate,
+  TranslateParams,
+} from './i18n/types.js'
+export type { ContextI18n } from './core/provider.js'

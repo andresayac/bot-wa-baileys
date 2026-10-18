@@ -20,7 +20,8 @@ flowchart TD
     ACL -->|No| P[Persistir chat, contacto, mensaje]
     P --> GM{"Filtro groupMode"}
     GM -->|Ignorado| X2[Se detiene aquí]
-    GM -->|OK| B["hooks before('message')"]
+    GM -->|OK| L["Resolver ctx.lang (i18n)"]
+    L --> B["hooks before('message')"]
     B --> HO{"¿Chat en handoff<br/>con un humano?"}
     HO -->|"Sí (salvo allowCommands)"| J
     HO -->|No| C{"¿Es un comando? ej. /reset"}
@@ -49,7 +50,11 @@ flowchart TD
 3. **Persistencia**: se guardan el chat, el contacto y el mensaje en el store.
 4. **Filtro `groupMode`**: un mensaje de grupo que el bot debe ignorar se
    detiene aquí (sí se persiste).
-5. **Hooks `before('message')`**: pueden hacer `abort()` del mensaje.
+5. **Resolución del idioma y hooks `before('message')`**: con el
+   [i18n](./i18n) activado, primero se resuelve `ctx.lang` (preferencia
+   guardada en `ctx.user` → idioma que informa el provider → `detect` →
+   idioma por defecto), así que hooks y handlers ya lo ven. Después corren
+   los hooks, que pueden hacer `abort()` del mensaje.
 6. **Gate de handoff**: mientras un chat está [en manos de un humano](./handoff),
    se saltan los pasos 7–11 (salvo los comandos de `handoff.allowCommands`).
    El mensaje se sigue persistiendo, los hooks siguen corriendo y
@@ -75,8 +80,8 @@ flowchart TD
     se rearman los temporizadores de `bot.onIdle`).
 
 Las **llamadas** entrantes siguen un camino aparte: los mismos gates de
-listas de acceso y handoff, y después solo los
-[triggers `CALL`](./triggers#call). Sin hooks de mensaje, comandos ni
+listas de acceso y handoff, la misma resolución del idioma y después solo
+los [triggers `CALL`](./triggers#call). Sin hooks de mensaje, comandos ni
 evento `'message'`.
 
 `bot.trigger(name, { chatId })` (arrancar un flujo sin mensaje entrante)

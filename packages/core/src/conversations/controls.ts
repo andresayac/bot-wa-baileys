@@ -9,6 +9,9 @@ import { DEFAULT_SCHEMA_MESSAGE, parseWithSchema, type SchemaLike } from '../flo
 
 /** Wait options with a zod-compatible `schema`: the wait resolves with the schema's parsed value. */
 export type SchemaWaitOptions<T> = WaitOptions & { schema: SchemaLike<T> }
+import { defaultI18n, translateFor } from '../i18n/I18n.js'
+import { CORE_MESSAGES } from '../i18n/builtins.js'
+import type { TranslateParams } from '../i18n/types.js'
 
 const MEDIA_TYPES = ['image', 'video', 'audio', 'document', 'sticker'] as const
 type MediaType = (typeof MEDIA_TYPES)[number]
@@ -78,6 +81,14 @@ export interface ConversationControls extends ConversationControlsBase {
   idle(duration: string | number, callback: IdleCallback): void
   /** Disarm the watchdog armed with {@link idle} (no-op if none). */
   idleClear(): void
+  /**
+   * Translate `key` in the conversation's current language — that of the latest message
+   * the user sent to it (so a `ctx.setLang()` mid-conversation is honoured). Same
+   * semantics as `ctx.t`.
+   */
+  t(key: string, params?: TranslateParams): string
+  /** The conversation's current language (see {@link t}). */
+  readonly lang: string
 }
 
 export function createControls(rt: ConversationRuntime, handle: ConversationHandle, ctx: RuntimeMessage): ConversationControls {
@@ -114,9 +125,9 @@ export function createControls(rt: ConversationRuntime, handle: ConversationHand
   }
 
   const acceptText = (opts?: WaitOptions & { schema?: SchemaLike<unknown> }) => async (m: RuntimeMessage): Promise<WaitVerdict<unknown>> => {
-    if (m.type !== 'text') return { ok: false, message: opts?.otherwise ?? '✍️ Escribe tu respuesta como texto.' }
+    if (m.type !== 'text') return { ok: false, message: opts?.otherwise ?? translateFor(m, CORE_MESSAGES.waitText) }
     const v = opts?.validate ? await opts.validate(m.body, m) : true
-    if (v !== true) return { ok: false, message: typeof v === 'string' ? v : '❌ Entrada inválida, intenta de nuevo.' }
+    if (v !== true) return { ok: false, message: typeof v === 'string' ? v : translateFor(m, CORE_MESSAGES.waitInvalid) }
     const schema = opts?.schema
     if (!schema) return { ok: true, value: m.body }
     const parsed = await parseWithSchema(schema, m.body)
@@ -124,6 +135,8 @@ export function createControls(rt: ConversationRuntime, handle: ConversationHand
       ? { ok: true, value: parsed.value }
       : { ok: false, message: opts?.otherwise ?? parsed.message ?? DEFAULT_SCHEMA_MESSAGE }
   }
+
+  const current = () => rt.latestMessage(handle) ?? ctx
 
   const idle = createIdleControls(rt, handle, ctx, (callback) => tracker.runOutOfBand(callback))
 
@@ -143,7 +156,7 @@ export function createControls(rt: ConversationRuntime, handle: ConversationHand
     waitMedia: (types = [...MEDIA_TYPES], opts) => loopWait<RuntimeMessage>(opts, async (m) => {
       return (types as string[]).includes(m.type)
         ? { ok: true, value: m }
-        : { ok: false, message: opts?.otherwise ?? '📎 Envía un archivo válido.' }
+        : { ok: false, message: opts?.otherwise ?? translateFor(m, CORE_MESSAGES.waitMedia) }
     }),
 
     choose: async (prompt, options, opts) => {
@@ -167,6 +180,8 @@ export function createControls(rt: ConversationRuntime, handle: ConversationHand
     retry<T = string>(message?: string): Promise<T> { return tracker.retry<T>(message) },
     idle: idle.idle,
     idleClear: idle.idleClear,
+    t: (key, params) => translateFor(current(), key, params),
+    get lang() { return current().lang ?? defaultI18n.defaultLocale },
   }
   bindTracker(controls, tracker)
   return controls
