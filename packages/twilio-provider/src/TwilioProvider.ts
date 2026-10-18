@@ -36,7 +36,7 @@ import { PayloadTooLargeError, ProviderError } from '@bot-wa/core'
 import { secureFetch } from '@bot-wa/http'
 import { BoundedMap, header, rawText, request, retryAfterMs, type HeaderBag } from './http.js'
 import { channelOf, parseInbound } from './parseInbound.js'
-import { paramsFromObject, parseFormParams, verifyTwilioSignature, type TwilioParams } from './signature.js'
+import { bodySha256, paramsFromObject, parseFormParams, verifyTwilioSignature, type TwilioParams } from './signature.js'
 import { toOutbound } from './toOutbound.js'
 import { toTwilioError } from './errors.js'
 import type { TwilioErrorBody, TwilioMessageResource, TwilioProviderConfig, TwilioWebhookParams } from './types.js'
@@ -78,10 +78,11 @@ export class TwilioProvider implements IProvider<TwilioWebhookParams> {
     if (!config.authToken && !(config.apiKeySid && config.apiKeySecret)) {
       throw new Error('TwilioProvider requires `authToken` or `apiKeySid` + `apiKeySecret` for REST calls.')
     }
+    // `??` per field: an explicit `undefined` (e.g. an unset env var) keeps the default.
     this.config = {
-      apiBaseUrl: 'https://api.twilio.com',
-      messagingBaseUrl: 'https://messaging.twilio.com',
       ...config,
+      apiBaseUrl: config.apiBaseUrl ?? 'https://api.twilio.com',
+      messagingBaseUrl: config.messagingBaseUrl ?? 'https://messaging.twilio.com',
     }
     this.logger = config.logger ?? pino({ level: config.debug ? 'debug' : 'error' })
     if (config.allowUnsignedWebhooks) {
@@ -127,11 +128,25 @@ export class TwilioProvider implements IProvider<TwilioWebhookParams> {
    */
   ingest(rawEvent: unknown, headers?: HeaderBag): number {
     const url = this.config.webhookUrl ?? this.urlFromHeaders(headers)
-    return this.ingestRequest({ url: url ?? '', body: rawEvent, ...(headers ? { headers } : {}) })
+    return this.handleWebhook({ url: url ?? '', body: rawEvent, ...(headers ? { headers } : {}) }, true)
   }
 
-  /** Feed a webhook POST with the exact URL Twilio called (multi-tenant / dynamic paths). */
+  /**
+   * Feed a webhook POST with the exact URL Twilio called (multi-tenant /
+   * dynamic paths). For JSON webhooks that URL must include the
+   * `bodySHA256` query parameter Twilio added; without it the request is 403.
+   */
   ingestRequest(req: TwilioIngestRequest): number {
+    return this.handleWebhook(req, false)
+  }
+
+  /**
+   * `deriveBodyHash`: the URL is the configured base URL, which never has the
+   * per-request `bodySHA256`. For a JSON body, append the hash of the received
+   * body the way Twilio does; the signature then covers that hash, so a
+   * different body cannot reuse it.
+   */
+  private handleWebhook(req: TwilioIngestRequest, deriveBodyHash: boolean): number {
     const raw = rawText(req.body)
     let params: TwilioParams
     let jsonBody = false
@@ -160,10 +175,14 @@ export class TwilioProvider implements IProvider<TwilioWebhookParams> {
         this.logger.error('Twilio webhook rejected: no webhook URL to verify against (set `webhookUrl` or use ingestRequest)')
         return 403
       }
+      let url = req.url
+      if (jsonBody && deriveBodyHash && !hasBodyHash(url)) {
+        url = `${url}${url.includes('?') ? '&' : '?'}bodySHA256=${bodySha256(raw as string)}`
+      }
       const ok = verifyTwilioSignature({
         authToken: this.config.authToken,
         signature: header(req.headers, 'x-twilio-signature'),
-        url: req.url,
+        url,
         ...(jsonBody ? { rawBody: raw as string } : { params }),
       })
       if (!ok) {
@@ -288,4 +307,12 @@ export class TwilioProvider implements IProvider<TwilioWebhookParams> {
 
   /** Twilio quick replies need no acknowledgement — no-op. */
   async acknowledgeInteraction(_interactionId: string, _opts?: { text?: string; defer?: boolean }): Promise<void> {}
+}
+
+function hasBodyHash(url: string): boolean {
+  try {
+    return new URL(url).searchParams.has('bodySHA256')
+  } catch {
+    return false
+  }
 }

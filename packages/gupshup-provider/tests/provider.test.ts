@@ -153,6 +153,18 @@ describe('GupshupProvider — inbound normalization', () => {
   })
 })
 
+describe('GupshupProvider — config defaults', () => {
+  it('an explicit undefined in the config keeps the defaults', async () => {
+    const { provider, calls, events } = make(undefined, { baseUrl: undefined, webhookTokenHeader: undefined, webhookTokenParam: undefined })
+    expect(provider.ingest(json(TEXT), authed)).toBe(200)
+    expect(provider.ingestRequest({ url: `/gupshup?token=${TOKEN}`, body: json(TEXT) })).toBe(200)
+    expect(provider.ingestRequest({ url: '/gupshup?undefined=x', body: json(TEXT) })).toBe(401)
+    expect(events.filter((e) => e.kind === 'message')).toHaveLength(2)
+    await provider.send('9', { kind: 'text', text: 'Hola' })
+    expect(calls[0]!.url).toBe('https://api.gupshup.io/wa/api/v1/msg')
+  })
+})
+
 describe('GupshupProvider — outbound', () => {
   it('POSTs /wa/api/v1/msg form-encoded with apikey header', async () => {
     const { provider, calls } = make()

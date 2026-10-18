@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import { createHash } from 'node:crypto'
 import {
   OutsideSessionWindowError,
   PayloadTooLargeError,
@@ -55,6 +56,14 @@ describe('TwilioProvider — construction & lifecycle', () => {
   })
 })
 
+describe('TwilioProvider — config defaults', () => {
+  it('an explicit undefined in the config keeps the defaults (no raw TypeError)', async () => {
+    const { provider, calls } = make(undefined, { apiBaseUrl: undefined, messagingBaseUrl: undefined })
+    await provider.send('whatsapp:+573001112233', { kind: 'text', text: 'hola' })
+    expect(calls[0]!.url).toBe(`https://api.twilio.com/2010-04-01/Accounts/${SID}/Messages.json`)
+  })
+})
+
 describe('TwilioProvider — webhook signature', () => {
   it('accepts a correctly signed raw form body', () => {
     const { provider, events } = make()
@@ -105,6 +114,44 @@ describe('TwilioProvider — webhook signature', () => {
     const { provider } = make(undefined, { webhookUrl: undefined })
     const { body, headers } = signed(WA_TEXT)
     expect(provider.ingest(body, headers)).toBe(403)
+  })
+
+  it('JSON body: a URL-only signature without bodySHA256 never authenticates the body (403)', () => {
+    const { provider, events } = make(undefined, { webhookUrl: undefined })
+    const sig = computeTwilioSignature(TOKEN, HOOK, {})
+    const forged = JSON.stringify({ ...WA_TEXT, Body: 'forged' })
+    expect(provider.ingestRequest({ url: HOOK, body: forged, headers: { 'x-twilio-signature': sig, 'content-type': 'application/json' } })).toBe(403)
+    expect(provider.ingestRequest({ url: HOOK, body: JSON.stringify({ ...WA_TEXT, MessageSid: 'SMother' }), headers: { 'x-twilio-signature': sig } })).toBe(403)
+    expect(events).toHaveLength(0)
+  })
+
+  it('ingest(): a JSON body signed over the bare webhookUrl is rejected (403)', () => {
+    const { provider, events } = make()
+    const sig = computeTwilioSignature(TOKEN, HOOK, {})
+    const forged = JSON.stringify({ ...WA_TEXT, Body: 'forged' })
+    expect(provider.ingest(forged, { 'x-twilio-signature': sig, 'content-type': 'application/json' })).toBe(403)
+    expect(events).toHaveLength(0)
+  })
+
+  it('ingest(): a real JSON webhook (bodySHA256 appended to webhookUrl) verifies against the configured URL', () => {
+    const { provider, events } = make()
+    const body = JSON.stringify(WA_TEXT)
+    const hash = createHash('sha256').update(body).digest('hex')
+    const sig = computeTwilioSignature(TOKEN, `${HOOK}?bodySHA256=${hash}`, {})
+    expect(provider.ingest(body, { 'x-twilio-signature': sig, 'content-type': 'application/json' })).toBe(200)
+    // Same signature, different body → the derived hash no longer matches what was signed.
+    expect(provider.ingest(JSON.stringify({ ...WA_TEXT, Body: 'forged' }), { 'x-twilio-signature': sig, 'content-type': 'application/json' })).toBe(403)
+    expect(events).toHaveLength(1)
+  })
+
+  it('ingestRequest(): a JSON webhook with bodySHA256 in the URL is accepted', () => {
+    const { provider, events } = make(undefined, { webhookUrl: undefined })
+    const body = JSON.stringify(WA_TEXT)
+    const hash = createHash('sha256').update(body).digest('hex')
+    const url = `https://bot.example.com/t/1?x=1&bodySHA256=${hash}`
+    const sig = computeTwilioSignature(TOKEN, url, {})
+    expect(provider.ingestRequest({ url, body, headers: { 'x-twilio-signature': sig, 'content-type': 'application/json' } })).toBe(200)
+    expect(events).toHaveLength(1)
   })
 
   it('allowUnsignedWebhooks skips verification (local dev only)', () => {

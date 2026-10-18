@@ -16,6 +16,11 @@ import { safeEqual } from './http.js'
 
 export type TwilioParams = Record<string, string | string[]>
 
+/** Hex SHA-256 of a raw body, as Twilio puts it in `bodySHA256`. */
+export function bodySha256(rawBody: string): string {
+  return createHash('sha256').update(Buffer.from(rawBody, 'utf8')).digest('hex')
+}
+
 /** Compute the expected signature for a URL + POST params. */
 export function computeTwilioSignature(authToken: string, url: string, params: TwilioParams = {}): string {
   let data = url
@@ -50,7 +55,10 @@ export interface VerifyTwilioInput {
   url: string
   /** Form params (form webhooks). Ignored when the URL carries `bodySHA256`. */
   params?: TwilioParams
-  /** Raw body, required for JSON webhooks (`bodySHA256` in the URL). */
+  /**
+   * Raw body of a JSON webhook. When set, the URL MUST carry `bodySHA256`
+   * (otherwise verification fails: the body would be unauthenticated).
+   */
   rawBody?: string
 }
 
@@ -66,10 +74,13 @@ export function verifyTwilioSignature(input: VerifyTwilioInput): boolean {
   }
   if (bodyHash !== null) {
     if (input.rawBody === undefined) return false
-    const actual = createHash('sha256').update(Buffer.from(input.rawBody, 'utf8')).digest('hex')
+    const actual = bodySha256(input.rawBody)
     if (!safeEqual(actual, bodyHash.toLowerCase())) return false
     return urlVariants(url).some((candidate) => safeEqual(computeTwilioSignature(authToken, candidate, {}), signature))
   }
+  // A raw (JSON) body is only authenticated through `bodySHA256`; a URL-only
+  // signature would otherwise vouch for any body sent along with it.
+  if (input.rawBody !== undefined) return false
   const params = input.params ?? {}
   return urlVariants(url).some((candidate) => safeEqual(computeTwilioSignature(authToken, candidate, params), signature))
 }

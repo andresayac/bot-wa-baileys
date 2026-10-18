@@ -74,11 +74,12 @@ export class GupshupProvider implements IProvider<GupshupCallback> {
           'For isolated local development only, set `allowUnsignedWebhooks: true` explicitly.',
       )
     }
+    // `??` per field: an explicit `undefined` (e.g. an unset env var) keeps the default.
     this.config = {
-      baseUrl: 'https://api.gupshup.io',
-      webhookTokenHeader: 'x-webhook-token',
-      webhookTokenParam: 'token',
       ...config,
+      baseUrl: config.baseUrl ?? 'https://api.gupshup.io',
+      webhookTokenHeader: config.webhookTokenHeader ?? 'x-webhook-token',
+      webhookTokenParam: config.webhookTokenParam ?? 'token',
     }
     this.logger = config.logger ?? pino({ level: config.debug ? 'debug' : 'error' })
     if (!config.webhookToken) {

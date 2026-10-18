@@ -64,11 +64,12 @@ export class GoHighLevelProvider implements IProvider<GhlWebhookBody> {
   constructor(config: GoHighLevelProviderConfig) {
     if (!config.accessToken) throw new Error('GoHighLevelProvider requires `accessToken`.')
     if (!config.locationId) throw new Error('GoHighLevelProvider requires `locationId`.')
+    // `??` per field: an explicit `undefined` (e.g. an unset env var) keeps the default.
     this.config = {
-      apiVersion: '2021-04-15',
-      baseUrl: 'https://services.leadconnectorhq.com',
-      defaultChannel: 'SMS',
       ...config,
+      apiVersion: config.apiVersion ?? '2021-04-15',
+      baseUrl: config.baseUrl ?? 'https://services.leadconnectorhq.com',
+      defaultChannel: config.defaultChannel ?? 'SMS',
     }
     // Parsed once (and validated at construction, not on the first webhook).
     this.publicKey = createPublicKey(config.publicKey ?? GHL_WEBHOOK_PUBLIC_KEY)

@@ -63,6 +63,11 @@ describe('X-Twilio-Signature', () => {
     expect(verifyTwilioSignature({ authToken: 'tok', signature: sig, url })).toBe(false)
   })
 
+  it('a raw (JSON) body without bodySHA256 in the URL is never verified by the URL alone', () => {
+    const sig = computeTwilioSignature('tok', 'https://x.io/h', {})
+    expect(verifyTwilioSignature({ authToken: 'tok', signature: sig, url: 'https://x.io/h', rawBody: '{"Body":"forged"}' })).toBe(false)
+  })
+
   it('parses form bodies, keeping repeated keys as arrays and decoding +/%XX', () => {
     expect(parseFormParams('Body=hola+mundo%21&MediaUrl=a&MediaUrl=b')).toEqual({ Body: 'hola mundo!', MediaUrl: ['a', 'b'] })
   })

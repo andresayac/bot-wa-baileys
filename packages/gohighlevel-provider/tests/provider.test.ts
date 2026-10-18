@@ -170,6 +170,17 @@ describe('GoHighLevelProvider — inbound normalization', () => {
   })
 })
 
+describe('GoHighLevelProvider — config defaults', () => {
+  it('an explicit undefined in the config keeps the defaults', async () => {
+    const { provider, calls } = make(undefined, { apiVersion: undefined, baseUrl: undefined, defaultChannel: undefined })
+    await provider.send('contact-1', { kind: 'text', text: 'hola' })
+    const call = calls[0]!
+    expect(call.url).toBe('https://services.leadconnectorhq.com/conversations/messages')
+    expect(call.headers.get('version')).toBe('2021-04-15')
+    expect(JSON.parse(call.body)).toEqual({ type: 'SMS', contactId: 'contact-1', message: 'hola' })
+  })
+})
+
 describe('GoHighLevelProvider — outbound', () => {
   it('POSTs /conversations/messages with Bearer + Version headers on the default channel', async () => {
     const { provider, calls } = make()
