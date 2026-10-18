@@ -227,6 +227,8 @@ export class Bot extends EventEmitter {
   private chatWrites = new KeyedQueue()
   /** Runtime counters behind {@link metrics}. */
   private counters = new MetricsCollector()
+  /** Aborted by {@link stop}: cancels running broadcasts so nothing is sent through a stopped provider. */
+  private lifecycleAbort = new AbortController()
 
   constructor(config: BotConfig) {
     super()
@@ -286,14 +288,14 @@ export class Bot extends EventEmitter {
       scope: this.config.conversationScope === 'chat' ? 'chat' : 'participant',
       logger: this.logger.child({ module: 'conversations' }),
       onError: (error, ctx) => this.emitError({ error, ctx: ctx as unknown as MessageContext }),
-      onConversationStart: ({ name, key, ctx }) => {
+      onConversationStart: ({ id, name, key, ctx }) => {
         this.counters.conversationStarted(name)
-        this.emitSafely('conversation:started', { name, key, chatId: ctx.from, userId: ctx.sender })
+        this.emitSafely('conversation:started', { id, name, key, chatId: ctx.from, userId: ctx.sender })
       },
-      onConversationEnd: ({ name, key, ctx, outcome, durationMs, goto }) => {
+      onConversationEnd: ({ id, name, key, ctx, outcome, durationMs, goto }) => {
         this.counters.conversationEnded(name, outcome, durationMs)
         const event: ConversationEndedEvent = {
-          name, key, chatId: ctx.from, userId: ctx.sender, outcome, completed: outcome === 'completed', durationMs,
+          id, name, key, chatId: ctx.from, userId: ctx.sender, outcome, completed: outcome === 'completed', durationMs,
         }
         if (goto !== undefined) event.goto = goto
         this.emitSafely('conversation:ended', event)
@@ -403,6 +405,7 @@ export class Bot extends EventEmitter {
       providerAttempted = true
       await this.provider.start()
       this.scheduler.start(this.logger.child({ module: 'scheduler' }))
+      if (this.lifecycleAbort.signal.aborted) this.lifecycleAbort = new AbortController()
       this.isStarted = true
       this.acceptingInbound = true
       this.counters.markStarted()
@@ -435,6 +438,9 @@ export class Bot extends EventEmitter {
   private async stopOnce(opts?: { drain?: boolean; timeout?: number }): Promise<void> {
     if (!this.isStarted) return
     this.acceptingInbound = false
+    // Running broadcasts start no new send from here on; their in-flight sends are
+    // in `inflightSends`, so `drain` still waits for them.
+    this.lifecycleAbort.abort()
     this.scheduler.stop()
     if (opts?.drain && this.inflightSends.size > 0) {
       const timeout = opts.timeout ?? 10_000
@@ -524,7 +530,9 @@ export class Bot extends EventEmitter {
    * between batches. A `RateLimitedError` pauses the whole broadcast for its
    * `retryAfterMs` and retries that chat (up to `maxRetries`, default 3); other errors
    * are recorded and the broadcast goes on. Abort `signal` to stop early — never-attempted
-   * chats come back in `pending`. Duplicate ids are sent once. Each send takes the normal
+   * chats come back in `pending`. `bot.stop()` cancels it the same way (with `drain`,
+   * stop waits for its in-flight sends), and a broadcast started on a stopped bot
+   * sends nothing. Duplicate ids are sent once. Each send takes the normal
    * outbound path (send hooks, ledger, the provider's rate limiter) but not the
    * dispatcher's per-chat queues, so inbound handling is never blocked; still, launch it
    * with `void` (not `await`) from inside a handler so that chat's queue is not held.
@@ -542,11 +550,13 @@ export class Bot extends EventEmitter {
    */
   broadcast(chatIds: readonly ChatId[], content: string | OutboundContent, opts?: BroadcastOptions): Promise<BroadcastResult> {
     const outbound: OutboundContent = typeof content === 'string' ? { kind: 'text', text: content } : content
+    const stopSignal = this.lifecycleAbort.signal
+    const signal = opts?.signal ? AbortSignal.any([opts.signal, stopSignal]) : stopSignal
     return runBroadcast(
       { send: (chatId, c, o) => this.send(chatId, c, o), reportError: (error) => this.emitError({ error }) },
       chatIds,
       outbound,
-      opts,
+      { ...opts, signal },
     )
   }
 
@@ -558,6 +568,10 @@ export class Bot extends EventEmitter {
    * already has a live or dormant conversation is left alone (`ifActive: 'replace'`
    * cancels it). Resolves once the conversation is entered — not when it ends
    * (listen to `'conversation:ended'` for that). Rejects when `name` is not registered.
+   * Safe to `await` from a handler or command of the same chat: the trigger then runs
+   * inline in that message's queue slot instead of queuing behind it (which would
+   * deadlock the chat). Awaiting a trigger for a DIFFERENT chat whose handlers in turn
+   * await a trigger back into this one can still deadlock — launch those with `void`.
    * Before-message hooks, matchers and the `'message'` event do not run, and nothing
    * is persisted for the synthetic inbound (`ctx.raw` is `{ synthetic: 'trigger', name }`).
    *

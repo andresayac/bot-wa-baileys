@@ -7,6 +7,7 @@ import { flowToConversation, runSteps } from './interpreter.js'
 import type { ConversationControls } from './controls.js'
 import type { FlowCheckpoint } from '../store/IStore.js'
 import type { UserData } from '../user/types.js'
+import { randomId } from '../utils/timers.js'
 
 export interface RuntimeMessage {
   from: string; sender: string; body: string; type: string; isGroup: boolean
@@ -91,6 +92,8 @@ export interface EnterOptions {
 }
 
 export interface ConversationStartInfo {
+  /** Unique per conversation instance: pairs a start with its end (several can share `key`/`name`). */
+  id: string
   name: string
   key: string
   ctx: RuntimeMessage
@@ -129,6 +132,8 @@ interface ActiveConversation extends ConversationHandle {
   /** Control error injected from outside the conversation's call stack; thrown at its next wait. */
   interrupted?: Error
   observers?: Set<ConversationObserver>
+  /** Lifecycle bookkeeping for start/end observers; `ended` makes the end report fire once. */
+  life?: { info: ConversationStartInfo; startedAt: number; ended: boolean }
 }
 
 const INBOX_CAP = 10
@@ -292,8 +297,9 @@ export class ConversationRuntime {
 
     const entry: ActiveConversation = { key, state: opts.state ? { ...opts.state } : {}, inbox: [] }
     this.active.set(key, entry)
-    const startedAt = Date.now()
-    this.notifyLifecycle(() => this.cfg.onConversationStart?.({ name, key, ctx }))
+    const startInfo: ConversationStartInfo = { id: randomId('conv'), name, key, ctx }
+    entry.life = { info: startInfo, startedAt: Date.now(), ended: false }
+    this.notifyLifecycle(() => this.cfg.onConversationStart?.(startInfo))
 
     const controls = (this.cfg.controlsFactory ?? defaultControlsFactory)(this, entry, ctx)
 
@@ -326,11 +332,8 @@ export class ConversationRuntime {
       }
     } finally {
       this.cleanup(entry)
-      // A conversation aborted after it returned normally still counts as cancelled.
-      if (entry.cancelled) outcome = 'cancelled'
-      const info: ConversationEndInfo = { name, key, ctx, outcome, durationMs: Date.now() - startedAt }
-      if (goto && !entry.cancelled) info.goto = goto.target
-      this.notifyLifecycle(() => this.cfg.onConversationEnd?.(info))
+      // An aborted conversation already reported its end (as cancelled) from abort().
+      this.reportEnd(entry, entry.cancelled ? 'cancelled' : outcome, entry.cancelled ? undefined : goto?.target)
     }
     if (goto && !entry.cancelled) await this.enter(goto.target, ctx)
   }
@@ -357,6 +360,9 @@ export class ConversationRuntime {
     if (entry.pending) entry.pending.reject(cancel)
     this.active.delete(key)
     this.notifyEnd(entry)
+    // Report the end now, synchronously: a replacing conversation's start must come
+    // AFTER the replaced one's end, or per-key trackers would see the key as idle.
+    this.reportEnd(entry, 'cancelled')
     return true
   }
 
@@ -490,6 +496,16 @@ export class ConversationRuntime {
   reportError(error: unknown, ctx: RuntimeMessage): void {
     this.cfg.onError?.(error, ctx)
     this.cfg.logger?.error?.('conversation error', error)
+  }
+
+  /** Report `entry`'s end to the lifecycle observer exactly once. */
+  private reportEnd(entry: ActiveConversation, outcome: ConversationOutcome, goto?: string): void {
+    const life = entry.life
+    if (!life || life.ended) return
+    life.ended = true
+    const info: ConversationEndInfo = { ...life.info, outcome, durationMs: Date.now() - life.startedAt }
+    if (goto !== undefined) info.goto = goto
+    this.notifyLifecycle(() => this.cfg.onConversationEnd?.(info))
   }
 
   private notifyLifecycle(fn: () => void): void {

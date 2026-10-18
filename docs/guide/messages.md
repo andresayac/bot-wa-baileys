@@ -223,11 +223,77 @@ await bot.send('573001234567@s.whatsapp.net', {
   caption: 'hi',
 })
 await bot.sendTo(chatId, 'Hi, I am Ana from support')  // same path; a string is sent as text
-await bot.broadcast(
-  ['573001234567@s.whatsapp.net', '573001112233@s.whatsapp.net'],
-  { kind: 'text', text: 'Announcement!' },
-)
 ```
+
+## Broadcasts
+
+`bot.broadcast(chatIds, content, options?)` sends one content (a string is sent as
+text) to many chats, in batches, without blocking the per-chat inbound queues:
+
+```ts
+const ac = new AbortController()
+const res = await bot.broadcast(chatIds, '🎉 New promo!', {
+  batchSize: 10,          // chats per batch (default 10)
+  delayBetween: '2s',     // pause between batches (ms or '2s', '1m'; default 0)
+  concurrency: 1,         // parallel sends per batch (default 1)
+  maxRetries: 3,          // retries per chat after a RateLimitedError (default 3)
+  onProgress: (done, total) => bot.logger.info(`${done}/${total}`),
+  onFail: (chatId, error) => bot.logger.warn({ chatId, err: error }, 'broadcast failed'),
+  signal: ac.signal,      // abort to stop early
+})
+// → { total, sent, failed, skipped, errors: [{ chatId, error }], messages, cancelled, pending }
+```
+
+- A `RateLimitedError` pauses **every** worker for its `retryAfterMs` and retries that chat.
+- Other errors are recorded in `errors` and the broadcast goes on; it never rejects for a per-chat failure.
+- Aborting `signal` or calling `bot.stop()` starts no new send; chats never attempted come back in `pending` (`cancelled: true`).
+- Duplicate ids are sent once; sends skipped by a `before('send')` hook count as `skipped`.
+
+::: warning Breaking change
+`sent` and `failed` are now **counts**. The accepted sends moved to `messages` and the failures to `errors`.
+:::
+
+From inside a handler, launch it with `void bot.broadcast(...)` so that chat's queue is not held while it runs.
+
+## Starting a flow programmatically
+
+`bot.trigger(name, { chatId, userId?, isGroup?, data?, ifActive? })` starts a
+registered flow or `bot.conversation` for someone who has not written: reminders,
+webhooks, admin panels. `data` seeds `c.state`:
+
+```ts
+bot.schedule('0 9 * * *', async () => {
+  for (const appt of await db.appointmentsToday()) {
+    await bot.trigger('reminder', { chatId: appt.chatId, data: { time: appt.time } })
+  }
+})
+```
+
+It goes through the access lists, the human handoff gate and the chat's FIFO queue.
+It resolves `{ started, name, chatId, userId, reason? }` as soon as the conversation is
+**entered**, not when it ends. `reason` is `'stopped' | 'blocked' | 'handoff' | 'busy'`.
+A subject with a live or dormant conversation is left alone unless `ifActive: 'replace'`.
+It is safe to `await bot.trigger(...)` from a handler or command of the same chat: it runs in that message's queue slot.
+
+## Runtime metrics
+
+`bot.metrics()` returns an in-process snapshot: conversations (started, completed,
+cancelled, timed out, retries exceeded, errored, active, mean duration) overall and
+per flow, messages in/out, inbound drops (duplicate, blocked, handoff), triggers,
+errors and uptime. `bot.resetMetrics()` zeroes the counters. `toPrometheus(snapshot, { prefix?, labels? })`
+renders it in the Prometheus text format, with no dependencies:
+
+```ts
+import { toPrometheus } from '@bot-wa/core'
+
+app.get('/metrics', (_req, res) => res.type('text/plain').send(toPrometheus(bot.metrics())))
+
+bot.on('conversation:started', ({ id, name, chatId }) => { /* ... */ })
+bot.on('conversation:ended', ({ id, name, chatId, outcome, durationMs }) => { /* ... */ })
+```
+
+`id` is unique per conversation instance, so you can pair an `ended` with its `started`.
+When a conversation is replaced, its `ended` (`outcome: 'cancelled'`) is emitted before the new one's `started`.
 
 ## Next steps
 

@@ -25,9 +25,10 @@ describe('conversation lifecycle events', () => {
     bot.use(flow('registro').ask('¿nombre?', 'name').say('fin'))
     provider.incoming('registro', { from: 'u1' })
     await tick()
-    expect(started).toEqual([{ name: 'registro', key: 'u1', chatId: 'u1', userId: 'u1' }])
+    expect(started).toEqual([{ id: expect.any(String), name: 'registro', key: 'u1', chatId: 'u1', userId: 'u1' }])
     provider.incoming('Ana', { from: 'u1' })
     await vi.waitFor(() => expect(ended).toHaveLength(1))
+    expect(ended[0]!.id).toBe(started[0]!.id)
     expect(ended[0]).toMatchObject({ name: 'registro', chatId: 'u1', userId: 'u1', outcome: 'completed', completed: true })
     expect(ended[0]!.durationMs).toBeGreaterThanOrEqual(0)
     await bot.stop()
@@ -76,6 +77,27 @@ describe('conversation lifecycle events', () => {
     await vi.waitFor(() => expect(provider.outbox.map((m) => m.content.kind === 'text' && m.content.text)).toContain('still runs'))
     expect(errors).toHaveLength(1)
     await bot.stop()
+  })
+})
+
+describe('conversation lifecycle ordering', () => {
+  it('a replaced conversation ends before its replacement starts, and ids pair the events', async () => {
+    const { bot } = await setup()
+    const log: string[] = []
+    const startedIds: string[] = []
+    const endedIds: string[] = []
+    bot.on('conversation:started', (e) => { log.push(`start ${e.name}`); startedIds.push(e.id) })
+    bot.on('conversation:ended', (e) => { log.push(`end ${e.name} ${e.outcome}`); endedIds.push(e.id) })
+    bot.conversation('a', async (c) => { await c.ask('?') })
+    await bot.trigger('a', { chatId: 'u1' })
+    await bot.trigger('a', { chatId: 'u1', ifActive: 'replace' })
+    await tick()
+    expect(log).toEqual(['start a', 'end a cancelled', 'start a'])
+    expect(new Set(startedIds).size).toBe(2)
+    expect(endedIds).toEqual([startedIds[0]])
+    expect(bot.metrics().conversations.active).toBe(1)
+    await bot.stop()
+    expect(endedIds).toEqual(startedIds)
   })
 })
 

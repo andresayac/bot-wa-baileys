@@ -179,6 +179,8 @@ export function formatUptime(ms: number): string {
 
 /** Payload of the bot `'conversation:started'` event. */
 export interface ConversationStartedEvent {
+  /** Unique per conversation instance — matches a `'conversation:ended'` to its `'conversation:started'`. */
+  id: string
   /** Conversation/flow name. */
   name: string
   chatId: string

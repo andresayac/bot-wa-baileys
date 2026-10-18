@@ -164,4 +164,32 @@ describe('bot.trigger', () => {
     expect(texts(provider, 'u1')).toEqual(['lento listo', 'trigger'])
     await bot.stop()
   })
+
+  it('awaiting trigger from a command of the same chat does not deadlock its queue', async () => {
+    const { bot, provider } = await setup()
+    let result: unknown
+    bot.conversation('x', async (c) => { await c.say('x started') })
+    bot.command('go', async (ctx) => { result = await bot.trigger('x', { chatId: ctx.from }) })
+    bot.when('ping', (ctx) => ctx.reply('pong'))
+    provider.incoming('/go', { from: 'u1' })
+    await waitText(provider, 'x started', 'u1')
+    await vi.waitFor(() => expect(result).toBeDefined(), { timeout: 1000, interval: 5 })
+    await tick()
+    provider.incoming('ping', { from: 'u1' })
+    await waitText(provider, 'pong', 'u1')
+    expect(result).toMatchObject({ started: true, name: 'x' })
+    await bot.stop()
+  })
+
+  it('a trigger launched later from a finished handler still waits its turn in the queue', async () => {
+    const { bot, provider } = await setup()
+    let later: Promise<unknown> | undefined
+    bot.conversation('x', async (c) => { await c.say('x started') })
+    bot.command('go', (ctx) => { later = new Promise((r) => setTimeout(r, 5)).then(() => bot.trigger('x', { chatId: ctx.from })) })
+    provider.incoming('/go', { from: 'u1' })
+    await vi.waitFor(() => expect(later).toBeDefined())
+    await expect(later).resolves.toMatchObject({ started: true })
+    await waitText(provider, 'x started', 'u1')
+    await bot.stop()
+  })
 })

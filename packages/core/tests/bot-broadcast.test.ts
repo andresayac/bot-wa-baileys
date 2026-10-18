@@ -194,4 +194,25 @@ describe('bot.broadcast', () => {
     await expect(runBroadcast({ send: async () => { throw new Error('x') } }, ['a'], { kind: 'text', text: 'x' }, { concurrency: 1.5 }))
       .rejects.toBeInstanceOf(RangeError)
   })
+
+  it('bot.stop() cancels a running broadcast: nothing is sent after stop', async () => {
+    const { bot, provider } = await setup()
+    const running = bot.broadcast(['a', 'b', 'c', 'd'], 'x', { batchSize: 1, delayBetween: 50 })
+    await new Promise((r) => setTimeout(r, 10))
+    await bot.stop()
+    const res = await running
+    expect(res).toMatchObject({ sent: 1, cancelled: true, pending: ['b', 'c', 'd'] })
+    await new Promise((r) => setTimeout(r, 120))
+    expect(provider.outbox).toHaveLength(1)
+  })
+
+  it('a broadcast started after stop() sends nothing, and works again after a restart', async () => {
+    const { bot, provider } = await setup()
+    await bot.stop()
+    expect(await bot.broadcast(['a'], 'x')).toMatchObject({ sent: 0, cancelled: true, pending: ['a'] })
+    await bot.start()
+    expect(await bot.broadcast(['a'], 'x')).toMatchObject({ sent: 1, cancelled: false })
+    expect(provider.outbox).toHaveLength(1)
+    await bot.stop()
+  })
 })

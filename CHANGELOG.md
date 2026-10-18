@@ -28,6 +28,11 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/). Versionado po
 - Suite de conformidad de `IStore` compartida (mismas aserciones contra los 6 stores).
 - `ConversationRuntime`: un `wait()` con filtro ahora escanea el inbox (no pierde un mensaje ya encolado que cumple el filtro).
 
+### Operaciones del bot (`@bot-wa/core`, 2026-10)
+- **`bot.broadcast(chatIds, content, opts)`** ahora envía por lotes (`batchSize`, `delayBetween`, `concurrency`), respeta `RateLimitedError.retryAfterMs` (pausa a todos los workers y reintenta hasta `maxRetries`), es cancelable con `signal` y `bot.stop()` la cancela. Acepta un string como texto. **Cambio incompatible:** resuelve `{ total, sent, failed, skipped, errors, messages, cancelled, pending }`; `sent`/`failed` pasan a ser contadores (los envíos aceptados están en `messages`, los fallos en `errors`).
+- **`bot.trigger(name, { chatId, userId?, isGroup?, data?, ifActive? })`**: inicia un flujo/conversación registrado con `c.state` sembrado desde `data`, pasando por listas de acceso, handoff y la cola FIFO del chat. Se puede hacer `await` desde un handler del mismo chat sin bloquear su cola.
+- **Métricas de runtime**: `bot.metrics()` / `bot.resetMetrics()`, eventos `'conversation:started'` / `'conversation:ended'` (con `id` por instancia para emparejarlos; al reemplazar una conversación, su `ended` llega antes del `started` de la nueva) y el exportador sin dependencias `toPrometheus(snapshot, { prefix?, labels? })`.
+
 ### Repositorio, tooling y publicación (2026-10)
 - **Solo 10 paquetes públicos**: `core`, `baileys`, `meta`, `telegram`, `sqlite-store`, `redis-store`, `ai`, `http`, `graph-core` y `create-bot-wa`. Los demás (`discord`, `messenger`, `instagram`, `mongo-store`, `postgres-store`, `mysql-store`, `nlu`, `manager`, `events` y los prototipos `inbox`, `crm`, `hub`, `campaigns`, `deployments`) llevan `"private": true` hasta que se promuevan.
 - **Changesets v3** (`@changesets/cli`): scripts raíz `pnpm changeset`, `pnpm version-packages` y `pnpm release`; `publishConfig.access: public` en los paquetes publicables. Flujo de publicación **manual**, sin workflow de release (detalles en `CONTRIBUTING.md` y `.changeset/README.md`).

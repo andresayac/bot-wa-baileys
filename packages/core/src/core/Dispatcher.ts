@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks'
 import type { Trigger } from './types.js'
 import type { MessageType } from './provider.js'
 import { matchTrigger, triggerSpecificity, normalizeText } from './matching.js'
@@ -56,6 +57,12 @@ export class Dispatcher {
   private matchers: MatcherEntry[] = []
   private catchAlls: MessageHandler[] = []
   private queues = new Map<string, Promise<void>>()
+  /**
+   * The queue slot whose job is currently on the async call stack. `running` flips to
+   * false when that job settles, so work it detached (timers, `void` promises) that
+   * outlives it no longer counts as "inside" the slot.
+   */
+  private slot = new AsyncLocalStorage<{ key: string; running: boolean }>()
   private seq = 0
 
   constructor(private deps: DispatcherDeps) {
@@ -129,8 +136,14 @@ export class Dispatcher {
    * Run `job` in `ctx`'s per-chat FIFO slot (after messages already queued for that
    * key, before later ones) and resolve/reject with its result. No hooks or routing
    * run — used by `bot.trigger()` to start a conversation in order with the chat.
+   * Called from the job currently holding the same key's slot, `job` runs inline.
    */
   runExclusive<T>(ctx: Pick<DispatchContext, 'from' | 'sender' | 'isGroup'>, job: () => Promise<T>): Promise<T> {
+    // Re-entrant call from the job that already holds this key's slot (a handler or
+    // command doing `await bot.trigger(...)` for its own chat): queuing behind ourselves
+    // would deadlock the chat forever, and we already have exclusivity — run inline.
+    const current = this.slot.getStore()
+    if (current?.running && current.key === this.deps.runtime.keyFor(ctx as DispatchContext)) return job()
     return new Promise<T>((resolve, reject) => {
       void this.enqueue(ctx as DispatchContext, async () => {
         try { resolve(await job()) } catch (error) { reject(error) }
@@ -141,7 +154,11 @@ export class Dispatcher {
   private enqueue(ctx: DispatchContext, job: () => Promise<void>): Promise<void> {
     const key = this.deps.runtime.keyFor(ctx)
     const tail = this.queues.get(key) ?? Promise.resolve()
-    const next = tail.then(job).catch(() => {})
+    const run = () => {
+      const slot = { key, running: true }
+      return this.slot.run(slot, job).finally(() => { slot.running = false })
+    }
+    const next = tail.then(run).catch(() => {})
     this.queues.set(key, next)
     void next.finally(() => { if (this.queues.get(key) === next) this.queues.delete(key) })
     return next
