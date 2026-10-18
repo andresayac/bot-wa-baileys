@@ -192,12 +192,20 @@ export interface FromMessagesOptions {
   name?: string
   /** Keep outbound messages whose status is `'failed'` (default `false`). */
   includeFailed?: boolean
+  /**
+   * Chat kind of the inbound turns. The message log has no chat kind, so pass it
+   * here (a flag for all chats, or a predicate per chat id) to replay group
+   * conversations as groups. {@link transcriptFromStore} reads it from the stored
+   * chat (`getChat(chatId).kind === 'group'`) when this is omitted.
+   */
+  isGroup?: boolean | ((chatId: string) => boolean)
 }
 
 /**
  * Build a transcript from a store message log (`IStore.getMessagesByChat`).
  * Messages are ordered by timestamp (stable). Outbound turns carry `kind` + `text`
  * only — the store keeps no full content — so replays compare those two fields.
+ * Display names are not in the log, so replays use the mock default push name.
  */
 export function transcriptFromMessages(messages: StoredMessage[], options: FromMessagesOptions = {}): Transcript {
   const ordered = messages
@@ -214,12 +222,14 @@ export function transcriptFromMessages(messages: StoredMessage[], options: FromM
       if (message.status === 'failed' && !options.includeFailed) continue
       turns.push({ dir: 'out', chatId: message.chatId, kind: message.type, text: message.body ?? '', id: message.ref.id, t })
     } else {
+      const group = typeof options.isGroup === 'function' ? options.isGroup(message.chatId) : options.isGroup
       turns.push({
         dir: 'in',
         chatId: message.chatId,
         senderId: message.senderId ?? message.chatId,
         type: message.type,
         text: message.body ?? '',
+        ...(group ? { isGroup: true } : {}),
         id: message.ref.id,
         t,
       })
@@ -231,17 +241,37 @@ export function transcriptFromMessages(messages: StoredMessage[], options: FromM
 /** Minimal slice of `IStore` needed by {@link transcriptFromStore}. */
 export interface TranscriptMessageSource {
   getMessagesByChat(chatId: string, limit?: number): Promise<StoredMessage[]>
+  /** Used to detect group chats when `isGroup` is not given. */
+  getChat?(chatId: string): Promise<{ kind?: string } | undefined>
 }
 
-/** Read one or more chats from a store message log and merge them into one transcript. */
+/** Anything exposing the store a bot writes to (e.g. a `Bot`). */
+export interface TranscriptStoreOwner {
+  getStore(): TranscriptMessageSource
+}
+
+/**
+ * Read one or more chats from a store message log and merge them into one transcript.
+ *
+ * Pass the **bot** (or `bot.getStore()`): a `Bot` wraps the store it is given in a
+ * namespaced view, so reading the raw store you passed to `new Bot({ store })`
+ * finds nothing under the plain chat ids.
+ */
 export async function transcriptFromStore(
-  store: TranscriptMessageSource,
+  source: TranscriptMessageSource | TranscriptStoreOwner,
   chatIds: string | string[],
   options: FromMessagesOptions & { limit?: number } = {},
 ): Promise<Transcript> {
+  const store = 'getStore' in source && typeof source.getStore === 'function' ? source.getStore() : (source as TranscriptMessageSource)
   const ids = Array.isArray(chatIds) ? chatIds : [chatIds]
   const logs = await Promise.all(ids.map((chatId) => store.getMessagesByChat(chatId, options.limit ?? 1000)))
-  return transcriptFromMessages(logs.flat(), options)
+  let isGroup = options.isGroup
+  if (isGroup === undefined && store.getChat) {
+    const chats = await Promise.all(ids.map(async (chatId) => [chatId, (await store.getChat!(chatId))?.kind === 'group'] as const))
+    const groups = new Set(chats.filter(([, group]) => group).map(([chatId]) => chatId))
+    isGroup = (chatId) => groups.has(chatId)
+  }
+  return transcriptFromMessages(logs.flat(), { ...options, ...(isGroup !== undefined ? { isGroup } : {}) })
 }
 
 export function isRecord(value: unknown): value is Record<string, unknown> {

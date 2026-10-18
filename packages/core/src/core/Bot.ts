@@ -1100,7 +1100,7 @@ export class Bot extends EventEmitter {
       this.logger.debug({ gate: access, chatId: inbound.chatId, senderId: inbound.senderId }, 'inbound dropped by access list')
       return
     }
-    const timestamp = normalizeTimestamp(inbound.timestamp)
+    const timestamp = receiveTimestamp(inbound.timestamp)
     const stored: StoredMessage = {
       ref: inbound.ref,
       chatId: inbound.chatId,
@@ -1315,6 +1315,19 @@ function isPluginSpec(x: unknown): x is Plugin {
 
 function normalizeTimestamp(timestamp: number): number {
   return timestamp > 0 && timestamp < 1_000_000_000_000 ? timestamp * 1000 : timestamp
+}
+
+/**
+ * Persisted timestamp of a live inbound message. Providers with second-precision
+ * clocks (WhatsApp, Telegram) floor to the second, while outbound rows use
+ * `Date.now()`; when the message is received within that same second, use the
+ * receive time so the message log orders it correctly against the bot's replies.
+ * Late deliveries (history sync, retries) keep the provider time.
+ */
+function receiveTimestamp(timestamp: number, now = Date.now()): number {
+  const ms = normalizeTimestamp(timestamp)
+  const secondPrecision = timestamp > 0 && timestamp < 1_000_000_000_000
+  return secondPrecision && now >= ms && now - ms < 1000 ? now : ms
 }
 
 /**

@@ -62,8 +62,9 @@ export type {
   JsonValue,
   FromMessagesOptions,
   TranscriptMessageSource,
+  TranscriptStoreOwner,
 } from './transcripts/format.js'
-export { recordTranscript, RecordingProvider } from './transcripts/record.js'
+export { recordTranscript, RecordingProvider, DEFAULT_MAX_TURNS } from './transcripts/record.js'
 export type { RecordTranscriptOptions, TranscriptRecorder } from './transcripts/record.js'
 export { redactTranscript, createRedactionMap } from './transcripts/redact.js'
 export type { RedactOptions, RedactionRule, RedactionMap } from './transcripts/redact.js'

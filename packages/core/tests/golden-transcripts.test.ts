@@ -174,11 +174,11 @@ describe('golden transcripts — redaction', () => {
     { dir: 'out', chatId: 'grp-123@g.us', kind: 'text', text: 'Hola 573001112233@s.whatsapp.net, tu pedido ORD-7781 sale hoy', id: 'mock-10', t: 12 },
   ], { name: 'pii', startedAt: 1_760_000_000_000 })
 
-  it('replaces ids, emails and phones with stable placeholders and drops names/start time', () => {
+  it('replaces ids, emails, phones and names with stable placeholders and drops the start time', () => {
     const t = redactTranscript(raw, { rules: [{ name: 'order', pattern: /ORD-\d+/ }] })
     expect(t.redacted).toBe(true)
     expect(t.startedAt).toBeUndefined()
-    expect(t.turns[0]).toEqual({ dir: 'in', chatId: '<user:1>', senderId: '<user:1>', type: 'text', text: 'mi correo es <email:1> y mi cel <phone:1>', id: '<msg:1>', t: 0 })
+    expect(t.turns[0]).toEqual({ dir: 'in', chatId: '<user:1>', senderId: '<user:1>', type: 'text', text: 'mi correo es <email:1> y mi cel <phone:1>', displayName: '<name:1>', id: '<msg:1>', t: 0 })
     expect(t.turns[1]).toMatchObject({ chatId: '<user:1>', text: 'Gracias, te escribo a <email:1>', content: { text: 'Gracias, te escribo a <email:1>' }, id: '<msg:2>' })
     expect(t.turns[2]).toMatchObject({ chatId: '<chat:1>', senderId: '<user:1>', text: 'pedido <order:1>' })
     expect(t.turns[3]).toMatchObject({ text: 'Hola <user:1>, tu pedido <order:1> sale hoy' })
@@ -206,7 +206,7 @@ describe('golden transcripts — redaction', () => {
   })
 
   it('honours switches and allow-lists', () => {
-    const t = redactTranscript(raw, { ids: false, emails: false, allow: ['+57 300 111 2233'], dropDisplayNames: false, dropStartedAt: false })
+    const t = redactTranscript(raw, { ids: false, emails: false, allow: ['+57 300 111 2233'], displayNames: 'keep', dropStartedAt: false })
     expect(t.turns[0]).toMatchObject({ chatId: '573001112233@s.whatsapp.net', text: 'mi correo es ana@mail.com y mi cel +57 300 111 2233', displayName: 'Ana Pérez' })
     expect(t.startedAt).toBe(1_760_000_000_000)
     expect(() => redactTranscript(raw, { rules: [{ name: 'Bad Name', pattern: /x/ }] })).toThrow(/rule name/)

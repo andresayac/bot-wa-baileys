@@ -38,7 +38,17 @@ export interface RecordTranscriptOptions {
   now?: () => number
   /** Also record messages flagged `fromMe` (echoes of the bot's own sends). Default `false`. */
   includeFromMe?: boolean
+  /**
+   * Keep at most this many turns; older ones are dropped first (default
+   * {@link DEFAULT_MAX_TURNS}). The buffer holds message bodies, display names and
+   * ids in RAM, unredacted, so keep it bounded on a long-running bot and
+   * `clear()` it once a transcript has been taken. `Infinity` disables the cap.
+   */
+  maxTurns?: number
 }
+
+/** Default {@link RecordTranscriptOptions.maxTurns}. */
+export const DEFAULT_MAX_TURNS = 10_000
 
 /** Handle returned by {@link recordTranscript}. */
 export interface TranscriptRecorder<P extends IProvider = IProvider> {
@@ -78,7 +88,11 @@ export class RecordingProvider<P extends IProvider = IProvider> implements IProv
   acknowledgeInteraction?: IProvider['acknowledgeInteraction']
 
   /** @internal */ recording = true
+  /** Max turns kept in memory (oldest dropped first). */
+  readonly maxTurns: number
   private readonly entries: Array<TranscriptTurn | PendingOut> = []
+  /** Entries dropped from the front by the cap (keeps {@link size} cursors stable). */
+  private dropped = 0
   private readonly listeners = new Set<Listener>()
   private startedAt: number | undefined
   private readonly now: () => number
@@ -90,6 +104,9 @@ export class RecordingProvider<P extends IProvider = IProvider> implements IProv
     this.capabilities = inner.capabilities
     this.now = options.now ?? Date.now
     this.includeFromMe = options.includeFromMe ?? false
+    const maxTurns = options.maxTurns ?? DEFAULT_MAX_TURNS
+    if (!(maxTurns >= 1)) throw new RangeError('maxTurns must be >= 1')
+    this.maxTurns = maxTurns
 
     if (inner.ingest) this.ingest = inner.ingest.bind(inner)
     if (inner.downloadMedia) this.downloadMedia = inner.downloadMedia.bind(inner)
@@ -126,7 +143,7 @@ export class RecordingProvider<P extends IProvider = IProvider> implements IProv
           failed: false,
         }
       : undefined
-    if (pending) this.entries.push(pending)
+    if (pending) this.push(pending)
     try {
       const result = await this.inner.send(chatId, content, options)
       if (pending) {
@@ -142,12 +159,14 @@ export class RecordingProvider<P extends IProvider = IProvider> implements IProv
   }
 
   /** @internal Number of raw entries (failed sends included) — a stable cursor for {@link snapshot}. */
-  size(): number { return this.entries.length }
+  size(): number { return this.dropped + this.entries.length }
 
   /** @internal Recorded turns from raw cursor `from` on (failed/skipped sends excluded). */
   snapshot(from = 0, to?: number): TranscriptTurn[] {
     const turns: TranscriptTurn[] = []
-    for (const entry of this.entries.slice(from, to)) {
+    const start = Math.max(0, from - this.dropped)
+    const end = to === undefined ? undefined : Math.max(0, to - this.dropped)
+    for (const entry of this.entries.slice(start, end)) {
       if ('dir' in entry) turns.push({ ...entry })
       else if (!entry.failed) turns.push({ ...entry.turn })
     }
@@ -159,8 +178,18 @@ export class RecordingProvider<P extends IProvider = IProvider> implements IProv
 
   /** @internal */
   reset(): void {
+    this.dropped += this.entries.length
     this.entries.length = 0
     this.startedAt = undefined
+  }
+
+  private push(entry: TranscriptTurn | PendingOut): void {
+    this.entries.push(entry)
+    const overflow = this.entries.length - this.maxTurns
+    if (overflow > 0) {
+      this.entries.splice(0, overflow)
+      this.dropped += overflow
+    }
   }
 
   private offset(): number {
@@ -174,7 +203,7 @@ export class RecordingProvider<P extends IProvider = IProvider> implements IProv
     if (event.kind === 'message') {
       const message = event.message
       if (message.fromMe && !this.includeFromMe) return
-      this.entries.push({
+      this.push({
         dir: 'in',
         chatId: message.chatId,
         senderId: message.senderId,
@@ -187,7 +216,7 @@ export class RecordingProvider<P extends IProvider = IProvider> implements IProv
       })
     } else if (event.kind === 'interaction') {
       const it = event.interaction
-      this.entries.push({
+      this.push({
         dir: 'in',
         event: 'interaction',
         chatId: it.chatId,

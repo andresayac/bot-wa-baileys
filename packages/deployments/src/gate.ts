@@ -74,7 +74,11 @@ export interface GoldenTranscriptGateOptions {
   createBot: (candidate: DeploymentCandidate) => ReplayBotFactory | Promise<ReplayBotFactory>
   /** Tolerances passed to `replayTranscript`. */
   replay?: ReplayOptions
-  /** Pass when there are no transcripts (default `false`: an empty suite blocks the publish). */
+  /**
+   * Pass when there is nothing to check (default `false`): no transcripts, or a
+   * transcript without inbound turns or without expected replies would otherwise
+   * replay as a vacuous pass, so they block the publish.
+   */
   allowEmpty?: boolean
 }
 
@@ -105,6 +109,16 @@ export function goldenTranscriptGate(options: GoldenTranscriptGateOptions): Depl
       return options.allowEmpty
         ? { ok: true, summary: 'no golden transcripts (allowed)', details: { results: [] } satisfies GoldenTranscriptGateDetails }
         : { ok: false, reason: 'no golden transcripts to replay', details: { results: [] } satisfies GoldenTranscriptGateDetails }
+    }
+
+    if (!options.allowEmpty) {
+      const vacuous = transcripts
+        .map((transcript, index) => ({ transcript, index }))
+        .filter(({ transcript }) => !transcript.turns.some((turn) => turn.dir === 'in') || !transcript.turns.some((turn) => turn.dir === 'out'))
+      if (vacuous.length > 0) {
+        const names = vacuous.map(({ transcript, index }) => transcript.name ?? `#${index}`).join(', ')
+        return { ok: false, reason: `golden transcript(s) with nothing to check (no inbound turns or no expected replies): ${names}`, details: { results: [] } satisfies GoldenTranscriptGateDetails }
+      }
     }
 
     const factory = await options.createBot(candidate)

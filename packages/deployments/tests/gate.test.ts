@@ -133,4 +133,22 @@ describe('goldenTranscriptGate', () => {
     await expect(r.publish('a', 'b', '1', 'sha:good', { gate: goldenTranscriptGate({ transcripts: [], createBot: botFor, allowEmpty: true }) }))
       .resolves.toMatchObject({ active: true })
   })
+
+  it('blocks vacuous transcripts (no turns, or no expected replies) unless allowed', async () => {
+    const r = new DeploymentRegistry()
+    const empty = goldenTranscriptGate({ transcripts: [createTranscript([], { name: 'vacía' })], createBot: botFor })
+    const error = await r.publish('a', 'b', '1', 'sha:good', { gate: empty }).catch((e: unknown) => e)
+    expect(error).toBeInstanceOf(DeploymentGateError)
+    expect((error as Error).message).toMatch(/vacía/)
+
+    const silent = goldenTranscriptGate({
+      transcripts: [createTranscript([{ dir: 'in', chatId: 'u', senderId: 'u', type: 'text', text: 'hola' }])],
+      createBot: botFor,
+    })
+    await expect(r.publish('a', 'b', '1', 'sha:good', { gate: silent })).rejects.toBeInstanceOf(DeploymentGateError)
+    expect(r.list('a', 'b')).toEqual([])
+
+    const allowed = goldenTranscriptGate({ transcripts: [createTranscript([])], createBot: botFor, allowEmpty: true })
+    await expect(r.publish('a', 'b', '1', 'sha:good', { gate: allowed })).resolves.toMatchObject({ active: true })
+  })
 })

@@ -21,6 +21,7 @@ import type { IProvider } from '../../core/provider.js'
 import { MockProvider } from '../MockProvider.js'
 import { createTranscript, isRecord, type JsonValue, type Transcript, type TranscriptInbound, type TranscriptOutbound, type TranscriptTurn } from './format.js'
 import { RecordingProvider } from './record.js'
+import { EMAIL_PATTERN, PHONE_PATTERN, isPhoneMatch, placeholderCategory, type RedactionRule } from './redact.js'
 
 /** Builds the bot under test around the given provider (same shape as `defineBot` factories). Must not start it. */
 export type ReplayBotFactory = (provider: IProvider) => Bot | Promise<Bot>
@@ -66,6 +67,13 @@ export interface ReplayOptions {
   compareContent?: boolean
   /** Dot paths inside `content` to ignore (e.g. `'media'`, `'target.id'`). */
   ignoreContentFields?: string[]
+  /**
+   * Category-level redaction for goldens made with `redactTranscript(..., { outboundPatterns: true })`.
+   * On both sides, matches of the enabled patterns and placeholders/surrogates of those
+   * categories (`<phone:2>`, `+10000000001`) all become `<category:*>` before comparing,
+   * so bot-printed values that were redacted still match the real ones.
+   */
+  redact?: { emails?: boolean; phones?: boolean; rules?: RedactionRule[] }
   /** Masks applied to every string on both sides before comparing. */
   masks?: ReplayMask[]
   /** Collapse runs of whitespace and trim (default `true`). */
@@ -128,7 +136,7 @@ export async function replayTranscript(transcript: Transcript, createBot: Replay
   const settleMs = options.settleMs ?? 30
   const stepTimeoutMs = options.stepTimeoutMs ?? 2000
   const mock = new MockProvider()
-  const recorder = new RecordingProvider(mock, { now: options.now })
+  const recorder = new RecordingProvider(mock, { now: options.now, maxTurns: Infinity })
   const bot = await createBot(recorder)
 
   const steps = toSteps(transcript.turns)
@@ -313,11 +321,36 @@ function normalizer(options: ReplayOptions): (text: string) => string {
     const flags = pattern.flags.includes('g') ? pattern.flags : `${pattern.flags}g`
     return { pattern: new RegExp(pattern.source, flags), replace }
   })
+  const redact = redactNormalizer(options.redact)
   return (text) => {
-    let out = text
+    let out = redact ? redact(text) : text
     for (const mask of masks) out = out.replace(mask.pattern, mask.replace)
     if (options.normalizeWhitespace !== false) out = out.replace(/\s+/g, ' ').trim()
     if (options.normalizeText) out = options.normalizeText(out)
+    return out
+  }
+}
+
+function redactNormalizer(redact: ReplayOptions['redact']): ((text: string) => string) | undefined {
+  if (!redact) return undefined
+  const rules: Array<{ name: string; pattern: RegExp }> = (redact.rules ?? []).map((rule) => ({
+    name: rule.name,
+    pattern: new RegExp(rule.pattern.source, rule.pattern.flags.includes('g') ? rule.pattern.flags : `${rule.pattern.flags}g`),
+  }))
+  if (redact.emails) rules.push({ name: 'email', pattern: new RegExp(EMAIL_PATTERN.source, 'g') })
+  if (redact.phones) rules.push({ name: 'phone', pattern: new RegExp(PHONE_PATTERN.source, 'g') })
+  if (rules.length === 0) return undefined
+  const categories = new Set(rules.map((rule) => rule.name))
+  return (text) => {
+    let out = text.replace(/<([a-z0-9_-]+):\d+>/g, (match, category: string) => (categories.has(category) ? `<${category}:*>` : match))
+    for (const rule of rules) {
+      out = out.replace(rule.pattern, (match) => {
+        const category = placeholderCategory(match)
+        if (category !== undefined) return categories.has(category) ? `<${category}:*>` : match
+        if (rule.name === 'phone' && !isPhoneMatch(match)) return match
+        return `<${rule.name}:*>`
+      })
+    }
     return out
   }
 }

@@ -43,4 +43,4 @@ try {
 }
 ```
 
-Una gate puede ser cualquier función `(candidate) => boolean | GateResult` (síncrona o async). Sin transcripts, `goldenTranscriptGate` bloquea el publish salvo `allowEmpty: true`.
+Una gate puede ser cualquier función `(candidate) => boolean | GateResult` (síncrona o async). Sin transcripts, o con un transcript sin turnos de entrada o sin respuestas esperadas (un pase vacío), `goldenTranscriptGate` bloquea el publish salvo `allowEmpty: true`. Para leer un transcript del log del store, pasa el bot (`transcriptFromStore(bot, chatId)`): el `Bot` guarda en una vista con namespace del store que recibe.
