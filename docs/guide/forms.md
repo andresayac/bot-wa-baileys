@@ -53,9 +53,14 @@ Every field also takes `name`, `label`, `required` (default `true`, `false` for
 error message). The definition is checked when the flow is built: a bad id, a
 duplicate field name or empty options throw a `TypeError`. Besides `id`,
 `title`, `intro` and `fields`, a definition takes `cta` (the button that opens a
-native form, default `'Abrir formulario'`) and `submitLabel` (default
-`'Enviar'`); these two are not taken from the `core.form.*` catalog, so set them
-when your bot does not speak Spanish.
+native form) and `submitLabel`. When omitted, they come from the `core.form.cta`
+/ `core.form.submit` catalog entries in the subject's `ctx.lang` (`'Abrir
+formulario'` / `'Enviar'` in Spanish, `'Open form'` / `'Submit'` in English);
+a definition with neither `intro` nor `title` gets `core.form.body` as the
+message body. The submit label is part of the published WhatsApp Flow, so it
+is fixed when you publish it: `toFlowJson(def, { lang: 'en' })` /
+`publishForm(def, { flowJson: { lang: 'en' } })` (default `'es'`), or set
+`submitLabel`.
 
 In field-by-field mode, `select`/`multiselect` accept the menu number, the key or
 the label (several picks separated by commas, `;`, `and`/`y` or spaces between
@@ -125,6 +130,7 @@ writeFileSync('signup.flow.json', JSON.stringify(toFlowJson(signup), null, 2))
 A form without a Flow (no `config.flows` entry, no `publishForm()` and no
 `nativeId`) is asked field by field, as on any other channel.
 `flowJsonWarnings(def)` lists labels WhatsApp will truncate (`FLOW_LIMITS`).
+`toFlowJson(def, { lang })` picks the language of the default submit label.
 
 Endpoint Flows (`data_exchange`, dynamic encrypted screens) are not supported yet.
 

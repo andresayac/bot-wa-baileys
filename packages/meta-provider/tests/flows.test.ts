@@ -63,6 +63,16 @@ describe('toFlowJson', () => {
     expect(form.children[1]).toEqual({ type: 'TextArea', name: 'notes', label: 'Notas', required: false, 'max-length': 300 })
   })
 
+  it('localizes the default submit label with the lang option (Spanish by default)', () => {
+    const def: FormDefinition = { id: 'mini', fields: [{ type: 'text', name: 'x', label: 'X' }] }
+    const footer = (json: ReturnType<typeof toFlowJson>) =>
+      (json.screens[0].layout.children.at(-1) as { children: Array<{ type: string; label?: string }> }).children.find((c) => c.type === 'Footer')!.label
+    expect(footer(toFlowJson(def))).toBe('Enviar')
+    expect(footer(toFlowJson(def, { lang: 'en' }))).toBe('Submit')
+    expect(footer(toFlowJson(def, { lang: 'en-GB' }))).toBe('Submit')
+    expect(footer(toFlowJson({ ...def, submitLabel: 'Go' }, { lang: 'en' }))).toBe('Go')
+  })
+
   it('never emits the reserved SUCCESS screen id and truncates long labels', () => {
     expect(flowScreenId({ id: 'success', fields: [] })).toBe('SUCCESS_FORM')
     const json = toFlowJson({ id: 'f', fields: [{ type: 'text', name: 'a', label: 'Una etiqueta demasiado larga' }] })
@@ -108,6 +118,13 @@ describe('toFlowMessage / toOutbound', () => {
     }
     expect(msg.interactive.action.parameters).toMatchObject({ flow_name: 'signup_v2', mode: 'draft' })
     expect(msg.interactive.action.parameters.flow_id).toBeUndefined()
+  })
+
+  it('falls back to the Spanish core.form.* labels for a bare definition', () => {
+    const bare: FormContent = { kind: 'form', form: { id: 'mini', fields: [{ type: 'text', name: 'x', label: 'X' }] }, token: 't', nativeId: '1' }
+    const msg = toFlowMessage(bare) as { interactive: { body: { text: string }; action: { parameters: Record<string, unknown> } } }
+    expect(msg.interactive.body.text).toBe('Completa el formulario.')
+    expect(msg.interactive.action.parameters.flow_cta).toBe('Abrir formulario')
   })
 
   it('throws UnsupportedContentError when no Flow is mapped', () => {
@@ -178,6 +195,20 @@ describe('CloudAPIProvider + flow().form()', () => {
     await vi.waitFor(() => expect(seen).toHaveLength(1))
     expect(seen[0].signup).toEqual({ name: 'Ana', age: 30, email: 'ana@example.com', plan: 'pro', topics: ['Ventas'], terms: true })
     await vi.waitFor(() => expect(sentBodies(calls).some((b) => b.text?.body === '¡Listo!')).toBe(true))
+    await bot.stop()
+  })
+
+  it('sends the flow CTA and body in the user language (i18n en)', async () => {
+    const calls = mockFetch(() => ({ messages: [{ id: 'wamid.OUT' }] }))
+    const provider = new CloudAPIProvider({ ...baseCfg, flows: { mini: '55' } })
+    const bot = new Bot({ provider, i18n: { defaultLocale: 'en' } })
+    bot.use(flow('mini').form({ id: 'mini', fields: [{ type: 'text', name: 'city', label: 'City' }] }))
+    await bot.start()
+    provider.ingest(textWebhook('mini', 'wamid.IN9'))
+    await vi.waitFor(() => expect(sentBodies(calls).some((b) => b.interactive?.type === 'flow')).toBe(true))
+    const sent = sentBodies(calls).find((b) => b.interactive?.type === 'flow')
+    expect(sent.interactive.action.parameters.flow_cta).toBe('Open form')
+    expect(sent.interactive.body.text).toBe('Fill in the form.')
     await bot.stop()
   })
 

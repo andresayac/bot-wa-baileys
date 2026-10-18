@@ -14,6 +14,7 @@ import { CORE_MESSAGES as M } from '../i18n/builtins.js'
 import type { Translate } from '../i18n/types.js'
 import { parseDuration } from '../utils/duration.js'
 import { newFormToken, parseFormReply } from './reply.js'
+import { withFormDefaults } from './defaults.js'
 import type { FormDefinition, FormField, FormStepOptions, FormValue, FormValues } from './types.js'
 import { formOptionEntries, isFieldRequired, parseFieldAnswer, selectionBounds, validateFormValues } from './validate.js'
 
@@ -85,7 +86,8 @@ async function runNative(
   for (;;) {
     const token = newFormToken(def.id)
     try {
-      await fc.form(def, { token, nativeId: opts.nativeId })
+      // Defaults in the language of the latest message (c.t), not the one that entered the flow.
+      await fc.form(withFormDefaults(def, c.t), { token, nativeId: opts.nativeId })
     } catch (error) {
       if ((opts.mode ?? 'auto') === 'auto' && error instanceof UnsupportedContentError) return undefined
       throw error

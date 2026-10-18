@@ -192,7 +192,7 @@ describe('flow().form() — native (capabilities.forms = native)', () => {
     await chat.send('pedido')
     await vi.waitFor(() => expect(lastForm(provider.outbox)).toBeDefined())
     const sent = lastForm(provider.outbox)!
-    expect(sent.form).toBe(contact)
+    expect(sent.form).toMatchObject(contact)
     expect(sent.nativeId).toBe('123')
     expect(sent.token).toMatch(/^contact\./)
 
@@ -403,6 +403,48 @@ describe('forms + i18n: default prompts, hints and errors come from the core.for
     const first = lastForm(provider.outbox)!
     await chat.send(formReplyBody({ token: first.token, values: { qty: 0 } }), { type: 'form' })
     await chat.expectReply('❌ Qty: the minimum is 1.')
+    await bot.stop()
+  })
+
+  it('native mode: cta, submit label and body default to the core.form.* catalog in ctx.lang', async () => {
+    const { bot, chat, provider } = await createTestBot({ i18n: { defaultLocale: 'en' } })
+    provider.capabilities.forms = 'native'
+    const def: FormDefinition = { id: 'q', fields: [{ type: 'number', name: 'qty', label: 'Qty' }] }
+    bot.use(flow('q').form(def).say('ok'))
+    await chat.send('q')
+    await vi.waitFor(() => expect(lastForm(provider.outbox)).toBeDefined())
+    expect(lastForm(provider.outbox)!.form).toMatchObject({ id: 'q', cta: 'Open form', submitLabel: 'Submit', intro: 'Fill in the form.' })
+    expect(def.cta).toBeUndefined()   // the definition itself is not mutated
+    await bot.stop()
+  })
+
+  it('native mode: Spanish defaults are unchanged and explicit labels win', async () => {
+    const { bot, chat, provider } = await createTestBot()
+    provider.capabilities.forms = 'native'
+    bot.use(flow('a').form({ id: 'a', fields: [{ type: 'text', name: 'x', label: 'X' }] }).say('ok'))
+    bot.use(flow('b').form({ id: 'b', title: 'Pedido', cta: 'Pedir', submitLabel: 'Listo', fields: [{ type: 'text', name: 'x', label: 'X' }] }).say('ok'))
+    await chat.send('a')
+    await vi.waitFor(() => expect(lastForm(provider.outbox)).toBeDefined())
+    expect(lastForm(provider.outbox)!.form).toMatchObject({ cta: 'Abrir formulario', submitLabel: 'Enviar', intro: 'Completa el formulario.' })
+    const { bot: bot2, chat: chat2, provider: provider2 } = await createTestBot({ i18n: { defaultLocale: 'en' } })
+    provider2.capabilities.forms = 'native'
+    bot2.use(flow('b').form({ id: 'b', title: 'Pedido', cta: 'Pedir', submitLabel: 'Listo', fields: [{ type: 'text', name: 'x', label: 'X' }] }).say('ok'))
+    await chat2.send('b')
+    await vi.waitFor(() => expect(lastForm(provider2.outbox)).toBeDefined())
+    const sent = lastForm(provider2.outbox)!.form
+    expect(sent).toMatchObject({ cta: 'Pedir', submitLabel: 'Listo', title: 'Pedido' })
+    expect(sent.intro).toBeUndefined()   // a title is the body; no default intro
+    await bot.stop()
+    await bot2.stop()
+  })
+
+  it('ctx.form() fills the defaults in ctx.lang too', async () => {
+    const { bot, chat, provider } = await createTestBot({ i18n: { defaultLocale: 'en' } })
+    provider.capabilities.forms = 'native'
+    bot.when('f', async (ctx) => { await ctx.form!({ id: 'f', fields: [{ type: 'text', name: 'x', label: 'X' }] }) })
+    await chat.send('f')
+    await vi.waitFor(() => expect(lastForm(provider.outbox)).toBeDefined())
+    expect(lastForm(provider.outbox)!.form).toMatchObject({ cta: 'Open form', submitLabel: 'Submit' })
     await bot.stop()
   })
 

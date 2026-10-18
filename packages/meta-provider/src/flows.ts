@@ -15,7 +15,7 @@
  */
 
 import {
-  UnsupportedContentError, formOptionEntries, isFieldRequired, selectionBounds,
+  CORE_MESSAGES, I18n, UnsupportedContentError, formOptionEntries, isFieldRequired, selectionBounds,
   type FormContent, type FormDefinition, type FormField,
 } from '@bot-wa/core'
 
@@ -69,7 +69,18 @@ export interface FlowRef {
 export interface FlowJsonOptions {
   /** Flow JSON `version`. Default {@link DEFAULT_FLOW_JSON_VERSION}. */
   version?: string
+  /**
+   * Language of the default submit label (`core.form.submit` of the built-in
+   * catalog) when the definition has no `submitLabel`. The label is part of the
+   * published Flow, so it cannot follow each user's `ctx.lang`: publish one Flow
+   * per language or set `submitLabel`. Default `'es'` (`'Enviar'`).
+   */
+  lang?: string
 }
+
+/** Built-in catalog (es/en) for the defaults used without a bot context. */
+const catalog = new I18n()
+const builtin = (key: string, lang?: string): string => catalog.translate(lang ?? 'es', key)
 
 /** Screen id of a form: upper-case letters and `_` only (`SUCCESS` is reserved by Meta). */
 export function flowScreenId(def: FormDefinition): string {
@@ -158,7 +169,7 @@ export function toFlowJson(def: FormDefinition, opts: FlowJsonOptions = {}): Wha
       ...def.fields.map(component),
       {
         type: 'Footer',
-        label: cut(def.submitLabel ?? 'Enviar', FLOW_LIMITS.footerLabel),
+        label: cut(def.submitLabel ?? builtin(CORE_MESSAGES.formSubmit, opts.lang), FLOW_LIMITS.footerLabel),
         'on-click-action': { name: 'complete', payload },
       },
     ],
@@ -221,13 +232,16 @@ export function toFlowMessage(content: FormContent, ref?: FlowRef): Record<strin
     )
   }
   const def = content.form
-  const cta = cut((def.cta ?? 'Abrir formulario').replace(/\p{Extended_Pictographic}/gu, '').trim() || 'Abrir formulario', FLOW_LIMITS.cta)
+  // Bot-sent forms arrive with cta/body already localized (ctx.form → withFormDefaults);
+  // these fallbacks only cover direct sends of a bare definition.
+  const fallbackCta = builtin(CORE_MESSAGES.formCta)
+  const cta = cut((def.cta ?? fallbackCta).replace(/\p{Extended_Pictographic}/gu, '').trim() || fallbackCta, FLOW_LIMITS.cta)
   return {
     type: 'interactive',
     interactive: {
       type: 'flow',
       ...(def.title ? { header: { type: 'text', text: cut(def.title, 60) } } : {}),
-      body: { text: def.intro ?? def.title ?? 'Completa el formulario.' },
+      body: { text: def.intro ?? def.title ?? builtin(CORE_MESSAGES.formBody) },
       action: {
         name: 'flow',
         parameters: {

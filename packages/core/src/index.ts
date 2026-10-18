@@ -374,6 +374,7 @@ export type { StreamingMode, DraftOptions } from './core/provider.js'
 // `capabilities.forms === 'native'` (@bot-wa/meta) and asks field by field elsewhere.
 export { runFormStep, resolveFormMode } from './forms/runForm.js'
 export { formReplyBody, parseFormReply, newFormToken } from './forms/reply.js'
+export { withFormDefaults } from './forms/defaults.js'
 export {
   assertFormDefinition, validateFormValues, parseFieldAnswer, parseFormDate,
   formOptionEntries, isFieldRequired, selectionBounds,

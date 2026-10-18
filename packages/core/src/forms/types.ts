@@ -120,9 +120,9 @@ export interface FormDefinition {
   title?: string
   /** Text sent with the form (native message body) or before the first question (degraded). */
   intro?: string
-  /** Label of the button that opens a native form. Default `'Abrir formulario'`. */
+  /** Label of the button that opens a native form. Default: `core.form.cta` in `ctx.lang` (`'Abrir formulario'` / `'Open form'`). */
   cta?: string
-  /** Label of the submit button of a native form. Default `'Enviar'`. */
+  /** Label of the submit button of a native form. Default: `core.form.submit` in `ctx.lang` (`'Enviar'` / `'Submit'`). */
   submitLabel?: string
   /** Fields, in order. At least one; names must be unique. */
   fields: readonly FormField[]

@@ -81,7 +81,7 @@ const { flowId } = await provider.publishForm(signup, { categories: ['SIGN_UP'] 
 writeFileSync('signup.flow.json', JSON.stringify(toFlowJson(signup), null, 2))
 ```
 
-Si un formulario no tiene Flow asociado (ni `config.flows` ni `.form(def, { nativeId })`), el paso pregunta campo por campo como en cualquier otro canal. `flowJsonWarnings(def)` avisa de etiquetas que WhatsApp recortará. Los Flows con endpoint (`data_exchange`, pantallas dinámicas cifradas) aún no están soportados.
+Si un formulario no tiene Flow asociado (ni `config.flows` ni `.form(def, { nativeId })`), el paso pregunta campo por campo como en cualquier otro canal. `flowJsonWarnings(def)` avisa de etiquetas que WhatsApp recortará. El botón (`cta`) y el cuerpo del mensaje siguen el `ctx.lang` del usuario (catálogo `core.form.*`); la etiqueta de envío queda fija en el Flow publicado, así que elige su idioma con `toFlowJson(def, { lang: 'en' })` / `publishForm(def, { flowJson: { lang: 'en' } })` (por defecto `'es'`) o define `submitLabel`. Los Flows con endpoint (`data_exchange`, pantallas dinámicas cifradas) aún no están soportados.
 
 ## Ventana de 24 horas
 

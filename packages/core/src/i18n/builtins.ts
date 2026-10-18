@@ -98,6 +98,12 @@ export const CORE_MESSAGES = {
   formInvalidOption: 'core.form.invalidOption',
   /** Native submission with an invalid date (`{label}`). */
   formInvalidDate: 'core.form.invalidDate',
+  /** Native form: label of the button that opens it (default of `FormDefinition.cta`). */
+  formCta: 'core.form.cta',
+  /** Native form: label of its submit button (default of `FormDefinition.submitLabel`). */
+  formSubmit: 'core.form.submit',
+  /** Native form: message body when the definition has neither `intro` nor `title`. */
+  formBody: 'core.form.body',
 } as const
 
 /** Union of the built-in core message keys. */
@@ -135,6 +141,9 @@ export const BUILTIN_LOCALES: Readonly<Record<'es' | 'en', LocaleMessages>> = {
       },
       form: {
         pending: '👆 Completa el formulario de arriba para continuar.',
+        cta: 'Abrir formulario',
+        submit: 'Enviar',
+        body: 'Completa el formulario.',
         skipWord: 'omitir',
         skipHint: '(escribe "{word}" para saltar)',
         dateHint: '(AAAA-MM-DD o DD/MM/AAAA)',
@@ -198,6 +207,9 @@ export const BUILTIN_LOCALES: Readonly<Record<'es' | 'en', LocaleMessages>> = {
       },
       form: {
         pending: '👆 Fill in the form above to continue.',
+        cta: 'Open form',
+        submit: 'Submit',
+        body: 'Fill in the form.',
         skipWord: 'skip',
         skipHint: '(type "{word}" to skip)',
         dateHint: '(YYYY-MM-DD or DD/MM/YYYY)',

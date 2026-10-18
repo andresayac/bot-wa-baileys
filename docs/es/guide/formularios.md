@@ -53,9 +53,14 @@ Todos los campos aceptan además `name`, `label`, `required` (por defecto `true`
 `error` (mensaje de error propio). La definición se comprueba al construir el
 flujo: un id inválido, un nombre de campo repetido u opciones vacías lanzan un
 `TypeError`. Además de `id`, `title`, `intro` y `fields`, una definición acepta
-`cta` (el botón que abre un formulario nativo, por defecto `'Abrir formulario'`)
-y `submitLabel` (por defecto `'Enviar'`); estos dos no salen del catálogo
-`core.form.*`, así que defínelos si tu bot no habla español.
+`cta` (el botón que abre un formulario nativo) y `submitLabel`. Si se omiten,
+salen de las entradas `core.form.cta` / `core.form.submit` del catálogo en el
+`ctx.lang` del usuario (`'Abrir formulario'` / `'Enviar'` en español, `'Open
+form'` / `'Submit'` en inglés); una definición sin `intro` ni `title` usa
+`core.form.body` como cuerpo del mensaje. La etiqueta de envío forma parte del
+Flow de WhatsApp publicado, así que se fija al publicarlo:
+`toFlowJson(def, { lang: 'en' })` / `publishForm(def, { flowJson: { lang: 'en' } })`
+(por defecto `'es'`), o define `submitLabel`.
 
 Campo por campo, `select`/`multiselect` aceptan el número del menú, la clave o la
 etiqueta (varias elecciones separadas por comas, `;`, `y`/`and` o espacios entre
@@ -126,6 +131,7 @@ writeFileSync('registro.flow.json', JSON.stringify(toFlowJson(registro), null, 2
 Un formulario sin Flow (sin entrada en `config.flows`, sin `publishForm()` y sin
 `nativeId`) se pregunta campo por campo, como en cualquier otro canal.
 `flowJsonWarnings(def)` avisa de las etiquetas que WhatsApp recortará (`FLOW_LIMITS`).
+`toFlowJson(def, { lang })` elige el idioma de la etiqueta de envío por defecto.
 
 Los Flows con endpoint (`data_exchange`, pantallas dinámicas cifradas) aún no están soportados.
 

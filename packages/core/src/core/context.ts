@@ -21,6 +21,7 @@ import { MediaTooLargeError, UnsupportedContentError } from './provider.js'
 import { defaultI18n, normalizeLocale } from '../i18n/I18n.js'
 import { streamText } from '../streaming/streamText.js'
 import { newFormToken } from '../forms/reply.js'
+import { withFormDefaults } from '../forms/defaults.js'
 import type {
   BuildContextDeps,
   Button,
@@ -189,7 +190,9 @@ export function buildMessageContext(deps: BuildContextDeps): IMessageContext {
     },
     async form(definition, opts) {
       const token = opts?.token ?? newFormToken(definition.id)
-      return sendOut({ kind: 'form', form: definition, token, ...(opts?.nativeId !== undefined ? { nativeId: opts.nativeId } : {}) })
+      // Localized cta / submit label / body (core.form.*) in this message's language.
+      const form = withFormDefaults(definition, (key, params) => ctx.t(key, params))
+      return sendOut({ kind: 'form', form, token, ...(opts?.nativeId !== undefined ? { nativeId: opts.nativeId } : {}) })
     },
     capabilities: deps.capabilities,
     ...(deps.canRenderForm ? { canRenderForm: deps.canRenderForm } : {}),
