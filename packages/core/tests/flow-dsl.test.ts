@@ -19,6 +19,9 @@ import {
   RetryUnavailableError,
 } from '../src/index.js'
 
+/** Texts passed to a `reply` mock (controls also pass pacing options as a 2nd argument). */
+const texts = (fn: { mock: { calls: unknown[][] } }): unknown[] => fn.mock.calls.map((c) => c[0])
+
 /* ---------------------------------------------------------------------------
  * A tiny zod look-alike: the real zod v3 SafeParseReturnType shape, no dependency.
  * ------------------------------------------------------------------------ */
@@ -90,12 +93,12 @@ describe('flow().use(subFlow)', () => {
     const f = flow('p').use(sub).say((_ctx, c) => `listo ${c.state.code}`).compile()
     const start = msg('p')
     const run = rt.enter(flowToConversation(f), start)
-    await vi.waitFor(() => expect(start.reply).toHaveBeenCalledWith('¿Código?'))
+    await vi.waitFor(() => expect(texts(start.reply)).toContain('¿Código?'))
     rt.deliver(msg('mal'))
-    await vi.waitFor(() => expect(start.reply).toHaveBeenCalledWith('Código inválido'))
+    await vi.waitFor(() => expect(texts(start.reply)).toContain('Código inválido'))
     rt.deliver(msg('ok'))
     await run
-    expect(start.reply).toHaveBeenLastCalledWith('listo ok')
+    expect(start.reply.mock.calls.at(-1)?.[0]).toBe('listo ok')
   })
 
   it('c.retry() in a parent step after .use() re-runs the returned sub-flow', async () => {
@@ -126,9 +129,9 @@ describe('flow().use(subFlow)', () => {
     const f = flow('p').use(sub).do((_ctx, c) => { c.retry('mal') }).compile()
     const start = msg('p')
     const run = rt.enter(flowToConversation(f), start)
-    await vi.waitFor(() => expect(start.reply).toHaveBeenCalledWith('¿Email?'))
+    await vi.waitFor(() => expect(texts(start.reply)).toContain('¿Email?'))
     rt.deliver(msg('x'))
-    await vi.waitFor(() => expect(start.reply).toHaveBeenCalledWith('mal'))
+    await vi.waitFor(() => expect(texts(start.reply)).toContain('mal'))
     rt.deliver(msg('y'))
     await run
     // Two retries consume the sub-flow ask's budget of 2 → the "too many attempts" ending.
@@ -158,10 +161,10 @@ describe('choose() children and going back', () => {
     const run = rt.enter(flowToConversation(f), start)
     await vi.waitFor(() => expect(start.reply).toHaveBeenCalled())
     rt.deliver(msg('1'))
-    await vi.waitFor(() => expect(start.reply).toHaveBeenCalledWith('¿Nombre?'))
+    await vi.waitFor(() => expect(texts(start.reply)).toContain('¿Nombre?'))
     rt.deliver(msg('Ana'))
     await run
-    expect(start.reply).toHaveBeenLastCalledWith('registro:Ana')
+    expect(start.reply.mock.calls.at(-1)?.[0]).toBe('registro:Ana')
   })
 
   it('an option goto leaves the sub-menu and goes back to the main menu', async () => {
@@ -239,10 +242,10 @@ describe('flow().guard()', () => {
       .compile()
     const start = msg('edad')
     const run = rt.enter(flowToConversation(f), start)
-    await vi.waitFor(() => expect(start.reply).toHaveBeenCalledWith('¿Edad?'))
+    await vi.waitFor(() => expect(texts(start.reply)).toContain('¿Edad?'))
     rt.deliver(msg('15'))
     await run
-    expect(start.reply).toHaveBeenLastCalledWith('Con 15 no puedes')
+    expect(start.reply.mock.calls.at(-1)?.[0]).toBe('Con 15 no puedes')
 
     const silent = flow('s').guard(() => 0).say('nope').compile()
     const s = msg('s')
@@ -293,11 +296,11 @@ describe('schema validation in ask()/waitText()', () => {
       await flowToConversation(f)(c, ctx)
       expect((c as ConversationControls).state.pais).toBe('MX')
     }, start)
-    await vi.waitFor(() => expect(start.reply).toHaveBeenCalledWith('¿País?'))
+    await vi.waitFor(() => expect(texts(start.reply)).toContain('¿País?'))
     rt.deliver(msg('Colombia'))
-    await vi.waitFor(() => expect(start.reply).toHaveBeenCalledWith('Usa el código de 2 letras'))
+    await vi.waitFor(() => expect(texts(start.reply)).toContain('Usa el código de 2 letras'))
     rt.deliver(msg('AR'))
-    await vi.waitFor(() => expect(start.reply).toHaveBeenCalledWith('País no soportado. Opciones: CO, MX'))
+    await vi.waitFor(() => expect(texts(start.reply)).toContain('País no soportado. Opciones: CO, MX'))
     rt.deliver(msg('mx'))
     await run
   })
@@ -334,12 +337,12 @@ describe('schema validation in ask()/waitText()', () => {
     const f = flow('x').ask('¿?', 'v', { schema: asyncSchema }).say((_ctx, c) => `v=${c.state.v}`).compile()
     const start = msg('x')
     const run = rt.enter(flowToConversation(f), start)
-    await vi.waitFor(() => expect(start.reply).toHaveBeenCalledWith('¿?'))
+    await vi.waitFor(() => expect(texts(start.reply)).toContain('¿?'))
     rt.deliver(msg('no'))
-    await vi.waitFor(() => expect(start.reply).toHaveBeenCalledWith('❌ Entrada inválida, intenta de nuevo.'))
+    await vi.waitFor(() => expect(texts(start.reply)).toContain('❌ Entrada inválida, intenta de nuevo.'))
     rt.deliver(msg('si'))
     await run
-    expect(start.reply).toHaveBeenLastCalledWith('v=async')
+    expect(start.reply.mock.calls.at(-1)?.[0]).toBe('v=async')
     expect(sync).not.toHaveBeenCalled()
   })
 
@@ -425,13 +428,13 @@ describe('per-step delays', () => {
       await vi.advanceTimersByTimeAsync(1999)
       expect(ctx.reply).toHaveBeenCalledTimes(1)
       await vi.advanceTimersByTimeAsync(1)
-      expect(ctx.reply).toHaveBeenLastCalledWith('dos')
+      expect(ctx.reply.mock.calls.at(-1)?.[0]).toBe('dos')
       await vi.advanceTimersByTimeAsync(1499)
       expect(ctx.photo).not.toHaveBeenCalled()
       await vi.advanceTimersByTimeAsync(1)
       expect(ctx.photo).toHaveBeenCalledWith('x.png', undefined)
       await vi.advanceTimersByTimeAsync(1000)
-      expect(ctx.reply).toHaveBeenLastCalledWith('¿tres?')
+      expect(ctx.reply.mock.calls.at(-1)?.[0]).toBe('¿tres?')
       rt.deliver(msg('3'))
       await vi.advanceTimersByTimeAsync(0)
       await run
@@ -452,7 +455,7 @@ describe('per-step delays', () => {
       await vi.advanceTimersByTimeAsync(2000)
       await run
       expect(ctx.photo).not.toHaveBeenCalled()
-      expect(ctx.reply).not.toHaveBeenCalledWith('tarde')
+      expect(texts(ctx.reply)).not.toContain('tarde')
     } finally {
       vi.useRealTimers()
     }
