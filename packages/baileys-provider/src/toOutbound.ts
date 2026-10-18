@@ -48,6 +48,8 @@ export async function toOutbound(content: OutboundContent): Promise<AnyMessageCo
       return { location: { degreesLatitude: content.lat, degreesLongitude: content.lng, name: content.name, address: content.address } }
     case 'contact':
       return { contacts: { displayName: content.displayName ?? content.phone, contacts: [{ vcard: vcard(content.phone, content.displayName) }] } }
+    case 'form':
+      throw new UnsupportedContentError('form', 'This transport has no native forms — flow().form() asks field by field instead (capabilities.forms is not "native").')
     case 'poll':
       return { poll: { name: content.question, values: content.options, selectableCount: content.multiSelect ? content.options.length : 1 } }
     case 'reaction':

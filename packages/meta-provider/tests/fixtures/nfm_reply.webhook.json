@@ -1,0 +1,35 @@
+{
+  "object": "whatsapp_business_account",
+  "entry": [
+    {
+      "id": "102290129340398",
+      "changes": [
+        {
+          "field": "messages",
+          "value": {
+            "messaging_product": "whatsapp",
+            "metadata": { "display_phone_number": "15550783881", "phone_number_id": "106540352242922" },
+            "contacts": [{ "profile": { "name": "Ana" }, "wa_id": "573001234567" }],
+            "messages": [
+              {
+                "context": { "from": "15550783881", "id": "wamid.FORM_SENT" },
+                "from": "573001234567",
+                "id": "wamid.NFM_REPLY",
+                "type": "interactive",
+                "interactive": {
+                  "type": "nfm_reply",
+                  "nfm_reply": {
+                    "name": "flow",
+                    "body": "Sent",
+                    "response_json": "{\"flow_token\":\"signup.TOKEN123\",\"name\":\"Ana\",\"age\":\"30\",\"email\":\"ana@example.com\",\"birthday\":\"\",\"plan\":\"pro\",\"topics\":[\"Ventas\",\"Noticias\"],\"terms\":true}"
+                  }
+                },
+                "timestamp": "1714510003"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

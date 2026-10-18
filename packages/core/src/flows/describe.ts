@@ -23,6 +23,7 @@ import type { WaitOptions } from '../core/types.js'
 import { parseDuration } from '../utils/duration.js'
 import { isCompiledFlow, type CompiledChooseOption, type CompiledFlow, type CompiledStep } from './FlowBuilder.js'
 import { describeFlowMediaSource } from './media.js'
+import { formOptionEntries, isFieldRequired } from '../forms/validate.js'
 import {
   describeTrigger,
   functionName,
@@ -48,6 +49,8 @@ export type FlowGraphNodeKind =
   | 'do'
   | 'media'
   | 'choose'
+  /** A `.form()` step (native form or field-by-field questions). */
+  | 'form'
   | 'goto'
   /** A `.guard()` precondition (fails → farewell, or `redirect` goto edge). */
   | 'guard'
@@ -91,6 +94,17 @@ export interface FlowGraphOption {
   goto?: string
 }
 
+/** Summary of a `form` node: what it collects and how it renders. */
+export interface FlowGraphFormInfo {
+  /** Form id. */
+  id: string
+  /** Form title, when set. */
+  title?: string
+  /** Forced rendering mode (`'auto'` when not forced). */
+  mode: 'auto' | 'native' | 'degraded'
+  fields: Array<{ name: string; type: string; label: string; required: boolean; options?: string[] }>
+}
+
 /** A node of the flow graph. Ids are stable and identical to the Mermaid node ids. */
 export interface FlowGraphNode {
   /** Node id, e.g. `f0_in`, `f0_s3`, `f0_s3_o1_s0`, `f0_end`, `f1` (conversation), `x0` (missing target). */
@@ -130,6 +144,8 @@ export interface FlowGraphNode {
   message?: string
   /** Id of the sub-flow a `use` node runs inline. */
   subflow?: string
+  /** Fields of a `form` step, in order (the form id is in {@link text}, its `c.state` key in {@link stateKey}). */
+  form?: FlowGraphFormInfo
   /** Name of the function behind a do/then/dynamic text, when it has a meaningful one. */
   action?: string
   /** Raw step kind of an unknown (`step`) or explicit `end` step. */
@@ -483,6 +499,32 @@ export function buildFlowGraph(inventory: FlowInventory, maxLabelLength = 60): B
       case 'goto':
         addNode({ ...base, kind: 'goto', target: step.target }, (s) => [`goto: ${s(step.target)}`], scope.items)
         return
+      case 'form': {
+        const w = timeoutOf(step.opts)
+        const def = step.form
+        const stateKey = step.opts?.stateKey ?? def.id
+        const form: FlowGraphFormInfo = pruned({
+          id: def.id,
+          title: def.title,
+          mode: step.opts?.mode ?? 'auto',
+          fields: def.fields.map((f) => pruned({
+            name: f.name,
+            type: f.type,
+            label: f.label,
+            required: isFieldRequired(f),
+            options: f.type === 'select' || f.type === 'multiselect' ? formOptionEntries(f.options).map(([k]) => k) : undefined,
+          })),
+        })
+        addNode(
+          { ...base, kind: 'form', text: def.title ?? def.id, stateKey, form, ...w.fields },
+          (s) => [
+            `form: ${s(def.title ?? def.id)} → ${s(stateKey)}${w.suffix}`,
+            s(def.fields.map((f) => `${f.name}${isFieldRequired(f) ? '' : '?'}:${f.type}`).join(', ')),
+          ],
+          scope.items,
+        )
+        return
+      }
       default: {
         // Forward compatibility: step kinds added after this version are drawn generically.
         const extra = step as unknown as Record<string, unknown>
@@ -668,6 +710,7 @@ const SHAPES: Record<FlowGraphNodeKind, readonly [string, string]> = {
   do: ['(', ')'],
   media: ['[', ']'],
   choose: ['{', '}'],
+  form: ['[/', '\\]'],
   goto: ['{{', '}}'],
   guard: ['{{', '}}'],
   use: ['[[', ']]'],

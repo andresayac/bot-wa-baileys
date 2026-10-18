@@ -17,6 +17,7 @@ import type { UserData } from '../user/types.js'
 import type { EditOptions, EditResult, MessagingFeature, MessagingSupport, ReplyOptions, TypingConfig } from './messaging.js'
 import type { I18nConfig, TranslateParams } from '../i18n/types.js'
 import type { StreamOptions, StreamResult, StreamSource } from '../streaming/types.js'
+import type { FormContent, FormDefinition } from '../forms/types.js'
 
 /* ============================================================================
  * 1. IDENTITY PRIMITIVES  (opaque — no shape grammar)
@@ -88,6 +89,12 @@ export type MessageType =
   | 'sticker' | 'location' | 'contact' | 'poll' | 'buttons' | 'list'
   | 'unknown'
   /**
+   * A native form submission (e.g. a WhatsApp Flow completion). Its `body` is
+   * `JSON.stringify(FormReply)` — build it with `formReplyBody()`, read it with
+   * `parseFormReply()`. Consumed by `flow().form()` steps.
+   */
+  | 'form'
+  /**
    * Not a message a provider emits: the Bot projects an inbound {@link CallEvent}
    * into a context of this type so the `CALL` trigger can handle it (see `core/triggers.ts`).
    */
@@ -101,7 +108,7 @@ export type MessageType =
  *  - Discord (plain HTTPS GET).
  */
 export interface MediaRef {
-  kind: Exclude<MessageType, 'text' | 'poll' | 'buttons' | 'list' | 'unknown' | 'call'>
+  kind: Exclude<MessageType, 'text' | 'poll' | 'buttons' | 'list' | 'unknown' | 'call' | 'form'>
   mimetype?: string
   filename?: string
   size?: number
@@ -353,6 +360,8 @@ export type OutboundContent =
   | { kind: 'card'; title: string; body?: string; imageUrl?: string; buttons?: Button[] }
   | { kind: 'template'; name: string; language: string; components?: unknown }
   | { kind: 'native'; provider: string; payload: unknown }
+  /** A native form (only sent to providers with `capabilities.forms === 'native'`). */
+  | FormContent
 
 /** Result of a send. Opaque `ref` — no faked remoteJid/fromMe triple. */
 export interface SendResult<TRaw = unknown> {
@@ -392,6 +401,13 @@ export interface ProviderCapabilities {
   interactionsRequireAck: boolean
   /** Delivery is push-to-us (webhook) rather than a socket the provider owns. */
   pushIngress: boolean
+  /**
+   * How `flow().form()` renders: `'native'` = the provider accepts `form`
+   * OutboundContent and emits `'form'` inbound messages with the submission
+   * (WhatsApp Flows on the Cloud API); `'degraded'` (or absent) = the core asks
+   * field by field with plain text messages.
+   */
+  forms?: 'native' | 'degraded'
   /**
    * How `ctx.stream()` renders a reply that is still being generated:
    * `'draft'` — native ephemeral draft previews ({@link IProvider.sendDraft}) then
@@ -569,6 +585,15 @@ export interface IProvider<TRaw = unknown> {
   sendDraft?(chatId: ChatId, draftId: number, text: string, opts?: DraftOptions): Promise<void>
 
   /**
+   * Whether a `form` OutboundContent for `form` (and `opts.nativeId`) can be
+   * rendered natively right now, e.g. whether a WhatsApp Flow is mapped to it.
+   * Only consulted when `capabilities.forms === 'native'`; when it returns
+   * `false`, an auto-mode `flow().form()` asks field by field without sending
+   * (and failing) a form message first. Absent = every form is renderable.
+   */
+  canRenderForm?(form: FormDefinition, opts?: { nativeId?: string }): boolean
+
+  /**
    * A single primary connection handle for DEBUGGING ONLY. Not a structural
    * guarantee of exactly one connection (Discord may hold many shard sockets).
    * Core must NOT reach through this for behavior.
@@ -667,6 +692,22 @@ export interface MessageContext<TTools extends object = DefaultTools, TRaw = unk
    * split so no message exceeds `capabilities.maxTextLength`. See `StreamOptions`.
    */
   stream(source: StreamSource, opts?: StreamOptions): Promise<StreamResult>
+  /**
+   * Send a native form (`OutboundContent` kind `'form'`). Only meaningful when
+   * `capabilities.forms === 'native'`; other providers reject it with
+   * `UnsupportedContentError`. The submission arrives as an inbound message of
+   * type `'form'` (see `parseFormReply()`); `flow().form()` handles all of this.
+   * Set on contexts built by a Bot.
+   */
+  form?(definition: FormDefinition, opts?: { token?: string; nativeId?: string }): Promise<SentMessage>
+  /**
+   * Whether the provider can render `definition` natively right now (see
+   * `IProvider.canRenderForm`). Set on contexts built by a Bot whose provider
+   * implements it; absent = assume yes when `capabilities.forms === 'native'`.
+   */
+  canRenderForm?(definition: FormDefinition, opts?: { nativeId?: string }): boolean
+  /** Capabilities of the provider this message came from (set on contexts built by a Bot). */
+  capabilities?: ProviderCapabilities
 
   /* Actions — degrade to no-op when the provider lacks the capability */
   markRead(): Promise<void>
@@ -748,7 +789,7 @@ export interface BuildContextDeps<TRaw = unknown> {
   downloadMedia?(ref: MediaRef): Promise<Buffer | NodeJS.ReadableStream>
   /** Backs `ctx.handoff()`; without it `ctx.handoff()` resolves `false`. */
   handoff?(chatId: ChatId, opts?: HandoffOptions): Promise<boolean>
-  /** Provider capabilities — `ctx.stream()` picks its strategy from them. */
+  /** Provider capabilities: `ctx.stream()` picks its strategy from them; exposed as `ctx.capabilities` (drives `flow().form()` rendering). */
   capabilities?: ProviderCapabilities
   /**
    * Backs live edits for `ctx.stream()` (strategy `'edit'`): `before('send')` hooks only (payload
@@ -763,6 +804,8 @@ export interface BuildContextDeps<TRaw = unknown> {
   interaction?: { id: string; data: string; respondBy?: number }
   /** Sender profile exposed as `ctx.user`; when omitted every `ctx.user` call rejects with `UserDataError('UNAVAILABLE')`. */
   user?: UserData
+  /** Backs `ctx.canRenderForm()` (see `IProvider.canRenderForm`). */
+  canRenderForm?(definition: FormDefinition, opts?: { nativeId?: string }): boolean
   /**
    * Paces text replies (delay + typing indicator) around `send`; omitted → sent immediately.
    * May resolve a `skipped` result instead of sending when the reply is cancelled during the wait.

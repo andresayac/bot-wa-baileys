@@ -5,6 +5,7 @@ import type { ConversationControls } from './controls.js'
 import { ConversationEnded, ConversationGoto } from './errors.js'
 import { assertControlsAlive, markStep, pauseControls, replayable } from './retry.js'
 import { sendFlowMedia } from '../flows/media.js'
+import { runFormStep } from '../forms/runForm.js'
 
 async function resolveText(t: CompiledStep & { kind: 'say' | 'ask' }, ctx: RuntimeMessage, c: ConversationControls): Promise<string> {
   return typeof t.text === 'function' ? await t.text(ctx, c) : t.text
@@ -89,6 +90,9 @@ async function runStepsFrom(
         if (option?.goto !== undefined) throw new ConversationGoto(option.goto)
         break
       }
+      case 'form':
+        await runFormStep(step.form, ctx, c, step.opts, flow.opts.timeoutMs)
+        break
       case 'goto':
         throw new ConversationGoto(step.target)
     }

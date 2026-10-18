@@ -16,6 +16,8 @@ import {
   type FlowMediaOptions,
   type FlowMediaSource,
 } from './media.js'
+import type { FormDefinition, FormStepOptions } from '../forms/types.js'
+import { assertFormDefinition } from '../forms/validate.js'
 
 /* ============================================================================
  * TYPED FLOW STATE
@@ -121,6 +123,8 @@ export type CompiledStep =
   | { kind: 'guard'; check: FlowGuard; message?: string | DynamicText; redirect?: string }
   | { kind: 'use'; flow: CompiledFlow }
   | { kind: 'delay'; ms: number }
+  /** `.form()`: a native form, or one question per field on providers without forms. */
+  | { kind: 'form'; form: FormDefinition; opts?: FormStepOptions }
 
 export interface CompiledFlow {
   id: string
@@ -295,6 +299,30 @@ export class FlowBuilder<S extends object = EmptyFlowState> {
     return this
   }
 
+  /**
+   * Collect a typed form. On providers with `capabilities.forms === 'native'`
+   * (WhatsApp Cloud API → WhatsApp Flows) it sends one native form and waits for
+   * its submission; elsewhere it asks field by field. Either way the validated
+   * answers are stored in `c.state[opts.stateKey ?? definition.id]`.
+   * The definition is checked here: a malformed one throws a `TypeError`.
+   *
+   * @example
+   * ```ts
+   * flow('registro')
+   *   .form({ id: 'signup', title: 'Registro', fields: [
+   *     { type: 'text', name: 'name', label: 'Nombre' },
+   *     { type: 'email', name: 'email', label: 'Correo' },
+   *     { type: 'select', name: 'plan', label: 'Plan', options: { basic: 'Básico', pro: 'Pro' } },
+   *   ] })
+   *   .say((_ctx, c) => `Gracias ${(c.state.signup as { name: string }).name}`)
+   * ```
+   */
+  form(definition: FormDefinition, opts?: FormStepOptions): FlowBuilder<S> {
+    assertFormDefinition(definition)
+    this.push({ kind: 'form', form: definition, opts })
+    return this
+  }
+
   /** Pause the flow (`'2s'`, `1500`) before the next step. */
   delay(d: FlowDelay): FlowBuilder<S> {
     this.push({ kind: 'delay', ms: delayOf(d) ?? 0 })
@@ -379,6 +407,9 @@ function hashSteps(steps: CompiledStep[]): number {
           break
         case 'goto':
           parts.push(step.target)
+          break
+        case 'form':
+          parts.push(step.form.id, step.form.fields.map((f) => f.name).join(','))
           break
         case 'do':
           parts.push('fn')

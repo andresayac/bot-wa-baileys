@@ -1,0 +1,47 @@
+{
+  "version": "6.2",
+  "screens": [
+    {
+      "id": "SIGNUP",
+      "title": "Registro",
+      "terminal": true,
+      "success": true,
+      "data": {},
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          { "type": "TextBody", "text": "Completa tus datos" },
+          {
+            "type": "Form",
+            "name": "form",
+            "children": [
+              { "type": "TextInput", "name": "name", "label": "Nombre", "required": true, "input-type": "text", "min-chars": 2 },
+              { "type": "TextInput", "name": "age", "label": "Edad", "required": true, "input-type": "number" },
+              { "type": "TextInput", "name": "email", "label": "Correo", "required": true, "helper-text": "Te enviaremos la confirmación", "input-type": "email" },
+              { "type": "DatePicker", "name": "birthday", "label": "Cumpleaños", "required": false, "max-date": "2010-12-31" },
+              { "type": "RadioButtonsGroup", "name": "plan", "label": "Plan", "required": true, "data-source": [{ "id": "basic", "title": "Básico" }, { "id": "pro", "title": "Pro" }] },
+              { "type": "CheckboxGroup", "name": "topics", "label": "Temas", "required": true, "data-source": [{ "id": "Ventas", "title": "Ventas" }, { "id": "Soporte", "title": "Soporte" }, { "id": "Noticias", "title": "Noticias" }], "min-selected-items": 1, "max-selected-items": 2 },
+              { "type": "OptIn", "name": "terms", "label": "Acepto los términos", "required": true },
+              {
+                "type": "Footer",
+                "label": "Registrarme",
+                "on-click-action": {
+                  "name": "complete",
+                  "payload": {
+                    "name": "${form.name}",
+                    "age": "${form.age}",
+                    "email": "${form.email}",
+                    "birthday": "${form.birthday}",
+                    "plan": "${form.plan}",
+                    "topics": "${form.topics}",
+                    "terms": "${form.terms}"
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

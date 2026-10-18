@@ -63,6 +63,19 @@ export class GraphClient {
     return { id: body.messages?.[0]?.id }
   }
 
+  /**
+   * POST a JSON body to a Graph path (relative to the API version), e.g.
+   * `{WABA-ID}/flows`. Graph errors map to typed provider errors.
+   */
+  async postJson<T = unknown>(path: string, body: Record<string, unknown>): Promise<T> {
+    const res = await fetch(this.base(path), {
+      method: 'POST',
+      headers: this.headers({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify(body),
+    })
+    return (await this.check(res, '')) as T
+  }
+
   /** Mark an inbound message as read. */
   async markRead(messageId: string): Promise<void> {
     const res = await fetch(this.base(`${this.cfg.phoneNumberId}/messages`), {

@@ -7,6 +7,7 @@ import type { SecureFetchOptions } from '@bot-wa/http'
 import type { IdentityMap } from './identity.js'
 import type { SessionWindowManager, SessionWindowOptions } from './sessionWindow.js'
 import type { UsageTracker, UsageTrackerOptions } from './pricing.js'
+import type { FlowRef } from './flows.js'
 
 export interface CloudAPIProviderConfig {
   /** Permanent (system-user) access token with whatsapp_business_messaging. */
@@ -56,6 +57,16 @@ export interface CloudAPIProviderConfig {
    * `false` disables counting (pricing still reaches `platformData`).
    */
   usage?: UsageTrackerOptions | UsageTracker | false
+  /**
+   * Published WhatsApp Flows for `flow().form()`, keyed by form id: a Flow id
+   * (all digits), a Flow name, or a {@link FlowRef} (e.g. `{ flowId, mode: 'draft' }`
+   * to test an unpublished draft). Forms without a mapping (and without
+   * `.form(def, { nativeId })`) fall back to field-by-field questions.
+   * `publishForm()` fills this in at runtime.
+   */
+  flows?: Record<string, string | FlowRef>
+  /** WhatsApp Business Account id — needed only by `publishForm()`. */
+  wabaId?: string
   debug?: boolean
   logger?: Logger
 }

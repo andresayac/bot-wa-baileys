@@ -20,6 +20,7 @@ import { isEditableSend, isMessageRef, type EditOptions, type EditResult, type R
 import { UnsupportedContentError } from './provider.js'
 import { defaultI18n, normalizeLocale } from '../i18n/I18n.js'
 import { streamText } from '../streaming/streamText.js'
+import { newFormToken } from '../forms/reply.js'
 import type {
   BuildContextDeps,
   Button,
@@ -186,6 +187,12 @@ export function buildMessageContext(deps: BuildContextDeps): IMessageContext {
         typing: deps.typing ? () => deps.typing!(from, 'typing') : undefined,
       }, source, opts)
     },
+    async form(definition, opts) {
+      const token = opts?.token ?? newFormToken(definition.id)
+      return sendOut({ kind: 'form', form: definition, token, ...(opts?.nativeId !== undefined ? { nativeId: opts.nativeId } : {}) })
+    },
+    capabilities: deps.capabilities,
+    ...(deps.canRenderForm ? { canRenderForm: deps.canRenderForm } : {}),
 
     /* Actions — degrade to no-op when the provider lacks the capability -- */
     async markRead() { await deps.markRead?.(inbound.ref) },

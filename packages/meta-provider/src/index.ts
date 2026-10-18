@@ -54,3 +54,8 @@ export type {
   UsageEntry,
   UsageTrackerOptions,
 } from './pricing.js'
+export {
+  toFlowJson, toFlowMessage, flowJsonWarnings, flowScreenId, flowRefOf,
+  DEFAULT_FLOW_JSON_VERSION, FLOW_MESSAGE_VERSION, FLOW_LIMITS,
+} from './flows.js'
+export type { WhatsAppFlowJson, FlowRef, FlowJsonOptions } from './flows.js'

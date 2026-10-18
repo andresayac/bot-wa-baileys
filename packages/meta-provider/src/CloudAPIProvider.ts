@@ -34,7 +34,8 @@ import type {
   SendResult,
   UserId,
 } from '@bot-wa/core'
-import { ProviderError, UnsupportedContentError } from '@bot-wa/core'
+import { ProviderError, UnsupportedContentError, assertFormDefinition, type FormDefinition } from '@bot-wa/core'
+import { flowRefOf, toFlowJson, toFlowMessage, type FlowJsonOptions, type FlowRef } from './flows.js'
 import type { CloudAPIProviderConfig } from './types.js'
 import { GraphClient } from './graphClient.js'
 import { toOutbound, type ResolvedMedia } from './toOutbound.js'
@@ -56,10 +57,10 @@ const EXT_MIME: Record<string, string> = {
 export class CloudAPIProvider implements IProvider<unknown> {
   readonly id = 'meta'
   readonly capabilities: ProviderCapabilities = {
-    contentKinds: ['text', 'image', 'video', 'audio', 'voice', 'document', 'sticker', 'location', 'contact', 'reaction', 'buttons', 'list', 'template', 'card', 'native'],
+    contentKinds: ['text', 'image', 'video', 'audio', 'voice', 'document', 'sticker', 'location', 'contact', 'reaction', 'buttons', 'list', 'template', 'card', 'native', 'form'],
     buttons: true, lists: true, polls: false, reactions: true, edit: false,
     typing: false, presence: false, readReceipts: true, groups: false, templates: true,
-    interactionsRequireAck: false, pushIngress: true,
+    interactionsRequireAck: false, pushIngress: true, forms: 'native',
     streaming: 'none', // no live preview: ctx.stream() sends sentence chunks with typing
   }
 
@@ -74,6 +75,8 @@ export class CloudAPIProvider implements IProvider<unknown> {
   readonly usage: UsageTracker | undefined
   private readonly rawSend = (chatId: ChatId, content: OutboundContent, options?: SendOptions): Promise<SendResult<unknown>> =>
     this.sendNow(chatId, content, options)
+  /** Form id → published WhatsApp Flow (config `flows` + `publishForm()`). */
+  private readonly flowRefs = new Map<string, FlowRef>()
   /** Tail of webhook batches waiting on an async identity lookup (keeps webhook order). */
   private pending: Promise<void> | undefined
 
@@ -96,6 +99,9 @@ export class CloudAPIProvider implements IProvider<unknown> {
       : new SessionWindowManager({ ...sw, scope })
     const usage = config.usage
     this.usage = usage === false ? undefined : usage instanceof UsageTracker ? usage : new UsageTracker(usage ?? {})
+    for (const [formId, ref] of Object.entries(config.flows ?? {})) {
+      this.flowRefs.set(formId, typeof ref === 'string' ? flowRefOf(ref) : ref)
+    }
     if (!this.config.appSecret && !this.config.allowUnsignedWebhooks) {
       throw new Error(
         'CloudAPIProvider requires `appSecret` to authenticate webhook POSTs. ' +
@@ -277,7 +283,9 @@ export class CloudAPIProvider implements IProvider<unknown> {
   private async sendNow(chatId: ChatId, content: OutboundContent, options?: SendOptions): Promise<SendResult<unknown>> {
     const needsMedia = MEDIA_KINDS.has(content.kind)
     const media = needsMedia ? await this.resolveMedia((content as { media: MediaSource }).media) : undefined
-    const message = toOutbound(content, media)
+    const message = content.kind === 'form'
+      ? toFlowMessage(content, content.nativeId !== undefined ? flowRefOf(content.nativeId) : this.flowRefs.get(content.form.id))
+      : toOutbound(content, media)
     if (options?.quoted) {
       // Cloud API replies reference the quoted message via context.
       ;(message as Record<string, unknown>).context = { message_id: options.quoted.id }
@@ -286,6 +294,46 @@ export class CloudAPIProvider implements IProvider<unknown> {
     this.identity.noteOutbound(chatId)
     const res = await this.graph.sendMessage(chatId, message)
     return { ref: { id: res.id ?? '', chatId }, raw: res }
+  }
+
+  /* WhatsApp Flows ------------------------------------------------------- */
+
+  /**
+   * Whether `form` can go out as a WhatsApp Flow: a `nativeId` is given, or a
+   * Flow is mapped to `form.id` (`config.flows` or `publishForm()`). When it is
+   * `false`, an auto-mode `flow().form()` asks field by field without first
+   * sending a form message that would fail.
+   */
+  canRenderForm(form: FormDefinition, opts?: { nativeId?: string }): boolean {
+    return opts?.nativeId !== undefined || this.flowRefs.has(form.id)
+  }
+
+  /**
+   * Create (and by default publish) a static WhatsApp Flow from a form definition
+   * through the Flows API (`POST /{WABA-ID}/flows` with `flow_json`), then map
+   * `definition.id` to it so `flow().form(definition)` sends it natively.
+   * Idempotency is up to the caller: each call creates a new Flow — persist the
+   * returned `flowId` and pass it via `config.flows` on the next start.
+   * Requires `wabaId` (config or option) and a token with `whatsapp_business_management`.
+   */
+  async publishForm(
+    definition: FormDefinition,
+    opts: { wabaId?: string; name?: string; categories?: string[]; publish?: boolean; flowJson?: FlowJsonOptions } = {},
+  ): Promise<{ flowId: string; validationErrors: unknown[] }> {
+    assertFormDefinition(definition)
+    const wabaId = opts.wabaId ?? this.config.wabaId
+    if (!wabaId) throw new ProviderError('publishForm() needs a wabaId (CloudAPIProviderConfig.wabaId or the wabaId option)')
+    const res = await this.graph.postJson<{ id?: string; validation_errors?: unknown[] }>(`${wabaId}/flows`, {
+      name: opts.name ?? definition.title ?? definition.id,
+      categories: opts.categories ?? ['OTHER'],
+      flow_json: JSON.stringify(toFlowJson(definition, opts.flowJson)),
+      publish: opts.publish ?? true,
+    })
+    if (!res.id) throw new ProviderError('Flows API returned no flow id')
+    const validationErrors = res.validation_errors ?? []
+    if (validationErrors.length) this.logger.warn({ form: definition.id, errors: validationErrors.length }, 'WhatsApp Flow has validation errors')
+    this.flowRefs.set(definition.id, { flowId: res.id, ...(opts.publish === false ? { mode: 'draft' as const } : {}) })
+    return { flowId: res.id, validationErrors }
   }
 
   /* Capabilities ---------------------------------------------------------- */

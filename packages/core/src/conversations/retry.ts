@@ -300,7 +300,7 @@ export class WaitTracker {
         if (attempts >= (carried?.retries ?? DEFAULT_RETRIES)) return new RetriesExceeded()
         return new ConversationRetry(message, cur.flow, i, attempts)
       }
-      if (step.kind !== 'ask' && step.kind !== 'choose') continue
+      if (step.kind !== 'ask' && step.kind !== 'choose' && step.kind !== 'form') continue
       const retries = step.opts?.retries ?? DEFAULT_RETRIES
       if (1 >= retries) return new RetriesExceeded()
       return new ConversationRetry(message, cur.flow, i, 1)
@@ -313,7 +313,7 @@ export class WaitTracker {
 function flowWaits(flow: CompiledFlow, seen = new Set<CompiledFlow>()): boolean {
   if (seen.has(flow)) return false
   seen.add(flow)
-  return flow.steps.some((s) => s.kind === 'ask' || s.kind === 'choose' || (s.kind === 'use' && flowWaits(s.flow, seen)))
+  return flow.steps.some((s) => s.kind === 'ask' || s.kind === 'choose' || s.kind === 'form' || (s.kind === 'use' && flowWaits(s.flow, seen)))
 }
 
 /* ---------------------------------------------------------------------------

@@ -79,6 +79,8 @@ export function toOutbound(content: OutboundContent, mediaUrl?: string): Record<
 
     case 'sticker':
       throw new UnsupportedContentError('sticker', 'Messenger has no Send API for stickers — send the image instead (kind image).')
+    case 'form':
+      throw new UnsupportedContentError('form', 'This transport has no native forms — flow().form() asks field by field instead (capabilities.forms is not "native").')
     case 'poll':
       throw new UnsupportedContentError('poll', 'Messenger has no Send API for polls — use buttons (kind buttons) or a generic template list.')
     case 'reaction':

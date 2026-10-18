@@ -367,3 +367,20 @@ export { streamText, resolveStreamStrategy } from './streaming/streamText.js'
 export { splitMessage, findSplitPoint } from './streaming/split.js'
 export type { StreamSource, StreamStrategy, StreamOptions, StreamResult, StreamTarget } from './streaming/types.js'
 export type { StreamingMode, DraftOptions } from './core/provider.js'
+// wa-flows
+// Native forms: `flow().form(definition)` renders a WhatsApp Flow on providers with
+// `capabilities.forms === 'native'` (@bot-wa/meta) and asks field by field elsewhere.
+export { runFormStep, resolveFormMode } from './forms/runForm.js'
+export { formReplyBody, parseFormReply, newFormToken } from './forms/reply.js'
+export {
+  assertFormDefinition, validateFormValues, parseFieldAnswer, parseFormDate,
+  formOptionEntries, isFieldRequired, selectionBounds,
+} from './forms/validate.js'
+export type { FieldCheck, FormFieldError, FormValidation } from './forms/validate.js'
+export type {
+  FormDefinition, FormField, FormFieldType, FormOptions, FormValue, FormValues, FormReply,
+  FormMode, FormStepOptions, FormContent,
+  TextFormField, NumberFormField, EmailFormField, DateFormField, SelectFormField,
+  MultiSelectFormField, OptInFormField,
+} from './forms/types.js'
+export type { FlowGraphFormInfo } from './flows/describe.js'

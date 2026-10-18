@@ -104,6 +104,8 @@ export function toOutbound(content: OutboundContent, file?: DiscordFile): Discor
       return { payload }
     }
 
+    case 'form':
+      throw new UnsupportedContentError('form', 'This transport has no native forms — flow().form() asks field by field instead (capabilities.forms is not "native").')
     case 'poll':
       return {
         payload: {

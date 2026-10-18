@@ -63,8 +63,25 @@ app.listen(3000)
 | Reacciones, confirmaciones de lectura | ✅ |
 | Usuarios con **username** de WhatsApp (BSUID): recibir y enviar | ✅ (ver [Usernames y BSUID](#usernames-y-bsuid)) |
 | Clics de botón/lista → interacciones (`type: 'buttons'` + `ctx.acknowledge`) | ✅ |
+| **Formularios** (`flow().form()` → WhatsApp Flows estáticos) | ✅ nativo (ver [WhatsApp Flows](#whatsapp-flows-formularios)) |
 | Encuestas (poll) | ❌ (Graph 131051 — usá botones o WhatsApp Flows) |
 | Grupos, typing/presence, editar/borrar mensajes | ❌ (no existe en la API) |
+
+## WhatsApp Flows (formularios)
+
+`flow().form(definicion)` del core se envía aquí como un **WhatsApp Flow** nativo (`capabilities.forms === 'native'`). El provider compila la definición a un Flow JSON estático de una pantalla (`navigate`, sin endpoint ni cifrado) y la respuesta (`nfm_reply`) vuelve como mensaje de tipo `'form'` que el paso guarda, validado, en `c.state`.
+
+Un Flow debe existir en Meta antes de enviarse:
+
+```ts
+const provider = new CloudAPIProvider({ ...cfg, wabaId: process.env.WABA_ID, flows: { signup: '1234567890' } })
+// o crearlo una vez desde el bot (Flows API, token con whatsapp_business_management):
+const { flowId } = await provider.publishForm(signup, { categories: ['SIGN_UP'] })   // guarda flowId para config.flows
+// o exportar el JSON para pegarlo en WhatsApp Manager:
+writeFileSync('signup.flow.json', JSON.stringify(toFlowJson(signup), null, 2))
+```
+
+Si un formulario no tiene Flow asociado (ni `config.flows` ni `.form(def, { nativeId })`), el paso pregunta campo por campo como en cualquier otro canal. `flowJsonWarnings(def)` avisa de etiquetas que WhatsApp recortará. Los Flows con endpoint (`data_exchange`, pantallas dinámicas cifradas) aún no están soportados.
 
 ## Ventana de 24 horas
 
