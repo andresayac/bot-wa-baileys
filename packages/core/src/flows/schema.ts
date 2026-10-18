@@ -36,7 +36,12 @@ export interface SchemaLike<T = unknown> {
 /** Output type of a {@link SchemaLike}. */
 export type InferSchema<Sch> = Sch extends SchemaLike<infer T> ? T : never
 
-/** Default retry text when a schema rejects an answer without a usable issue message. */
+/**
+ * Spanish default retry text when a schema rejects an answer without a usable issue
+ * message. The runtime now sends the localized `core.wait.invalid` built-in message
+ * (`CORE_MESSAGES.waitInvalid`, same Spanish text); kept for compatibility.
+ * @deprecated Use `ctx.t(CORE_MESSAGES.waitInvalid)`.
+ */
 export const DEFAULT_SCHEMA_MESSAGE = '❌ Entrada inválida, intenta de nuevo.'
 
 /** @internal Run a schema; returns the parsed value or the first issue message (if any). */

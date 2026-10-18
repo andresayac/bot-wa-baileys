@@ -5,7 +5,7 @@ import { normalizeText } from '../core/matching.js'
 import type { WaitOptions } from '../core/types.js'
 import { DEFAULT_RETRIES, WaitTracker, bindTracker, type WaitVerdict } from './retry.js'
 import { createIdleControls, type IdleCallback } from './idle.js'
-import { DEFAULT_SCHEMA_MESSAGE, parseWithSchema, type SchemaLike } from '../flows/schema.js'
+import { parseWithSchema, type SchemaLike } from '../flows/schema.js'
 
 /** Wait options with a zod-compatible `schema`: the wait resolves with the schema's parsed value. */
 export type SchemaWaitOptions<T> = WaitOptions & { schema: SchemaLike<T> }
@@ -136,7 +136,7 @@ export function createControls(rt: ConversationRuntime, handle: ConversationHand
     const parsed = await parseWithSchema(schema, m.body)
     return parsed.ok
       ? { ok: true, value: parsed.value }
-      : { ok: false, message: opts?.otherwise ?? parsed.message ?? DEFAULT_SCHEMA_MESSAGE }
+      : { ok: false, message: opts?.otherwise ?? parsed.message ?? translateFor(m, CORE_MESSAGES.waitInvalid) }
   }
 
   const current = () => rt.latestMessage(handle) ?? ctx

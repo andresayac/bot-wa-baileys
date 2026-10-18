@@ -350,3 +350,72 @@ describe('forms + flow-dsl steps (describe / lint / retry)', () => {
     await bot.stop()
   })
 })
+
+describe('forms + i18n: default prompts, hints and errors come from the core.form.* catalog', () => {
+  const field = (name: string) => signup.fields.find((f) => f.name === name)!
+
+  it('validators take a translator (keys + params); Spanish stays the default', () => {
+    const t = (key: string, params?: Record<string, unknown>) => `${key}|${String(params?.label ?? '')}|${String(params?.min ?? '')}`
+    expect(parseFieldAnswer(field('age'), '17', 'omitir', t)).toEqual({ ok: false, message: 'core.form.min|Edad|18' })
+    expect(parseFieldAnswer(field('email'), 'x', 'omitir', t)).toEqual({ ok: false, message: 'core.form.email||' })
+    expect(parseFieldAnswer(field('age'), '17')).toEqual({ ok: false, message: '❌ Edad: el mínimo es 18.' })
+    const r = validateFormValues(signup, { name: 'Ana', age: 30, email: 'a@b.co', plan: 'pro', topics: ['Soporte'] }, t)
+    expect(r).toEqual({ ok: false, errors: [{ field: 'terms', message: 'core.form.optinRequired|Acepto los términos|' }] })
+    expect(core.CORE_MESSAGES.formPending).toBe('core.form.pending')
+  })
+
+  it('degraded mode speaks the subject language (en): hints, skip word and errors', async () => {
+    const { bot, chat } = await createTestBot({ i18n: { defaultLocale: 'en' } })
+    bot.use(flow('reg').form(signup).say('done'))
+    await chat.send('reg')
+    await chat.expectReply('Nombre')
+    await chat.send('A')
+    await chat.expectReply('Nombre: at least 2 characters.')
+    await chat.send('Ana')
+    await chat.send('17')
+    await chat.expectReply('Edad: the minimum is 18.')
+    await chat.send('30')
+    await chat.send('nope')
+    await chat.expectReply('Please type a valid email')
+    await chat.send('ana@example.com')
+    await chat.expectReply(/Cumpleaños[\s\S]*\(YYYY-MM-DD or DD\/MM\/YYYY\)[\s\S]*\(type "skip" to skip\)/)
+    await chat.send('skip')
+    await chat.send('2')
+    await chat.expectReply(/Temas[\s\S]*You can pick up to 2, separated by commas/)
+    await chat.send('1 and 3')
+    await chat.expectReply(/Acepto los términos[\s\S]*1\) Yes\n2\) No/)
+    await chat.send('maybe')
+    await chat.expectReply('Answer 1 (Yes) or 2 (No).')
+    await chat.send('yes')
+    await chat.expectReply('done')
+    await bot.stop()
+  })
+
+  it('native mode: the pending reminder and server-side errors are localized', async () => {
+    const { bot, chat, provider } = await createTestBot({ i18n: { defaultLocale: 'en' } })
+    provider.capabilities.forms = 'native'
+    const def: FormDefinition = { id: 'q', fields: [{ type: 'number', name: 'qty', label: 'Qty', min: 1 }] }
+    bot.use(flow('q').form(def).say('ok'))
+    await chat.send('q')
+    await vi.waitFor(() => expect(lastForm(provider.outbox)).toBeDefined())
+    await chat.send('hello?')
+    await chat.expectReply('👆 Fill in the form above to continue.')
+    const first = lastForm(provider.outbox)!
+    await chat.send(formReplyBody({ token: first.token, values: { qty: 0 } }), { type: 'form' })
+    await chat.expectReply('❌ Qty: the minimum is 1.')
+    await bot.stop()
+  })
+
+  it('a schema rejection without its own message uses the localized invalid-input text', async () => {
+    const { bot, chat } = await createTestBot({ i18n: { defaultLocale: 'en' } })
+    const schema = { safeParse: (v: unknown) => (v === 'ok' ? { success: true as const, data: v } : { success: false as const }) }
+    bot.use(flow('s').ask('value?', 'v', { schema }).say('fine'))
+    await chat.send('s')
+    await chat.expectReply('value?')
+    await chat.send('bad')
+    await chat.expectReply('❌ Invalid input, please try again.')
+    await chat.send('ok')
+    await chat.expectReply('fine')
+    await bot.stop()
+  })
+})

@@ -78,6 +78,13 @@ flow('pedido').form(pedido, {
 })
 ```
 
+`skipWord`, `pendingMessage`, las pistas del modo campo por campo (`1) Sí /
+2) No`, el formato de fecha, "escribe … para saltar") y todos los errores de
+validación salen por defecto de los mensajes internos `core.form.*` en el
+idioma del usuario (`ctx.lang`, con `es` y `en` incluidos). Cámbialos por
+idioma con `bot.locale()` (ver [i18n](./i18n#mensajes-internos)); el `error`
+propio de un campo sigue ganando.
+
 En modo `'auto'` el paso solo se muestra de forma nativa si el provider declara
 `forms: 'native'` **y** puede mostrar ese formulario en concreto. El provider lo
 indica con el método opcional `IProvider.canRenderForm(form, { nativeId })`

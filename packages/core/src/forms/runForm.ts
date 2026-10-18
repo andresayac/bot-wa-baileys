@@ -10,6 +10,8 @@ import type { ConversationControls } from '../conversations/controls.js'
 import { RetriesExceeded } from '../conversations/errors.js'
 import { DEFAULT_RETRIES } from '../conversations/retry.js'
 import { UnsupportedContentError, type ProviderCapabilities } from '../core/provider.js'
+import { CORE_MESSAGES as M } from '../i18n/builtins.js'
+import type { Translate } from '../i18n/types.js'
 import { parseDuration } from '../utils/duration.js'
 import { newFormToken, parseFormReply } from './reply.js'
 import type { FormDefinition, FormField, FormStepOptions, FormValue, FormValues } from './types.js'
@@ -21,8 +23,6 @@ interface FormCapableContext {
   form?(definition: FormDefinition, opts?: { token?: string; nativeId?: string }): Promise<unknown>
   canRenderForm?(definition: FormDefinition, opts?: { nativeId?: string }): boolean
 }
-
-const DEFAULT_PENDING = '👆 Completa el formulario de arriba para continuar.'
 
 /**
  * Whether a step with `opts` renders natively for `ctx`. In auto mode, with
@@ -96,19 +96,19 @@ async function runNative(
         const reply = parseFormReply(m.body)
         // A reply to an older form message (or garbage): ignore it, keep waiting.
         if (!reply || (reply.token !== undefined && reply.token !== token)) continue
-        const result = validateFormValues(def, reply.values)
+        const result = validateFormValues(def, reply.values, c.t)
         if (result.ok) return result.values
         strike()
         await c.say(result.errors.map((e) => e.message).join('\n'))
         break   // re-send a fresh form
       }
       strike()
-      await c.say(opts.pendingMessage ?? DEFAULT_PENDING)
+      await c.say(opts.pendingMessage ?? c.t(M.formPending))
     }
   }
 }
 
-function questionFor(field: FormField, skipWord: string): string {
+function questionFor(field: FormField, skipWord: string, t: Translate): string {
   const lines = [field.prompt ?? field.label]
   if (!field.prompt && field.helper) lines.push(`_${field.helper}_`)
   switch (field.type) {
@@ -118,19 +118,19 @@ function questionFor(field: FormField, skipWord: string): string {
     case 'multiselect': {
       const { min, max } = selectionBounds(field)
       lines.push('', ...formOptionEntries(field.options).map(([, label], i) => `${i + 1}) ${label}`))
-      lines.push('', max > 1 ? `Puedes elegir ${min > 1 ? `entre ${min} y ${max}` : `hasta ${max}`}, separadas por coma (ej. 1, 3).` : 'Elige una.')
+      lines.push('', max > 1 ? (min > 1 ? t(M.formPickBetween, { min, max }) : t(M.formPickUpTo, { max })) : t(M.formPickOne))
       break
     }
     case 'optin':
-      lines.push('', '1) Sí', '2) No')
+      lines.push('', t(M.formYesNo))
       break
     case 'date':
-      if (!field.prompt) lines.push('(AAAA-MM-DD o DD/MM/AAAA)')
+      if (!field.prompt) lines.push(t(M.formDateHint))
       break
     default:
       break
   }
-  if (!isFieldRequired(field) && field.type !== 'optin') lines.push(`(escribe "${skipWord}" para saltar)`)
+  if (!isFieldRequired(field) && field.type !== 'optin') lines.push(t(M.formSkipHint, { word: skipWord }))
   return lines.join('\n')
 }
 
@@ -140,17 +140,17 @@ async function runDegraded(
   opts: FormStepOptions,
   timeout: number | string | undefined,
 ): Promise<FormValues> {
-  const skipWord = opts.skipWord ?? 'omitir'
+  const skipWord = opts.skipWord ?? c.t(M.formSkipWord)
   const intro = [def.title ? `*${def.title}*` : undefined, def.intro].filter(Boolean).join('\n')
   if (intro) await c.say(intro)
   const values: FormValues = {}
   for (const field of def.fields) {
     let parsed: FormValue | undefined
-    await c.ask(questionFor(field, skipWord), {
+    await c.ask(questionFor(field, skipWord, c.t), {
       timeout,
       retries: opts.retries,
       validate: (body) => {
-        const r = parseFieldAnswer(field, body, skipWord)
+        const r = parseFieldAnswer(field, body, skipWord, c.t)
         if (!r.ok) return r.message
         parsed = r.value
         return true

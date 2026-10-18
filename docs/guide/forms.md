@@ -77,6 +77,12 @@ flow('order').form(orderForm, {
 })
 ```
 
+`skipWord`, `pendingMessage`, the field-by-field hints (`1) Yes / 2) No`, the
+date format, "type … to skip") and every validation error default to the
+built-in `core.form.*` messages in the subject's language (`ctx.lang`, `es` and
+`en` included). Override them per locale with `bot.locale()` (see
+[i18n](./i18n#built-in-messages)); a field's own `error` still wins.
+
 In `'auto'` mode the step renders natively only when the provider declares
 `forms: 'native'` **and** can render this particular form. Providers say so with
 the optional `IProvider.canRenderForm(form, { nativeId })` (available as
