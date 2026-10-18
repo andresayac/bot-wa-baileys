@@ -239,7 +239,7 @@ export function createRestApi(manager: BotManager, options: RestApiOptions): Res
         throw mapProviderError(error)
       }
     },
-    triggerFlow: (ctx) => {
+    triggerFlow: async (ctx) => {
       const { id } = botFor(ctx)
       const body = objectBody(ctx.body)
       onlyKeys(body, ['flowId', 'chatId', 'userId', 'isGroup', 'state'])
@@ -250,11 +250,11 @@ export function createRestApi(manager: BotManager, options: RestApiOptions): Res
       const trigger = requireCapability(manager.get(id), 'triggerFlow')
       let started: boolean
       try {
-        started = trigger(flowId, { chatId, userId: optionalString(body, 'userId', 256), isGroup: optionalBoolean(body, 'isGroup') }, state ? { state } : undefined)
+        started = await trigger(flowId, { chatId, userId: optionalString(body, 'userId', 256), isGroup: optionalBoolean(body, 'isGroup') }, state ? { state } : undefined)
       } catch {
         throw new HttpError(409, 'BOT_NOT_RUNNING', 'the bot must be running to trigger a flow')
       }
-      if (!started) throw new HttpError(404, 'NOT_FOUND', `flow "${flowId}" not found (or the chat is handed off)`)
+      if (!started) throw new HttpError(404, 'NOT_FOUND', `flow "${flowId}" not found (or the subject is blocked / the chat is handed off)`)
       return { status: 202, body: { data: { started: true } } }
     },
     listConversations: (ctx) => ok(requireCapability(manager.get(botFor(ctx).id), 'listConversations')()),

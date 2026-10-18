@@ -542,3 +542,17 @@ describe('i18n + bot.trigger', () => {
     await bot.stop()
   })
 })
+
+describe('i18n + bot.triggerFlow', () => {
+  it('a flow started by triggerFlow resolves the subject language like bot.trigger', async () => {
+    const { bot, provider } = await makeBot()
+    bot.locale('es', ES).locale('en', EN)
+    await bot.user('u2').set('lang', 'en')
+    bot.conversation('aviso2', async (c, ctx) => {
+      await c.say(`${ctx.lang ?? '?'}:${ctx.t?.('menu.title') ?? '?'}`)
+    })
+    expect(await bot.triggerFlow('aviso2', { chatId: 'u2' })).toBe(true)
+    await vi.waitFor(() => expect(texts(provider)).toEqual(['en:Main menu']), { timeout: 1000, interval: 5 })
+    await bot.stop()
+  })
+})

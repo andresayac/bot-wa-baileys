@@ -24,6 +24,8 @@ export interface TriggerOptions {
    * `{ started: false, reason: 'busy' }`; `'replace'` cancels it and starts this one.
    */
   ifActive?: 'skip' | 'replace'
+  /** `ctx.body` of the synthetic triggering message (default `''`). */
+  body?: string
 }
 
 /** Why {@link TriggerResult.started} is `false`. */
@@ -69,7 +71,7 @@ export function triggerInbound(name: string, opts: TriggerOptions): InboundMessa
     isBroadcast: false,
     fromMe: false,
     type: 'text',
-    body: '',
+    body: opts.body ?? '',
     timestamp: Date.now(),
     mentions: [],
     raw: { synthetic: 'trigger', name },
@@ -87,6 +89,7 @@ export function assertTriggerArgs(name: unknown, opts: unknown): asserts opts is
   if (o.data !== undefined && (typeof o.data !== 'object' || o.data === null || Array.isArray(o.data))) {
     throw new TypeError('bot.trigger(): opts.data must be a plain object')
   }
+  if (o.body !== undefined && typeof o.body !== 'string') throw new TypeError('bot.trigger(): opts.body must be a string')
   if (o.ifActive !== undefined && o.ifActive !== 'skip' && o.ifActive !== 'replace') {
     throw new TypeError("bot.trigger(): opts.ifActive must be 'skip' or 'replace'")
   }

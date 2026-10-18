@@ -335,20 +335,6 @@ export class Bot extends EventEmitter {
     this.flowRegistry = new DynamicFlowRegistry({
       runtime: this.runtime,
       enterMatcher: (trigger, target) => this.registerEnterMatcher(trigger, target),
-      isStarted: () => this.isStarted,
-      isHandedOff: (chatId) => {
-        if (!this.isChatHandedOff(chatId)) return false
-        this.counters.handoffDropped()
-        return true
-      },
-      isBlocked: (chatId, senderId) => {
-        if (checkAccess(this.blacklist, this.whitelist, { chatId, senderId }) === 'allowed') return false
-        this.counters.blockedDropped()
-        return true
-      },
-      reply: (chatId, text) => this.sendText(chatId, text),
-      decorate: (ctx) => ({ ...ctx, user: this.users.for(ctx.sender) }),
-      reportError: (error, ctx) => this.emitError({ error, ctx: ctx as unknown as MessageContext }),
     })
 
     this.welcome = new WelcomeTracker({ store: this.store, onError: (error) => this.emitError({ error }) })
@@ -946,14 +932,27 @@ export class Bot extends EventEmitter {
   listFlows(): RegisteredFlowInfo[] { return this.flowRegistry.list() }
 
   /**
-   * Start flow `id` proactively in a chat, without an inbound message (fire-and-forget; the
-   * user's replies then flow into it as usual). Replaces a conversation already running on the
-   * same key. Returns `false` when the flow is unknown, the subject is refused by the access
-   * lists (blacklist / whitelist) or the chat is handed off; throws when
-   * the bot is not started.
+   * Start flow `id` proactively in a chat, without an inbound message (the user's replies
+   * then flow into it as usual). A thin wrapper over {@link trigger} with
+   * `ifActive: 'replace'` — same access-list and handoff gates, per-chat FIFO slot,
+   * language resolution, messaging seams and metrics — so it replaces a conversation
+   * already running (or dormant) on the same key. Resolves `false` when the flow is
+   * unknown, the subject is refused by the access lists (blacklist / whitelist) or the
+   * chat is handed off; rejects when the bot is not started.
    */
-  triggerFlow(id: string, target: FlowTriggerTarget, opts?: FlowTriggerOptions): boolean {
-    return this.flowRegistry.trigger(id, target, opts)
+  async triggerFlow(id: string, target: FlowTriggerTarget, opts: FlowTriggerOptions = {}): Promise<boolean> {
+    if (!this.acceptingInbound) throw new Error('triggerFlow() needs a started bot')
+    if (!this.runtime.has(id)) return false
+    const result = await this.trigger(id, {
+      chatId: target.chatId,
+      ...(target.userId !== undefined ? { userId: target.userId } : {}),
+      isGroup: target.isGroup === true,
+      ...(opts.state ? { data: opts.state } : {}),
+      ...(opts.body !== undefined ? { body: opts.body } : {}),
+      ifActive: 'replace',
+    })
+    if (result.reason === 'stopped') throw new Error('triggerFlow() needs a started bot')
+    return result.started
   }
 
   /** Snapshots of every live conversation (`key`, `state`, `waiting`, `queued`). */

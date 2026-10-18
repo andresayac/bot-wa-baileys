@@ -125,6 +125,9 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/). Versionado po
 - **`@bot-wa/instagram`**: un payload sin `mid` ni timestamp ya no recibe el id compartido `ig_0` (pasa a `''`, que nunca se deduplica).
 - **`@bot-wa/discord`, `@bot-wa/messenger`, `@bot-wa/instagram`**: las firmas de los métodos no-op coinciden con `IProvider`; en Discord, `typing(chatId, 'paused')` ya no inicia el indicador de escritura.
 
+### Integración de ramas (2026-10)
+- **`@bot-wa/core`**: `bot.triggerFlow()` es ahora un wrapper fino sobre `bot.trigger()` (`ifActive: 'replace'`) y devuelve `Promise<boolean>`: pasa por los mismos gates (listas de acceso, handoff), el turno FIFO del chat, la resolución de idioma, los seams de mensajería/typing/edición/streaming y las métricas (`triggered`). `TriggerOptions` gana `body`. `@bot-wa/manager` hace `await` en `POST /bots/{botId}/trigger` (mismo contrato: 202 / 404 / 409).
+
 ---
 
 ## @bot-wa/ai

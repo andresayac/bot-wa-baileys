@@ -268,6 +268,27 @@ describe('REST API — messaging, conversations, flows, idempotency', () => {
     await ctx.manager.shutdown()
   })
 
+  it('trigger goes through bot.trigger(): replaces a running flow, 404 when blocked, 409 when stopped', async () => {
+    const { api, providers } = ctx
+    const ask = (id: string) => ({ version: 1, id, trigger: id, steps: [{ kind: 'ask', text: `¿${id}?`, stateKey: id }] })
+    expect((await call(api, 'POST', '/v1/bots/b/flows', { token: OPS, body: ask('uno') })).status).toBe(201)
+    expect((await call(api, 'POST', '/v1/bots/b/flows', { token: OPS, body: ask('dos') })).status).toBe(201)
+    expect((await call(api, 'POST', '/v1/bots/b/trigger', { token: OPS, body: { flowId: 'uno', chatId: 'chat-r' } })).status).toBe(202)
+    const replaced = await call(api, 'POST', '/v1/bots/b/trigger', { token: OPS, body: { flowId: 'dos', chatId: 'chat-r' } })
+    expect(replaced.status).toBe(202)
+    expect(replaced.body.data).toEqual({ started: true })
+    await new Promise((r) => setTimeout(r, 5))
+    expect(providers.get('b')!.outbox.map((m) => m.content)).toEqual([{ kind: 'text', text: '¿uno?' }, { kind: 'text', text: '¿dos?' }])
+    const bot = ctx.manager.get('b') as unknown as Bot
+    bot.blacklist.add('bad')
+    expect((await call(api, 'POST', '/v1/bots/b/trigger', { token: OPS, body: { flowId: 'uno', chatId: 'bad' } })).status).toBe(404)
+    await bot.stop()
+    const stopped = await call(api, 'POST', '/v1/bots/b/trigger', { token: OPS, body: { flowId: 'uno', chatId: 'chat-r' } })
+    expect(stopped.status).toBe(409)
+    expect(stopped.body.error.code).toBe('BOT_NOT_RUNNING')
+    await ctx.manager.shutdown()
+  })
+
   it('flows CRUD, trigger, conversations list/cancel', async () => {
     const { api, providers } = ctx
     const doc = { version: 1, id: 'encuesta', trigger: 'encuesta', steps: [{ kind: 'ask', text: '¿Nombre?', stateKey: 'name' }, { kind: 'say', text: 'Gracias {{name}}' }] }

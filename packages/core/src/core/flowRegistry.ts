@@ -1,6 +1,7 @@
 /**
  * Dynamic flow registry — the runtime CRUD behind `bot.registerFlow()`,
- * `unregisterFlow()`, `replaceFlow()`, `listFlows()` and `triggerFlow()`.
+ * `unregisterFlow()`, `replaceFlow()` and `listFlows()` (`triggerFlow()` lives on the
+ * Bot as a wrapper over `bot.trigger()`).
  *
  * Keeps, per conversation name, the dispatcher matchers that enter it so a flow
  * can be removed or hot-swapped without a restart. Conversations already running
@@ -8,7 +9,7 @@
  * `enter()` time); new triggers use the new version.
  */
 
-import type { ConversationRuntime, ConversationSnapshot, RuntimeMessage } from '../conversations/ConversationRuntime.js'
+import type { ConversationRuntime, ConversationSnapshot } from '../conversations/ConversationRuntime.js'
 import { FlowBuilder, type CompiledFlow } from '../flows/FlowBuilder.js'
 import type { Trigger } from './types.js'
 import type { ChatId, UserId } from './provider.js'
@@ -27,7 +28,7 @@ export interface FlowTriggerTarget {
   isGroup?: boolean
 }
 
-/** Options of {@link Bot.triggerFlow}. */
+/** Options of {@link Bot.triggerFlow} (mapped onto {@link Bot.trigger}'s `data` / `body`). */
 export interface FlowTriggerOptions {
   /** Shallow-merged into `c.state` before the first step runs. */
   state?: Record<string, unknown>
@@ -39,13 +40,6 @@ export interface FlowTriggerOptions {
 export interface FlowRegistryDeps {
   runtime: ConversationRuntime
   enterMatcher(trigger: Trigger, target: string): () => void
-  isStarted(): boolean
-  isHandedOff(chatId: ChatId): boolean
-  /** Access lists (blacklist / whitelist) refuse this subject — same gate as an inbound message. */
-  isBlocked(chatId: ChatId, userId: UserId): boolean
-  reply(chatId: ChatId, text: string): Promise<unknown>
-  decorate?(ctx: RuntimeMessage): RuntimeMessage
-  reportError(error: unknown, ctx: RuntimeMessage): void
 }
 
 /** @internal */
@@ -102,31 +96,6 @@ export class DynamicFlowRegistry {
         : { id: r.name, kind: 'conversation' })
     }
     return [...live.values()]
-  }
-
-  trigger(id: string, target: FlowTriggerTarget, opts: FlowTriggerOptions = {}): boolean {
-    if (!this.deps.isStarted()) throw new Error('triggerFlow() needs a started bot')
-    const fn = this.deps.runtime.lookup(id)
-    if (!fn) return false
-    const chatId = target.chatId
-    if (this.deps.isBlocked(chatId, target.userId ?? chatId)) return false
-    if (this.deps.isHandedOff(chatId)) return false
-    const base: RuntimeMessage = {
-      from: chatId,
-      sender: target.userId ?? chatId,
-      body: opts.body ?? '',
-      type: 'text',
-      isGroup: target.isGroup === true,
-      reply: (text: string) => this.deps.reply(chatId, text),
-    }
-    const ctx = this.deps.decorate ? this.deps.decorate(base) : base
-    const seed = opts.state
-    const run = seed
-      ? this.deps.runtime.enter(async (c, m) => { Object.assign(c.state, seed); await fn(c, m) }, ctx)
-      : this.deps.runtime.enter(id, ctx)
-    // Fire-and-forget: enter() resolves when the conversation ENDS.
-    void run.catch((error) => this.deps.reportError(error, ctx))
-    return true
   }
 
   conversations(): ConversationSnapshot[] { return this.deps.runtime.listActive() }

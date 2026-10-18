@@ -15,7 +15,8 @@ export interface BotCapabilities {
   unregisterFlow(id: string): boolean
   hasFlow(id: string): boolean
   listFlows(): RegisteredFlowInfo[]
-  triggerFlow(id: string, target: FlowTriggerTarget, opts?: FlowTriggerOptions): boolean
+  /** Core `Bot.triggerFlow()` resolves (a wrapper over `bot.trigger()`); a sync stub may return directly. */
+  triggerFlow(id: string, target: FlowTriggerTarget, opts?: FlowTriggerOptions): boolean | Promise<boolean>
   listConversations(): ConversationSnapshot[]
   abortConversation(key: string): boolean
   getStore(): { getMessagesByChat(chatId: string, limit?: number): Promise<StoredMessage[]> }

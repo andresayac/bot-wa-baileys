@@ -106,9 +106,9 @@ export const ROUTES: readonly RouteSpec[] = [
     errors: [400, 404, 413, 422, 501, 503],
   },
   {
-    method: 'POST', path: '/bots/{botId}/trigger', operationId: 'triggerFlow', summary: 'Start a flow proactively in a chat.', tag: 'conversations', scope: 'conversations:write',
+    method: 'POST', path: '/bots/{botId}/trigger', operationId: 'triggerFlow', summary: 'Start a flow proactively in a chat (replaces a conversation the subject already has).', tag: 'conversations', scope: 'conversations:write',
     body: ref('TriggerInput'),
-    success: { status: 202, description: 'Flow started (runs asynchronously).', schema: envelope({ type: 'object', properties: { started: { const: true } } }) },
+    success: { status: 202, description: 'Flow started (runs asynchronously). 404 when the flow is unknown, the subject is blocked or the chat is handed off; 409 when the bot is not running.', schema: envelope({ type: 'object', properties: { started: { const: true } } }) },
     errors: [400, 404, 409, 501],
   },
   {
