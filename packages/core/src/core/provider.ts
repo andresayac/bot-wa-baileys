@@ -814,6 +814,14 @@ export interface BuildContextDeps<TRaw = unknown> {
    * `stream: 'edit'`), no `after('send')`. Distinct from {@link editMessage}, which backs `ctx.edit`.
    */
   streamEdit?(ref: MessageRef, content: OutboundContent): Promise<unknown>
+  /**
+   * Backs the NEW messages `ctx.stream()` sends to its own chat (the first message of
+   * an edit stream, sentence chunks, the final message after drafts): the full send
+   * path, with `stream: 'message'` on the `before('send')` / `after('send')` payload so
+   * hooks can tell streamed output apart (e.g. a text-to-speech hook leaves it as text).
+   * Omitted → {@link send}.
+   */
+  streamSend?(chatId: ChatId, content: OutboundContent, options?: SendOptions): Promise<SendResult<TRaw>>
   /** Backs native drafts for `ctx.stream()` (strategy `'draft'`). */
   sendDraft?(chatId: ChatId, draftId: number, text: string, opts?: DraftOptions): Promise<void>
   /** Deletes a message `ctx.stream()` sent (`onCancel: 'discard'`), from the chat and the message log. */

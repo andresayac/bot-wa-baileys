@@ -62,7 +62,7 @@ Un hook `before('message')` (prioridad 100) descarga cada nota de voz, la transc
 
 ### `autoReplyWithVoice` (desactivado por defecto)
 
-Mientras el **último mensaje entrante** de un chat sea una nota de voz, el texto saliente hacia ese chat se sintetiza y se envía como nota de voz. Es un hook `before('send')`, así que cubre `ctx.reply`, `flow().say`, `c.say` y el autoresponder de IA. Si el usuario vuelve a escribir texto, el chat vuelve a texto.
+Mientras el **último mensaje entrante** de un chat sea una nota de voz, el texto saliente hacia ese chat se sintetiza y se envía como nota de voz. Es un hook `before('send')`, así que cubre `ctx.reply`, `flow().say`, `c.say` y el autoresponder de IA. Si el usuario vuelve a escribir texto, el chat vuelve a texto. La salida de `ctx.stream()` (borradores, ediciones en vivo, trozos y mensaje final; payload `stream` en el hook) y las ediciones de `ctx.edit` **siempre se quedan en texto**.
 
 | Opción | Tipo | Por defecto | Descripción |
 | --- | --- | --- | --- |

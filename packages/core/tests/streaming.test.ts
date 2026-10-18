@@ -405,6 +405,28 @@ describe('ctx.stream (Bot integration)', () => {
     await bot.stop()
   })
 
+  it("marks every stream message in before(send): stream 'message' for new messages, 'edit'/'draft' for previews", async () => {
+    for (const streaming of ['none', 'edit', 'draft'] as const) {
+      const { bot, chat } = await createTestBot({}, { provider: { streaming } })
+      const kinds: Array<string | undefined> = []
+      bot.before('send', (p) => { kinds.push((p as { stream?: string }).stream) })
+      let done = false
+      bot.when('x', async (ctx) => {
+        await ctx.stream(gen(['Una frase. ', 'Otra frase.'], 5), { throttleMs: 0 })
+        await ctx.reply('normal')
+        done = true
+      })
+      await chat.send('x')
+      await vi.waitFor(() => expect(done).toBe(true))
+      expect(kinds.at(-1)).toBeUndefined()
+      const streamed = kinds.slice(0, -1)
+      expect(streamed.length).toBeGreaterThan(0)
+      expect(streamed.every((k) => k === 'message' || k === 'edit' || k === 'draft')).toBe(true)
+      expect(streamed).toContain('message')
+      await bot.stop()
+    }
+  })
+
   it('an aborting before(send) hook also blocks the native drafts', async () => {
     const { bot, provider, chat } = await createTestBot({}, { provider: { streaming: 'draft' } })
     bot.before('send', (p) => {

@@ -47,8 +47,8 @@ export function buildMessageContext(deps: BuildContextDeps): IMessageContext {
   // external-send clock so a later `bot.send`/`sendTo` to the chat invalidates it.
   let ownLast: { ref: MessageRef; kind: OutboundContent['kind']; at: number } | undefined
 
-  const sendTo = async (chatId: ChatId, content: OutboundContent, opts?: SendOptions): Promise<SentMessage> => {
-    const r = await send(chatId, content, opts)
+  const sendTo = async (chatId: ChatId, content: OutboundContent, opts?: SendOptions, via: BuildContextDeps['send'] = send): Promise<SentMessage> => {
+    const r = await via(chatId, content, opts)
     if (chatId === from && !r.skipped && isEditableSend(content)) {
       ownLast = { ref: r.ref, kind: content.kind, at: deps.sendClock?.now() ?? 0 }
     }
@@ -180,7 +180,7 @@ export function buildMessageContext(deps: BuildContextDeps): IMessageContext {
       return streamText({
         capabilities: deps.capabilities,
         isPrivate,
-        send: sendOut,
+        send: deps.streamSend ? (content, o) => sendTo(from, content, o, deps.streamSend!) : sendOut,
         edit: deps.streamEdit ? (ref, content) => deps.streamEdit!(ref, content) : undefined,
         delete: deps.deleteStreamMessage ? (ref) => deps.deleteStreamMessage!(ref) : undefined,
         draft: deps.sendDraft ? (draftId, text, o) => deps.sendDraft!(from, draftId, text, o) : undefined,

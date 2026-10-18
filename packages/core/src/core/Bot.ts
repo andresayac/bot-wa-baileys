@@ -537,8 +537,9 @@ export class Bot extends EventEmitter {
    * own chat (`bot.send`, `sendTo` from a human agent, campaigns) ticks {@link externalSends},
    * so an implicit `ctx.edit(content)` never edits a reply that was followed by it.
    */
-  private async dispatchSend(chatId: ChatId, content: OutboundContent, options?: SendOptions, origin: 'ctx' | 'api' = 'api'): Promise<SendResult> {
-    const payload: { chatId: ChatId; content: OutboundContent; options?: SendOptions } = { chatId, content, options }
+  private async dispatchSend(chatId: ChatId, content: OutboundContent, options?: SendOptions, origin: 'ctx' | 'api' = 'api', stream?: 'message'): Promise<SendResult> {
+    const payload: { chatId: ChatId; content: OutboundContent; options?: SendOptions; stream?: 'message' } = { chatId, content, options }
+    if (stream) payload.stream = stream
     const proceed = await this.hooks.runBefore('send', payload as typeof payload & { abort(): void })
     if (!proceed) {
       return { ref: { id: 'skipped', chatId: payload.chatId }, skipped: true }
@@ -1714,12 +1715,14 @@ export class Bot extends EventEmitter {
    * `ctx.stream()` backing: capabilities + the provider's edit/draft primitives (when present).
    * Live previews run the same `before('send')` hooks as a real send (the payload carries
    * `stream: 'draft' | 'edit'`), so a hook that redacts, translates or aborts a reply also
-   * covers the in-place updates. `after('send')` stays reserved for real messages.
+   * covers the in-place updates. `after('send')` stays reserved for real messages. The
+   * stream's new messages take the normal send path with `stream: 'message'`.
    */
-  private streamDeps(): Pick<BuildContextDeps, 'capabilities' | 'streamEdit' | 'sendDraft' | 'deleteStreamMessage'> {
+  private streamDeps(): Pick<BuildContextDeps, 'capabilities' | 'streamSend' | 'streamEdit' | 'sendDraft' | 'deleteStreamMessage'> {
     const p = this.provider
     return {
       capabilities: p.capabilities,
+      streamSend: (chatId, content, o) => this.dispatchSend(chatId, content, o, 'ctx', 'message'),
       streamEdit: p.editMessage ? (ref, content) => this.dispatchStreamEdit(ref, content) : undefined,
       sendDraft: p.sendDraft ? (chatId, draftId, text, opts) => this.dispatchStreamDraft(chatId, draftId, text, opts) : undefined,
       deleteStreamMessage: p.deleteMessage ? (ref) => this.deleteStreamMessage(ref) : undefined,

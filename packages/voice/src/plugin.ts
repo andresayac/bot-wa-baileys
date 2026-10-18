@@ -21,6 +21,7 @@
  *    a voice note, outbound text to that chat is synthesized and sent as a voice
  *    note instead (a `before('send')` hook, so it covers `ctx.reply`, flows, `c.say`
  *    and the AI autoresponder alike). Falls back to text when synthesis fails.
+ *    `ctx.stream()` output (previews, edits, chunks, final message) always stays text.
  *
  * @example
  * ```ts
@@ -128,8 +129,10 @@ const MAX_VOICE_CHATS = 10_000
 
 /**
  * `before('send')` payload. `edit` is set by `ctx.edit` (an in-place edit of a sent
- * message) and `stream` by `ctx.stream()` live previews: neither is a new message, so
- * neither is turned into a voice note (a text edit cannot become audio).
+ * message) and `stream` by everything `ctx.stream()` outputs — live previews
+ * (`'draft'`/`'edit'`) and its new messages (`'message'`: the first message of an edit
+ * stream, sentence chunks, the final message). None of them becomes a voice note: a
+ * text edit cannot become audio, and a stream must stay one editable text reply.
  */
 type SendPayload = { chatId: ChatId; content: OutboundContent; options?: SendOptions; edit?: unknown; stream?: unknown }
 

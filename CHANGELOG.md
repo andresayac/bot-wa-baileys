@@ -128,6 +128,7 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/). Versionado po
 ### Integración de ramas (2026-10)
 - **`@bot-wa/core`**: `bot.triggerFlow()` es ahora un wrapper fino sobre `bot.trigger()` (`ifActive: 'replace'`) y devuelve `Promise<boolean>`: pasa por los mismos gates (listas de acceso, handoff), el turno FIFO del chat, la resolución de idioma, los seams de mensajería/typing/edición/streaming y las métricas (`triggered`). `TriggerOptions` gana `body`. `@bot-wa/manager` hace `await` en `POST /bots/{botId}/trigger` (mismo contrato: 202 / 404 / 409).
 - **i18n + voz**: `ctx.langSource` (`'user' | 'provider' | 'detector' | 'default'`) e `I18n.resolveDetailed()`. Si un hook `before('message')` reescribe `ctx.body` (la transcripción de `@bot-wa/voice`), el idioma se re-resuelve después de los hooks para que `detect` vea el texto final (se respeta un `ctx.lang` puesto por el hook). `@bot-wa/voice` usa `ctx.lang` (código base, solo si no es el valor por defecto) como pista de idioma del STT cuando no hay `autoTranscribe.language` (`useContextLanguage: false` lo desactiva).
+- **Streaming + voz**: los mensajes nuevos que envía `ctx.stream()` (primer mensaje de un stream por edición, trozos por frases, mensaje final tras los borradores) llevan `stream: 'message'` en el payload de `before`/`after('send')`, igual que los previews llevan `'draft'`/`'edit'`. `autoReplyWithVoice` de `@bot-wa/voice` deja toda la salida de un stream en texto.
 
 ---
 

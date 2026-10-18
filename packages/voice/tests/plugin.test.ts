@@ -430,3 +430,34 @@ describe('voicePlugin — i18n', () => {
     await bot.stop()
   })
 })
+
+describe('voicePlugin — autoReplyWithVoice + ctx.stream (all strategies)', () => {
+  async function* parts(chunks: string[]): AsyncGenerator<string> {
+    for (const c of chunks) { await new Promise((r) => setTimeout(r, 3)); yield c }
+  }
+
+  for (const streaming of ['none', 'edit', 'draft'] as const) {
+    it(`streaming '${streaming}': previews, the final message and live edits stay text`, async () => {
+      const { logger } = recordingLogger()
+      const t = await createTestBot({ logger }, { provider: { streaming } })
+      t.provider.downloadMedia = async () => makeOgg(2)
+      const tts = fakeTts()
+      t.bot.plug(voicePlugin({ stt: fakeStt('hola'), tts, autoReplyWithVoice: true }))
+      let done = false
+      t.bot.onMessage(async (ctx) => {
+        await ctx.stream(parts(['Primera frase. ', 'Segunda frase. ', 'Fin.']), { throttleMs: 0 })
+        await ctx.reply('después')
+        done = true
+      })
+      await t.chat.send('', { type: 'voice' })
+      await waitFor(() => done)
+      const contents = t.provider.outbox.map((m) => m.content)
+      // every streamed message is text; only the later plain reply becomes a voice note
+      expect(contents.slice(0, -1).every((c) => c.kind === 'text')).toBe(true)
+      expect(contents.at(-1)).toEqual({ kind: 'voice', media: Buffer.from('audio:después') })
+      expect(t.provider.edits.every((e) => e.content.kind === 'text')).toBe(true)
+      expect(tts.texts).toEqual(['después'])
+      await t.bot.stop()
+    })
+  }
+})
