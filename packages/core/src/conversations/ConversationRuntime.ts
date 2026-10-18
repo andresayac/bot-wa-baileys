@@ -25,9 +25,18 @@ export interface RuntimeMessage {
   t?(key: string, params?: TranslateParams): string
 }
 
+/**
+ * What a pending wait takes as an answer (diagnostics / plugins, see
+ * {@link ConversationSnapshot.accepts}): `'text'` (`ask`, `waitText`), a list of
+ * message types (`waitMedia`), or `'any'` (`choose`, which reads `body`, and `waitAny`).
+ */
+export type WaitAccepts = 'text' | 'any' | readonly string[]
+
 export interface ResolvedWaitOptions {
   timeoutMs?: number
   filter?: (ctx: RuntimeMessage) => boolean
+  /** What this wait takes as an answer; surfaced by {@link ConversationRuntime.inspect}. */
+  accepts?: WaitAccepts
 }
 
 /** Identidad opaca de una conversación activa; impide que un teardown viejo toque la entry nueva. */
@@ -119,6 +128,7 @@ interface PendingWait {
   resolve(ctx: RuntimeMessage): void
   reject(err: Error): void
   filter?: (ctx: RuntimeMessage) => boolean
+  accepts?: WaitAccepts
   timer?: NodeJS.Timeout
 }
 
@@ -159,6 +169,11 @@ export interface ConversationSnapshot {
   waiting: boolean
   /** Messages buffered for the conversation that it has not consumed yet. */
   queued: number
+  /**
+   * What the pending wait takes as an answer (`'text'`, a list of message types,
+   * or `'any'`); `undefined` when not waiting or the wait did not declare it.
+   */
+  accepts?: WaitAccepts
 }
 
 export class ConversationRuntime {
@@ -301,7 +316,14 @@ export class ConversationRuntime {
   inspect(key: string): ConversationSnapshot | undefined {
     const entry = this.active.get(key)
     if (!entry) return undefined
-    return { key, state: { ...entry.state }, waiting: entry.pending !== undefined, queued: entry.inbox.length }
+    const accepts = entry.pending?.accepts
+    return {
+      key,
+      state: { ...entry.state },
+      waiting: entry.pending !== undefined,
+      queued: entry.inbox.length,
+      ...(accepts !== undefined ? { accepts: typeof accepts === 'string' ? accepts : [...accepts] } : {}),
+    }
   }
 
   /**
@@ -479,6 +501,7 @@ export class ConversationRuntime {
       }
       const pending: PendingWait = {
         filter: opts.filter,
+        accepts: opts.accepts,
         resolve: (ctx) => { release(); resolve(ctx) },
         reject: (err) => { release(); reject(err) },
       }
@@ -592,7 +615,7 @@ function takeInterrupt(entry: ActiveConversation): Error | undefined {
 
 function defaultControlsFactory(rt: ConversationRuntime, handle: ConversationHandle, ctx: RuntimeMessage): ConversationControlsBase {
   return {
-    waitAny: (opts) => rt.wait(handle, opts ?? {}),
+    waitAny: (opts) => rt.wait(handle, { accepts: 'any', ...opts }),
     say: async (text) => { await ctx.reply(text) },
     state: rt.getState(handle),
     end: (farewell) => { throw new ConversationEnded(farewell) },

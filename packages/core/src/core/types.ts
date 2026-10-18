@@ -69,6 +69,7 @@ export {
   RateLimitedError,
   RecipientUnreachableError,
   PayloadTooLargeError,
+  MediaTooLargeError,
   OutsideSessionWindowError,
 } from './provider.js'
 

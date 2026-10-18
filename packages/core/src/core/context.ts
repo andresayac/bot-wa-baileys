@@ -17,7 +17,7 @@
 import { humanTypingDelay, sleep } from '../utils/timers.js'
 import { unavailableUserData } from '../user/UserDataService.js'
 import { isEditableSend, isMessageRef, type EditOptions, type EditResult, type ReplyOptions } from './messaging.js'
-import { UnsupportedContentError } from './provider.js'
+import { MediaTooLargeError, UnsupportedContentError } from './provider.js'
 import { defaultI18n, normalizeLocale } from '../i18n/I18n.js'
 import { streamText } from '../streaming/streamText.js'
 import { newFormToken } from '../forms/reply.js'
@@ -240,17 +240,44 @@ export function buildMessageContext(deps: BuildContextDeps): IMessageContext {
   return ctx
 }
 
-async function streamToBuffer(stream: NodeJS.ReadableStream): Promise<Buffer> {
+async function streamToBuffer(stream: NodeJS.ReadableStream, maxBytes: number): Promise<Buffer> {
   const chunks: Buffer[] = []
+  let total = 0
   for await (const chunk of stream as AsyncIterable<Buffer | string>) {
-    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
+    const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
+    total += buf.length
+    if (total > maxBytes) {
+      // Leaving the loop early already ends a Node stream; destroy() covers other readables.
+      ;(stream as { destroy?: () => void }).destroy?.()
+      throw new MediaTooLargeError(total, maxBytes)
+    }
+    chunks.push(buf)
   }
   return Buffer.concat(chunks)
 }
 
-/** Public accessor — `ctx.media` is populated on first call via the provider's downloader. */
-export async function loadMediaOf(ctx: IMessageContext): Promise<MediaPayload | undefined> {
-  if (ctx.media) return ctx.media
+/** Options of {@link loadMediaOf}. */
+export interface LoadMediaOptions {
+  /**
+   * Refuse media larger than this many bytes with a `MediaTooLargeError`: checked
+   * against the size the provider declared (before downloading anything) and
+   * while reading the download, which is cut as soon as it goes over. Default: no cap.
+   */
+  maxBytes?: number
+  /** Reject with the download error instead of resolving `undefined`. Default `false`. */
+  throwOnError?: boolean
+}
+
+/**
+ * Public accessor — `ctx.media` is populated on first call via the provider's downloader.
+ * Resolves `undefined` when the message carries no media or (by default) the download fails.
+ */
+export async function loadMediaOf(ctx: IMessageContext, options: LoadMediaOptions = {}): Promise<MediaPayload | undefined> {
+  const maxBytes = options.maxBytes ?? Infinity
+  if (ctx.media) {
+    if (ctx.media.buffer.length > maxBytes) throw new MediaTooLargeError(ctx.media.buffer.length, maxBytes)
+    return ctx.media
+  }
   const holder = ctx as unknown as {
     __mediaRef?: MediaRef
     __downloadMedia?: (ref: MediaRef) => Promise<Buffer | NodeJS.ReadableStream>
@@ -258,19 +285,23 @@ export async function loadMediaOf(ctx: IMessageContext): Promise<MediaPayload | 
   const ref = holder.__mediaRef
   const downloader = holder.__downloadMedia
   if (!ref || !downloader) return undefined
+  if (ref.size !== undefined && ref.size > maxBytes) throw new MediaTooLargeError(ref.size, maxBytes)
+  let buffer: Buffer
   try {
     const bufferOrStream = await downloader(ref)
-    const buffer = Buffer.isBuffer(bufferOrStream)
+    buffer = Buffer.isBuffer(bufferOrStream)
       ? bufferOrStream
-      : await streamToBuffer(bufferOrStream as NodeJS.ReadableStream)
-    ctx.media = {
-      buffer,
-      mimetype: ref.mimetype ?? 'application/octet-stream',
-      filename: ref.filename,
-      size: ref.size,
-    }
-    return ctx.media
-  } catch {
+      : await streamToBuffer(bufferOrStream as NodeJS.ReadableStream, maxBytes)
+  } catch (error) {
+    if (error instanceof MediaTooLargeError || options.throwOnError) throw error
     return undefined
   }
+  if (buffer.length > maxBytes) throw new MediaTooLargeError(buffer.length, maxBytes)
+  ctx.media = {
+    buffer,
+    mimetype: ref.mimetype ?? 'application/octet-stream',
+    filename: ref.filename,
+    size: ref.size,
+  }
+  return ctx.media
 }

@@ -114,6 +114,35 @@ describe('Bot.inspectConversation', () => {
     expect(snap).toMatchObject({ key: chat.jid, waiting: true, queued: 0, state: { name: 'Ana' } })
     snap!.state.name = 'mutated'
     expect(bot.inspectConversation(target)?.state.name).toBe('Ana')
+    expect(snap!.accepts).toBe('text')
+    await bot.stop()
+  })
+
+  it('reports what the pending wait accepts (text, media types, any)', async () => {
+    const { bot, chat } = await createTestBot({ logger: silent })
+    const target = { from: chat.jid, sender: chat.jid, isGroup: false }
+    bot.conversation('rec', async (c) => {
+      await c.say('media')
+      await c.waitMedia(['voice', 'audio'])
+      await c.say('menu')
+      await c.choose('¿Color?', { r: 'Rojo', v: 'Verde' })
+      await c.say('any')
+      await c.waitAny()
+      await c.say('fin')
+    }, { trigger: 'start' })
+
+    await chat.send('start')
+    await chat.expectReply('media')
+    expect(bot.inspectConversation(target)?.accepts).toEqual(['voice', 'audio'])
+    await chat.send('', { type: 'voice' })
+    await chat.expectReply('menu')
+    await chat.expectReply(/Color/)
+    expect(bot.inspectConversation(target)?.accepts).toBe('any')
+    await chat.send('1')
+    await chat.expectReply('any')
+    expect(bot.inspectConversation(target)?.accepts).toBe('any')
+    await chat.send('x')
+    await chat.expectReply('fin')
     await bot.stop()
   })
 })

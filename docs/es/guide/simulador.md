@@ -157,8 +157,9 @@ await session.stop()
   `watchForChanges` y `runCli(argv, io)` con streams inyectables.
 
 Novedades relacionadas en el core: `bot.inspectConversation({ from, sender, isGroup })`
-devuelve `{ key, state, waiting, queued }` o `undefined` (`state` es una
-copia superficial), y `bot.isBusy()` dice si el bot sigue atendiendo un
+devuelve `{ key, state, waiting, queued, accepts? }` o `undefined` (`state` es una
+copia superficial; `accepts` dice qué acepta la espera pendiente: `'text'`, la lista
+de tipos de `waitMedia` o `'any'` en `choose`/`waitAny`), y `bot.isBusy()` dice si el bot sigue atendiendo un
 evento o ejecutando un paso de conversación.
 
 ## Siguientes pasos

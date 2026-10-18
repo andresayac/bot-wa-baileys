@@ -496,6 +496,17 @@ export class RecipientUnreachableError extends ProviderError {
 export class PayloadTooLargeError extends ProviderError {
   constructor(message?: string) { super(message); this.name = 'PayloadTooLargeError' }
 }
+/**
+ * Inbound media over the `maxBytes` cap of {@link loadMediaOf}. `bytes` is the
+ * declared size when the provider reported one (nothing was downloaded), or the
+ * bytes read before the download was cut.
+ */
+export class MediaTooLargeError extends PayloadTooLargeError {
+  constructor(public readonly bytes: number, public readonly maxBytes: number) {
+    super(`Inbound media is larger than ${maxBytes} bytes (${bytes} bytes or more)`)
+    this.name = 'MediaTooLargeError'
+  }
+}
 /** Outside the send window for free-form content (Cloud API 24h window). */
 export class OutsideSessionWindowError extends ProviderError {
   constructor(public readonly chatId: ChatId, message?: string) {
