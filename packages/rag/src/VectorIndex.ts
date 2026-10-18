@@ -15,6 +15,11 @@ export interface IndexEntry extends RagChunk {
   vector: number[]
   /** sha256 of `text` — lets a rebuild reuse vectors of unchanged chunks. */
   hash: string
+  /**
+   * Added at runtime (`addText` / `addDocuments` / `addFiles`) rather than
+   * from the configured `documents`: kept across restarts by a rebuild.
+   */
+  runtime?: true
 }
 
 export interface SearchOptions {

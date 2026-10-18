@@ -76,7 +76,7 @@ export function aiPlugin(config: AIPluginConfig = {}): PluginSpec<AIPluginConfig
           const key = chatKeyOf(mctx)
           try {
             if (cfg.humanizeTyping !== false) await mctx.typing()
-            const text = await client.replyInChat(key, mctx.body, { userId: mctx.sender })
+            const text = await client.replyInChat(key, mctx.body, { userId: mctx.sender, isGroup: mctx.isGroup })
             await mctx.reply(text)
           } catch (err) {
             ctx.logger.warn({ err }, 'ai autoreply failed')

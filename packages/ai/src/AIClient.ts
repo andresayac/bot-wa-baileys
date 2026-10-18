@@ -42,6 +42,16 @@ export interface AIClientOptions {
 const NO_MEMORY = 'AI memory is not available: build the AIClient with `memory` (aiPlugin does it for you)'
 
 const DEFAULT_TIMEOUT_MS = 60_000
+const DEFAULT_RAG_TIMEOUT_MS = 10_000
+
+/** Per-turn options of {@link AIClient.replyInChat}. */
+export interface AIReplyOptions {
+  signal?: AbortSignal
+  /** Canonical sender id: enables long-term memory for the turn. */
+  userId?: string
+  /** The chat is a group: facts are injected only with `memory.injectInGroups`. */
+  isGroup?: boolean
+}
 
 /** Thrown when an AI call exceeds its configured timeout. */
 export class AITimeoutError extends Error {
@@ -79,14 +89,14 @@ export class AIClient {
    * promise rejects with {@link AITimeoutError}, guaranteeing the awaiter is
    * released even if the provider never honors the abort.
    */
-  private async withTimeout<T>(op: (signal: AbortSignal) => Promise<T>, userSignal?: AbortSignal): Promise<T> {
+  private async withTimeout<T>(op: (signal: AbortSignal) => Promise<T>, userSignal?: AbortSignal, ms = this.timeoutMs): Promise<T> {
     const ctrl = new AbortController()
     const onUserAbort = () => ctrl.abort()
     if (userSignal) {
       if (userSignal.aborted) ctrl.abort()
       else userSignal.addEventListener('abort', onUserAbort, { once: true })
     }
-    if (this.timeoutMs <= 0) {
+    if (ms <= 0) {
       try { return await op(ctrl.signal) }
       finally { if (userSignal) userSignal.removeEventListener('abort', onUserAbort) }
     }
@@ -96,7 +106,7 @@ export class AIClient {
       // provider promise (via its own signal listener) and win the race, so the
       // caller would sometimes see the provider's abort error instead of a
       // deterministic AITimeoutError. The abort still fires to cancel the socket.
-      timer = setTimeout(() => { reject(new AITimeoutError(this.timeoutMs)); ctrl.abort() }, this.timeoutMs)
+      timer = setTimeout(() => { const err = new AITimeoutError(ms); reject(err); ctrl.abort(err) }, ms)
     })
     try {
       return await Promise.race([op(ctrl.signal), timeout])
@@ -136,17 +146,19 @@ export class AIClient {
    * `autoExtract`, new facts are extracted in the background after the turn.
    * With RAG configured, retrieved passages are injected with citations.
    */
-  async replyInChat(chatKey: string, userText: string, opts?: { signal?: AbortSignal; userId?: string }): Promise<string> {
+  async replyInChat(chatKey: string, userText: string, opts?: AIReplyOptions): Promise<string> {
     return (await this.replyInChatDetailed(chatKey, userText, opts)).text
   }
 
   /** {@link replyInChat} plus the citations and facts used for the turn. */
-  async replyInChatDetailed(chatKey: string, userText: string, opts?: { signal?: AbortSignal; userId?: string }): Promise<AIChatReply> {
+  async replyInChatDetailed(chatKey: string, userText: string, opts?: AIReplyOptions): Promise<AIChatReply> {
     const userId = opts?.userId
-    const [history, facts, citations] = await Promise.all([
+    const [history, facts, citations, epoch] = await Promise.all([
       this.ctx.history(chatKey),
-      this.factsForPrompt(userId),
+      this.factsForPrompt(userId, opts?.isGroup === true),
       this.retrieveFor(userText, opts?.signal),
+      // Taken BEFORE generating: an erasure during the turn invalidates its extraction.
+      this.extractionEpoch(userId),
     ])
     const messages: AIMessage[] = [...history, { role: 'user', content: userText }]
     const system = this.composeSystem(facts, citations)
@@ -163,9 +175,9 @@ export class AIClient {
       { role: 'user', content: userText },
       { role: 'assistant', content: r.text },
     ])
-    if (userId && this.opts.memory?.extraction) {
+    if (userId && epoch !== undefined && this.opts.memory?.extraction) {
       // Background: never block the chat's FIFO queue on the extraction call.
-      this.track(this.extractMemory(userId, userText, r.text).catch((err) => this.report(err, 'memory-extract')))
+      this.track(this.extractMemory(userId, userText, r.text, { epoch }).catch((err) => this.report(err, 'memory-extract')))
     }
     return { text: this.withSources(r.text, citations), answer: r.text, citations, facts }
   }
@@ -176,11 +188,17 @@ export class AIClient {
     const rag = this.opts.rag
     if (!rag || !query.trim()) return []
     try {
-      const hits = await rag.retriever.retrieve(query, {
-        ...(rag.topK !== undefined ? { topK: rag.topK } : {}),
-        ...(rag.minScore !== undefined ? { minScore: rag.minScore } : {}),
-        ...(signal ? { signal } : {}),
-      })
+      // Bounded: a slow retriever (or a first-time index build) must not hold the chat's queue.
+      const hits = await this.withTimeout(
+        (s) =>
+          rag.retriever.retrieve(query, {
+            ...(rag.topK !== undefined ? { topK: rag.topK } : {}),
+            ...(rag.minScore !== undefined ? { minScore: rag.minScore } : {}),
+            signal: s,
+          }),
+        signal,
+        rag.timeoutMs ?? DEFAULT_RAG_TIMEOUT_MS,
+      )
       return hits.filter((h) => h && typeof h.text === 'string' && h.text.trim().length > 0)
     } catch (err) {
       this.report(err, 'rag')
@@ -217,14 +235,28 @@ export class AIClient {
     return this.opts.memory
   }
 
-  private async factsForPrompt(userId: string | undefined): Promise<string[]> {
+  private async factsForPrompt(userId: string | undefined, isGroup: boolean): Promise<string[]> {
     const memory = this.opts.memory
     if (!userId || !memory?.injects) return []
+    // Group replies are read by every member: keep privately learned facts out.
+    if (isGroup && !memory.injectsInGroups) return []
     try {
       return await memory.list(userId)
     } catch (err) {
       this.report(err, 'memory')
       return []
+    }
+  }
+
+  /** The memory epoch for this turn's background extraction (undefined = no extraction). */
+  private async extractionEpoch(userId: string | undefined): Promise<string | undefined> {
+    const memory = this.opts.memory
+    if (!userId || !memory?.extraction) return undefined
+    try {
+      return await memory.epoch(userId)
+    } catch (err) {
+      this.report(err, 'memory-extract')
+      return undefined
     }
   }
 
@@ -254,9 +286,12 @@ export class AIClient {
    * Ask the model for durable facts in one exchange (strict JSON schema) and
    * store the new ones. Invalid answers are ignored. Resolves with the facts
    * added. `replyInChat` runs this in the background when `autoExtract` is on.
+   * Facts are dropped when the user's memory is erased (`bot.deleteSubject`,
+   * `forget(userId)`) after `opts.epoch` was taken (default: at the call).
    */
-  async extractMemory(userId: string, userText: string, assistantText: string, opts?: { signal?: AbortSignal }): Promise<string[]> {
+  async extractMemory(userId: string, userText: string, assistantText: string, opts?: { signal?: AbortSignal; epoch?: string }): Promise<string[]> {
     const memory = this.requireMemory()
+    const epoch = opts?.epoch ?? (await memory.epoch(userId))
     const cfg = memory.extraction ?? {}
     const maxItems = cfg.maxFactsPerTurn ?? 5
     const known = await memory.list(userId)
@@ -286,7 +321,7 @@ export class AIClient {
       return []
     }
     const accepted = cfg.filter ? facts.filter((f) => cfg.filter!(f)) : facts
-    return accepted.length ? memory.add(userId, accepted, { source: 'auto' }) : []
+    return accepted.length ? memory.addIfCurrent(userId, epoch, accepted, { source: 'auto' }) : []
   }
 
   /* ---------------------------------------------------------- lifecycle */

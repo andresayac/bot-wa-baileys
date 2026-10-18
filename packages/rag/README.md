@@ -63,6 +63,10 @@ Las peticiones salen por `secureFetch` de `@bot-wa/http` (anti-SSRF): HTTPS y ho
 
 Con `persistPath`, el índice se guarda (escritura atómica) tras cada cambio. Al arrancar se reutilizan los vectores de los fragmentos cuyo texto no cambió y que se calcularon con el mismo embedder (`Embedder.id`); si cambias de modelo, se reconstruye. Sin `documents`, se sirve el índice guardado tal cual (índice precompilado).
 
+Los documentos añadidos en tiempo de ejecución (`addText`, `addDocuments`, `addFiles`) se conservan al reiniciar; si uno comparte id con un documento configurado, gana el configurado. Si el archivo está corrupto y hay `documents`, se aparta como `<persistPath>.corrupt`, se avisa por `onError` y el índice se reconstruye; sin `documents` no hay de dónde reconstruir y `ready()` falla con `INVALID_INDEX`.
+
+Si la ingesta falla, `retrieve()` rechaza al momento con el mismo error durante `retryDelayMs` (30 s por defecto) en lugar de volver a calcular los embeddings de todo el corpus en cada consulta; `ready()`/`warmup()` reintentan siempre. `retrieve(query, { signal })` deja de esperar la ingesta en cuanto se aborta la señal.
+
 ## PDF
 
 ```bash

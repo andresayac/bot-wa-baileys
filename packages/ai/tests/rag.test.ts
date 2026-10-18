@@ -52,7 +52,7 @@ describe('AIClient + RAG', () => {
     const retriever = fakeRetriever()
     const ai = new AIClient(mock, new ContextManager(new MemoryStore()), { persona: 'ACME', rag: { retriever, topK: 2, minScore: 0.1 } })
     const r = await ai.replyInChatDetailed('c', '¿cuánto tarda el envío?')
-    expect(retriever.queries).toEqual([{ query: '¿cuánto tarda el envío?', options: { topK: 2, minScore: 0.1 } }])
+    expect(retriever.queries).toEqual([{ query: '¿cuánto tarda el envío?', options: { topK: 2, minScore: 0.1, signal: expect.any(AbortSignal) } }])
     const sys = mock.calls[0]!.system!
     expect(sys.startsWith('ACME\n\n## Reference context')).toBe(true)
     expect(sys).toContain('[1] (faq.md › Envíos)\nLos envíos tardan 3 días.')
@@ -91,6 +91,23 @@ describe('AIClient + RAG', () => {
     const ai = new AIClient(mock, new ContextManager(new MemoryStore()), { rag: { retriever: broken }, onError: (e, stage) => errors.push([e, stage]) })
     expect(await ai.replyInChat('c', 'x')).toBe('sin datos')
     expect(errors).toEqual([[new Error('index down'), 'rag']])
+  })
+
+  it('a slow retriever is cut by rag.timeoutMs: the reply goes on without context', async () => {
+    const mock = new MockAIProvider({ reply: 'sigo' })
+    const errors: unknown[] = []
+    let aborted = false
+    const slow: AIRetriever = {
+      retrieve: (_q, o) => new Promise((_, reject) => {
+        o?.signal?.addEventListener('abort', () => { aborted = true; reject(o.signal!.reason) })
+      }),
+    }
+    const ai = new AIClient(mock, new ContextManager(new MemoryStore()), { rag: { retriever: slow, timeoutMs: 20 }, onError: (e, stage) => errors.push([e, stage]) })
+    expect(await ai.replyInChat('c', 'x')).toBe('sigo')
+    expect(aborted).toBe(true)
+    expect(errors).toHaveLength(1)
+    expect((errors[0] as [Error, string])[1]).toBe('rag')
+    expect((errors[0] as [Error, string])[0].name).toBe('AITimeoutError')
   })
 
   it('a throwing onError never breaks the reply', async () => {

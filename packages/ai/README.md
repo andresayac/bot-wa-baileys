@@ -283,7 +283,9 @@ const respuesta = await client.ask('¿qué hora es?')
 Con `memory`, el plugin recuerda hechos de cada persona entre conversaciones y
 reinicios. Se guardan en el perfil persistente `ctx.user` (namespace
 `'ai.memory'`, clave `facts`), por `ctx.sender`: la misma persona comparte
-memoria entre su chat privado y los grupos.
+memoria entre su chat privado y los grupos. Por privacidad, los hechos **no** se
+inyectan en las respuestas a grupos (las lee todo el grupo) salvo con
+`injectInGroups: true`.
 
 ```ts
 bot.plug(aiPlugin({
@@ -310,7 +312,9 @@ await bot.deleteSubject(userId)                           // derecho al olvido: 
 `autoExtract` corre **en segundo plano** (no bloquea la cola del chat) y solo
 acepta exactamente `{"facts": string[]}`; cualquier otra respuesta se descarta.
 Admite `{ model, maxTokens, maxFactsPerTurn, instructions, filter }`. `/reset`
-borra el contexto del chat, no la memoria a largo plazo.
+borra el contexto del chat, no la memoria a largo plazo. Si se borran los datos
+del usuario (`bot.deleteSubject()` o `forget(userId)`) mientras una extracción
+está en curso, sus hechos se descartan: no vuelven a aparecer.
 
 ## RAG (respuestas con tus documentos)
 
@@ -331,7 +335,9 @@ bot.plug(aiPlugin({
 
 Los pasajes se inyectan numerados en el prompt de sistema y el modelo cita con
 `[1]`. `ctx.tools.ai.replyInChatDetailed()` devuelve además `citations` y
-`facts`. Si la recuperación falla, se registra y la respuesta sigue sin contexto.
+`facts`. Si la recuperación falla o tarda más de `rag.timeoutMs` (10 s por
+defecto, incluida la primera construcción del índice), se registra y la
+respuesta sigue sin contexto, sin bloquear la cola del chat.
 
 ## Roadmap
 

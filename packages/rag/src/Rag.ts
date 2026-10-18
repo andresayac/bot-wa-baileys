@@ -8,12 +8,15 @@
  *
  * With `persistPath`, the index is saved as JSON after every change and, on
  * the next start, vectors of unchanged chunks (same text, same embedder) are
- * reused, so only new or edited chunks hit the embedding API.
+ * reused, so only new or edited chunks hit the embedding API. Documents added
+ * at runtime survive the rebuild; a corrupt file is set aside (`<path>.corrupt`)
+ * and rebuilt from the configured documents.
  */
 
 import { chunkDocument, resolveChunkOptions, type ChunkOptions } from './chunking.js'
 import { resolveEmbedder, type EmbeddingsConfig } from './embeddings/resolve.js'
 import { RagError } from './errors.js'
+import { rename } from 'node:fs/promises'
 import { loadPaths, type PdfParser } from './loaders.js'
 import type { Embedder, RagChunk, RagDocument, RagMetadata, RetrievedChunk } from './types.js'
 import { hashText, VectorIndex, type IndexEntry } from './VectorIndex.js'
@@ -38,6 +41,16 @@ export interface RagOptions extends ChunkOptions {
   pdf?: PdfParser
   /** Max bytes per loaded file. Default 20 MiB. */
   maxFileBytes?: number
+  /**
+   * After a failed ingest, {@link Rag.retrieve} rejects right away with the
+   * same error for this long (ms) instead of re-embedding the whole corpus on
+   * every query. `ready()` / `warmup()` always retry. Default 30000.
+   */
+  retryDelayMs?: number
+  /** Non-fatal problems, e.g. a corrupt persisted index that was discarded and rebuilt. */
+  onError?: (err: unknown) => void
+  /** @internal clock (tests). */
+  now?: () => number
 }
 
 export interface RetrieveOptions {
@@ -59,6 +72,20 @@ export interface AddTextOptions {
 
 const citationOf = (c: RagChunk): string => (c.section ? `${c.source} › ${c.section}` : c.source)
 
+/** Wait for `p`, but reject as soon as `signal` aborts (`p` keeps running). */
+function abortable<T>(p: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
+  if (!signal) return p
+  if (signal.aborted) return Promise.reject(signal.reason)
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(signal.reason)
+    signal.addEventListener('abort', onAbort, { once: true })
+    p.then(
+      (v) => { signal.removeEventListener('abort', onAbort); resolve(v) },
+      (e) => { signal.removeEventListener('abort', onAbort); reject(e) },
+    )
+  })
+}
+
 export class Rag {
   readonly embedder: Embedder
   private index: VectorIndex
@@ -68,6 +95,10 @@ export class Rag {
   /** Vectors from the persisted index, by chunk-text hash (reused on rebuild). */
   private cache = new Map<string, number[]>()
   private init?: Promise<void>
+  /** Last failed ingest (drives the retrieve() fail-fast window). */
+  private failure?: { at: number; error: unknown }
+  private readonly retryDelayMs: number
+  private readonly now: () => number
   /** Serialises mutations (ingest, add, remove, save). */
   private queue: Promise<unknown> = Promise.resolve()
 
@@ -77,6 +108,9 @@ export class Rag {
     this.topK = options.topK ?? 3
     this.minScore = options.minScore ?? 0
     if (!Number.isSafeInteger(this.topK) || this.topK < 1) throw new RagError('INVALID_OPTIONS', 'topK must be a positive integer')
+    this.retryDelayMs = options.retryDelayMs ?? 30_000
+    if (!Number.isFinite(this.retryDelayMs) || this.retryDelayMs < 0) throw new RagError('INVALID_OPTIONS', 'retryDelayMs must be >= 0')
+    this.now = options.now ?? Date.now
     this.index = new VectorIndex(this.embedder.id)
   }
 
@@ -86,8 +120,15 @@ export class Rag {
   /** Ingest the configured documents once (memoised; a failure is retried on the next call). */
   ready(): Promise<void> {
     if (!this.init) {
-      this.init = this.serial(() => this.ingestInitial())
-      this.init.catch(() => { this.init = undefined })
+      const init = this.serial(() => this.ingestInitial())
+      this.init = init
+      init.then(
+        () => { this.failure = undefined },
+        (error: unknown) => {
+          if (this.init === init) this.init = undefined
+          this.failure = { at: this.now(), error }
+        },
+      )
     }
     return this.init
   }
@@ -101,11 +142,28 @@ export class Rag {
     return run
   }
 
+  /**
+   * Load the persisted index. With configured documents it is only a vector
+   * cache, so a corrupt file is moved aside and reported instead of failing.
+   */
+  private async loadPersisted(rebuildable: boolean): Promise<VectorIndex | undefined> {
+    const path = this.options.persistPath
+    if (!path) return undefined
+    try {
+      return await VectorIndex.load(path)
+    } catch (err) {
+      if (!rebuildable || !(err instanceof RagError) || err.code !== 'INVALID_INDEX') throw err
+      await rename(path, `${path}.corrupt`).catch(() => {})
+      try { this.options.onError?.(err) } catch { /* reporting must not break ingest */ }
+      return undefined
+    }
+  }
+
   private async ingestInitial(): Promise<void> {
-    const persisted = this.options.persistPath ? await VectorIndex.load(this.options.persistPath) : undefined
+    const configured = this.options.documents ?? []
+    const persisted = await this.loadPersisted(configured.length > 0)
     const usable = persisted && persisted.embedder === this.embedder.id ? persisted : undefined
     if (usable) for (const e of usable.all()) this.cache.set(e.hash, e.vector)
-    const configured = this.options.documents ?? []
     if (configured.length === 0) {
       // No corpus configured: serve the persisted index as-is (prebuilt index).
       if (usable) this.index = usable
@@ -115,6 +173,9 @@ export class Rag {
     const { entries, embedded } = await this.embedDocuments(docs)
     const next = new VectorIndex(this.embedder.id)
     next.upsert(entries)
+    // Keep documents added at runtime (a configured document with the same id wins).
+    const configuredIds = new Set(docs.map((d) => d.id))
+    if (usable) next.upsert(usable.all().filter((e) => e.runtime && !configuredIds.has(e.docId)))
     const changed = embedded > 0 || !usable || usable.size !== next.size || next.all().some((e) => usable.get(e.id)?.hash !== e.hash)
     this.index = next
     if (changed) await this.persist()
@@ -162,7 +223,7 @@ export class Rag {
     await this.ready()
     return this.serial(async () => {
       const valid = await this.loadDocuments(docs)
-      const { entries } = await this.embedDocuments(valid)
+      const entries = (await this.embedDocuments(valid)).entries.map((e): IndexEntry => ({ ...e, runtime: true }))
       const ids = new Set(valid.map((d) => d.id))
       this.index.removeWhere((e) => ids.has(e.docId))
       this.index.upsert(entries)
@@ -204,7 +265,9 @@ export class Rag {
 
   /** The `topK` chunks most similar to `query`, best first, with citation labels. */
   async retrieve(query: string, options: RetrieveOptions = {}): Promise<RetrievedChunk[]> {
-    await this.ready()
+    // Fail fast for a while after a failed ingest (don't re-embed the corpus per query).
+    if (!this.init && this.failure && this.now() - this.failure.at < this.retryDelayMs) throw this.failure.error
+    await abortable(this.ready(), options.signal)
     if (typeof query !== 'string' || !query.trim() || this.index.size === 0) return []
     const [vector] = await this.embedder.embed([query], options.signal ? { signal: options.signal } : {})
     if (!vector) throw new RagError('EMBEDDING_FAILED', 'embedder returned no vector for the query')
@@ -215,7 +278,7 @@ export class Rag {
       ...(filter ? { filter: (e: IndexEntry) => filter(e) } : {}),
     })
     return hits.map(({ entry, score }) => {
-      const { vector: _v, hash: _h, ...chunk } = entry
+      const { vector: _v, hash: _h, runtime: _r, ...chunk } = entry
       return { ...chunk, score, citation: citationOf(chunk) }
     })
   }

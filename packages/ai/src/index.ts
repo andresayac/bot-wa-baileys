@@ -20,7 +20,7 @@ export type { Preset, PresetName } from './providers/presets.js'
 export type { AIProvider, AIMessage, AIConfig, AIProviderName, GenerateInput, GenerateResult, Effort } from './types.js'
 
 // ai-memory-rag (FEATURES.md #29 RAG + #30 long-term memory)
-export type { AIChatReply, AIAugmentStage } from './AIClient.js'
+export type { AIChatReply, AIAugmentStage, AIReplyOptions } from './AIClient.js'
 export { MemoryManager, DEFAULT_MEMORY_NAMESPACE } from './memory/MemoryManager.js'
 export type { MemoryFact, AIMemoryConfig, AIMemoryExtractConfig, RememberOptions, UserDataAccessor } from './memory/MemoryManager.js'
 export { factsSchema, parseFacts } from './memory/extract.js'

@@ -142,9 +142,93 @@ describe('Rag', () => {
         return new HashEmbedder({ dimensions: 32 }).embed(texts)
       },
     }
-    const rag = createRag({ documents: [{ id: 'a', source: 'a', text: 'hola mundo' }], embeddings: flaky })
+    const rag = createRag({ documents: [{ id: 'a', source: 'a', text: 'hola mundo' }], embeddings: flaky, retryDelayMs: 0 })
     await expect(rag.warmup()).rejects.toThrow('down')
     fail = false
+    expect(await rag.retrieve('hola')).toHaveLength(1)
+  })
+
+  it('runtime documents (addText) survive a restart with configured documents', async () => {
+    dir = await mkdtemp(join(tmpdir(), 'rag-'))
+    const persistPath = join(dir, 'index.json')
+    const docs: RagDocument[] = [{ id: 'faq', source: 'faq.md', text: FAQ, format: 'markdown' }]
+    const rag = new Rag({ documents: docs, embeddings: new CountingEmbedder(), persistPath })
+    await rag.addText('El horario de atención es de 8am a 6pm de lunes a viernes.', { source: 'runtime' })
+    expect(rag.size).toBe(4)
+
+    const e2 = new CountingEmbedder()
+    const rag2 = new Rag({ documents: docs, embeddings: e2, persistPath })
+    await rag2.ready()
+    expect(rag2.size).toBe(4)
+    expect(e2.seen).toEqual([])
+    const [hit] = await rag2.retrieve('horario de atención')
+    expect(hit).toMatchObject({ source: 'runtime' })
+    expect(hit).not.toHaveProperty('runtime')
+    expect(JSON.parse(await readFile(persistPath, 'utf8')).entries).toHaveLength(4)
+
+    // a configured document always wins over a runtime one with the same id
+    await rag2.removeDocument('runtime')
+    const rag3 = new Rag({ documents: docs, embeddings: new CountingEmbedder(), persistPath })
+    await rag3.ready()
+    expect(rag3.size).toBe(3)
+  })
+
+  it('a corrupt persisted index is discarded and rebuilt from the configured documents', async () => {
+    dir = await mkdtemp(join(tmpdir(), 'rag-'))
+    const persistPath = join(dir, 'index.json')
+    await writeFile(persistPath, '{trunc', 'utf8')
+    const errors: unknown[] = []
+    const rag = createRag({ documents: [{ id: 'faq', source: 'faq.md', text: FAQ, format: 'markdown' }], persistPath, onError: (e) => errors.push(e) })
+    const [hit] = await rag.retrieve('envíos a domicilio')
+    expect(hit!.text).toContain('3 días')
+    expect(errors).toHaveLength(1)
+    expect(errors[0]).toMatchObject({ code: 'INVALID_INDEX' })
+    expect(JSON.parse(await readFile(persistPath, 'utf8')).entries).toHaveLength(3)
+    expect(await readFile(`${persistPath}.corrupt`, 'utf8')).toBe('{trunc')
+  })
+
+  it('a corrupt persisted index without configured documents still fails (nothing to rebuild from)', async () => {
+    dir = await mkdtemp(join(tmpdir(), 'rag-'))
+    const persistPath = join(dir, 'index.json')
+    await writeFile(persistPath, '{trunc', 'utf8')
+    await expect(createRag({ persistPath }).ready()).rejects.toMatchObject({ code: 'INVALID_INDEX' })
+  })
+
+  it('after a failed ingest, retrieve() fails fast until retryDelayMs passes (no re-embedding per message)', async () => {
+    let calls = 0
+    let fail = true
+    let now = 0
+    const flaky: Embedder = {
+      id: 'flaky',
+      embed: async (texts) => {
+        calls++
+        if (fail) throw new Error('down')
+        return new HashEmbedder({ dimensions: 32 }).embed(texts)
+      },
+    }
+    const rag = createRag({ documents: [{ id: 'a', source: 'a', text: 'hola mundo' }], embeddings: flaky, retryDelayMs: 1_000, now: () => now })
+    await expect(rag.retrieve('hola')).rejects.toThrow('down')
+    await expect(rag.retrieve('hola')).rejects.toThrow('down')
+    await expect(rag.retrieve('hola')).rejects.toThrow('down')
+    expect(calls).toBe(1)
+    fail = false
+    now = 1_000
+    expect(await rag.retrieve('hola')).toHaveLength(1)
+  })
+
+  it('retrieve() stops waiting for a slow ingest when its signal aborts', async () => {
+    let release!: () => void
+    const gate = new Promise<void>((r) => { release = r })
+    const slow: Embedder = {
+      id: 'slow',
+      embed: async (texts) => { await gate; return new HashEmbedder({ dimensions: 32 }).embed(texts) },
+    }
+    const rag = createRag({ documents: [{ id: 'a', source: 'a', text: 'hola mundo' }], embeddings: slow })
+    const ctrl = new AbortController()
+    const pending = rag.retrieve('hola', { signal: ctrl.signal })
+    ctrl.abort(new Error('timeout'))
+    await expect(pending).rejects.toThrow('timeout')
+    release()
     expect(await rag.retrieve('hola')).toHaveLength(1)
   })
 

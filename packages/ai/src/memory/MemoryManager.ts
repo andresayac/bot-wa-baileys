@@ -6,6 +6,11 @@
  * so the same person keeps their memory across chats (DM and groups) and
  * restarts (with a persistent store), and `bot.deleteSubject(userId)` erases
  * it together with the rest of the profile.
+ *
+ * Background extraction is tied to a memory *epoch* (key `epoch` of the same
+ * namespace): erasing the profile or `clear()` ends it, and facts extracted
+ * under an ended epoch are dropped, so an in-flight extraction can never bring
+ * erased data back.
  */
 
 import { parseDuration, type UserData } from '@bot-wa/core'
@@ -53,6 +58,11 @@ export interface AIMemoryConfig {
   /** Inject the user's facts into the system prompt of `replyInChat`. Default true. */
   inject?: boolean
   /**
+   * Also inject them when the user writes in a group. Every member reads the
+   * reply, so facts learned in private could leak there. Default false.
+   */
+  injectInGroups?: boolean
+  /**
    * After each autoreply turn, ask the model (in the background) to extract
    * durable facts as strict JSON (`{"facts": string[]}`) and store them.
    * Default false.
@@ -72,6 +82,9 @@ export interface RememberOptions {
 
 export const DEFAULT_MEMORY_NAMESPACE = 'ai.memory'
 const FACTS_KEY = 'facts'
+const EPOCH_KEY = 'epoch'
+
+const newEpoch = (): string => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`
 
 /** Resolves the persistent profile of a subject (`(id) => bot.user(id)`). */
 export type UserDataAccessor = (userId: string) => UserData
@@ -113,6 +126,9 @@ export class MemoryManager {
 
   /** Whether facts are injected into the system prompt. */
   get injects(): boolean { return this.config.inject !== false }
+
+  /** Whether facts are injected into replies sent to group chats. */
+  get injectsInGroups(): boolean { return this.injects && this.config.injectInGroups === true }
 
   /** Extraction settings, or `undefined` when auto-extraction is off. */
   get extraction(): AIMemoryExtractConfig | undefined {
@@ -166,12 +182,42 @@ export class MemoryManager {
    * oldest facts are dropped. Resolves with the facts that were NEW.
    */
   add(userId: string, input: string | readonly string[], options: RememberOptions = {}): Promise<string[]> {
+    return this.store(userId, input, options, undefined)
+  }
+
+  /**
+   * Token of the current life of `userId`'s memory, created on first use.
+   * Erasing the profile (`bot.deleteSubject`) or {@link clear} ends it.
+   */
+  epoch(userId: string): Promise<string> {
+    return this.locked(userId, async () => {
+      const profile = this.profile(userId)
+      const current = await profile.get<unknown>(EPOCH_KEY)
+      if (typeof current === 'string' && current) return current
+      const next = newEpoch()
+      await profile.set(EPOCH_KEY, next)
+      return next
+    })
+  }
+
+  /**
+   * {@link add}, but only while `epoch` (from {@link epoch}) is still current:
+   * facts gathered before an erasure are dropped instead of written back.
+   */
+  addIfCurrent(userId: string, epoch: string, input: string | readonly string[], options: RememberOptions = {}): Promise<string[]> {
+    return this.store(userId, input, options, epoch)
+  }
+
+  private store(userId: string, input: string | readonly string[], options: RememberOptions, epoch: string | undefined): Promise<string[]> {
     const ttlMs = options.ttl === undefined ? this.ttlMs : toMs(options.ttl)
     const texts = (typeof input === 'string' ? [input] : [...input])
       .map((t) => (typeof t === 'string' ? t.trim().replace(/\s+/g, ' ') : ''))
       .filter((t) => t.length > 0 && t.length <= this.maxFactLength)
     if (texts.length === 0) return Promise.resolve([])
+    const current = async (): Promise<boolean> =>
+      epoch === undefined || (await this.profile(userId).get<unknown>(EPOCH_KEY)) === epoch
     return this.locked(userId, async () => {
+      if (!(await current())) return []
       const now = this.now()
       const facts = await this.read(userId)
       const added: string[] = []
@@ -194,6 +240,12 @@ export class MemoryManager {
       }
       const kept = facts.length > this.maxFacts ? facts.slice(facts.length - this.maxFacts) : facts
       await this.write(userId, kept)
+      // Erasure is not under this lock: if it landed between the check and the
+      // write, the epoch is gone now, so undo the write (erasure wins).
+      if (!(await current())) {
+        await this.profile(userId).delete(FACTS_KEY)
+        return []
+      }
       return added.filter((t) => kept.some((f) => f.text === t))
     })
   }
@@ -210,8 +262,8 @@ export class MemoryManager {
     })
   }
 
-  /** Forget everything about `userId` (only this memory namespace). */
+  /** Forget everything about `userId` (only this memory namespace); ends the current {@link epoch}. */
   clear(userId: string): Promise<void> {
-    return this.locked(userId, () => this.profile(userId).delete(FACTS_KEY))
+    return this.locked(userId, () => this.profile(userId).clear())
   }
 }

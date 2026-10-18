@@ -188,6 +188,67 @@ describe('AIClient memory', () => {
     expect(errors).toHaveLength(1)
   })
 
+  it('erasure while the reply is generating: the later extraction does not store facts', async () => {
+    let release!: () => void
+    const gate = new Promise<void>((r) => { release = r })
+    let replying = false
+    const store = new MemoryStore()
+    const users = new UserDataService(store)
+    const memory = new MemoryManager((id) => users.for(id), { autoExtract: true })
+    const provider = {
+      name: 'gated',
+      async generate(input: GenerateInput) {
+        if (input.system?.includes('long-term memory about the USER')) return { text: '{"facts":["Vive en Calle 5"]}', model: 'm', usage: { input: 0, output: 0 } }
+        replying = true
+        await gate
+        return { text: 'ok', model: 'm', usage: { input: 0, output: 0 } }
+      },
+      async *stream() { yield '' },
+    }
+    const ai = new AIClient(provider, new ContextManager(store), { memory })
+    const turn = ai.replyInChat('c', 'vivo en calle 5', { userId: 'u' })
+    await vi.waitFor(() => expect(replying).toBe(true))
+    await users.erase('u')
+    release()
+    await turn
+    await ai.idle()
+    expect(await ai.memory('u')).toEqual([])
+  })
+
+  it('erasure between the epoch check and the write is undone right after the write', async () => {
+    const store = new MemoryStore()
+    const users = new UserDataService(store)
+    let eraseOnce = true
+    const access = (id: string) => {
+      const data = users.for(id)
+      return {
+        ...data,
+        ns: (name: string) => {
+          const ns = data.ns(name)
+          return {
+            ...ns,
+            set: async (...args: Parameters<typeof ns.set>) => {
+              if (args[0] === 'facts' && eraseOnce) { eraseOnce = false; await users.erase(id) }
+              return ns.set(...args)
+            },
+          }
+        },
+      }
+    }
+    const memory = new MemoryManager(access as never, {})
+    const epoch = await memory.epoch('u')
+    expect(await memory.addIfCurrent('u', epoch, 'Vive en Calle 5')).toEqual([])
+    expect(await memory.list('u')).toEqual([])
+  })
+
+  it('forget(userId) ends the memory epoch (an in-flight extraction is dropped)', async () => {
+    const { ai, memory } = client(new MockAIProvider(), {})
+    const epoch = await memory.epoch('u')
+    await ai.forget('u')
+    expect(await memory.addIfCurrent('u', epoch, 'x')).toEqual([])
+    expect(await memory.addIfCurrent('u', await memory.epoch('u'), 'y')).toEqual(['y'])
+  })
+
   it('forget(userId, fact) and forget(userId)', async () => {
     const { ai } = client(new MockAIProvider(), {})
     await ai.remember('u', ['a', 'b'])
@@ -220,13 +281,51 @@ describe('aiPlugin({ memory })', () => {
     await chat.send('memoria')
     await chat.expectReply('facts=Prefiere atención en español')
 
-    // same person writing in a group: facts are injected there too
+    // same person writing in a group: facts learned privately stay out of the
+    // group reply (every member reads it) unless injectInGroups is on
     provider.incoming('hola grupo', { from: 'group@g.us', sender: chat.jid, isGroup: true } as never)
     await vi.waitFor(() => {
       const groupCall = mock.calls.filter((c) => !c.system?.includes('long-term memory')).at(-1)!
       expect(groupCall.messages.at(-1)!.content).toBe('hola grupo')
-      expect(groupCall.system).toContain('Prefiere atención en español')
+      expect(groupCall.system ?? '').not.toContain('Prefiere atención en español')
     })
+  })
+
+  it('injectInGroups:true injects the facts in group replies too', async () => {
+    const mock = new MockAIProvider({ reply: 'ok' })
+    const { bot, chat, provider } = await createTestBot()
+    bot.plug(aiPlugin({ __provider: mock, memory: { injectInGroups: true } }))
+    await bot.injectTools.ai.remember(chat.jid, 'Es VIP')
+    provider.incoming('hola grupo', { from: 'group@g.us', sender: chat.jid, isGroup: true } as never)
+    await vi.waitFor(() => expect(mock.calls.at(-1)?.system).toContain('Es VIP'))
+  })
+
+  it('bot.deleteSubject() during a pending extraction: the extracted facts are not written back', async () => {
+    let release!: () => void
+    const gate = new Promise<void>((r) => { release = r })
+    let extracting = false
+    const provider = {
+      name: 'gated',
+      async generate(input: GenerateInput) {
+        if (input.system?.includes('long-term memory about the USER')) {
+          extracting = true
+          await gate
+          return { text: '{"facts":["Vive en Calle 5"]}', model: 'm', usage: { input: 0, output: 0 } }
+        }
+        return { text: 'ok', model: 'm', usage: { input: 0, output: 0 } }
+      },
+      async *stream() { yield '' },
+    }
+    const { bot, chat } = await createTestBot()
+    bot.plug(aiPlugin({ __provider: provider, memory: { autoExtract: true } }))
+    await chat.send('vivo en calle 5')
+    await chat.expectReply('ok')
+    await vi.waitFor(() => expect(extracting).toBe(true))
+    await bot.deleteSubject(chat.jid)
+    release()
+    await bot.injectTools.ai.idle()
+    expect(await bot.injectTools.ai.memory(chat.jid)).toEqual([])
+    expect(await bot.user(chat.jid).ns('ai.memory').get('facts')).toBeUndefined()
   })
 
   it('without memory config: API works, but nothing is injected or extracted', async () => {

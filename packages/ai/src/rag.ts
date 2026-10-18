@@ -40,6 +40,12 @@ export interface AIRagConfig {
   appendSources?: boolean | ((citations: readonly AIRetrievedChunk[]) => string)
   /** Replace the default instructions that precede the context block. */
   instructions?: string
+  /**
+   * Max time (ms) a reply waits for retrieval (including a first-time index
+   * build); past it the retriever is aborted and the reply goes on without
+   * context. Default 10000; 0 disables.
+   */
+  timeoutMs?: number
 }
 
 export const DEFAULT_RAG_INSTRUCTIONS =
