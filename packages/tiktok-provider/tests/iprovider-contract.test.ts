@@ -6,7 +6,7 @@
 
 import { describe, it, expect, expectTypeOf, vi } from 'vitest'
 import { createHmac } from 'node:crypto'
-import { Bot, type IProvider } from '@bot-wa/core'
+import { Bot, flow, type IProvider } from '@bot-wa/core'
 import { TikTokProvider } from '../src/TikTokProvider.js'
 import * as fx from './fixtures/webhooks.js'
 
@@ -46,6 +46,7 @@ describe('TikTokProvider + Bot', () => {
       accessToken: 'ACCESS',
       businessId: fx.BUSINESS_ID,
       appSecret: SECRET,
+      selfUniqueIdentifier: fx.SELF_UID,
       http: { fetch: fetch as unknown as typeof globalThis.fetch, resolver: async () => ['93.184.216.34'] },
     })
     const bot = new Bot({ provider })
@@ -64,5 +65,41 @@ describe('TikTokProvider + Bot', () => {
       url: 'https://business-api.tiktok.com/open_api/v1.3/business/comment/reply/create/',
       json: { business_id: fx.BUSINESS_ID, video_id: '7203946942097902849', comment_id: '7247303576418566913', text: 'Te escribimos por DM 🙌' },
     }])
+  })
+
+  it('a flow started from a high-intent comment receives the customer answer sent by DM', async () => {
+    const bodies: Array<Record<string, unknown>> = []
+    let n = 0
+    const fetch = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>)
+      return new Response(JSON.stringify({ code: 0, message: 'OK', data: { message: { message_id: `out-${++n}` } } }))
+    })
+    const provider = new TikTokProvider({
+      accessToken: 'ACCESS',
+      businessId: fx.BUSINESS_ID,
+      appSecret: SECRET,
+      selfUniqueIdentifier: fx.SELF_UID,
+      http: { fetch: fetch as unknown as typeof globalThis.fetch, resolver: async () => ['93.184.216.34'] },
+    })
+    const bot = new Bot({ provider })
+    const done = new Promise<string>((resolve) => {
+      bot.use(flow('quiero comprar').ask('¿Qué talla?', 'size').do((_ctx, c) => { resolve(String(c.state.size)) }).say('Anotado'))
+    })
+    await bot.start()
+    const hic = JSON.stringify(fx.highIntentComment)
+    expect(provider.ingest(hic, sign(hic))).toBe(200)
+    await vi.waitFor(() => expect(bodies).toHaveLength(1))
+    const answer = JSON.stringify(fx.envelope('im_receive_msg', {
+      ...(JSON.parse(String((fx.dmText as { content: string }).content)) as Record<string, unknown>),
+      message_id: 'msg-answer',
+      text: { body: 'M' },
+    }))
+    expect(provider.ingest(answer, sign(answer))).toBe(200)
+    expect(await done).toBe('M')
+    await vi.waitFor(() => expect(bodies).toHaveLength(2))
+    await bot.stop()
+
+    expect(bodies[0]).toMatchObject({ direct_reply: { comment_reply: { comment_id: '7247303576418566777' } }, text: { body: '¿Qué talla?' } })
+    expect(bodies[1]).toMatchObject({ recipient_type: 'CONVERSATION', recipient: fx.CONVERSATION_ID, text: { body: 'Anotado' } })
   })
 })

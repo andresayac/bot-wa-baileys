@@ -49,6 +49,21 @@ export interface TikTokInboundRaw {
 export interface ParseWebhookOptions {
   /** The business's own `unique_identifier`: its comments are flagged `fromMe`. */
   selfUniqueIdentifier?: string
+  /**
+   * Chat id override for a DM conversation (default `dm:<conversation_id>`).
+   * The provider uses it to keep a customer's DM answer in the `hic:` chat of
+   * the high-intent comment it answered with a direct reply.
+   */
+  conversationChatId?: (info: ConversationChatInfo) => string | undefined
+}
+
+/** What is known about a DM event when choosing its chat id. */
+export interface ConversationChatInfo {
+  conversationId: string
+  /** The other participant (the customer). */
+  peerId: string
+  messageId: string
+  direction: 'in' | 'out'
 }
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -81,9 +96,9 @@ export function parseWebhook(body: TikTokWebhookBody, options: ParseWebhookOptio
     case 'comment.update':
       return parseComment(content as TikTokCommentUpdate, body, raw, options)
     case 'im_receive_msg':
-      return parseDirectMessage(content as TikTokDirectMessage, body, raw)
+      return parseDirectMessage(content as TikTokDirectMessage, body, raw, options)
     case 'im_send_msg':
-      return parseSentEcho(content as TikTokDirectMessage, body)
+      return parseSentEcho(content as TikTokDirectMessage, body, options)
     case 'im_receive_high_intent_comment':
       return parseHighIntent(content as TikTokHighIntentComment, body, raw)
     default:
@@ -188,12 +203,12 @@ function mediaFor(m: TikTokDirectMessage, conversationId: string, messageId: str
   }
 }
 
-function parseDirectMessage(m: TikTokDirectMessage, body: TikTokWebhookBody, raw: TikTokInboundRaw): InboundEvent<TikTokInboundRaw>[] {
+function parseDirectMessage(m: TikTokDirectMessage, body: TikTokWebhookBody, raw: TikTokInboundRaw, options: ParseWebhookOptions): InboundEvent<TikTokInboundRaw>[] {
   const conversationId = m.conversation_id ?? ''
   const senderId = personalSender(m)
   if (!conversationId || !senderId) return []
-  const chatId = conversationChatId(conversationId)
   const messageId = m.message_id ?? ''
+  const chatId = options.conversationChatId?.({ conversationId, peerId: senderId, messageId, direction: 'in' }) ?? conversationChatId(conversationId)
   const timestamp = eventTime(m.timestamp, body)
   const chat = dmChat(chatId, conversationId, m)
   const senderInfo = dmSender(m, senderId)
@@ -255,14 +270,16 @@ function parseDirectMessage(m: TikTokDirectMessage, body: TikTokWebhookBody, raw
   return [{ kind: 'message', message }]
 }
 
-function parseSentEcho(m: TikTokDirectMessage, body: TikTokWebhookBody): InboundEvent<TikTokInboundRaw>[] {
+function parseSentEcho(m: TikTokDirectMessage, body: TikTokWebhookBody, options: ParseWebhookOptions): InboundEvent<TikTokInboundRaw>[] {
   const conversationId = m.conversation_id ?? ''
   if (!conversationId || !m.message_id) return []
   const recipient = m.to_user?.role === 'personal_account' ? m.to_user.id : m.unique_identifier
+  const chatId = options.conversationChatId?.({ conversationId, peerId: recipient ?? '', messageId: m.message_id, direction: 'out' })
+    ?? conversationChatId(conversationId)
   return [{
     kind: 'status',
     status: {
-      ref: { id: m.message_id, chatId: conversationChatId(conversationId) },
+      ref: { id: m.message_id, chatId },
       status: 'sent',
       ...(recipient ? { recipient } : {}),
       timestamp: eventTime(m.timestamp, body),

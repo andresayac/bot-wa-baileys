@@ -8,6 +8,8 @@
 export const BUSINESS_ID = '_000abPL1cJIdVefgDhGijkl2mFn3AB0abY4'
 export const USER_UID = '+ABc1D2/E0fGhijklMNOrD34vDW/zDiZUNRH5Jyahue6OcA7b8ZpwnqXV9u1Uh+k'
 export const CONVERSATION_ID = 'conv-1234567890'
+/** `unique_identifier` of the business's own TikTok account. */
+export const SELF_UID = '+SELFbusinessUniqueIdentifier0000000000000000000000000000000000'
 
 /** Builds a webhook envelope with its `content` serialized the way TikTok does. */
 export function envelope(event: string, content: Record<string, unknown> | string, overrides: Record<string, unknown> = {}): Record<string, unknown> {
@@ -43,6 +45,17 @@ export const commentReplyInsertRaw = JSON.stringify({
   content:
     `{"comment_id":7247303576418566999,"video_id":7203946942097902849,"parent_comment_id":7235861947622916866,` +
     `"comment_type":"reply","comment_action":"insert","unique_identifier":"${USER_UID}","timestamp":1687394416200,"text":"yo también"}`,
+})
+
+/** comment.update for a reply posted by the business itself (e.g. by another bot instance). */
+export const commentSelfReplyRaw = JSON.stringify({
+  client_key: 'bwo1m23456a7k89',
+  event: 'comment.update',
+  create_time: 1615338610,
+  user_openid: BUSINESS_ID,
+  content:
+    `{"comment_id":7247303576418567000,"video_id":7203946942097902849,"parent_comment_id":7247303576418566913,` +
+    `"comment_type":"reply","comment_action":"insert","unique_identifier":"${SELF_UID}","timestamp":1687394416300,"text":"Te escribimos por DM"}`,
 })
 
 export const commentDeleteRaw = JSON.stringify({

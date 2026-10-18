@@ -20,6 +20,7 @@
  *   accessToken: process.env.TIKTOK_TOKEN!,
  *   businessId: process.env.TIKTOK_BUSINESS_ID!,   // open_id of the account
  *   appSecret: process.env.TIKTOK_APP_SECRET!,     // verifies TikTok-Signature
+ *   selfUniqueIdentifier: process.env.TIKTOK_SELF_UID!, // needed for comments (loop guard)
  * })
  * const bot = new Bot({ provider })
  * app.post('/tiktok', express.raw({ type: '*\/*' }), (req, res) => {
@@ -31,7 +32,7 @@
 import { readFile } from 'node:fs/promises'
 import { basename } from 'node:path'
 import pino, { type Logger } from 'pino'
-import { secureFetch } from '@bot-wa/http'
+import { SecureHttpError, secureFetch } from '@bot-wa/http'
 import {
   ProviderError,
   RecipientUnreachableError,
@@ -48,10 +49,10 @@ import {
   type SendResult,
   type UserId,
 } from '@bot-wa/core'
-import { parseTikTokChatId, type TikTokChatTarget } from './chatId.js'
-import { toProviderError } from './errors.js'
+import { highIntentChatId, parseTikTokChatId, type TikTokChatTarget } from './chatId.js'
+import { TikTokApiError, toProviderError } from './errors.js'
 import { parseJsonLossless } from './json.js'
-import { parseWebhook } from './parseInbound.js'
+import { parseWebhook, type ConversationChatInfo } from './parseInbound.js'
 import { verifyTikTokSignature } from './signature.js'
 import { toCommentReply, toDirectReply, toDmMessage, type TikTokRequestBody } from './toOutbound.js'
 import type { TikTokApiResponse, TikTokMediaToken, TikTokProviderConfig, TikTokWebhookBody } from './types.js'
@@ -60,6 +61,38 @@ type WebhookHeaders = Record<string, string | string[] | undefined>
 
 /** How many own comment-reply ids to remember for echo suppression. */
 const OWN_COMMENT_MEMORY = 1000
+/** How many high-intent comments (and their DM hand-offs) to remember. */
+const HIGH_INTENT_MEMORY = 1000
+/** Inbound DMs stay in the `hic:` chat while it has activity in this window (TikTok's 48 h messaging window). */
+const HIGH_INTENT_ROUTING_MS = 48 * 60 * 60 * 1000
+
+/**
+ * A high-intent comment answered with a direct reply. TikTok allows ONE
+ * direct reply per comment; the customer's answer then arrives as a DM in a
+ * conversation whose id the reply does not necessarily return. The binding
+ * keeps that DM conversation in the comment's `hic:` chat so a flow started
+ * from the comment (`.ask()`, `choose()`) receives the answer, and routes
+ * later sends to the conversation instead of a second direct reply.
+ */
+interface HighIntentBinding {
+  commentId: string
+  /** The commenter (`senderId` of the high-intent comment), when seen. */
+  peerId?: string
+  /** `message_id` of the direct reply, to match its `im_send_msg` echo. */
+  replyMessageId?: string
+  conversationId?: string
+  /** Inbound routing into the `hic:` chat stops after this (sliding). */
+  routeUntil: number
+}
+
+function remember<K, V>(map: Map<K, V>, key: K, value: V, max: number): void {
+  map.delete(key)
+  map.set(key, value)
+  if (map.size > max) {
+    const oldest = map.keys().next().value
+    if (oldest !== undefined) map.delete(oldest)
+  }
+}
 
 function header(headers: WebhookHeaders | undefined, name: string): string | undefined {
   if (!headers) return undefined
@@ -100,6 +133,11 @@ export class TikTokProvider implements IProvider<unknown> {
   private readonly logger: Logger
   private readonly listeners = new Set<(e: InboundEvent) => void | Promise<void>>()
   private readonly ownComments = new Set<string>()
+  /** commentId -> commenter, from `im_receive_high_intent_comment`. */
+  private readonly highIntentPeers = new Map<string, string>()
+  /** commentId -> DM hand-off after a direct reply. */
+  private readonly highIntentReplies = new Map<string, HighIntentBinding>()
+  private warnedNoSelfIdentity = false
 
   constructor(config: TikTokProviderConfig) {
     if (!config.businessId) throw new Error('TikTokProvider requires `businessId` (the open_id of the TikTok account).')
@@ -113,6 +151,9 @@ export class TikTokProvider implements IProvider<unknown> {
     }
     if (!config.appSecret) {
       this.logger.warn('TikTokProvider unsigned webhook mode explicitly enabled; never expose this endpoint publicly.')
+    }
+    if (!config.selfUniqueIdentifier) {
+      this.logger.warn('TikTokProvider has no `selfUniqueIdentifier`: comment webhooks will be ignored (the bot could not tell its own replies apart). DMs are unaffected.')
     }
   }
 
@@ -184,13 +225,60 @@ export class TikTokProvider implements IProvider<unknown> {
       return 200
     }
 
-    for (const event of parseWebhook(envelope, { selfUniqueIdentifier: this.config.selfUniqueIdentifier })) {
-      if (event.kind === 'message' && event.message.chat.platformData?.surface === 'comment' && this.ownComments.has(event.message.ref.id)) {
-        continue // echo of a reply this provider just posted
+    const self = this.config.selfUniqueIdentifier
+    const conversationChatId = (info: ConversationChatInfo) => this.highIntentChatFor(info)
+    for (const event of parseWebhook(envelope, { selfUniqueIdentifier: self, conversationChatId })) {
+      if (event.kind === 'message' && event.message.chat.platformData?.surface === 'high-intent-comment') {
+        remember(this.highIntentPeers, event.message.ref.id, event.message.senderId, HIGH_INTENT_MEMORY)
+      }
+      if (event.kind === 'message' && event.message.chat.platformData?.surface === 'comment') {
+        // Primary loop guard is the sender (fromMe via selfUniqueIdentifier): it
+        // holds across restarts and instances. Without it, fail closed.
+        if (!self) {
+          if (!this.warnedNoSelfIdentity) {
+            this.warnedNoSelfIdentity = true
+            this.logger.warn('TikTok comment webhook ignored: set `selfUniqueIdentifier` to receive comments.')
+          }
+          continue
+        }
+        if (this.ownComments.has(event.message.ref.id)) continue // echo of a reply this process just posted
       }
       this.fan(event as InboundEvent)
     }
     return 200
+  }
+
+  /**
+   * The `hic:` chat a DM belongs to, when it is the hand-off of a high-intent
+   * comment answered by this process: matched by conversation once known, or
+   * else by the direct reply's echo id or by the commenter's first DM.
+   */
+  private highIntentChatFor(info: ConversationChatInfo): string | undefined {
+    const now = Date.now()
+    let match: HighIntentBinding | undefined
+    for (const binding of this.highIntentReplies.values()) {
+      if (binding.routeUntil < now) continue
+      if (binding.conversationId) {
+        if (binding.conversationId === info.conversationId) match = binding
+      } else if (
+        (info.direction === 'out' && !!binding.replyMessageId && binding.replyMessageId === info.messageId) ||
+        (info.direction === 'in' && !!binding.peerId && binding.peerId === info.peerId)
+      ) {
+        match = binding // latest wins
+      }
+    }
+    if (!match) return undefined
+    match.conversationId = info.conversationId
+    match.routeUntil = now + HIGH_INTENT_ROUTING_MS
+    return highIntentChatId(match.commentId)
+  }
+
+  /** Resolve a chat id to its TikTok target, following a `hic:` chat to its DM conversation once bound. */
+  private route(chatId: ChatId): TikTokChatTarget | undefined {
+    const target = parseTikTokChatId(chatId)
+    if (target?.surface !== 'high-intent-comment') return target
+    const conversationId = this.highIntentReplies.get(target.commentId)?.conversationId
+    return conversationId ? { surface: 'dm', conversationId } : target
   }
 
   /* HTTP ------------------------------------------------------------------ */
@@ -210,12 +298,24 @@ export class TikTokProvider implements IProvider<unknown> {
     const isForm = body instanceof FormData
     const headers: Record<string, string> = { 'Access-Token': await this.token() }
     if (!isForm) headers['Content-Type'] = 'application/json'
-    const { response, body: bytes } = await secureFetch(this.apiUrl(path), {
-      ...this.config.http,
-      method: 'POST',
-      headers,
-      body: isForm ? body : JSON.stringify(body),
-    })
+    let result: Awaited<ReturnType<typeof secureFetch>>
+    try {
+      result = await secureFetch(this.apiUrl(path), {
+        ...this.config.http,
+        // Never follow redirects: `Access-Token` is a custom header that a
+        // cross-origin hop would carry along with the request body.
+        maxRedirects: 0,
+        method: 'POST',
+        headers,
+        body: isForm ? body : JSON.stringify(body),
+      })
+    } catch (err) {
+      if (err instanceof SecureHttpError && err.code === 'TOO_MANY_REDIRECTS') {
+        throw new TikTokApiError('TikTok API answered with a redirect; not followed (it would forward the access token)')
+      }
+      throw err
+    }
+    const { response, body: bytes } = result
     let parsed: TikTokApiResponse<T> | undefined
     try {
       parsed = parseJsonLossless(bytes.toString('utf8')) as TikTokApiResponse<T>
@@ -246,7 +346,7 @@ export class TikTokProvider implements IProvider<unknown> {
   /* Outbound -------------------------------------------------------------- */
 
   private target(chatId: ChatId): TikTokChatTarget {
-    const target = parseTikTokChatId(chatId)
+    const target = this.route(chatId)
     if (!target) throw new RecipientUnreachableError(chatId, `Not a TikTok chat id: '${chatId}'`)
     return target
   }
@@ -300,9 +400,25 @@ export class TikTokProvider implements IProvider<unknown> {
     }
 
     if (target.surface === 'high-intent-comment') {
+      if (this.highIntentReplies.has(target.commentId)) {
+        // TikTok accepts a single direct reply per comment; the rest of the
+        // exchange happens in the DM conversation, unknown until the echo or
+        // the customer's answer arrives.
+        throw new RecipientUnreachableError(chatId, 'TikTok allows one direct reply per comment; the DM conversation is not known yet (it binds when the customer answers)')
+      }
       const body = toDirectReply(content, { businessId: this.config.businessId, commentId: target.commentId })
-      const data = await this.api<{ message?: { message_id?: string } }>('business/message/send/', body, chatId)
-      return { ref: { id: data.message?.message_id ?? '', chatId }, raw: data }
+      const data = await this.api<{ message?: { message_id?: string; conversation_id?: string }; conversation_id?: string }>('business/message/send/', body, chatId)
+      const messageId = data.message?.message_id ?? ''
+      const conversationId = data.message?.conversation_id ?? data.conversation_id
+      const peerId = this.highIntentPeers.get(target.commentId)
+      remember(this.highIntentReplies, target.commentId, {
+        commentId: target.commentId,
+        ...(peerId ? { peerId } : {}),
+        ...(messageId ? { replyMessageId: messageId } : {}),
+        ...(conversationId ? { conversationId } : {}),
+        routeUntil: Date.now() + HIGH_INTENT_ROUTING_MS,
+      }, HIGH_INTENT_MEMORY)
+      return { ref: { id: messageId, chatId }, raw: data }
     }
 
     // Validate (and fail fast) before any upload.
@@ -352,7 +468,7 @@ export class TikTokProvider implements IProvider<unknown> {
   async markRead(refs: MessageRef[]): Promise<void> {
     const done = new Set<string>()
     for (const ref of refs) {
-      const target = parseTikTokChatId(ref.chatId)
+      const target = this.route(ref.chatId)
       if (target?.surface !== 'dm' || done.has(target.conversationId)) continue
       done.add(target.conversationId)
       await this.senderAction(target.conversationId, 'MARK_READ', ref.chatId)

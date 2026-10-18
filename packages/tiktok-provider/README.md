@@ -23,6 +23,7 @@ const provider = new TikTokProvider({
   accessToken: process.env.TIKTOK_TOKEN!,          // o una función async que lo refresque
   businessId: process.env.TIKTOK_BUSINESS_ID!,     // open_id de /tt_user/oauth2/token/
   appSecret: process.env.TIKTOK_APP_SECRET!,       // verifica TikTok-Signature
+  selfUniqueIdentifier: process.env.TIKTOK_SELF_UID!, // unique_identifier de la cuenta (necesario para comentarios)
 })
 
 const bot = new Bot({ provider })
@@ -70,7 +71,7 @@ curl -X POST https://business-api.tiktok.com/open_api/v1.3/business/webhook/upda
 | `appSecret` | requerido* | Secret de la app; verifica `TikTok-Signature`. |
 | `allowUnsignedWebhooks` | `false` | Solo para desarrollo local: acepta webhooks sin firmar. |
 | `signatureToleranceSec` | `300` | Ventana anti-replay (diferencia máxima entre `t` y el reloj local). |
-| `selfUniqueIdentifier` | — | `unique_identifier` de la propia cuenta; sus comentarios llegan con `fromMe: true`. |
+| `selfUniqueIdentifier` | — | `unique_identifier` de la propia cuenta. **Obligatorio para recibir comentarios**: sus comentarios (incluidas las respuestas del bot vistas por otra instancia o tras un reinicio) llegan con `fromMe: true` y no se despachan. Sin él, los webhooks de comentarios se ignoran; los DMs funcionan igual. |
 | `apiBaseUrl` / `apiVersion` | `https://business-api.tiktok.com/open_api` / `v1.3` | Endpoint de la API. |
 | `http` | — | Opciones de `secureFetch` (`timeoutMs`, `maxBytes`, `resolver`, `fetch`…). |
 | `logger` / `debug` | pino `error` | Logger compatible con pino. |
@@ -82,6 +83,7 @@ curl -X POST https://business-api.tiktok.com/open_api/v1.3/business/webhook/upda
   - `dm:<conversation_id>`: conversación de DM (`kind: 'dm'`).
   - `comment:<video_id>:<comment_id>`: hilo de un comentario de primer nivel (`kind: 'group'`, `isGroup: true`). Las respuestas a un comentario caen en el hilo de su `parent_comment_id`, y las conversaciones van por participante.
   - `hic:<comment_id>`: comentario de alta intención (respuesta por DM).
+    TikTok solo admite **una** respuesta directa por comentario. Tras enviarla, el provider enlaza el chat `hic:` con la conversación de DM que se abre (la aprende de la respuesta de la API, del eco `im_send_msg` o del primer DM del autor del comentario). Mientras haya actividad en las 48 h siguientes, los DMs de esa conversación llegan al mismo chat `hic:`, así que un flow iniciado desde el comentario (`.ask()`, `choose()`) recibe la respuesta. Los envíos posteriores a `hic:` van a la conversación (texto, imágenes, botones). Un segundo envío antes de conocer la conversación falla con `RecipientUnreachableError`. El enlace vive en memoria: tras un reinicio, los DMs llegan a `dm:<conversation_id>`.
 - `ctx.chat.platformData.surface` vale `'comment'`, `'dm'` o `'high-intent-comment'`. Con `scope: 'dm'` / `scope: 'group'` en un trigger separas DMs de comentarios.
 - Los ids de comentario de TikTok son enteros de 64 bits que llegan como números JSON. Se parsean **sin pérdida** (`parseJsonLossless`) y se tratan como strings.
 
@@ -89,7 +91,7 @@ curl -X POST https://business-api.tiktok.com/open_api/v1.3/business/webhook/upda
 
 | Contenido | DM | Comentario | Alta intención |
 |---|---|---|---|
-| `text` | ✅ (≤ 6000 caracteres; `ctx.quote()` cita el mensaje) | ✅ (≤ 150 caracteres) | ✅ |
+| `text` | ✅ (≤ 6000 caracteres; `ctx.quote()` cita el mensaje) | ✅ (≤ 150 caracteres) | ✅ (el primer envío es la respuesta directa; los siguientes van al DM enlazado, con todo lo de la columna DM) |
 | `image` | ✅ (Buffer, `{path}` y URL se suben con `/business/message/media/upload/`; `{ native: { mediaId } }` reutiliza un `media_id` existente) | ❌ | ❌ |
 | `buttons` | ✅ `QA_BUTTON_CARD` (1 a 3, títulos ≤ 20) o `QA_LINK_CARD` (títulos ≤ 40); pregunta ≤ 40 | ❌ | ❌ |
 | `list` | ✅ `QA_LINK_CARD` si hay como mucho 3 filas en total | ❌ | ❌ |
@@ -106,7 +108,8 @@ Acciones: `typing()` envía `SENDER_ACTION TYPING`, que desaparece a los 5 s. `m
 - **Ventana de 48 h** en conversaciones sin follow mutuo: hasta 10 mensajes en las 48 h posteriores al primer mensaje del usuario; ilimitados durante 48 h tras cada respuesta suya, y 3 como máximo fuera de ventana. Los rechazos se mapean a `OutsideSessionWindowError`.
 - **EEA, Suiza y Reino Unido**: TikTok no entrega el contenido. El evento `im_receive_msg_eu` se descarta.
 - `comment.update` llega **hasta 5 minutos tarde** y no trae nombre ni username del autor. Solo se procesa `comment_action: 'insert'`; borrados, ocultados y cambios de visibilidad se ignoran.
-- Las respuestas que envía el propio bot generan su propio `comment.update`. El provider recuerda los `comment_id` que creó y no los re-emite, así que no hay bucles.
+- Las respuestas que envía el propio bot generan su propio `comment.update`. La protección contra bucles es el autor: con `selfUniqueIdentifier`, todo comentario de la cuenta llega como `fromMe: true` (vale tras un reinicio y entre varias instancias). Además, el proceso recuerda los `comment_id` que creó y no los re-emite. Sin `selfUniqueIdentifier` los comentarios se descartan.
+- Las llamadas a la API **no siguen redirecciones**: el token va en la cabecera `Access-Token`, que una redirección a otro origen arrastraría. Una respuesta 3xx falla con `TikTokApiError`.
 - Las imágenes en DM solo funcionan donde TikTok permite adjuntos; consúltalo con `/business/message/capabilities/get/`.
 
 ## Errores tipados

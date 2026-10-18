@@ -35,6 +35,7 @@ function harness(responder: Responder = () => ok({ message: { message_id: 'sent-
     accessToken: 'ACCESS',
     businessId: fx.BUSINESS_ID,
     appSecret: SECRET,
+    selfUniqueIdentifier: fx.SELF_UID,
     logger: pino({ level: 'silent' }),
     http: { fetch: fetch as unknown as typeof globalThis.fetch, resolver: async () => ['93.184.216.34'] },
     ...extra,
@@ -214,6 +215,22 @@ describe('TikTokProvider.send — comments', () => {
     provider.ingest(fx.commentReplyInsertRaw, sign(fx.commentReplyInsertRaw))
     expect(events.filter((e) => e.kind === 'message')).toEqual([])
   })
+  it('flags the business own comments fromMe even when this process never sent them (restart, other instance)', () => {
+    const { provider, events } = harness()
+    expect(provider.ingest(fx.commentSelfReplyRaw, sign(fx.commentSelfReplyRaw))).toBe(200)
+    const messages = events.filter((e) => e.kind === 'message')
+    expect(messages).toHaveLength(1)
+    expect(messages[0]).toMatchObject({ kind: 'message', message: { fromMe: true } })
+  })
+  it('ignores comment webhooks when selfUniqueIdentifier is not configured (cannot rule out reply loops)', () => {
+    const { provider, events } = harness(undefined, { selfUniqueIdentifier: undefined })
+    expect(provider.ingest(fx.commentSelfReplyRaw, sign(fx.commentSelfReplyRaw))).toBe(200)
+    expect(provider.ingest(fx.commentInsertRaw, sign(fx.commentInsertRaw))).toBe(200)
+    expect(events).toEqual([])
+    const raw = JSON.stringify(fx.dmText)
+    expect(provider.ingest(raw, sign(raw))).toBe(200)
+    expect(events).toHaveLength(1)
+  })
   it('rejects too-long comment replies before calling the API', async () => {
     const { provider, calls } = harness()
     await expect(provider.send('comment:1:2', { kind: 'text', text: 'x'.repeat(151) })).rejects.toBeInstanceOf(PayloadTooLargeError)
@@ -222,6 +239,108 @@ describe('TikTokProvider.send — comments', () => {
   it('rejects media on comments', async () => {
     const { provider } = harness()
     await expect(provider.send('comment:1:2', { kind: 'image', media: Buffer.alloc(1) })).rejects.toBeInstanceOf(UnsupportedContentError)
+  })
+})
+
+describe('TikTokProvider — high-intent comment hand-off to DM', () => {
+  const HIC = 'hic:7247303576418566777'
+  const hicRaw = JSON.stringify(fx.highIntentComment)
+  const dmRaw = JSON.stringify(fx.dmText)
+  const echoOf = (messageId: string) => JSON.stringify(fx.envelope('im_send_msg', {
+    ...(JSON.parse(String((fx.dmSentEcho as { content: string }).content)) as Record<string, unknown>),
+    message_id: messageId,
+  }))
+
+  it('routes the customer DM answer to the high-intent chat after the direct reply', async () => {
+    const { provider, events } = harness(() => ok({ message: { message_id: 'dr-1' } }))
+    provider.ingest(hicRaw, sign(hicRaw))
+    await provider.send(HIC, { kind: 'text', text: '¿Qué talla?' })
+    provider.ingest(dmRaw, sign(dmRaw))
+    const messages = events.filter((e) => e.kind === 'message')
+    expect(messages).toHaveLength(2)
+    expect(messages[1]).toMatchObject({
+      message: { chatId: HIC, from: HIC, ref: { id: 'msg-1', chatId: HIC }, chat: { id: HIC, kind: 'dm', platformData: { surface: 'dm', conversationId: fx.CONVERSATION_ID } }, body: 'Hola!' },
+    })
+  })
+
+  it('later sends to the high-intent chat go to the bound DM conversation (any content)', async () => {
+    const { provider, calls } = harness(() => ok({ message: { message_id: 'dr-1' } }))
+    provider.ingest(hicRaw, sign(hicRaw))
+    await provider.send(HIC, { kind: 'text', text: '¿Qué talla?' })
+    provider.ingest(dmRaw, sign(dmRaw))
+    await provider.send(HIC, { kind: 'buttons', text: 'Elige', buttons: [{ id: 's', title: 'S' }, { id: 'm', title: 'M' }] })
+    expect(calls).toHaveLength(2)
+    expect(calls[1]!.json).toMatchObject({ recipient_type: 'CONVERSATION', recipient: fx.CONVERSATION_ID })
+    expect(calls[1]!.json).not.toHaveProperty('direct_reply')
+    await provider.typing(HIC)
+    expect(calls[2]!.json).toMatchObject({ recipient: fx.CONVERSATION_ID, sender_action: 'TYPING' })
+  })
+
+  it('binds the conversation from the im_send_msg echo of the direct reply', async () => {
+    const { provider, events, calls } = harness(() => ok({ message: { message_id: 'dr-echo' } }))
+    await provider.send(HIC, { kind: 'text', text: 'hola' })
+    const echo = echoOf('dr-echo')
+    provider.ingest(echo, sign(echo))
+    expect(events).toContainEqual(expect.objectContaining({ kind: 'status', status: expect.objectContaining({ ref: { id: 'dr-echo', chatId: HIC } }) }))
+    await provider.send(HIC, { kind: 'text', text: 'segundo' })
+    expect(calls[1]!.json).toMatchObject({ recipient: fx.CONVERSATION_ID })
+  })
+
+  it('binds the conversation from the send response when TikTok returns it', async () => {
+    const { provider, calls } = harness(() => ok({ message: { message_id: 'dr-2', conversation_id: 'conv-from-api' } }))
+    await provider.send(HIC, { kind: 'text', text: 'hola' })
+    await provider.send(HIC, { kind: 'text', text: 'segundo' })
+    expect(calls[1]!.json).toMatchObject({ recipient_type: 'CONVERSATION', recipient: 'conv-from-api' })
+  })
+
+  it('refuses a second direct reply to the same comment before the conversation is known', async () => {
+    const { provider, calls } = harness(() => ok({ message: { message_id: 'dr-3' } }))
+    await provider.send(HIC, { kind: 'text', text: 'hola' })
+    await expect(provider.send(HIC, { kind: 'text', text: 'otra' })).rejects.toBeInstanceOf(RecipientUnreachableError)
+    expect(calls).toHaveLength(1)
+  })
+
+  it('leaves unrelated DMs on their own chat', () => {
+    const { provider, events } = harness()
+    provider.ingest(dmRaw, sign(dmRaw))
+    expect(events[0]).toMatchObject({ message: { chatId: `dm:${fx.CONVERSATION_ID}` } })
+  })
+
+  it('releases the binding after the 48 h messaging window', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    try {
+      vi.setSystemTime(new Date('2026-01-01T00:00:00Z'))
+      const { provider, events } = harness(() => ok({ message: { message_id: 'dr-4' } }))
+      provider.ingest(hicRaw, sign(hicRaw))
+      await provider.send(HIC, { kind: 'text', text: 'hola' })
+      vi.setSystemTime(new Date('2026-01-03T00:00:01Z'))
+      provider.ingest(dmRaw, sign(dmRaw))
+      expect(events.filter((e) => e.kind === 'message').at(-1)).toMatchObject({ message: { chatId: `dm:${fx.CONVERSATION_ID}` } })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
+describe('TikTokProvider — redirects', () => {
+  it('never follows an API redirect, so the Access-Token cannot leak to another host', async () => {
+    const { provider, calls } = harness((call) =>
+      call.url.startsWith('https://evil.example/')
+        ? ok({ message: { message_id: 'x' } })
+        : new Response(null, { status: 307, headers: { location: 'https://evil.example/x' } }))
+    await expect(provider.send('dm:c', { kind: 'text', text: 'x' })).rejects.toBeInstanceOf(ProviderError)
+    expect(calls).toHaveLength(1)
+    expect(calls.some((c) => new Headers(c.init.headers).get('Access-Token') && c.url.startsWith('https://evil.example/'))).toBe(false)
+  })
+  it('still follows redirects for media downloads (no token is sent there)', async () => {
+    const { provider, calls } = harness((call) => {
+      if (call.url === 'https://cdn.example.com/a.png') return new Response(null, { status: 302, headers: { location: 'https://cdn2.example.com/a.png' } })
+      if (call.url === 'https://cdn2.example.com/a.png') return new Response(Buffer.from([1]), { status: 200, headers: { 'content-type': 'image/png' } })
+      if (call.url.endsWith('/media/upload/')) return ok({ media_id: 'M' })
+      return ok({ message: { message_id: 'i' } })
+    })
+    await provider.send('dm:c', { kind: 'image', media: 'https://cdn.example.com/a.png' })
+    expect(calls.map((c) => c.url)).toContain('https://cdn2.example.com/a.png')
   })
 })
 

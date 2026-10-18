@@ -35,9 +35,12 @@ export interface TikTokProviderConfig {
   /** API version path segment. Default `v1.3`. */
   apiVersion?: string
   /**
-   * `unique_identifier` of the business's own TikTok account, when known: its
-   * own comments are then flagged `fromMe`. Replies sent through this provider
-   * are always recognised (by comment id) and never re-emitted.
+   * `unique_identifier` of the business's own TikTok account (the value TikTok
+   * puts in `comment.update` for comments the account posts). **Required to
+   * receive comments**: it is the loop guard — the account's own comments,
+   * including the bot's replies seen by another instance or after a restart,
+   * arrive as `fromMe: true` and are never dispatched. Without it, comment
+   * webhooks are ignored; DMs work either way.
    */
   selfUniqueIdentifier?: string
   /**
