@@ -259,7 +259,7 @@ export type { UserDataEntry } from './core/provider.js'
 export {
   DEFAULT_TYPING,
   TYPING_REFRESH_MS,
-  LastSentTracker,
+  ExternalSendClock,
   createPacer,
   messagingSupport,
   normalizeTypingConfig,
@@ -279,5 +279,4 @@ export type {
   Pacer,
   PacerOptions,
   PaceGuard,
-  LastSentEntry,
 } from './core/messaging.js'

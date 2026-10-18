@@ -92,12 +92,71 @@ await ctx.poll('What do you like?', ['🍕 Pizza', '🍔 Burger'], true)
 If a provider cannot honor a content kind at all, `send` rejects with a
 typed `UnsupportedContentError` from `@bot-wa/core`.
 
+## Typing indicator and reply delays
+
+`BotConfig.typing` shows "typing…" before every text reply sent through `ctx`
+(`reply`/`say`/`answer`/`text`/`quote` and flow `.say`). The indicator lasts
+`text length / charsPerSecond`, clamped to `[minMs, maxMs]`. It is off by default.
+
+```ts
+const bot = new Bot({ provider, typing: true }) // defaults: { minMs: 800, maxMs: 3000, charsPerSecond: 20 }
+const tuned = new Bot({ provider, typing: { enabled: true, minMs: 500, maxMs: 2000 } })
+
+// Per reply: override typing and/or wait first
+await ctx.reply('One moment…', { typing: false })
+await ctx.reply('Here it is', { delay: '1.5s', typing: { maxMs: 1000 } })
+```
+
+- A failing indicator never fails the send; it is cosmetic and best effort.
+- On providers without `capabilities.typing` there is no indicator **and no wait**. `delay` is honored everywhere.
+- A paced reply is dropped (it resolves `{ skipped: true }`) if the bot stops, the chat is handed off or the flow is aborted during the wait. `stop({ drain: true })` waits for paced replies.
+
+## Edit a message
+
+```ts
+const msg = await ctx.reply('Processing…')
+await ctx.edit('Done ✅')                       // edits this context's own last reply
+await ctx.edit(msg.ref, 'Done ✅')              // edits a given message
+await ctx.edit('Done ✅', { fallback: 'skip' }) // never sends a new message
+```
+
+`ctx.edit(content)` only targets the last reply sent by **this same context**
+(this handler run, or this flow) and only when it has the same content kind.
+It never edits replies to an earlier message, replies of another participant's
+flow in a group, or a reply followed by a `bot.send`/`bot.sendTo` to the chat.
+The result has `edited: true` when the provider edited in place.
+
+When the provider cannot edit (no `capabilities.edit`, a content kind it cannot
+edit, or nothing to edit), `ctx.edit` sends the content as a **new message** in
+the chat of the edited message (`ref.chatId`), or sends nothing with
+`{ fallback: 'skip' }`. Edits run the `before`/`after('send')` hooks (the payload
+carries `edit: ref`) and update the outbound ledger.
+
 ## React
 
 ```ts
 await ctx.react('👍')
 await ctx.react('❤️')
+await ctx.react('🔥', msg.ref) // react to another message
+await ctx.react('')            // remove the reaction, where the transport allows it
 ```
+
+On providers that cannot send reactions, `ctx.react` resolves `{ skipped: true }`
+instead of rejecting.
+
+## Support per transport
+
+`ctx.supports(feature)` returns `'native'`, `'degraded'` or `'unsupported'` for
+`'typing'`, `'delay'`, `'edit'` and `'react'`:
+
+| Transport | typing | delay | edit | react |
+| --- | --- | --- | --- | --- |
+| WhatsApp (Baileys) | native | native | degraded (new message) | native |
+| WhatsApp Cloud API | unsupported | native | degraded (new message) | native |
+| Messenger | native | native | degraded (new message) | unsupported (skipped) |
+| Instagram | native | native | degraded (new message) | unsupported (skipped) |
+| Telegram | native | native | native | native |
+| Discord | native | native | native | native |
 
 ## Other actions
 

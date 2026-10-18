@@ -16,11 +16,12 @@
 
 import { humanTypingDelay, sleep } from '../utils/timers.js'
 import { unavailableUserData } from '../user/UserDataService.js'
-import { isMessageRef, type EditOptions, type EditResult, type ReplyOptions } from './messaging.js'
+import { isEditableSend, isMessageRef, type EditOptions, type EditResult, type ReplyOptions } from './messaging.js'
 import { UnsupportedContentError } from './provider.js'
 import type {
   BuildContextDeps,
   Button,
+  ChatId,
   DefaultTools,
   MediaPayload,
   MediaRef,
@@ -39,10 +40,18 @@ export function buildMessageContext(deps: BuildContextDeps): IMessageContext {
   const isGroup = inbound.isGroup
   const isPrivate = inbound.chat.kind === 'dm'
 
-  const sendOut = async (content: Parameters<typeof send>[1], opts?: SendOptions): Promise<SentMessage> => {
-    const r = await send(from, content, opts)
+  // This context's own last reply (target of `ctx.edit(content)`), stamped with the
+  // external-send clock so a later `bot.send`/`sendTo` to the chat invalidates it.
+  let ownLast: { ref: MessageRef; kind: OutboundContent['kind']; at: number } | undefined
+
+  const sendTo = async (chatId: ChatId, content: OutboundContent, opts?: SendOptions): Promise<SentMessage> => {
+    const r = await send(chatId, content, opts)
+    if (chatId === from && !r.skipped && isEditableSend(content)) {
+      ownLast = { ref: r.ref, kind: content.kind, at: deps.sendClock?.now() ?? 0 }
+    }
     return { ref: r.ref, id: r.ref.id, chatId: r.ref.chatId, raw: r.raw, skipped: r.skipped }
   }
+  const sendOut = (content: OutboundContent, opts?: SendOptions): Promise<SentMessage> => sendTo(from, content, opts)
 
   // Text replies run through the pacer (delay + typing indicator) when the bot provides one.
   const sendText = (t: string, opts?: ReplyOptions, sendOpts?: SendOptions): Promise<SentMessage> => {
@@ -62,10 +71,13 @@ export function buildMessageContext(deps: BuildContextDeps): IMessageContext {
     const raw = (explicit ? b : a) as string | OutboundContent
     const opts = (explicit ? c : b as EditOptions | undefined) ?? {}
     const content: OutboundContent = typeof raw === 'string' ? { kind: 'text', text: raw } : raw
-    // The implicit target is the handler's own last reply, and only when it has the same
-    // kind: editing text over a photo or poll is not a meaningful (or portable) edit.
-    const last = explicit ? undefined : deps.lastSent?.(from)
-    const target = explicit ? a : last && last.kind === content.kind ? last.ref : undefined
+    // The implicit target is this context's own last reply, and only when it has the same
+    // kind (editing text over a photo or poll is not a meaningful, or portable, edit) and no
+    // send from outside this chat's ctx replies reached the chat after it.
+    const own = explicit ? undefined : ownLast
+    const fresh = own !== undefined && own.kind === content.kind
+      && (deps.sendClock ? deps.sendClock.lastExternal(from) <= own.at : true)
+    const target = explicit ? a : fresh ? own.ref : undefined
     const native = deps.editMessage && (deps.supports ? deps.supports('edit') === 'native' : true)
     if (target && native) {
       try {
@@ -79,7 +91,8 @@ export function buildMessageContext(deps: BuildContextDeps): IMessageContext {
       }
     }
     if (opts.fallback === 'skip') return { ...skipped(target), edited: false }
-    const sent = await sendOut(content)
+    // Degraded edit: a new message in the chat of the message being edited.
+    const sent = await sendTo(target?.chatId ?? from, content)
     return { ...sent, edited: false }
   }
 

@@ -1,6 +1,6 @@
 /**
  * Outbound messaging ergonomics: automatic typing indicator, reply delays,
- * last-sent tracking (for `ctx.edit`) and capability resolution.
+ * the external-send clock behind `ctx.edit` and capability resolution.
  *
  * Everything here is transport-agnostic: it only reads
  * {@link ProviderCapabilities} and feature-detects the optional
@@ -169,38 +169,36 @@ export function parseReplyDelay(delay: number | string | undefined): number {
   return ms
 }
 
-/** The latest message the bot sent in a chat through `ctx`, and its content kind. */
-export interface LastSentEntry {
-  ref: MessageRef
-  kind: OutboundContent['kind']
-}
-
 /**
- * Bounded "last message the bot sent in each chat" map, behind `ctx.edit(content)`.
- * Only `ctx` replies are recorded; any other send to the chat (`bot.send`, `bot.sendTo`
- * from a human agent, campaigns) should {@link forget} it, so an implicit edit never
- * lands on a message the handler did not send.
+ * Logical clock of sends that did NOT come from a handler's `ctx` (`bot.send`,
+ * `bot.sendTo` from a human agent, campaigns, a `ctx` send into another chat).
+ * Each context remembers its own last reply together with {@link now} at send time;
+ * `ctx.edit(content)` only edits it while no such send went to the chat afterwards
+ * (`lastExternal(chatId) <= recordedAt`). Bounded: the oldest chats are evicted.
  */
-export class LastSentTracker {
-  private readonly refs = new Map<ChatId, LastSentEntry>()
-  constructor(private readonly max = 1000) {}
+export class ExternalSendClock {
+  private seq = 0
+  private readonly last = new Map<ChatId, number>()
+  constructor(private readonly max = 10_000) {}
 
-  /** Remember `ref` (of content `kind`) as the latest bot message of `chatId`. */
-  record(chatId: ChatId, ref: MessageRef, kind: OutboundContent['kind'] = 'text'): void {
-    this.refs.delete(chatId)
-    this.refs.set(chatId, { ref, kind })
-    if (this.refs.size > this.max) {
-      const oldest = this.refs.keys().next().value
-      if (oldest !== undefined) this.refs.delete(oldest)
+  /** Current tick; a context records it right after each of its own sends. */
+  now(): number {
+    return this.seq
+  }
+
+  /** Record an external send to `chatId`. */
+  mark(chatId: ChatId): void {
+    this.last.delete(chatId)
+    this.last.set(chatId, ++this.seq)
+    if (this.last.size > this.max) {
+      const oldest = this.last.keys().next().value
+      if (oldest !== undefined) this.last.delete(oldest)
     }
   }
 
-  get(chatId: ChatId): LastSentEntry | undefined {
-    return this.refs.get(chatId)
-  }
-
-  forget(chatId: ChatId): void {
-    this.refs.delete(chatId)
+  /** Tick of the latest external send to `chatId` (`0` when none is known). */
+  lastExternal(chatId: ChatId): number {
+    return this.last.get(chatId) ?? 0
   }
 }
 

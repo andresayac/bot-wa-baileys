@@ -66,7 +66,7 @@ import { NamespacedStore, type StoreNamespace } from '../store/NamespacedStore.j
 import type { IStore } from '../store/IStore.js'
 import { Dispatcher, type DispatchContext } from './Dispatcher.js'
 import { buildMessageContext } from './context.js'
-import { LastSentTracker, createPacer, isEditableSend, messagingSupport, normalizeTypingConfig, type Pacer, type ReplyOptions } from './messaging.js'
+import { ExternalSendClock, createPacer, isEditableSend, messagingSupport, normalizeTypingConfig, type Pacer, type ReplyOptions } from './messaging.js'
 import type { BuildContextDeps } from './provider.js'
 import { createInboundDeduper, type InboundDeduper } from './dedupe.js'
 import { ConversationRuntime, type CheckpointStore, type ConversationFn } from '../conversations/ConversationRuntime.js'
@@ -220,8 +220,8 @@ export class Bot extends EventEmitter {
   private handoffs: HandoffRegistry
   /** Serializes this bot's chat upserts per chat (see {@link persistChat}). */
   private chatWrites = new KeyedQueue()
-  /** Latest bot message per chat — target of `ctx.edit(content)`. */
-  private lastSent = new LastSentTracker()
+  /** Sends outside a chat's own `ctx` replies — they invalidate `ctx.edit(content)` targets. */
+  private externalSends = new ExternalSendClock()
   /** Delay + typing-indicator pacing for ctx text replies (`BotConfig.typing`). */
   private pacer: Pacer
   /**
@@ -466,9 +466,9 @@ export class Bot extends EventEmitter {
   /**
    * Central outbound path: `before('send')` (mutable/abortable) → provider.send → `after('send')`.
    * Both {@link send} and every `ctx.reply`/`ctx.photo`/… reply helper route through here
-   * (`ctx.edit` uses the twin {@link dispatchEdit}). `origin` decides what `ctx.edit(content)`
-   * targets: a `ctx` send becomes the chat's last message; any other send (`bot.send`,
-   * `sendTo` from a human agent, campaigns) clears it so an implicit edit cannot touch it.
+   * (`ctx.edit` uses the twin {@link dispatchEdit}). Any send that is not a `ctx` reply to its
+   * own chat (`bot.send`, `sendTo` from a human agent, campaigns) ticks {@link externalSends},
+   * so an implicit `ctx.edit(content)` never edits a reply that was followed by it.
    */
   private async dispatchSend(chatId: ChatId, content: OutboundContent, options?: SendOptions, origin: 'ctx' | 'api' = 'api'): Promise<SendResult> {
     const payload: { chatId: ChatId; content: OutboundContent; options?: SendOptions } = { chatId, content, options }
@@ -482,8 +482,7 @@ export class Bot extends EventEmitter {
     try {
       const res = await op
       if (isEditableSend(payload.content)) {
-        if (origin === 'ctx') this.lastSent.record(payload.chatId, res.ref, payload.content.kind)
-        else this.lastSent.forget(payload.chatId)
+        if (origin !== 'ctx') this.externalSends.mark(payload.chatId)
       }
       await this.hooks.runAfter('send', payload)
       await this.persistOutbound({
@@ -1307,7 +1306,7 @@ export class Bot extends EventEmitter {
     const ctx = buildMessageContext({
       inbound,
       tools: this.tools,
-      send: (chatId, content, opts) => this.dispatchSend(chatId, content, opts, 'ctx'),
+      send: (chatId, content, opts) => this.dispatchSend(chatId, content, opts, chatId === inbound.from ? 'ctx' : 'api'),
       markRead: async (ref) => { await this.provider.markRead?.([ref]) },
       typing: async (chatId, state) => { await this.provider.typing?.(chatId, state) },
       deleteMessage: async (ref) => { await this.provider.deleteMessage?.(ref) },
@@ -1337,11 +1336,11 @@ export class Bot extends EventEmitter {
   }
 
   /** Typing/delay pacing, edit and capability seams shared by every context this bot builds. */
-  private messagingDeps(): Pick<BuildContextDeps, 'pace' | 'editMessage' | 'lastSent' | 'supports'> {
+  private messagingDeps(): Pick<BuildContextDeps, 'pace' | 'editMessage' | 'sendClock' | 'supports'> {
     return {
       pace: (chatId, text, opts, send) => this.pacedSend(chatId, text, opts, send),
       editMessage: this.provider.editMessage ? (ref, content) => this.dispatchEdit(ref, content) : undefined,
-      lastSent: (chatId) => this.lastSent.get(chatId),
+      sendClock: this.externalSends,
       supports: (feature) => messagingSupport(this.provider, feature),
     }
   }
@@ -1398,7 +1397,7 @@ export class Bot extends EventEmitter {
     const ctx = buildMessageContext({
       inbound,
       tools: this.tools,
-      send: (chatId, content, opts) => this.dispatchSend(chatId, content, opts, 'ctx'),
+      send: (chatId, content, opts) => this.dispatchSend(chatId, content, opts, chatId === inbound.from ? 'ctx' : 'api'),
       typing: async (chatId, state) => { await this.provider.typing?.(chatId, state) },
       handoff: (chatId, opts) => this.handoff(chatId, opts),
       user: this.users.for(inbound.senderId),

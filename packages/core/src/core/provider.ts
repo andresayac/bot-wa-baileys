@@ -14,7 +14,7 @@
 import type { HandoffConfig, HandoffOptions, StoredHandoff } from '../gates/handoff.js'
 import type { InboundDedupeOptions } from './dedupe.js'
 import type { UserData } from '../user/types.js'
-import type { EditOptions, EditResult, LastSentEntry, MessagingFeature, MessagingSupport, ReplyOptions, TypingConfig } from './messaging.js'
+import type { EditOptions, EditResult, MessagingFeature, MessagingSupport, ReplyOptions, TypingConfig } from './messaging.js'
 
 /* ============================================================================
  * 1. IDENTITY PRIMITIVES  (opaque — no shape grammar)
@@ -596,9 +596,10 @@ export interface MessageContext<TTools extends object = DefaultTools, TRaw = unk
   react(emoji: string, target?: MessageRef): Promise<SentMessage>
   quote(text: string, opts?: ReplyOptions): Promise<SentMessage>
   /**
-   * Edit the last `ctx` reply in this chat (`ctx.edit(content)`, only when it has the same
-   * content kind and no `bot.send`/`bot.sendTo` went to the chat since) or a given one
-   * (`ctx.edit(ref, content)`). Native when the provider has `capabilities.edit` and
+   * Edit this context's own last reply (`ctx.edit(content)`, only when it has the same
+   * content kind and no `bot.send`/`bot.sendTo` went to the chat since; replies of other
+   * handler runs or other participants' flows are never targeted) or a given one
+   * (`ctx.edit(ref, content)`; a fallback send goes to `ref.chatId`). Native when the provider has `capabilities.edit` and
    * `editMessage`; otherwise (or when the kind is not editable there) it falls back
    * to sending a new message — `{ fallback: 'skip' }` sends nothing instead. Edits run
    * the `before`/`after('send')` hooks (payload `edit: ref`); a hook abort resolves `skipped`.
@@ -684,8 +685,12 @@ export interface BuildContextDeps<TRaw = unknown> {
    * resolves `skipped` when a hook blocked it. Omitted → `ctx.edit` degrades to a new send.
    */
   editMessage?(ref: MessageRef, content: OutboundContent): Promise<SendResult<TRaw>>
-  /** Latest message the handler side sent to `chatId` via `ctx` (target of `ctx.edit(content)`). */
-  lastSent?(chatId: ChatId): LastSentEntry | undefined
+  /**
+   * Clock of sends that did not come from this kind of `ctx` (see `ExternalSendClock`):
+   * `ctx.edit(content)` skips its own last reply once another send reached the chat after it.
+   * Omitted → the context's own last reply is always the implicit edit target.
+   */
+  sendClock?: { now(): number; lastExternal(chatId: ChatId): number }
   /** Support level of a messaging feature; omitted → everything is attempted natively. */
   supports?(feature: MessagingFeature): MessagingSupport
 }

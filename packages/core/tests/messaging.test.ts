@@ -4,7 +4,7 @@ import { MockProvider } from '../src/testing/MockProvider.js'
 import { flow } from '../src/flows/FlowBuilder.js'
 import {
   DEFAULT_TYPING,
-  LastSentTracker,
+  ExternalSendClock,
   PacedSendCancelled,
   TYPING_REFRESH_MS,
   UnsupportedContentError,
@@ -151,18 +151,18 @@ describe('typing config helpers', () => {
     expect(messagingSupport(new MockProvider(), 'typing')).toBe('unsupported')
   })
 
-  it('LastSentTracker keeps the newest ref per chat and is bounded', () => {
-    const t = new LastSentTracker(2)
-    t.record('a', { id: '1', chatId: 'a' })
-    t.record('a', { id: '2', chatId: 'a' })
-    t.record('b', { id: '3', chatId: 'b' })
-    expect(t.get('a')?.ref.id).toBe('2')
-    t.record('c', { id: '4', chatId: 'c' }, 'image')
-    expect(t.get('c')).toEqual({ ref: { id: '4', chatId: 'c' }, kind: 'image' })
-    expect(t.get('a')).toBeUndefined()
-    expect(t.get('b')?.ref.id).toBe('3')
-    t.forget('b')
-    expect(t.get('b')).toBeUndefined()
+  it('ExternalSendClock ticks per external send and is bounded', () => {
+    const c = new ExternalSendClock(2)
+    expect(c.now()).toBe(0)
+    expect(c.lastExternal('a')).toBe(0)
+    c.mark('a')
+    const at = c.now()
+    expect(c.lastExternal('a')).toBe(at)
+    c.mark('b')
+    expect(c.lastExternal('b')).toBeGreaterThan(at)
+    c.mark('c') // evicts 'a'
+    expect(c.lastExternal('a')).toBe(0)
+    expect(c.lastExternal('c')).toBe(c.now())
   })
 })
 
@@ -524,6 +524,46 @@ describe('ctx.edit', () => {
       return ctx.edit('x', { fallback: 'skip' })
     })
     expect(res).toMatchObject({ edited: false, skipped: true })
+  })
+})
+
+describe('ctx.edit scoping', () => {
+  it('falls back to the chat of the ref when the provider cannot edit', async () => {
+    const provider = new MessagingMock({ edit: false })
+    const bot = await makeBot(provider)
+    const res = await runHandler(bot, provider, (ctx) => ctx.edit({ id: 'm-1', chatId: 'other-chat' }, 'secret'))
+    expect(res).toMatchObject({ edited: false, chatId: 'other-chat' })
+    expect(provider.outbox.map((m) => m.chatId)).toEqual(['other-chat'])
+  })
+
+  it('falls back to the chat of the ref on UnsupportedContentError', async () => {
+    const provider = new MessagingMock({ edit: true })
+    provider.editError = new UnsupportedContentError('image', 'only text is editable')
+    const bot = await makeBot(provider)
+    const res = await runHandler(bot, provider, (ctx) =>
+      ctx.edit({ id: 'm-1', chatId: 'other-chat' }, { kind: 'image', media: 'https://example.test/b.png' }))
+    expect(res).toMatchObject({ edited: false, chatId: 'other-chat' })
+    expect(provider.outbox.map((m) => m.chatId)).toEqual(['other-chat'])
+  })
+
+  it('an implicit edit never targets a reply from an earlier handler run', async () => {
+    const provider = new MessagingMock({ edit: true })
+    const bot = await makeBot(provider)
+    await runHandler(bot, provider, (ctx) => ctx.reply('old answer from yesterday'))
+    const res = await runHandler(bot, provider, (ctx) => ctx.edit('new status', { fallback: 'skip' }))
+    expect(res).toMatchObject({ edited: false, skipped: true })
+    expect(provider.log.filter((e) => e.op === 'edit')).toEqual([])
+  })
+
+  it('a detached context edits its own reply, not one sent meanwhile by another context in the chat', async () => {
+    const provider = new MessagingMock({ edit: true })
+    const bot = await makeBot(provider)
+    // Two contexts of the same chat (e.g. two group participants' flows) interleave their sends.
+    const [ctxA, refA] = await runHandler(bot, provider, async (ctx) => [ctx, (await ctx.reply('A: working')).ref] as const)
+    await runHandler(bot, provider, (ctx) => ctx.reply('B: hello'))
+    const res = await ctxA.edit('A: done')
+    expect(res).toMatchObject({ edited: true, ref: refA })
+    expect(provider.log.at(-1)).toEqual({ op: 'edit', ref: refA, content: { kind: 'text', text: 'A: done' } })
   })
 })
 
