@@ -2,8 +2,18 @@ export class ConversationError extends Error {}
 export class ConversationTimeout extends ConversationError { constructor() { super('conversation timeout') } }
 export class ConversationCancelled extends ConversationError { constructor(public silent = false) { super('conversation cancelled') } }
 export class RetriesExceeded extends ConversationError { constructor() { super('too many invalid attempts') } }
-export class ConversationEnded extends ConversationError { constructor(public farewell?: string) { super('conversation ended') } }
-export class ConversationGoto extends ConversationError { constructor(public target: string, public args?: unknown) { super(`goto ${target}`) } }
+/**
+ * `c.end(farewell?)` — or a failed `.guard()` (`guarded: true`, reported with outcome `'guarded'`).
+ */
+export class ConversationEnded extends ConversationError {
+  constructor(public farewell?: string, public guarded = false) { super('conversation ended') }
+}
+/** `c.goto(target)` — or a failed `.guard()` with `redirect` (`guarded: true`). */
+export class ConversationGoto extends ConversationError {
+  /** Set when a failed `.guard()` redirected (outcome `'guarded'` instead of `'completed'`). */
+  guarded = false
+  constructor(public target: string, public args?: unknown) { super(`goto ${target}`) }
+}
 
 /**
  * A conversation tried to start a wait while another one is still pending — almost always an

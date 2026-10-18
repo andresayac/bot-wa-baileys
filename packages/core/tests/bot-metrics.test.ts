@@ -67,6 +67,28 @@ describe('conversation lifecycle events', () => {
     await bot.stop()
   })
 
+  it("reports 'ended' for c.end() and 'guarded' for a failed .guard()", async () => {
+    const { bot, provider } = await setup()
+    const ended: ConversationEndedEvent[] = []
+    bot.on('conversation:ended', (e) => ended.push(e))
+    bot.conversation('bye', async (c) => { c.end('adiós') })
+    bot.conversation('target', async (c) => { await c.say('aquí') })
+    bot.use(flow('closed').guard(() => false, 'cerrado').say('nunca'))
+    bot.use(flow('redirected').guard(() => false, { redirect: 'target' }).say('nunca'))
+    provider.incoming('bye', { from: 'e' })
+    provider.incoming('closed', { from: 'g' })
+    provider.incoming('redirected', { from: 'r' })
+    await vi.waitFor(() => expect(ended).toHaveLength(4))
+    const by = (chat: string, name: string) => ended.find((e) => e.chatId === chat && e.name === name)!
+    expect(by('e', 'bye')).toMatchObject({ outcome: 'ended', completed: false })
+    expect(by('g', 'closed')).toMatchObject({ outcome: 'guarded', completed: false })
+    expect(by('r', 'redirected')).toMatchObject({ outcome: 'guarded', goto: 'target' })
+    expect(by('r', 'target').outcome).toBe('completed')
+    expect(bot.metrics().conversations).toMatchObject({ started: 4, completed: 1, ended: 1, guarded: 2 })
+    expect(bot.metrics().flows.closed).toMatchObject({ started: 1, completed: 0, guarded: 1 })
+    await bot.stop()
+  })
+
   it('a throwing listener never breaks the conversation', async () => {
     const { bot, provider } = await setup()
     const errors: unknown[] = []
@@ -215,6 +237,20 @@ describe('toPrometheus', () => {
       if (line.startsWith('#')) continue
       expect(line).toMatch(/^[a-zA-Z_:][a-zA-Z0-9_:]*(\{.*\})? \S+$/)
     }
+  })
+
+  it('exposes the ended and guarded outcomes', () => {
+    const c = new MetricsCollector(() => 5_000)
+    c.conversationStarted('menu')
+    c.conversationEnded('menu', 'guarded', 0)
+    c.conversationStarted('menu')
+    c.conversationEnded('menu', 'ended', 0)
+    const text = toPrometheus(c.snapshot(0))
+    expect(text).toContain('botwa_conversations_ended_total{outcome="ended"} 1')
+    expect(text).toContain('botwa_conversations_ended_total{outcome="guarded"} 1')
+    expect(text).toContain('botwa_conversations_ended_total{outcome="completed"} 0')
+    expect(text).toContain('botwa_flow_ended_total{flow="menu",outcome="guarded"} 1')
+    expect(text).toContain('botwa_flow_ended_total{flow="menu",outcome="ended"} 1')
   })
 
   it('supports a custom prefix and validates names', () => {

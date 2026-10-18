@@ -65,9 +65,11 @@ async function runStepsFrom(
       case 'guard': {
         if (await step.check(ctx, c)) break
         const message = typeof step.message === 'function' ? await step.message(ctx, c) : step.message
-        if (step.redirect === undefined) throw new ConversationEnded(message)
+        if (step.redirect === undefined) throw new ConversationEnded(message, true)
         if (message) await c.say(message)
-        throw new ConversationGoto(step.redirect)
+        const redirect = new ConversationGoto(step.redirect)
+        redirect.guarded = true
+        throw redirect
       }
       case 'use':
         // Inline sub-flow sharing c.state; returns here when it finishes.

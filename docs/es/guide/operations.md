@@ -17,8 +17,8 @@ cero y conserva el uptime).
 const m = bot.metrics()
 // {
 //   startedAt, uptimeMs, uptime,   // uptime: '3d 4h', '5m 12s'...
-//   conversations: { started, completed, cancelled, timedOut, retriesExceeded, errored, avgDurationMs, active },
-//   flows: { registro: { started, completed, cancelled, timedOut, retriesExceeded, errored, avgDurationMs } },
+//   conversations: { started, completed, ended, guarded, cancelled, timedOut, retriesExceeded, errored, avgDurationMs, active },
+//   flows: { registro: { started, completed, ended, guarded, cancelled, timedOut, retriesExceeded, errored, avgDurationMs } },
 //   messages: { in, out, outFailed },
 //   dropped: { duplicate, blocked, handoff },
 //   triggered,   // llamadas a bot.trigger() que iniciaron una conversación
@@ -35,8 +35,10 @@ const m = bot.metrics()
   [en manos de un humano](./handoff).
 - `flows` va por nombre de conversación/flujo. `avgDurationMs` es la duración
   media de las conversaciones que ya terminaron (`0` si ninguna terminó).
-- `c.end()`, un `.guard()` que falla y un `goto` cuentan como `completed`;
-  `/cancel`, `/reset`, un reemplazo o `bot.stop()` cuentan como `cancelled`.
+- Un flujo que termina su función y un `goto` cuentan como `completed`;
+  `c.end()` cuenta como `ended`; un `.guard()` que falla (despedida o
+  `redirect`) cuenta como `guarded`; `/cancel`, `/reset`, un reemplazo o
+  `bot.stop()` cuentan como `cancelled`.
 
 ### Prometheus
 
@@ -56,7 +58,9 @@ createServer((_req, res) => {
 
 El prefijo por defecto es `botwa_`. Familias: `uptime_seconds`,
 `conversations_active`, `conversations_started_total`,
-`conversations_ended_total{outcome}`, `conversation_duration_avg_seconds`,
+`conversations_ended_total{outcome}` (`completed` / `ended` / `guarded` /
+`cancelled` / `timed_out` / `retries_exceeded` / `error`),
+`conversation_duration_avg_seconds`,
 `flow_started_total{flow}`, `flow_ended_total{flow,outcome}`,
 `flow_duration_avg_seconds{flow}`, `messages_in_total`,
 `messages_out_total{result}` (`sent` / `failed`),
@@ -74,8 +78,8 @@ bot.on('conversation:ended', ({ id, name, chatId, outcome, completed, durationMs
 - `conversation:started` se emite cada vez que se entra en un flujo o una
   `bot.conversation`: un trigger que coincide, `bot.trigger()`, una
   reanudación dormida o un `c.goto()`.
-- `conversation:ended` añade `outcome` (`'completed' | 'cancelled' |
-  'timedOut' | 'retriesExceeded' | 'error'`), `completed` (atajo de
+- `conversation:ended` añade `outcome` (`'completed' | 'ended' | 'guarded' |
+  'cancelled' | 'timedOut' | 'retriesExceeded' | 'error'`), `completed` (atajo de
   `outcome === 'completed'`), `durationMs` y, si terminó con un `goto`, su
   destino en `goto` (le sigue un nuevo `started`).
 - `id` es único por instancia de conversación, así que empareja cada `ended`

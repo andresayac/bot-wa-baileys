@@ -93,13 +93,15 @@ export interface RuntimeConfig {
 
 /**
  * How a conversation ended:
- * - `completed` — the function returned, `c.end()` was called or it `c.goto()`-ed elsewhere;
+ * - `completed` — the function returned or it `c.goto()`-ed elsewhere;
+ * - `ended` — `c.end()` was called;
+ * - `guarded` — a `.guard()` failed (whether it ended the flow or redirected it);
  * - `cancelled` — aborted (`/reset`, handoff, replaced by a new conversation, `stop()`) or `ConversationCancelled`;
  * - `timedOut` — a wait expired;
  * - `retriesExceeded` — `c.retry()` ran out of attempts;
  * - `error` — the conversation threw anything else.
  */
-export type ConversationOutcome = 'completed' | 'cancelled' | 'timedOut' | 'retriesExceeded' | 'error'
+export type ConversationOutcome = 'completed' | 'ended' | 'guarded' | 'cancelled' | 'timedOut' | 'retriesExceeded' | 'error'
 
 /** Options of {@link ConversationRuntime.enter}. */
 export interface EnterOptions {
@@ -373,8 +375,10 @@ export class ConversationRuntime {
         // Conversación reemplazada/abortada: muere en silencio, sin efectos visibles.
         outcome = 'cancelled'
       } else if (e instanceof ConversationEnded) {
+        outcome = e.guarded ? 'guarded' : 'ended'
         if (e.farewell) await this.safeReply(ctx, e.farewell)
       } else if (e instanceof ConversationGoto) {
+        if (e.guarded) outcome = 'guarded'
         goto = e
       } else if (e instanceof ConversationTimeout) {
         outcome = 'timedOut'

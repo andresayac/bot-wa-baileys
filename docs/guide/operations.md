@@ -17,8 +17,8 @@ them and keeps the uptime).
 const m = bot.metrics()
 // {
 //   startedAt, uptimeMs, uptime,   // uptime: '3d 4h', '5m 12s'...
-//   conversations: { started, completed, cancelled, timedOut, retriesExceeded, errored, avgDurationMs, active },
-//   flows: { registro: { started, completed, cancelled, timedOut, retriesExceeded, errored, avgDurationMs } },
+//   conversations: { started, completed, ended, guarded, cancelled, timedOut, retriesExceeded, errored, avgDurationMs, active },
+//   flows: { registro: { started, completed, ended, guarded, cancelled, timedOut, retriesExceeded, errored, avgDurationMs } },
 //   messages: { in, out, outFailed },
 //   dropped: { duplicate, blocked, handoff },
 //   triggered,   // bot.trigger() calls that started a conversation
@@ -35,8 +35,9 @@ const m = bot.metrics()
   [handed off to a human](./handoff).
 - `flows` is keyed by conversation/flow name. `avgDurationMs` is the mean
   duration of the conversations that already ended (`0` when none did).
-- `c.end()`, a failed `.guard()` and a `goto` count as `completed`; `/cancel`,
-  `/reset`, a replacement or `bot.stop()` count as `cancelled`.
+- A flow that returns and a `goto` count as `completed`; `c.end()` counts as
+  `ended`; a failed `.guard()` (farewell or `redirect`) counts as `guarded`;
+  `/cancel`, `/reset`, a replacement or `bot.stop()` count as `cancelled`.
 
 ### Prometheus
 
@@ -56,7 +57,9 @@ createServer((_req, res) => {
 
 The default prefix is `botwa_`. Families: `uptime_seconds`,
 `conversations_active`, `conversations_started_total`,
-`conversations_ended_total{outcome}`, `conversation_duration_avg_seconds`,
+`conversations_ended_total{outcome}` (`completed` / `ended` / `guarded` /
+`cancelled` / `timed_out` / `retries_exceeded` / `error`),
+`conversation_duration_avg_seconds`,
 `flow_started_total{flow}`, `flow_ended_total{flow,outcome}`,
 `flow_duration_avg_seconds{flow}`, `messages_in_total`,
 `messages_out_total{result}` (`sent` / `failed`),
@@ -73,8 +76,8 @@ bot.on('conversation:ended', ({ id, name, chatId, outcome, completed, durationMs
 
 - `conversation:started` fires whenever a flow or `bot.conversation` is
   entered: a trigger match, `bot.trigger()`, a dormant resume or a `c.goto()`.
-- `conversation:ended` adds `outcome` (`'completed' | 'cancelled' |
-  'timedOut' | 'retriesExceeded' | 'error'`), `completed` (shorthand for
+- `conversation:ended` adds `outcome` (`'completed' | 'ended' | 'guarded' |
+  'cancelled' | 'timedOut' | 'retriesExceeded' | 'error'`), `completed` (shorthand for
   `outcome === 'completed'`), `durationMs` and, when it ended with a `goto`,
   the target in `goto` (a new `started` follows).
 - `id` is unique per conversation instance, so it pairs an `ended` with its

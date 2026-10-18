@@ -10,7 +10,12 @@ import type { ConversationOutcome } from '../conversations/ConversationRuntime.j
 /** Per-outcome conversation counters (also used per flow). */
 export interface ConversationCounters {
   started: number
+  /** The function / flow returned (or `c.goto()`-ed elsewhere). */
   completed: number
+  /** Ended with `c.end()`. */
+  ended: number
+  /** Stopped by a failed `.guard()` (farewell or `redirect`). */
+  guarded: number
   cancelled: number
   timedOut: number
   retriesExceeded: number
@@ -57,21 +62,29 @@ export interface BotMetricsSnapshot {
 
 interface MutableCounters {
   started: number
+  /** The function / flow returned (or `c.goto()`-ed elsewhere). */
   completed: number
+  /** Ended with `c.end()`. */
+  ended: number
+  /** Stopped by a failed `.guard()` (farewell or `redirect`). */
+  guarded: number
   cancelled: number
   timedOut: number
   retriesExceeded: number
   errored: number
-  ended: number
+  /** Every ended conversation, whatever the outcome (for the mean duration). */
+  finished: number
   totalDurationMs: number
 }
 
 const emptyCounters = (): MutableCounters => ({
-  started: 0, completed: 0, cancelled: 0, timedOut: 0, retriesExceeded: 0, errored: 0, ended: 0, totalDurationMs: 0,
+  started: 0, completed: 0, ended: 0, guarded: 0, cancelled: 0, timedOut: 0, retriesExceeded: 0, errored: 0, finished: 0, totalDurationMs: 0,
 })
 
-const OUTCOME_FIELD: Record<ConversationOutcome, 'completed' | 'cancelled' | 'timedOut' | 'retriesExceeded' | 'errored'> = {
+const OUTCOME_FIELD: Record<ConversationOutcome, 'completed' | 'ended' | 'guarded' | 'cancelled' | 'timedOut' | 'retriesExceeded' | 'errored'> = {
   completed: 'completed',
+  ended: 'ended',
+  guarded: 'guarded',
   cancelled: 'cancelled',
   timedOut: 'timedOut',
   retriesExceeded: 'retriesExceeded',
@@ -105,7 +118,7 @@ export class MetricsCollector {
   conversationEnded(name: string, outcome: ConversationOutcome, durationMs: number): void {
     for (const c of [this.total, this.flow(name)]) {
       c[OUTCOME_FIELD[outcome]]++
-      c.ended++
+      c.finished++
       c.totalDurationMs += Math.max(0, durationMs)
     }
   }
@@ -155,11 +168,13 @@ function publicCounters(c: MutableCounters): ConversationCounters {
   return {
     started: c.started,
     completed: c.completed,
+    ended: c.ended,
+    guarded: c.guarded,
     cancelled: c.cancelled,
     timedOut: c.timedOut,
     retriesExceeded: c.retriesExceeded,
     errored: c.errored,
-    avgDurationMs: c.ended === 0 ? 0 : Math.round(c.totalDurationMs / c.ended),
+    avgDurationMs: c.finished === 0 ? 0 : Math.round(c.totalDurationMs / c.finished),
   }
 }
 
