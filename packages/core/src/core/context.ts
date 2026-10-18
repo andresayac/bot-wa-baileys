@@ -228,6 +228,7 @@ export function buildMessageContext(deps: BuildContextDeps): IMessageContext {
       }
       await ctx.user.set(i18n.userKey, lang)
       ctx.lang = lang
+      ctx.langSource = 'user'
     },
 
     tools: tools as DefaultTools,

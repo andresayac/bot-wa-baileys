@@ -25,6 +25,7 @@ import { BUILTIN_LOCALES } from './builtins.js'
 import type {
   I18nConfig,
   LanguageDetector,
+  LangSource,
   LocaleMessages,
   PluralCategory,
   PluralForms,
@@ -257,23 +258,31 @@ export class I18n {
    * immediately while i18n is not {@link enabled}.
    */
   async resolve(ctx: MessageContext): Promise<string> {
-    if (!this.enabled) return this.defaultCode
+    return (await this.resolveDetailed(ctx)).lang
+  }
+
+  /** {@link resolve} plus where the language came from (see {@link LangSource}). Never rejects. */
+  async resolveDetailed(ctx: MessageContext): Promise<{ lang: string; source: LangSource }> {
+    if (!this.enabled) return { lang: this.defaultCode, source: 'default' }
     const stored = this.supported(await this.preferenceOf(ctx.user))
-    if (stored) return stored
+    if (stored) return { lang: stored, source: 'user' }
     if (this.useProviderLanguage) {
       const fromProvider = this.supported(providerLanguageOf(ctx.senderInfo))
-      if (fromProvider) return fromProvider
+      if (fromProvider) return { lang: fromProvider, source: 'provider' }
     }
     if (this.detector) {
       try {
         const detected = this.supported(await this.detector(ctx))
-        if (detected) return detected
+        if (detected) return { lang: detected, source: 'detector' }
       } catch (err) {
         this.logger?.debug?.({ err }, 'i18n: language detector failed')
       }
     }
-    return this.defaultCode
+    return { lang: this.defaultCode, source: 'default' }
   }
+
+  /** Whether a custom detector is configured (its answer may depend on `ctx.body`). */
+  get hasDetector(): boolean { return this.detector !== undefined }
 
   /**
    * The stored preference of a profile (the registered locale serving it), else

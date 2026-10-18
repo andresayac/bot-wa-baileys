@@ -247,6 +247,8 @@ export class Bot extends EventEmitter {
   private lifecycleAbort = new AbortController()
   /** Locale registry behind `bot.locale()` / `ctx.t()` (see i18n/I18n.ts). */
   private i18n: I18n
+  /** `ctx.lang` as `prepare` resolved it, to tell whether a hook overrode it. */
+  private preparedLang = new WeakMap<object, string>()
   /** Runtime flow CRUD (`registerFlow`/`unregisterFlow`/`replaceFlow`/`triggerFlow`). */
   private flowRegistry: DynamicFlowRegistry
 
@@ -360,7 +362,19 @@ export class Bot extends EventEmitter {
       prepare: async (ctx) => {
         if (!this.i18n.enabled) return
         const mctx = this.asMessage(ctx)
-        mctx.lang = await this.i18n.resolve(mctx)
+        await this.resolveLang(mctx)
+        this.preparedLang.set(mctx, mctx.lang)
+      },
+      // A before('message') hook rewrote ctx.body (e.g. a voice transcript): let a
+      // body-based detector see the final text. Skipped when the language came from a
+      // signal the body cannot change (stored preference, provider) or when a hook
+      // already set ctx.lang itself.
+      reprepare: async (ctx) => {
+        if (!this.i18n.enabled || !this.i18n.hasDetector) return
+        const mctx = this.asMessage(ctx)
+        if (mctx.langSource !== 'detector' && mctx.langSource !== 'default') return
+        if (this.preparedLang.get(mctx) !== mctx.lang) return
+        await this.resolveLang(mctx)
       },
     })
 
@@ -681,7 +695,7 @@ export class Bot extends EventEmitter {
         return { ...base, started: false, reason: 'handoff' }
       }
       // Same language resolution as an inbound message (Dispatcher `prepare`), in the chat's slot.
-      if (this.i18n.enabled) ctx.lang = await this.i18n.resolve(ctx)
+      if (this.i18n.enabled) await this.resolveLang(ctx)
       const key = this.runtime.keyFor(ctx)
       if (this.runtime.hasActive(key) || this.runtime.hasDormant(key)) {
         if (opts.ifActive !== 'replace') return { ...base, started: false, reason: 'busy' }
@@ -693,6 +707,13 @@ export class Bot extends EventEmitter {
       this.counters.triggerStarted()
       return { ...base, started: true }
     })
+  }
+
+  /** Resolve `ctx.lang` / `ctx.langSource` (i18n must be enabled). Never rejects. */
+  private async resolveLang(ctx: MessageContext): Promise<void> {
+    const { lang, source } = await this.i18n.resolveDetailed(ctx)
+    ctx.lang = lang
+    ctx.langSource = source
   }
 
   /**

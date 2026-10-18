@@ -52,7 +52,8 @@ Un hook `before('message')` (prioridad 100) descarga cada nota de voz, la transc
 | `setBody` | `boolean` | `true` | Escribe la transcripción en `ctx.body`. |
 | `asText` | `boolean \| 'auto'` | `'auto'` | `true`: siempre `ctx.type = 'text'` (el autoresponder de `@bot-wa/ai` contesta audios, pero `VOICE_NOTE` deja de coincidir). `false`: nunca. |
 | `trimPunctuation` | `boolean` | `true` | Quita la puntuación de los extremos del `body`. |
-| `language` / `prompt` | `string` | — | Pistas para el STT en cada mensaje. |
+| `language` / `prompt` | `string` | — | Pistas para el STT en cada mensaje. Sin `language`, se usa el idioma que el i18n resolvió (`ctx.lang`, código base: `en-gb` → `en`) si viene de una señal real (preferencia, provider o `detect`), nunca el valor por defecto; si no, el servicio lo detecta. |
+| `useContextLanguage` | `boolean` | `true` | `false` ignora `ctx.lang` como pista. |
 | `filter` | `(ctx) => boolean` | — | Devuelve `false` para no transcribir (grupos grandes, usuarios sin plan…). |
 | `priority` | `number` | `100` | Prioridad del hook. |
 | `onError` | `(err, ctx) => void` | log `warn` | Qué hacer si falla la transcripción. |

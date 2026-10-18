@@ -21,7 +21,7 @@ flowchart TD
     P --> GM{"groupMode filter"}
     GM -->|Ignored| X2[Stops here]
     GM -->|OK| L["Resolve ctx.lang (i18n)"]
-    L --> B["before('message') hooks"]
+    L --> B["before('message') hooks<br/>(ctx.lang re-resolved if a hook rewrote ctx.body)"]
     B --> HO{"Chat handed off<br/>to a human?"}
     HO -->|"Yes (except allowCommands)"| J
     HO -->|No| C{"Command? e.g. /reset"}
@@ -52,8 +52,11 @@ flowchart TD
 5. **Language resolution, then `before('message')` hooks**: when
    [i18n](./i18n) is enabled, `ctx.lang` is resolved first (stored
    `ctx.user` preference → provider-reported language → `detect` →
-   default), so hooks and handlers already see it. Then the hooks run and
-   may `abort()` the message.
+   default), so hooks and handlers already see it (`ctx.langSource` says
+   which one won). Then the hooks run and may `abort()` the message. If a
+   hook rewrote `ctx.body` (e.g. the `@bot-wa/voice` transcript) and
+   the language came from `detect` or the default, it is resolved again so
+   `detect` sees the final text (a `ctx.lang` a hook set itself is kept).
 6. **Handoff gate**: while a chat is [handed off to a human](./handoff),
    steps 7–11 are skipped (except the commands in `handoff.allowCommands`).
    The message is still persisted, hooks still run and `'message'` still
@@ -80,7 +83,8 @@ gates, the same language resolution, then only
 [`CALL` triggers](./triggers#call). No message hooks,
 commands or `'message'` event.
 
-`bot.trigger(name, { chatId })` (start a flow without an inbound message)
+`bot.trigger(name, { chatId })` (start a flow without an inbound message;
+`bot.triggerFlow()` is a thin wrapper over it with `ifActive: 'replace'`)
 takes its own path too: the access lists, then the chat's FIFO slot, the
 handoff gate, the language resolution and the conversation start. No dedupe,
 persistence, message hooks, matchers or `'message'` event.

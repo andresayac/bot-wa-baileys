@@ -352,6 +352,7 @@ export type { CoreMessageKey } from './i18n/builtins.js'
 export type {
   I18nConfig,
   LanguageDetector,
+  LangSource,
   LocaleMessages,
   PluralCategory,
   PluralForms,

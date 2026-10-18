@@ -10,7 +10,9 @@
  *  - `autoTranscribe` (default on when `stt` is set): a `before('message')` hook
  *    that downloads each voice note, transcribes it and exposes the text as
  *    `ctx.transcript` and — by default — `ctx.body`, so text triggers, `c.ask()`
- *    answers, NLU and AI handlers all "hear" audio. `ctx.type` stays `'voice'`
+ *    answers, NLU and AI handlers all "hear" audio. The STT language hint is
+ *    `autoTranscribe.language`, else the i18n-resolved `ctx.lang`; the core then
+ *    re-resolves the language so an i18n `detect` sees the transcript. `ctx.type` stays `'voice'`
  *    (so `VOICE_NOTE` triggers still fire) except while a conversation of the
  *    sender waits for text (`asText: 'auto'`), where it becomes `'text'` so
  *    `c.ask()` accepts the spoken answer; `c.waitMedia(['voice'])` still gets
@@ -71,8 +73,15 @@ export interface AutoTranscribeOptions {
    * return. `ctx.transcript` always keeps the raw text. Default `true`.
    */
   trimPunctuation?: boolean
-  /** Language hint for every transcription (e.g. `'es'`). */
+  /**
+   * Language hint for every transcription (e.g. `'es'`). When omitted, the language
+   * i18n resolved for the sender (`ctx.lang`, base code: `'en-gb'` → `'en'`) is used —
+   * only when it comes from a real signal (stored preference, provider, detector),
+   * never the bare default — else the service auto-detects.
+   */
   language?: string
+  /** Use `ctx.lang` as the hint when {@link language} is not set. Default `true`. */
+  useContextLanguage?: boolean
   /** Prompt / vocabulary hint for every transcription. */
   prompt?: string
   /** Return `false` to skip a message (e.g. big groups, unpaid users). */
@@ -174,7 +183,7 @@ export function voicePlugin(config: VoicePluginConfig = {}): PluginSpec<VoicePlu
 
       async function transcribeInto(mctx: MessageContext, opts: AutoTranscribeOptions): Promise<void> {
         try {
-          const result = await client.transcribeDetailed(mctx, { language: opts.language, prompt: opts.prompt })
+          const result = await client.transcribeDetailed(mctx, { language: languageHint(mctx, opts), prompt: opts.prompt })
           mctx.transcript = result.text
           const body = opts.trimPunctuation === false ? result.text : trimPunctuation(result.text)
           if (!body) return
@@ -189,6 +198,20 @@ export function voicePlugin(config: VoicePluginConfig = {}): PluginSpec<VoicePlu
             logger.warn({ err: describe(error), type: mctx.type }, 'voice transcription failed')
           }
         }
+      }
+
+      /**
+       * Explicit `language` → the i18n-resolved `ctx.lang` (base code) when it comes from
+       * a real signal → `undefined` (the service auto-detects). After the transcript is
+       * written into `ctx.body` the core re-resolves the language, so an i18n `detect`
+       * sees the spoken text.
+       */
+      function languageHint(mctx: MessageContext, opts: AutoTranscribeOptions): string | undefined {
+        if (opts.language) return opts.language
+        if (opts.useContextLanguage === false) return undefined
+        const source = mctx.langSource
+        if (!source || source === 'default' || !mctx.lang) return undefined
+        return mctx.lang.split('-')[0] || undefined
       }
 
       /**

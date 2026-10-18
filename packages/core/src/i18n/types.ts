@@ -51,6 +51,12 @@ export type Translate = (key: string, params?: TranslateParams) => string
  */
 export type LanguageDetector = (ctx: MessageContext) => string | null | undefined | Promise<string | null | undefined>
 
+/**
+ * Where `ctx.lang` came from: the `ctx.user` preference (or `ctx.setLang()`), the
+ * provider-reported language, the custom detector, or the default fallback.
+ */
+export type LangSource = 'user' | 'provider' | 'detector' | 'default'
+
 /** i18n options — `BotConfig.i18n` or `bot.locale({ ... })`. */
 export interface I18nConfig {
   /** Language used when nothing else resolves, and the fallback for missing keys. Default `'es'`. */

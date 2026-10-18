@@ -15,7 +15,7 @@ import type { HandoffConfig, HandoffOptions, StoredHandoff } from '../gates/hand
 import type { InboundDedupeOptions } from './dedupe.js'
 import type { UserData } from '../user/types.js'
 import type { EditOptions, EditResult, MessagingFeature, MessagingSupport, ReplyOptions, TypingConfig } from './messaging.js'
-import type { I18nConfig, TranslateParams } from '../i18n/types.js'
+import type { I18nConfig, LangSource, TranslateParams } from '../i18n/types.js'
 import type { StreamOptions, StreamResult, StreamSource } from '../streaming/types.js'
 import type { FormContent, FormDefinition } from '../forms/types.js'
 
@@ -750,6 +750,13 @@ export interface MessageContext<TTools extends object = DefaultTools, TRaw = unk
    * Order: `ctx.user` preference → provider-reported language → `i18n.detect` → default.
    */
   lang: string
+  /**
+   * Where {@link lang} came from (`'user'` | `'provider'` | `'detector'` | `'default'`);
+   * `undefined` while i18n is off (then `lang` is just the default locale). Plugins
+   * that want a real language signal (e.g. a speech-to-text hint) should ignore
+   * `'default'`. A hook that assigns `ctx.lang` directly does not update it.
+   */
+  langSource?: LangSource
   /**
    * Translate `key` (dot path) in {@link lang}, interpolating `{param}` placeholders;
    * `params.count` picks plural forms. Missing keys fall back to the default locale,

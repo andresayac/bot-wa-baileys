@@ -21,7 +21,7 @@ flowchart TD
     P --> GM{"Filtro groupMode"}
     GM -->|Ignorado| X2[Se detiene aquí]
     GM -->|OK| L["Resolver ctx.lang (i18n)"]
-    L --> B["hooks before('message')"]
+    L --> B["hooks before('message')<br/>(ctx.lang se re-resuelve si un hook cambió ctx.body)"]
     B --> HO{"¿Chat en handoff<br/>con un humano?"}
     HO -->|"Sí (salvo allowCommands)"| J
     HO -->|No| C{"¿Es un comando? ej. /reset"}
@@ -53,8 +53,12 @@ flowchart TD
 5. **Resolución del idioma y hooks `before('message')`**: con el
    [i18n](./i18n) activado, primero se resuelve `ctx.lang` (preferencia
    guardada en `ctx.user` → idioma que informa el provider → `detect` →
-   idioma por defecto), así que hooks y handlers ya lo ven. Después corren
-   los hooks, que pueden hacer `abort()` del mensaje.
+   idioma por defecto), así que hooks y handlers ya lo ven (`ctx.langSource`
+   dice cuál ganó). Después corren los hooks, que pueden hacer `abort()` del
+   mensaje. Si un hook reescribió `ctx.body` (p. ej. la transcripción del
+   plugin de voz) y el idioma salió de `detect` o del valor por defecto, se
+   vuelve a resolver para que `detect` vea el texto final (se respeta un
+   `ctx.lang` que el hook haya puesto a mano).
 6. **Gate de handoff**: mientras un chat está [en manos de un humano](./handoff),
    se saltan los pasos 7–11 (salvo los comandos de `handoff.allowCommands`).
    El mensaje se sigue persistiendo, los hooks siguen corriendo y
@@ -84,7 +88,8 @@ listas de acceso y handoff, la misma resolución del idioma y después solo
 los [triggers `CALL`](./triggers#call). Sin hooks de mensaje, comandos ni
 evento `'message'`.
 
-`bot.trigger(name, { chatId })` (arrancar un flujo sin mensaje entrante)
+`bot.trigger(name, { chatId })` (arrancar un flujo sin mensaje entrante;
+`bot.triggerFlow()` es un wrapper fino sobre él con `ifActive: 'replace'`)
 también va por su propio camino: las listas de acceso, después el turno de
 la cola FIFO del chat, el gate de handoff, la resolución del idioma y el
 inicio de la conversación. Sin dedupe, persistencia, hooks de mensaje,

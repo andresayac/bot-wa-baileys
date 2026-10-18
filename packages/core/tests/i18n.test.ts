@@ -556,3 +556,60 @@ describe('i18n + bot.triggerFlow', () => {
     await bot.stop()
   })
 })
+
+describe('i18n + before(message) hooks that rewrite ctx.body (e.g. voice transcription)', () => {
+  const detectHello = (ctx: MessageContext) => (/hello/i.test(ctx.body) ? 'en' : /hola/i.test(ctx.body) ? 'es' : undefined)
+
+  it('re-resolves the language after the hooks so a detector sees the rewritten body', async () => {
+    const detect = vi.fn(detectHello)
+    const { bot, provider } = await makeBot({ i18n: { detect, defaultLocale: 'es' } })
+    bot.locale('es', ES).locale('en', EN)
+    bot.before('message', async (ctx: MessageContext, next) => {
+      if (ctx.body === '') ctx.body = 'hello there'
+      await next()
+    })
+    bot.onMessage(async (ctx) => { await ctx.reply(`${ctx.lang}:${ctx.langSource ?? '-'}`) })
+    await deliver(bot, provider, '')
+    await deliver(bot, provider, 'hola')
+    expect(texts(provider)).toEqual(['en:detector', 'es:detector'])
+    // first message: before hooks (body '') + after the rewrite; second: once (body unchanged)
+    expect(detect).toHaveBeenCalledTimes(3)
+    await bot.stop()
+  })
+
+  it('keeps a language a hook set explicitly, and skips re-resolution for a stored preference', async () => {
+    const detect = vi.fn(detectHello)
+    const { bot, provider } = await makeBot({ i18n: { detect } })
+    bot.locale('es', ES).locale('en', EN)
+    await bot.user('u-pref').set('lang', 'en')
+    bot.before('message', async (ctx: MessageContext, next) => {
+      ctx.body = 'hola amigo'
+      if (ctx.sender === 'u-forced') ctx.lang = 'en'
+      await next()
+    })
+    bot.onMessage(async (ctx) => { await ctx.reply(`${ctx.lang}:${ctx.langSource ?? '-'}`) })
+    await deliver(bot, provider, 'x', { from: 'u-forced' })
+    await deliver(bot, provider, 'x', { from: 'u-pref' })
+    expect(texts(provider)).toEqual(['en:default', 'en:user'])
+    expect(detect).toHaveBeenCalledTimes(1)
+    await bot.stop()
+  })
+
+  it('langSource reports where ctx.lang came from; undefined while i18n is off', async () => {
+    const off = await makeBot()
+    off.bot.onMessage(async (ctx) => { await ctx.reply(`${ctx.lang}:${ctx.langSource ?? '-'}`) })
+    await deliver(off.bot, off.provider, 'x')
+    expect(texts(off.provider)).toEqual(['es:-'])
+    await off.bot.stop()
+
+    const { bot, provider } = await makeBot()
+    bot.locale('es', ES).locale('en', EN)
+    bot.command('lang', async (ctx, [code]) => { await ctx.setLang(code!); await ctx.reply(`${ctx.lang}:${ctx.langSource ?? '-'}`) })
+    bot.onMessage(async (ctx) => { await ctx.reply(`${ctx.lang}:${ctx.langSource ?? '-'}`) })
+    await deliver(bot, provider, 'x', { from: 'p1', language: 'en' })
+    await deliver(bot, provider, 'x', { from: 'p2' })
+    await deliver(bot, provider, '/lang en', { from: 'p2' })
+    expect(texts(provider)).toEqual(['en:provider', 'es:default', 'en:user'])
+    await bot.stop()
+  })
+})

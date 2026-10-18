@@ -375,3 +375,58 @@ describe('voicePlugin — autoReplyWithVoice + ctx.edit / ctx.stream', () => {
     await t.bot.stop()
   })
 })
+
+describe('voicePlugin — i18n', () => {
+  function recordingStt(text: string): SttAdapter & { hints: Array<string | undefined> } {
+    const hints: Array<string | undefined> = []
+    return { name: 'rec', hints, async transcribe(_audio, opts) { hints.push(opts?.language); return { text, provider: 'rec' } } }
+  }
+
+  it('uses a resolved ctx.lang (base language) as the STT hint; nothing when it is only the default', async () => {
+    const stt = recordingStt('hello')
+    const { bot, voiceNote } = await setup({ stt })
+    bot.locale('es', { a: 'a' }).locale('en', { a: 'a' })
+    const seen: string[] = []
+    bot.onMessage((ctx) => { seen.push(ctx.body) })
+    await voiceNote()
+    await waitFor(() => seen.length === 1)
+    await bot.user('user@s.whatsapp.net').set('lang', 'en-GB')
+    await voiceNote()
+    await waitFor(() => seen.length === 2)
+    expect(stt.hints).toEqual([undefined, 'en'])
+    await bot.stop()
+  })
+
+  it('an explicit autoTranscribe.language wins; useContextLanguage:false ignores ctx.lang', async () => {
+    const a = recordingStt('hi')
+    const t1 = await setup({ stt: a, autoTranscribe: { language: 'pt' } })
+    t1.bot.locale('en', { a: 'a' })
+    await t1.bot.user('user@s.whatsapp.net').set('lang', 'en')
+    let n = 0
+    t1.bot.onMessage(() => { n++ })
+    await t1.voiceNote()
+    await waitFor(() => n === 1)
+    expect(a.hints).toEqual(['pt'])
+    await t1.bot.stop()
+
+    const b = recordingStt('hi')
+    const t2 = await setup({ stt: b, autoTranscribe: { useContextLanguage: false } })
+    t2.bot.locale('en', { a: 'a' })
+    await t2.bot.user('user@s.whatsapp.net').set('lang', 'en')
+    t2.bot.onMessage(() => { n++ })
+    await t2.voiceNote()
+    await waitFor(() => n === 2)
+    expect(b.hints).toEqual([undefined])
+    await t2.bot.stop()
+  })
+
+  it('an i18n detector sees the transcript (language re-resolved after the hook)', async () => {
+    const { bot, chat, voiceNote } = await setup({ stt: fakeStt('hello there') })
+    bot.locale({ detect: (ctx) => (/hello/i.test(ctx.body) ? 'en' : undefined) })
+    bot.locale('es', { hi: 'hola' }).locale('en', { hi: 'hi' })
+    bot.onMessage((ctx) => ctx.reply(`${ctx.lang}:${ctx.t('hi')}`))
+    await voiceNote()
+    await chat.expectReply('en:hi')
+    await bot.stop()
+  })
+})

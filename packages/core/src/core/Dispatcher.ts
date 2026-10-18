@@ -47,6 +47,12 @@ export interface DispatcherDeps {
    * from the store without reordering a chat's messages. Must not reject.
    */
   prepare?: (ctx: DispatchContext) => Promise<void>
+  /**
+   * Run AFTER `before('message')` hooks, only when one of them rewrote `ctx.body`
+   * (e.g. a voice transcript), so body-based preparation — the i18n detector — sees
+   * the final text before routing. Must not reject.
+   */
+  reprepare?: (ctx: DispatchContext) => Promise<void>
 }
 
 interface MatcherEntry {
@@ -180,7 +186,9 @@ export class Dispatcher {
    *   4. groupMode filter — a group message the bot must ignore stops here (still persisted)
    *  Dispatcher (per-chat FIFO queue, this method)
    *   5. language resolution (`prepare`: `ctx.lang` from ctx.user → provider → detector
-   *      → default, only while i18n is on), then before('message') hooks — may abort
+   *      → default, only while i18n is on), then before('message') hooks — may abort;
+   *      if a hook rewrote `ctx.body` (voice transcript) the language is re-resolved
+   *      (`reprepare`) so the detector sees the final text
    *   6. handoff gate — a handed-off chat skips 7–11 (except `handoff.allowCommands`)
    *   7. commands — always beat an active conversation (`/reset` escape)
    *   8. active conversation (`c.ask`/`c.retry`/… waits)
@@ -207,7 +215,9 @@ export class Dispatcher {
     const prefix = this.deps.commandPrefix ?? '/'
     try {
       if (this.deps.prepare) await this.deps.prepare(ctx)
+      const bodyBeforeHooks = ctx.body
       if (!(await hooks.runBefore('message', ctx))) return
+      if (this.deps.reprepare && ctx.body !== bodyBeforeHooks) await this.deps.reprepare(ctx)
 
       // 0. routing gate (human handoff): skip every routing stage, still finish()
       if (this.deps.gate && !this.deps.gate(ctx)) return this.finish(ctx)
