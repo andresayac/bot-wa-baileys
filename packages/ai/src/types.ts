@@ -1,6 +1,8 @@
 export type { AIMessage } from '@bot-wa/core'
 import type { AIMessage } from '@bot-wa/core'
 import type { PresetName } from './providers/presets.js'
+import type { AIMemoryConfig } from './memory/MemoryManager.js'
+import type { AIRagConfig, AIRetriever } from './rag.js'
 
 export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 
@@ -52,4 +54,15 @@ export interface AIConfig {
   errorMessage?: string
   refusalMessage?: string
   humanizeTyping?: boolean
+  /**
+   * Long-term per-user memory (FEATURES.md #30): facts stored in `ctx.user`
+   * (namespace `'ai.memory'`) and injected into the autoreply. `true` = defaults.
+   * `ctx.tools.ai.memory(userId)` / `remember()` / `forget()` work even without it.
+   */
+  memory?: boolean | AIMemoryConfig
+  /**
+   * Retrieval Augmented Generation (FEATURES.md #29): a retriever such as
+   * `createRag({ documents })` from `@bot-wa/rag`, or `{ retriever, topK, appendSources }`.
+   */
+  rag?: AIRetriever | AIRagConfig
 }

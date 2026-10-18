@@ -1,0 +1,22 @@
+{
+  "name": "@bot-wa/rag",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Retrieval Augmented Generation for @bot-wa/ai — document loaders, chunking, pluggable embeddings (OpenAI-compatible, Ollama, local hashing) and an in-memory cosine vector index with optional JSON persistence.",
+  "main": "lib/index.js", "types": "lib/index.d.ts",
+  "exports": { ".": { "types": "./lib/index.d.ts", "default": "./lib/index.js" } },
+  "engines": { "node": ">=22" },
+  "keywords": ["bot-wa", "rag", "embeddings", "retrieval", "vector", "ai", "llm"],
+  "author": "Andres Aya", "license": "MIT",
+  "repository": { "type": "git", "url": "git+https://github.com/andresayac/bot-wa-baileys.git", "directory": "packages/rag" },
+  "homepage": "https://github.com/andresayac/bot-wa-baileys/tree/main/packages/rag#readme",
+  "bugs": { "url": "https://github.com/andresayac/bot-wa-baileys/issues" },
+  "files": ["./lib/**/*"],
+  "scripts": { "build": "tsc", "test": "vitest run", "prepublishOnly": "pnpm build", "typecheck": "tsc -p tsconfig.test.json" },
+  "dependencies": { "@bot-wa/http": "workspace:*" },
+  "peerDependencies": { "pdf-parse": ">=1.1.1" },
+  "peerDependenciesMeta": { "pdf-parse": { "optional": true } },
+  "devDependencies": { "pdf-parse": "^2.4.5", "@bot-wa/ai": "workspace:*", "@bot-wa/core": "workspace:*", "@types/node": "^26.1.1", "typescript": "^7.0.2", "vite": "^7.3.6", "vitest": "^4.1.10" },
+  "publishConfig": { "access": "public" }
+}

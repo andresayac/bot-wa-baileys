@@ -28,6 +28,8 @@ import { AIClient } from './AIClient.js'
 import { resolveProvider } from './providers/resolve.js'
 import { LazyProvider } from './providers/LazyProvider.js'
 import { chatKeyOf } from './chatKey.js'
+import { createMemory } from './memory/createMemory.js'
+import { toRagConfig } from './rag.js'
 
 /** Public config for {@link aiPlugin}. */
 export type AIPluginConfig = AIConfig & {
@@ -49,6 +51,7 @@ export function aiPlugin(config: AIPluginConfig = {}): PluginSpec<AIPluginConfig
       const lazy = cfg.__provider ? undefined : new LazyProvider(() => resolveProvider(cfg))
       const provider: AIProvider = cfg.__provider ?? lazy!
       const ctxMgr = new ContextManager(bot.getStore(), { maxMessages: cfg.context?.maxMessages })
+      const rag = toRagConfig(cfg.rag)
       const client = new AIClient(provider, ctxMgr, {
         persona: cfg.persona,
         model: cfg.model,
@@ -56,6 +59,9 @@ export function aiPlugin(config: AIPluginConfig = {}): PluginSpec<AIPluginConfig
         effort: cfg.effort,
         refusalMessage: cfg.refusalMessage,
         timeoutMs: cfg.timeoutMs,
+        memory: createMemory((userId) => bot.user(userId), cfg.memory),
+        ...(rag ? { rag } : {}),
+        onError: (err, stage) => ctx.logger.warn({ err, stage }, 'ai augmentation failed'),
       })
       bot.provide('ai', client)
       // Remove the injected tool on unplug so `ctx.tools.ai` doesn't outlive the plugin.
@@ -70,7 +76,7 @@ export function aiPlugin(config: AIPluginConfig = {}): PluginSpec<AIPluginConfig
           const key = chatKeyOf(mctx)
           try {
             if (cfg.humanizeTyping !== false) await mctx.typing()
-            const text = await client.replyInChat(key, mctx.body)
+            const text = await client.replyInChat(key, mctx.body, { userId: mctx.sender, isGroup: mctx.isGroup })
             await mctx.reply(text)
           } catch (err) {
             ctx.logger.warn({ err }, 'ai autoreply failed')
@@ -93,6 +99,13 @@ export function aiPlugin(config: AIPluginConfig = {}): PluginSpec<AIPluginConfig
       // non-fatal — the autoreply try/catch replies `errorMessage` per message.
       if (lazy) {
         void lazy.warmup().catch((err) => ctx.logger.error({ err }, 'ai provider failed to resolve'))
+      }
+      // Same for the RAG index (load + embed the corpus now, not on the first question).
+      const warmRag = rag?.retriever.warmup
+      if (warmRag) {
+        void Promise.resolve()
+          .then(() => warmRag.call(rag.retriever))
+          .catch((err) => ctx.logger.error({ err }, 'ai rag index failed to load'))
       }
     },
   })

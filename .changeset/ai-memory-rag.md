@@ -1,0 +1,5 @@
+---
+"@bot-wa/ai": minor
+---
+
+Long-term per-user memory and RAG hooks. `aiPlugin({ memory })` stores facts about each user in `ctx.user` (namespace `ai.memory`), injects them into the autoreply and, with `autoExtract`, extracts new facts in the background as strict JSON (`{"facts": string[]}`), with `maxFacts` and per-fact `ttl`; `bot.deleteSubject()` erases them. New `ctx.tools.ai.memory(userId)`, `memoryFacts()`, `remember()`, `forget()`, `extractMemory()` and `idle()`. `aiPlugin({ rag })` accepts any `AIRetriever` (such as `createRag()` from `@bot-wa/rag`) and injects the retrieved passages with numbered citations; `appendSources` adds a "Fuentes:" line, and retrieval is bounded by `rag.timeoutMs` (default 10 s). Facts are not injected into group replies unless `memory.injectInGroups` is on, and facts extracted in the background are dropped when the user's data is erased meanwhile. New `replyInChatDetailed()` returns the citations and facts of the turn, and `replyInChat()` accepts `{ userId, isGroup }`.
