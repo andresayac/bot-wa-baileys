@@ -19,6 +19,8 @@ export interface ImapFetchedMessage {
   uid: number
   /** Full RFC 822 source (requested with `{ source: true }`). */
   source?: Buffer | Uint8Array
+  /** RFC 822 size in bytes (requested with `{ size: true }`). */
+  size?: number
   internalDate?: Date | string
 }
 
@@ -156,6 +158,27 @@ export interface EmailProviderConfig {
   maxAttachmentBytes?: number
   /** Inbound attachment bytes kept in memory for `downloadMedia`. Default 32 MiB (older ones are refetched over IMAP). */
   attachmentCacheBytes?: number
+  /**
+   * Max size of one inbound email (RFC 822 bytes). Larger mail is skipped before
+   * it is downloaded over IMAP (and flagged `\Seen` when `markSeen`), and
+   * `ingest()` answers it with status 413. Default 40 MiB.
+   */
+  maxInboundBytes?: number
+  /**
+   * When to send replies to the `Reply-To` address instead of `From`.
+   * `'same-domain'` (default): only when Reply-To is in the From address's
+   * domain, so a forged header cannot redirect a correspondent's replies to
+   * a third party. `'always'` trusts it; `'never'` always answers `From`.
+   */
+  replyTo?: 'same-domain' | 'always' | 'never'
+  /**
+   * Only accept inbound mail that your receiving MTA authenticated. Reads the
+   * `Authentication-Results` headers stamped by `authservId` (others are
+   * ignored: anyone can add one) and requires `dmarc=pass`, or `dkim=pass`
+   * with `header.d` aligned to the From domain. Rejected mail is skipped with
+   * reason `'unauthenticated'`. Off by default: `From` is then unauthenticated.
+   */
+  requireAuthentication?: { authservId: string }
   /** IMAP reconnect backoff. Default `{ baseMs: 1000, maxMs: 60000 }`. */
   reconnect?: { baseMs?: number; maxMs?: number }
   /** Options for `secureFetch` when an outbound attachment is a URL. */
@@ -194,5 +217,9 @@ export interface EmailRaw {
 export interface EmailMediaToken {
   messageId: string
   index: number
+  /** Truncated SHA-256 of the attachment bytes (cache key and refetch check). */
+  digest: string
   uid?: number
+  /** Mailbox UIDVALIDITY when `uid` was read; the UID is only refetched while it matches. */
+  uidValidity?: string
 }

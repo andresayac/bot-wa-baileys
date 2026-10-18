@@ -12,6 +12,12 @@
  * outbound mail is stamped `Auto-Submitted: auto-replied` so the other side's
  * robots stay quiet too.
  *
+ * Trust: `From` is NOT authenticated by email itself. Set
+ * `requireAuthentication` to accept only mail your MTA verified (DMARC/DKIM).
+ * Independently, bounces only act on messages the bot sent, a thread chat
+ * belongs to the correspondent who opened it, and a cross-domain `Reply-To`
+ * does not redirect replies unless `replyTo: 'always'`.
+ *
  * @example
  * ```ts
  * const provider = new EmailProvider({
@@ -50,6 +56,7 @@ import {
   type UserId,
 } from '@bot-wa/core'
 import { domainOf, looksLikeAddress, normalizeAddress, type EmailAddress } from './address.js'
+import { isAuthenticated } from './auth.js'
 import { detectBounce } from './bounce.js'
 import { composeContent, type ResolvedMedia } from './compose.js'
 import { toEmailProviderError } from './errors.js'
@@ -59,7 +66,7 @@ import { loadModule } from './loadModule.js'
 import { detectAutomated, SenderFloodGuard, type AutomatedReason } from './loop.js'
 import { parseEmail, type ParsedAttachment, type ParsedEmail } from './mime.js'
 import { stripQuotedReply } from './reply.js'
-import { baseSubject, MemoryThreadStore, ThreadTracker } from './threading.js'
+import { baseSubject, MemoryThreadStore, ThreadTracker, threadOwner } from './threading.js'
 import type {
   EmailMediaToken,
   EmailProviderConfig,
@@ -73,16 +80,27 @@ import type {
 const DEFAULT_MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024
 const DEFAULT_CACHE_BYTES = 32 * 1024 * 1024
 const DEFAULT_FLOOD = { max: 30, windowMs: 3_600_000 }
+const DEFAULT_MAX_INBOUND_BYTES = 40 * 1024 * 1024
+const MAX_SUPPRESSED = 10_000
 
 /** Why `ingest()` / IMAP processing did not emit a message. */
-export type EmailSkipReason = AutomatedReason | 'self' | 'bounce' | 'flood' | 'invalid'
+export type EmailSkipReason = AutomatedReason | 'self' | 'bounce' | 'flood' | 'invalid' | 'too-large' | 'unauthenticated'
 
 /** Result of `EmailProvider.ingest()` — `status` is suitable as an HTTP status. */
 export interface EmailIngestResult {
-  status: 200 | 400
+  status: 200 | 400 | 413
   accepted: boolean
   reason?: EmailSkipReason
 }
+
+const digestOf = (bytes: Buffer): string => createHash('sha256').update(bytes).digest('hex').slice(0, 32)
+
+/** The message's Message-ID, or a stable synthetic one derived from its bytes. */
+const messageIdOf = (email: ParsedEmail, source: Buffer): string => email.messageId ?? `synthetic-${digestOf(source)}`
+
+/** Attachment cache key: content-addressed, so a reused or forged Message-ID never overwrites another message's bytes. */
+const cacheKey = (token: Pick<EmailMediaToken, 'messageId' | 'index' | 'digest'>): string =>
+  `${token.messageId}#${token.index}#${token.digest}`
 
 function mediaKind(mimetype: string): MediaRef['kind'] {
   if (mimetype.startsWith('image/')) return 'image'
@@ -120,6 +138,7 @@ export class EmailProvider implements IProvider<EmailRaw> {
   private readonly loopProtection: boolean
   private readonly maxAttachmentBytes: number
   private readonly cacheLimit: number
+  private readonly maxInboundBytes: number
   private readonly http: SecureFetchOptions
   private readonly listeners = new Set<(e: InboundEvent<EmailRaw>) => void | Promise<void>>()
   private readonly suppressed = new Set<string>()
@@ -140,7 +159,11 @@ export class EmailProvider implements IProvider<EmailRaw> {
     this.address = candidate.trim()
     this.self = normalizeAddress(candidate)
     this.logger = config.logger ?? (pino({ level: config.debug ? 'debug' : 'error' }) as unknown as LoggerLike)
-    this.tracker = new ThreadTracker({ store: config.threadStore ?? new MemoryThreadStore(), mode: config.threading ?? 'thread' })
+    this.tracker = new ThreadTracker({
+      store: config.threadStore ?? new MemoryThreadStore(),
+      mode: config.threading ?? 'thread',
+      replyTo: config.replyTo ?? 'same-domain',
+    })
     const lp = config.loopProtection
     this.loopProtection = lp !== false
     this.ignore = new Set(lp ? lp.ignore ?? [] : [])
@@ -149,6 +172,7 @@ export class EmailProvider implements IProvider<EmailRaw> {
     this.maxAttachmentBytes = config.maxAttachmentBytes ?? DEFAULT_MAX_ATTACHMENT_BYTES
     this.capabilities.maxMediaBytes = this.maxAttachmentBytes
     this.cacheLimit = Math.max(0, config.attachmentCacheBytes ?? DEFAULT_CACHE_BYTES)
+    this.maxInboundBytes = Math.max(1, config.maxInboundBytes ?? DEFAULT_MAX_INBOUND_BYTES)
     this.http = config.http ?? {}
     this.transport = config.smtpTransport
   }
@@ -198,6 +222,7 @@ export class EmailProvider implements IProvider<EmailRaw> {
           mailbox: this.config.imap?.mailbox ?? 'INBOX',
           markSeen: this.config.markSeen ?? true,
           processExisting: this.config.processExisting ?? 'unseen',
+          maxMessageBytes: this.maxInboundBytes,
           onMessage: async (source, meta) => { await this.handleRaw(source, meta) },
           onState: (state, reason, detail) => this.emitConnection(state, reason, detail),
           logger: this.logger,
@@ -275,6 +300,7 @@ export class EmailProvider implements IProvider<EmailRaw> {
     if (typeof rawEvent === 'string') source = Buffer.from(rawEvent, 'utf8')
     else if (rawEvent instanceof Uint8Array) source = Buffer.from(rawEvent)
     else return { status: 400, accepted: false, reason: 'invalid' }
+    if (source.length > this.maxInboundBytes) return { status: 413, accepted: false, reason: 'too-large' }
     const reason = await this.handleRaw(source)
     return reason ? { status: 200, accepted: false, reason } : { status: 200, accepted: true }
   }
@@ -300,6 +326,12 @@ export class EmailProvider implements IProvider<EmailRaw> {
       return 'bounce'
     }
 
+    const auth = this.config.requireAuthentication
+    if (auth && !isAuthenticated(email, auth.authservId)) {
+      this.logger.debug({ uid: meta?.uid }, 'unauthenticated email skipped')
+      return 'unauthenticated'
+    }
+
     if (this.loopProtection) {
       const automated = detectAutomated(email)
       if (automated && !this.ignore.has(automated)) {
@@ -313,7 +345,7 @@ export class EmailProvider implements IProvider<EmailRaw> {
       return 'flood'
     }
 
-    const messageId = email.messageId ?? `synthetic-${createHash('sha256').update(source).digest('hex').slice(0, 32)}`
+    const messageId = messageIdOf(email, source)
     const chatId = await this.tracker.resolveInbound(email, sender, messageId)
     this.fan({ kind: 'message', message: this.toInbound(email, messageId, chatId, sender, meta) })
     return undefined
@@ -321,8 +353,10 @@ export class EmailProvider implements IProvider<EmailRaw> {
 
   private toInbound(email: ParsedEmail, messageId: string, chatId: ChatId, sender: string, meta?: ImapMessageMeta): InboundMessage<EmailRaw> {
     const attachments: MediaRef[] = email.attachments.map((a, index) => {
-      const token: EmailMediaToken = { messageId, index, uid: meta?.uid }
-      this.cachePut(`${messageId}#${index}`, a.content)
+      const token: EmailMediaToken = { messageId, index, digest: digestOf(a.content) }
+      if (meta?.uid !== undefined) token.uid = meta.uid
+      if (meta?.uidValidity !== undefined) token.uidValidity = meta.uidValidity
+      this.cachePut(cacheKey(token), a.content)
       return { kind: mediaKind(a.mimetype), mimetype: a.mimetype, filename: a.filename, size: a.size, token }
     })
     const primaryIndex = email.attachments.findIndex((a: ParsedAttachment) => !a.inline)
@@ -387,11 +421,23 @@ export class EmailProvider implements IProvider<EmailRaw> {
     return message
   }
 
+  /**
+   * Act on a bounce only when it reports a message the bot sent, for that
+   * message's recipient (and legacy bounces only from MAILER-DAEMON /
+   * postmaster). Anything else is a forgery or noise and is dropped silently.
+   */
   private async handleBounce(bounce: NonNullable<ReturnType<typeof detectBounce>>): Promise<void> {
     const original = bounce.originalMessageId
-    const knownChat = original ? await this.tracker.store.getChatIdForMessage(original) : undefined
+    const chatId = original ? await this.tracker.outboundChat(original) : undefined
+    const thread = chatId ? await this.tracker.store.getThread(chatId) : undefined
+    if (!original || !chatId || !thread || (bounce.format === 'legacy' && !bounce.systemSender)) {
+      this.logger.debug({ format: bounce.format }, 'bounce for a message the bot did not send ignored')
+      return
+    }
+    const recipients = new Set([normalizeAddress(thread.counterpart.address), threadOwner(thread)])
     for (const r of bounce.recipients) {
-      if (r.permanent && (this.config.suppressBounced ?? true)) this.suppressed.add(r.address)
+      if (!recipients.has(r.address)) continue
+      if (r.permanent && (this.config.suppressBounced ?? true)) this.suppress(r.address)
       if (r.action !== 'failed' && !r.permanent) continue // delayed / relayed: informational only
       const error: { code?: string; message?: string } = {}
       if (r.status) error.code = r.status
@@ -399,7 +445,7 @@ export class EmailProvider implements IProvider<EmailRaw> {
       this.fan({
         kind: 'status',
         status: {
-          ref: { id: original ?? '', chatId: knownChat ?? r.address },
+          ref: { id: original, chatId },
           status: 'failed',
           recipient: r.address,
           error,
@@ -408,6 +454,16 @@ export class EmailProvider implements IProvider<EmailRaw> {
       })
     }
     this.logger.debug({ recipients: bounce.recipients.length }, 'bounce processed')
+  }
+
+  private suppress(address: string): void {
+    this.suppressed.delete(address)
+    this.suppressed.add(address)
+    while (this.suppressed.size > MAX_SUPPRESSED) {
+      const oldest = this.suppressed.values().next().value
+      if (oldest === undefined) break
+      this.suppressed.delete(oldest)
+    }
   }
 
   /* Suppression ------------------------------------------------------------ */
@@ -430,6 +486,11 @@ export class EmailProvider implements IProvider<EmailRaw> {
   /* Media ------------------------------------------------------------------ */
 
   private cachePut(key: string, content: Buffer): void {
+    const previous = this.cache.get(key)
+    if (previous) {
+      this.cache.delete(key)
+      this.cacheBytes -= previous.length
+    }
     if (content.length > this.cacheLimit) return
     this.cache.set(key, content)
     this.cacheBytes += content.length
@@ -446,12 +507,20 @@ export class EmailProvider implements IProvider<EmailRaw> {
     if (!token || typeof token.messageId !== 'string' || typeof token.index !== 'number') {
       throw new ProviderError('Not an EmailProvider media reference')
     }
-    const cached = this.cache.get(`${token.messageId}#${token.index}`)
+    if (typeof token.digest !== 'string') throw new ProviderError('Not an EmailProvider media reference')
+    const cached = this.cache.get(cacheKey({ messageId: token.messageId, index: token.index, digest: token.digest }))
     if (cached) return cached
     if (typeof token.uid === 'number' && this.ingress) {
-      const source = await this.ingress.fetchSource(token.uid)
-      const attachment = source ? parseEmail(source).attachments[token.index] : undefined
-      if (attachment) return attachment.content
+      // The UID must still hold the same message: same UIDVALIDITY, same Message-ID, same bytes.
+      const validity = typeof token.uidValidity === 'string' ? token.uidValidity : undefined
+      const source = await this.ingress.fetchSource(token.uid, validity)
+      if (source) {
+        const parsed = parseEmail(source)
+        const attachment = parsed.attachments[token.index]
+        if (attachment && messageIdOf(parsed, source) === token.messageId && digestOf(attachment.content) === token.digest) {
+          return attachment.content
+        }
+      }
     }
     throw new ProviderError('Email attachment is no longer available (evicted from cache and not refetchable)')
   }
@@ -508,7 +577,7 @@ export class EmailProvider implements IProvider<EmailRaw> {
     }
 
     const composed = await composeContent(content, (src, kind) => this.resolveMedia(src, kind))
-    const attachments = composed.overrides.attachments ?? composed.attachments
+    const attachments = composed.attachments
     const total = attachments.reduce((n, a) => n + a.content.length, 0)
     if (total > this.maxAttachmentBytes) {
       throw new PayloadTooLargeError(`Attachments total ${total} bytes; limit is ${this.maxAttachmentBytes}`)
@@ -523,12 +592,12 @@ export class EmailProvider implements IProvider<EmailRaw> {
     const refs = [...(thread?.references ?? [])]
     if (inReplyTo && !refs.includes(inReplyTo)) refs.push(inReplyTo)
 
-    const headers: Record<string, string> = {}
+    // Native headers never override the provider's own (protected names are dropped in composeContent).
+    const headers: Record<string, string> = { ...composed.overrides.headers }
     if (this.config.autoSubmitted !== false) {
       headers['Auto-Submitted'] = this.config.autoSubmitted ?? 'auto-replied'
       headers['X-Auto-Response-Suppress'] = 'All'
     }
-    Object.assign(headers, composed.overrides.headers)
 
     const mail: SmtpMailOptions = {
       from: this.config.fromName ? { name: this.config.fromName, address: this.address } : { address: this.address },

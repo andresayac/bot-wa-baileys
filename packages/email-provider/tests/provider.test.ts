@@ -360,9 +360,11 @@ describe('EmailProvider bounces', () => {
     const t = setup({ suppressBounced: false })
     current = t.provider
     await t.provider.start()
-    await t.provider.ingest(bounce('unknown@acme.test', 'x@example.com'))
-    expect(t.events.filter((e) => e.kind === 'status')[0]).toMatchObject({ status: { ref: { id: 'unknown@acme.test', chatId: 'x@example.com' } } })
+    const sent = await t.provider.send('x@example.com', { kind: 'text', text: 'hola' })
+    await t.provider.ingest(bounce(sent.ref.id, 'x@example.com'))
+    expect(t.events.filter((e) => e.kind === 'status')[0]).toMatchObject({ status: { ref: { id: sent.ref.id, chatId: 'x@example.com' } } })
     expect(t.provider.isSuppressed('x@example.com')).toBe(false)
+    await expect(t.provider.send('x@example.com', { kind: 'text', text: 'otra vez' })).resolves.toBeDefined()
   })
 })
 

@@ -12,6 +12,13 @@
  * sender address, like a DM on a chat transport; the thread state still tracks
  * the latest Message-ID so replies thread correctly in the human's client.
  *
+ * Ownership: a thread chat belongs to the correspondent who opened it (its
+ * `owner`, a normalized address). Mail from anyone else that points into it
+ * (a Cc'd colleague answering all, or a forged In-Reply-To / Message-ID) gets
+ * its own chat, so a third party never joins, reads or redirects another
+ * correspondent's conversation. A reply that points at a foreign thread is
+ * traced back through that thread's References to the sender's own chat.
+ *
  * Thread state (who to answer, subject, References chain) lives in an
  * `EmailThreadStore`. `MemoryThreadStore` is the bounded default; use
  * `cursorThreadStore(store)` to persist it through any `IStore` with cursors
@@ -20,10 +27,13 @@
 
 import { createHash } from 'node:crypto'
 import type { ChatId, IStore } from '@bot-wa/core'
-import type { EmailAddress } from './address.js'
+import { domainOf, normalizeAddress, type EmailAddress } from './address.js'
 import type { ParsedEmail } from './mime.js'
 
 export type EmailThreadingMode = 'thread' | 'sender'
+
+/** When replies go to `Reply-To` instead of `From` (see `EmailProviderConfig.replyTo`). */
+export type EmailReplyToPolicy = 'same-domain' | 'always' | 'never'
 
 export interface EmailThreadState {
   chatId: ChatId
@@ -31,6 +41,8 @@ export interface EmailThreadState {
   subject: string
   /** Who replies go to: Reply-To, else From of the latest inbound message. */
   counterpart: EmailAddress
+  /** Normalized address of the correspondent the chat belongs to (defaults to the counterpart's). */
+  owner?: string
   /** Message-ID of the latest message in the thread (no brackets). */
   lastMessageId?: string
   /** References chain to send with the next reply (no brackets, capped). */
@@ -83,6 +95,14 @@ export class MemoryThreadStore implements EmailThreadStore {
   async setChatIdForMessage(messageId: string, chatId: ChatId): Promise<void> {
     this.put(this.index, messageId, chatId)
   }
+}
+
+/** Index key recording that the bot itself sent `messageId` (a space never occurs in a parsed id). */
+export const outboundKey = (messageId: string): string => `<out> ${messageId}`
+
+/** The correspondent a thread belongs to. */
+export function threadOwner(state: EmailThreadState): string {
+  return state.owner ?? normalizeAddress(state.counterpart.address)
 }
 
 const hashKey = (s: string): string => createHash('sha256').update(s).digest('hex').slice(0, 32)
@@ -148,6 +168,8 @@ export interface ThreadTrackerOptions {
   mode: EmailThreadingMode
   /** Max References entries carried on outbound replies. Default 20. */
   maxReferences?: number
+  /** Default `'same-domain'`. */
+  replyTo?: EmailReplyToPolicy
   now?: () => number
 }
 
@@ -156,27 +178,61 @@ export class ThreadTracker {
   readonly store: EmailThreadStore
   private readonly mode: EmailThreadingMode
   private readonly maxReferences: number
+  private readonly replyTo: EmailReplyToPolicy
   private readonly now: () => number
 
   constructor(opts: ThreadTrackerOptions) {
     this.store = opts.store
     this.mode = opts.mode
     this.maxReferences = Math.max(1, opts.maxReferences ?? 20)
+    this.replyTo = opts.replyTo ?? 'same-domain'
     this.now = opts.now ?? Date.now
+  }
+
+  /** `chatId` when it is unused or belongs to `sender`. */
+  private async owned(chatId: ChatId, sender: string): Promise<'mine' | 'free' | 'foreign'> {
+    const state = await this.store.getThread(chatId)
+    if (!state) return 'free'
+    return threadOwner(state) === sender ? 'mine' : 'foreign'
   }
 
   private async findChatId(email: ParsedEmail, messageId: string, senderId: string): Promise<ChatId> {
     if (this.mode === 'sender') return senderId
     // Most recent ancestors first: In-Reply-To, then References from the tail.
     const ancestors = [email.inReplyTo, ...[...email.references].reverse()].filter((x): x is string => !!x)
+    const foreign: ChatId[] = []
     for (const id of ancestors) {
       const known = await this.store.getChatIdForMessage(id)
-      if (known) return known
+      if (!known) continue
+      const state = await this.store.getThread(known)
+      if (!state || threadOwner(state) === senderId) return known
+      if (!foreign.includes(known)) foreign.push(known)
     }
-    const own = await this.store.getChatIdForMessage(messageId)
-    if (own) return own
-    const root = email.references[0] ?? email.inReplyTo ?? messageId
-    return `thread:${root}`
+    // Replying to someone else's message: find the sender's own chat through that thread's chain.
+    for (const chat of foreign) {
+      const refs = (await this.store.getThread(chat))?.references ?? []
+      for (const id of [...refs].reverse()) {
+        const known = await this.store.getChatIdForMessage(id)
+        if (known && known !== chat && (await this.owned(known, senderId)) === 'mine') return known
+      }
+    }
+    if (messageId) {
+      const own = await this.store.getChatIdForMessage(messageId)
+      if (own && (await this.owned(own, senderId)) !== 'foreign') return own
+    }
+    const root = foreign.length ? messageId : (email.references[0] ?? email.inReplyTo ?? messageId)
+    const candidate = `thread:${root}`
+    if ((await this.owned(candidate, senderId)) !== 'foreign') return candidate
+    // Collision with another correspondent's thread (a reused or forged Message-ID).
+    return `thread:${messageId || root}~${hashKey(senderId).slice(0, 12)}`
+  }
+
+  private pickCounterpart(email: ParsedEmail, senderId: string): EmailAddress {
+    const from = email.from ?? { address: senderId }
+    const replyTo = email.replyTo[0]
+    if (!replyTo || this.replyTo === 'never') return from
+    if (this.replyTo === 'always') return replyTo
+    return domainOf(replyTo.address) === domainOf(from.address) ? replyTo : from
   }
 
   /**
@@ -186,7 +242,7 @@ export class ThreadTracker {
   async resolveInbound(email: ParsedEmail, senderId: string, messageId = email.messageId ?? ''): Promise<ChatId> {
     const chatId = await this.findChatId(email, messageId, senderId)
     const prev = await this.store.getThread(chatId)
-    const counterpart = email.replyTo[0] ?? email.from ?? prev?.counterpart ?? { address: senderId }
+    const counterpart = this.pickCounterpart(email, senderId)
     const subject = baseSubject(email.subject)
     const chain = [...email.references]
     if (email.inReplyTo && !chain.includes(email.inReplyTo)) chain.push(email.inReplyTo)
@@ -199,6 +255,7 @@ export class ThreadTracker {
       chatId,
       subject: this.mode === 'sender' ? (subject || prev?.subject || '') : (prev?.subject || subject),
       counterpart: { name: counterpart.name, address: counterpart.address },
+      owner: senderId,
       lastMessageId: messageId || prev?.lastMessageId,
       references,
       updatedAt: this.now(),
@@ -210,7 +267,9 @@ export class ThreadTracker {
   /** Record a message the bot sent into `chatId` so replies to it land in the same chat. */
   async recordOutbound(chatId: ChatId, messageId: string, init?: { counterpart: EmailAddress; subject: string }): Promise<void> {
     const prev = await this.store.getThread(chatId)
-    const base = prev ?? (init ? { chatId, subject: init.subject, counterpart: init.counterpart, references: [], updatedAt: 0 } : undefined)
+    const base = prev ?? (init
+      ? { chatId, subject: init.subject, counterpart: init.counterpart, owner: normalizeAddress(init.counterpart.address), references: [], updatedAt: 0 }
+      : undefined)
     if (base) {
       await this.store.setThread(chatId, {
         ...base,
@@ -220,6 +279,12 @@ export class ThreadTracker {
       })
     }
     await this.store.setChatIdForMessage(messageId, chatId)
+    await this.store.setChatIdForMessage(outboundKey(messageId), chatId)
+  }
+
+  /** The chat of a message the bot sent, or `undefined` when the bot never sent `messageId`. */
+  async outboundChat(messageId: string): Promise<ChatId | undefined> {
+    return this.store.getChatIdForMessage(outboundKey(messageId))
   }
 }
 

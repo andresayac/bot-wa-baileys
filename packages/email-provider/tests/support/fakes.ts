@@ -12,6 +12,10 @@ export class FakeImapServer {
   connectError?: Error
   sticky = false
   fetchCalls = 0
+  /** Error the next `search()` rejects with, dropping the connection first (consumed once). */
+  searchError?: Error
+  /** UID ranges requested with `{ source: true }`, in order. */
+  sourceFetches: number[][] = []
 
   add(raw: string | Buffer, seen = false): number {
     const uid = this.uidNext++
@@ -59,6 +63,12 @@ export class FakeImapClient implements ImapClientLike {
   }
 
   async search(query: Record<string, unknown>): Promise<number[]> {
+    if (this.server.searchError) {
+      const err = this.server.searchError
+      this.server.searchError = undefined
+      this.drop()
+      throw err
+    }
     const all = this.server.messages
     if (query.seen === false) return all.filter((m) => !m.seen).map((m) => m.uid)
     if (typeof query.uid === 'string') {
@@ -71,10 +81,17 @@ export class FakeImapClient implements ImapClientLike {
     return all.map((m) => m.uid)
   }
 
-  async *fetch(range: string | number[]): AsyncIterable<ImapFetchedMessage> {
+  async *fetch(range: string | number[], query: Record<string, unknown> = { source: true }): AsyncIterable<ImapFetchedMessage> {
     this.server.fetchCalls++
     const uids = Array.isArray(range) ? range : range.split(',').map(Number)
-    for (const m of this.server.messages) if (uids.includes(m.uid)) yield { uid: m.uid, source: m.source }
+    if (query.source) this.server.sourceFetches.push([...uids])
+    for (const m of this.server.messages) {
+      if (!uids.includes(m.uid)) continue
+      const out: ImapFetchedMessage = { uid: m.uid }
+      if (query.size) out.size = m.source.length
+      if (query.source) out.source = m.source
+      yield out
+    }
   }
 
   async messageFlagsAdd(range: string | number[], flags: string[]): Promise<boolean> {

@@ -3,6 +3,11 @@
  * `multipart/report; report-type=delivery-status`) are parsed exactly; legacy
  * bounces from MAILER-DAEMON fall back to headers like `X-Failed-Recipients`
  * and a scan of the body for the original Message-ID.
+ *
+ * Detection is not trust: anyone can send a message that looks like a bounce.
+ * `EmailProvider` only acts on one whose `originalMessageId` is a message the
+ * bot sent, for that message's recipient (and, for legacy bounces, only from
+ * MAILER-DAEMON / postmaster).
  */
 
 import { normalizeAddress } from './address.js'
@@ -25,6 +30,10 @@ export interface BounceInfo {
   recipients: BounceRecipient[]
   /** Message-ID (no brackets) of the email that bounced, when the report carries it. */
   originalMessageId?: string
+  /** `dsn` for an RFC 3464 report, `legacy` for a heuristic match. */
+  format: 'dsn' | 'legacy'
+  /** The From local part is MAILER-DAEMON or postmaster. */
+  systemSender: boolean
 }
 
 function walk(part: MimePart, visit: (p: MimePart) => void): void {
@@ -77,6 +86,8 @@ export function detectBounce(email: ParsedEmail): BounceInfo | undefined {
     && (root.contentTypeParams['report-type'] ?? '').toLowerCase() === 'delivery-status'
   let recipients: BounceRecipient[] = []
   let originalMessageId: string | undefined
+  const fromLocal = email.from ? email.from.address.slice(0, email.from.address.lastIndexOf('@')) : ''
+  const systemSender = BOUNCE_SENDER.test(fromLocal)
   if (isReport) {
     walk(root, (p) => {
       if (p.contentType === 'message/delivery-status' || p.contentType === 'message/global-delivery-status') {
@@ -87,12 +98,11 @@ export function detectBounce(email: ParsedEmail): BounceInfo | undefined {
         originalMessageId = idFromHeaders(parsePart(p.body).headers)
       }
     })
-    return { recipients, originalMessageId }
+    return { recipients, originalMessageId, format: 'dsn', systemSender }
   }
 
-  const fromLocal = email.from ? email.from.address.slice(0, email.from.address.lastIndexOf('@')) : ''
   const failed = email.header('x-failed-recipients')
-  const heuristic = failed !== undefined || (BOUNCE_SENDER.test(fromLocal) && BOUNCE_SUBJECT.test(email.subject))
+  const heuristic = failed !== undefined || (systemSender && BOUNCE_SUBJECT.test(email.subject))
   if (!heuristic) return undefined
   recipients = (failed ?? '').split(',').map((a) => a.trim()).filter(Boolean)
     .map((address) => ({ address: normalizeAddress(address), action: 'failed', status: undefined, diagnostic: undefined, permanent: true }))
@@ -104,5 +114,5 @@ export function detectBounce(email: ParsedEmail): BounceInfo | undefined {
       if (m) originalMessageId = m[1]
     }
   })
-  return { recipients, originalMessageId }
+  return { recipients, originalMessageId, format: 'legacy', systemSender }
 }
