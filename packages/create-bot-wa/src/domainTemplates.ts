@@ -683,7 +683,7 @@ bot.conversation('cancelar-cita', async (c, ctx) => {
 const AI_POLICY_URL = 'https://www.whatsapp.com/legal/business-solution-terms'
 
 const aiFullDescription =
-  'Full-stack bot: business-scoped AI (@bot-wa/ai) + keyword intents + SQLite store + scheduler + slash commands + human handoff.'
+  'Full-stack bot: business-scoped AI (@bot-wa/ai) with order tools + keyword intents + SQLite store + scheduler + slash commands + human handoff.'
 
 const aiFull: ProjectTemplate = {
   name: 'ai-full',
@@ -721,7 +721,98 @@ const PERSONA = [
   'Solo respondes sobre sus productos, servicios, precios, pedidos, horarios y reservas.',
   'Si te piden algo ajeno al negocio, explica con amabilidad que solo puedes ayudar con temas de ' + BUSINESS + ' y ofrece hablar con una persona.',
   'Responde breve y en el idioma del cliente. Si no sabes un dato, dilo; no lo inventes.',
+  'Para pedidos usa las herramientas: consulta ver_menu y usa solo sus claves de producto.',
 ].join(' ')
+
+// Catalog the AI can sell from. The product keys are an enum in the tool schemas, so the
+// model can only order real products: invalid arguments go back to the model (it corrects
+// itself) and the customer is never asked to confirm an order that cannot exist.
+const MENU = {
+  torta_chocolate: { name: 'Torta de chocolate', price: 45000 },
+  pan_queso: { name: 'Pan de queso', price: 3500 },
+  cafe: { name: 'Café', price: 4000 },
+}
+const PRODUCTS = Object.keys(MENU)
+const ITEMS = {
+  type: 'array',
+  minItems: 1,
+  items: {
+    type: 'object',
+    properties: {
+      producto: { type: 'string', enum: PRODUCTS, description: 'Clave del menú (ver_menu)' },
+      cantidad: { type: 'integer', minimum: 1, maximum: 50 },
+    },
+    required: ['producto', 'cantidad'],
+    additionalProperties: false,
+  },
+}
+const ORDER_ID = { type: 'string', description: 'Id del pedido (mis_pedidos)' }
+const priced = (items) => {
+  const lines = items.map((i) => ({ ...i, subtotal: MENU[i.producto].price * i.cantidad }))
+  return { items: lines, total: lines.reduce((sum, i) => sum + i.subtotal, 0) }
+}
+// Orders live in ctx.user (per customer, persisted by the store).
+const ordersOf = (tctx) => {
+  if (!tctx.ctx) throw new Error('only available in a chat')
+  return tctx.ctx.user.ns('pedidos')
+}
+const loadOrders = async (tctx) => (await ordersOf(tctx).get('list')) ?? []
+const findOrder = (orders, id) => {
+  const order = orders.find((o) => o.id === id && o.estado !== 'cancelado')
+  if (!order) throw new Error('No existe un pedido activo con id ' + id + '. Consulta mis_pedidos.')
+  return order
+}
+
+// AI tools. confirm: true → the bot shows the customer a readable summary and waits for
+// "sí"/"no" (a reply with changes goes back to the model, which re-proposes). The model is
+// told not to ask for confirmation itself. dedupe blocks the same order twice in a row.
+const TOOLS = {
+  ver_menu: {
+    description: 'Lista los productos del menú: clave, nombre y precio.',
+    handler: () => Object.entries(MENU).map(([clave, p]) => ({ clave, nombre: p.name, precio: p.price })),
+  },
+  mis_pedidos: {
+    description: 'Lista los pedidos del cliente con su id, productos, total y estado.',
+    handler: async (_args, tctx) => await loadOrders(tctx),
+  },
+  crear_pedido: {
+    title: 'Crear pedido',
+    description: 'Registra un pedido nuevo. items: lista de { producto, cantidad } con claves del menú.',
+    schema: { type: 'object', properties: { items: ITEMS }, required: ['items'], additionalProperties: false },
+    confirm: true,
+    dedupe: 'args',
+    handler: async ({ items }, tctx) => {
+      const orders = await loadOrders(tctx)
+      const order = { id: 'P-' + Date.now().toString(36).toUpperCase(), ...priced(items), estado: 'confirmado' }
+      await ordersOf(tctx).set('list', [...orders, order].slice(-20))
+      return order
+    },
+  },
+  actualizar_pedido: {
+    title: 'Cambiar pedido',
+    description: 'Reemplaza los productos de un pedido existente (por id) con la nueva lista completa.',
+    schema: { type: 'object', properties: { id: ORDER_ID, items: ITEMS }, required: ['id', 'items'], additionalProperties: false },
+    confirm: true,
+    handler: async ({ id, items }, tctx) => {
+      const orders = await loadOrders(tctx)
+      Object.assign(findOrder(orders, id), priced(items))
+      await ordersOf(tctx).set('list', orders)
+      return findOrder(orders, id)
+    },
+  },
+  cancelar_pedido: {
+    title: 'Cancelar pedido',
+    description: 'Cancela un pedido existente por id.',
+    schema: { type: 'object', properties: { id: ORDER_ID }, required: ['id'], additionalProperties: false },
+    confirm: true,
+    handler: async ({ id }, tctx) => {
+      const orders = await loadOrders(tctx)
+      findOrder(orders, id).estado = 'cancelado'
+      await ordersOf(tctx).set('list', orders)
+      return { id, estado: 'cancelado' }
+    },
+  },
+}
 
 // Lightweight intents (keyword/regex NLU): answered before the AI, at zero token cost.
 const INTENTS = {
@@ -746,6 +837,7 @@ bot.plug(
     apiKey: process.env.ANTHROPIC_API_KEY,
     persona: PERSONA,
     context: { maxMessages: 20 },
+    tools: TOOLS,
   }),
 )
 
@@ -830,6 +922,9 @@ bot.use(
         '',
         '- **Intents** (`INTENTS`): regex triggers for hours, prices, "talk to a human" and "me llamo …", answered before the AI.',
         '- **AI** (`@bot-wa/ai`, Anthropic): answers any other text, scoped to `BUSINESS_NAME`; `/reset` clears the chat context.',
+        '- **AI tools** (`TOOLS`): `ver_menu`, `mis_pedidos`, `crear_pedido`, `actualizar_pedido` and `cancelar_pedido`.',
+        '  Products are an `enum` of the `MENU` keys (the model cannot order what does not exist); the order tools use',
+        '  `confirm: true`, so the customer approves a readable summary first, and `crear_pedido` has `dedupe`.',
         '- **Store** (`@bot-wa/sqlite-store` + `better-sqlite3`): everything persists in `bot.db` on `npm start`;',
         '  `npm run dev` uses the in-memory store.',
         '- **Scheduler**: `bot.every(\'1h\')` purges expired user data, `bot.schedule(\'0 9 * * 1-5\')` logs a daily summary.',
@@ -875,6 +970,8 @@ export const DOMAIN_AGENT_NOTES: Record<DomainTemplateName, string[]> = {
   'ai-full': [
     '- Plugin order matters: `slashCommandsPlugin` first, `aiPlugin` last (it is the catch-all).',
     '- Intents are plain `bot.when(RegExp, …)` handlers; they run before the AI catch-all.',
+    '- AI tools (`TOOLS`): keep product keys as a JSON Schema `enum` (validated before any confirmation); side-effecting',
+    "  tools use `confirm: true` (and `dedupe` when a repeat would duplicate data). Orders live in `ctx.user.ns('pedidos')`.",
     '- The factory takes `(provider, store)`; `bot-wa dev` passes only the provider (in-memory store).',
   ],
 }

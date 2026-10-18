@@ -78,6 +78,10 @@ describe('use-case templates (FEATURES #39)', () => {
     expect(bot).toContain('WhatsApp Business Platform')
     expect(bot).toContain('https://www.whatsapp.com/legal/business-solution-terms')
     expect(await readFile(join(target, '.env.example'), 'utf8')).toContain('SQLITE_FILE=')
+    // AI tools: enum-validated products, confirmed order create/update/cancel.
+    expect(bot).toContain('enum: PRODUCTS')
+    for (const tool of ['ver_menu', 'mis_pedidos', 'crear_pedido', 'actualizar_pedido', 'cancelar_pedido']) expect(bot).toContain(tool + ': {')
+    expect(bot).toContain('tools: TOOLS')
   })
 })
 
@@ -124,7 +128,7 @@ const STUBS = [
   "const forbidden = (name) => class { constructor() { throw new Error(name + ' must not be built under bot-wa dev') } }",
   "export const BaileysProvider = forbidden('BaileysProvider')",
   "export const SQLiteStore = forbidden('SQLiteStore')",
-  "export const aiPlugin = () => ({ name: 'ai-stub', install() {} })",
+  "export const aiPlugin = (config) => { globalThis.__botwaAiConfig = config; return { name: 'ai-stub', install() {} } }",
   '',
 ].join('\n')
 
@@ -249,6 +253,32 @@ describe.skipIf(!existsSync(devEntry))('use-case bots run in the bot-wa dev simu
       await session.stop()
     }
     expect(output).not.toContain('must not be built')
+  })
+
+  it('ai-full order tools: enum products, confirm, create → update → cancel on ctx.user', async () => {
+    const entry = await prepare('ai-full')
+    const mod = (await import(pathToFileURL(entry).href)) as { default: (provider: unknown) => Promise<unknown> }
+    const testing = (await import(pathToFileURL(testingEntry).href)) as { MockProvider: new () => unknown }
+    await mod.default(new testing.MockProvider())
+    type Tool = { schema?: Record<string, any>; confirm?: boolean; dedupe?: unknown; title?: string; handler: (args: any, tctx: any) => any }
+    const tools = (globalThis as { __botwaAiConfig?: { tools: Record<string, Tool> } }).__botwaAiConfig!.tools
+    expect(tools.crear_pedido!.schema!.properties.items.items.properties.producto.enum).toEqual(['torta_chocolate', 'pan_queso', 'cafe'])
+    for (const name of ['crear_pedido', 'actualizar_pedido', 'cancelar_pedido']) {
+      expect(tools[name]!.confirm, name).toBe(true)
+      expect(tools[name]!.title, name).toBeTruthy()
+    }
+    expect(tools.crear_pedido!.dedupe).toBe('args')
+    // A minimal ctx.user namespace.
+    const data = new Map<string, unknown>()
+    const tctx = { ctx: { user: { ns: () => ({ get: async (k: string) => data.get(k), set: async (k: string, v: unknown) => { data.set(k, v) } }) } } }
+    expect(tools.ver_menu!.handler({}, tctx)).toContainEqual({ clave: 'cafe', nombre: 'Café', precio: 4000 })
+    const order = await tools.crear_pedido!.handler({ items: [{ producto: 'torta_chocolate', cantidad: 2 }] }, tctx)
+    expect(order).toMatchObject({ total: 90000, estado: 'confirmado' })
+    const updated = await tools.actualizar_pedido!.handler({ id: order.id, items: [{ producto: 'cafe', cantidad: 5 }] }, tctx)
+    expect(updated).toMatchObject({ id: order.id, total: 20000 })
+    expect(await tools.cancelar_pedido!.handler({ id: order.id }, tctx)).toEqual({ id: order.id, estado: 'cancelado' })
+    await expect(tools.cancelar_pedido!.handler({ id: order.id }, tctx)).rejects.toThrow(/No existe un pedido activo/)
+    expect(await tools.mis_pedidos!.handler({}, tctx)).toMatchObject([{ id: order.id, estado: 'cancelado' }])
   })
 
   it.each(DOMAIN)('template "%s" passes bot.lint() without errors', async (template) => {
