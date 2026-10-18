@@ -2,6 +2,10 @@ import { describe, it, expect, vi } from 'vitest'
 import { ConversationRuntime, type RuntimeConfig } from '../src/conversations/ConversationRuntime.js'
 import { createControls } from '../src/conversations/controls.js'
 
+/** Texts passed to a `reply` mock (controls also pass pacing options as a 2nd argument). */
+const texts = (fn: { mock: { calls: unknown[][] } }): unknown[] => fn.mock.calls.map((c) => c[0])
+
+
 function makeMsg(body: string, type = 'text') {
   return { from: 'a@s.whatsapp.net', sender: 'a@s.whatsapp.net', body, type, isGroup: false, reply: vi.fn(async () => {}) }
 }
@@ -16,7 +20,7 @@ describe('controls', () => {
     let name = ''
     const entry = rt.enter(async (c: any) => { name = await c.ask('¿Tu nombre?') }, start)
     await Promise.resolve()
-    expect(start.reply).toHaveBeenCalledWith('¿Tu nombre?')
+    expect(texts(start.reply)).toContain('¿Tu nombre?')
     rt.deliver(makeMsg('Andres'))
     await entry
     expect(name).toBe('Andres')
@@ -31,7 +35,7 @@ describe('controls', () => {
     }, start)
     await Promise.resolve()
     const bad = makeMsg('nope'); rt.deliver(bad)
-    await vi.waitFor(() => expect(start.reply).toHaveBeenCalledWith('no es email'))
+    await vi.waitFor(() => expect(texts(start.reply)).toContain('no es email'))
     rt.deliver(makeMsg('a@b.co'))
     await entry
     expect(email).toBe('a@b.co')
@@ -45,10 +49,10 @@ describe('controls', () => {
     }, start)
     await Promise.resolve()
     rt.deliver(makeMsg('x'))
-    await vi.waitFor(() => expect(start.reply).toHaveBeenCalledWith('mal'))
+    await vi.waitFor(() => expect(texts(start.reply)).toContain('mal'))
     rt.deliver(makeMsg('y'))
     await entry
-    expect(start.reply).toHaveBeenCalledWith('agotado')
+    expect(texts(start.reply)).toContain('agotado')
   })
 
   it('choose renders numbered menu and accepts key or index', async () => {
@@ -59,7 +63,7 @@ describe('controls', () => {
       picked = await c.choose('Elige:', { ropa: 'Ropa', tech: 'Electrónica' })
     }, start)
     await Promise.resolve()
-    expect(start.reply).toHaveBeenCalledWith('Elige:\n\n1) Ropa\n2) Electrónica')
+    expect(texts(start.reply)).toContain('Elige:\n\n1) Ropa\n2) Electrónica')
     rt.deliver(makeMsg('2'))
     await entry
     expect(picked).toBe('tech')
@@ -74,7 +78,7 @@ describe('controls', () => {
     }, start)
     await Promise.resolve()
     rt.deliver(makeMsg('zzz'))
-    await vi.waitFor(() => expect(start.reply).toHaveBeenCalledWith('opción inválida'))
+    await vi.waitFor(() => expect(texts(start.reply)).toContain('opción inválida'))
     rt.deliver(makeMsg('a'))
     await entry
     expect(picked).toBe('a')
@@ -101,7 +105,7 @@ describe('controls', () => {
       const entry = rt.enter(async (c: any) => { await c.waitAny({ timeoutMs: 1000 }) }, start)
       await vi.advanceTimersByTimeAsync(1001)
       await entry
-      expect(start.reply).toHaveBeenCalledWith('bye-timeout')
+      expect(texts(start.reply)).toContain('bye-timeout')
       expect(rt.hasActive(rt.keyFor(start))).toBe(false)
     } finally {
       vi.useRealTimers()
@@ -120,6 +124,6 @@ describe('controls', () => {
     rt.abort(rt.keyFor(start))      // cancel while parked (no pending wait exists)
     release()                       // let the conversation resume past the gate
     await entry                     // must settle without throwing and without any error reply
-    expect(start.reply).not.toHaveBeenCalledWith('late')
+    expect(texts(start.reply)).not.toContain('late')
   })
 })

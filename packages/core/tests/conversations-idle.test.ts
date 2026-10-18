@@ -7,6 +7,10 @@ import { MockProvider } from '../src/testing/MockProvider.js'
 import { flow } from '../src/flows/FlowBuilder.js'
 import type { IdleEvent, MessageContext } from '../src/index.js'
 
+/** Texts passed to a `reply` mock (controls also pass pacing options as a 2nd argument). */
+const texts = (fn: { mock: { calls: unknown[][] } }): unknown[] => fn.mock.calls.map((c) => c[0])
+
+
 function makeMsg(body: string, type = 'text') {
   return { from: 'a@s.whatsapp.net', sender: 'a@s.whatsapp.net', body, type, isGroup: false, reply: vi.fn(async (_t: string) => {}) }
 }
@@ -45,9 +49,9 @@ describe('c.idle() / c.idleClear() — conversation inactivity', () => {
     }, start)
     await settle()
     await vi.advanceTimersByTimeAsync(119_999)
-    expect(start.reply).not.toHaveBeenCalledWith('¿Sigues ahí?')
+    expect(texts(start.reply)).not.toContain('¿Sigues ahí?')
     await vi.advanceTimersByTimeAsync(1)
-    expect(start.reply).toHaveBeenCalledWith('¿Sigues ahí?')
+    expect(texts(start.reply)).toContain('¿Sigues ahí?')
     expect(rt.hasActive(rt.keyFor(start))).toBe(true)
     rt.deliver(makeMsg('Ana'))
     await entry
@@ -139,7 +143,7 @@ describe('c.idle() / c.idleClear() — conversation inactivity', () => {
     release()
     await entry
     expect(after).not.toHaveBeenCalled()
-    expect(start.reply).toHaveBeenCalledWith('fin por inactividad')
+    expect(texts(start.reply)).toContain('fin por inactividad')
   })
 
   it('callback c.goto(name) moves the conversation to another one', async () => {
@@ -153,7 +157,7 @@ describe('c.idle() / c.idleClear() — conversation inactivity', () => {
     await settle()
     await vi.advanceTimersByTimeAsync(500)
     await entry
-    expect(start.reply).toHaveBeenCalledWith('📋 Menú principal')
+    expect(texts(start.reply)).toContain('📋 Menú principal')
     expect(vi.getTimerCount()).toBe(0)
   })
 
@@ -167,7 +171,7 @@ describe('c.idle() / c.idleClear() — conversation inactivity', () => {
     }, start)
     await settle()
     await vi.advanceTimersByTimeAsync(1000)
-    expect(start.reply).toHaveBeenLastCalledWith('¿Sigues ahí? Elige 1 o 2\n\n1) A\n2) B')
+    expect(texts(start.reply).at(-1)).toBe('¿Sigues ahí? Elige 1 o 2\n\n1) A\n2) B')
     rt.deliver(makeMsg('2'))                                  // the ORIGINAL wait receives the answer
     await entry
     expect(answer).toBe('b')
@@ -197,7 +201,7 @@ describe('c.idle() / c.idleClear() — conversation inactivity', () => {
     await vi.advanceTimersByTimeAsync(1000)                   // attempt 1
     rt.deliver(makeMsg('x', 'image'))                         // invalid (not text) → attempt 2 → exceeded
     await entry2
-    expect(start2.reply).toHaveBeenLastCalledWith('agotado')
+    expect(texts(start2.reply).at(-1)).toBe('agotado')
   })
 
   it('c.idleClear() disarms it; c.idle() again replaces the previous one', async () => {
@@ -285,7 +289,7 @@ describe('c.idle() / c.idleClear() — conversation inactivity', () => {
     release()
     await settle()
     expect(caught).toBeInstanceOf(ConversationCancelled)
-    expect(start.reply).not.toHaveBeenCalledWith('tarde')
+    expect(texts(start.reply)).not.toContain('tarde')
     expect(onError).not.toHaveBeenCalled()
     expect(rejections).toHaveLength(0)
   })
@@ -422,7 +426,7 @@ describe('c.idle() / c.idleClear() — conversation inactivity', () => {
     await vi.advanceTimersByTimeAsync(1000)
     expect(onError).toHaveBeenCalledOnce()
     expect(onError.mock.calls[0][0]).toBeInstanceOf(ConcurrentWaitError)
-    expect(start.reply).not.toHaveBeenCalledWith('¿Sigues ahí?')
+    expect(texts(start.reply)).not.toContain('¿Sigues ahí?')
     rt.deliver(makeMsg('aquí'))
     await entry
     expect(answer).toBe('aquí')

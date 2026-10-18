@@ -7,6 +7,10 @@ import { createTestBot } from '../src/testing/createTestBot.js'
 import { flow } from '../src/flows/FlowBuilder.js'
 import { MemoryStore } from '../src/store/MemoryStore.js'
 
+/** Texts passed to a `reply` mock (controls also pass pacing options as a 2nd argument). */
+const texts = (fn: { mock: { calls: unknown[][] } }): unknown[] => fn.mock.calls.map((c) => c[0])
+
+
 function makeMsg(body: string, type = 'text') {
   return { from: 'a@s.whatsapp.net', sender: 'a@s.whatsapp.net', body, type, isGroup: false, reply: vi.fn(async (_t: string) => {}) }
 }
@@ -25,10 +29,10 @@ describe('c.retry() — async conversations (in place)', () => {
       letter = await c.ask('Escribe una letra')
       while (letter.length !== 1) letter = await c.retry()
     }, start)
-    await vi.waitFor(() => expect(start.reply).toHaveBeenCalledWith('Escribe una letra'))
+    await vi.waitFor(() => expect(texts(start.reply)).toContain('Escribe una letra'))
     rt.deliver(makeMsg('abc'))
     await vi.waitFor(() => expect(start.reply).toHaveBeenCalledTimes(2))
-    expect(start.reply).toHaveBeenNthCalledWith(2, 'Escribe una letra')
+    expect(texts(start.reply)[1]).toBe('Escribe una letra')
     rt.deliver(makeMsg('x'))
     await entry
     expect(letter).toBe('x')
@@ -44,7 +48,7 @@ describe('c.retry() — async conversations (in place)', () => {
     }, start)
     await vi.waitFor(() => expect(start.reply).toHaveBeenCalledTimes(1))
     rt.deliver(makeMsg('abc'))
-    await vi.waitFor(() => expect(start.reply).toHaveBeenCalledWith('Solo una letra'))
+    await vi.waitFor(() => expect(texts(start.reply)).toContain('Solo una letra'))
     expect(start.reply).toHaveBeenCalledTimes(2)              // the question was NOT re-sent
     rt.deliver(makeMsg('z'))
     await entry
@@ -63,7 +67,7 @@ describe('c.retry() — async conversations (in place)', () => {
     rt.deliver(makeMsg('uno'))
     await vi.waitFor(() => expect(got).toEqual(['uno']))
     rt.deliver(makeMsg('dos'))
-    await vi.waitFor(() => expect(start.reply).toHaveBeenCalledWith('otra vez'))
+    await vi.waitFor(() => expect(texts(start.reply)).toContain('otra vez'))
     expect(start.reply).toHaveBeenCalledTimes(1)
     rt.deliver(makeMsg('tres'))
     await entry
@@ -78,11 +82,11 @@ describe('c.retry() — async conversations (in place)', () => {
       email = await c.ask('¿Email?', { validate: (b) => b.includes('@') || 'no es email', retries: 10 })
       if (email.endsWith('.test')) email = await c.retry('ese dominio no vale')
     }, start)
-    await vi.waitFor(() => expect(start.reply).toHaveBeenCalledWith('¿Email?'))
+    await vi.waitFor(() => expect(texts(start.reply)).toContain('¿Email?'))
     rt.deliver(makeMsg('a@b.test'))
-    await vi.waitFor(() => expect(start.reply).toHaveBeenCalledWith('ese dominio no vale'))
+    await vi.waitFor(() => expect(texts(start.reply)).toContain('ese dominio no vale'))
     rt.deliver(makeMsg('sin-arroba'))                        // validate still applies on the re-run
-    await vi.waitFor(() => expect(start.reply).toHaveBeenCalledWith('no es email'))
+    await vi.waitFor(() => expect(texts(start.reply)).toContain('no es email'))
     rt.deliver(makeMsg('a@b.co'))
     await entry
     expect(email).toBe('a@b.co')
@@ -97,12 +101,12 @@ describe('c.retry() — async conversations (in place)', () => {
       picks.push(await c.retry())
       picks.push(await c.retry('Esa no, elige otra:'))
     }, start)
-    await vi.waitFor(() => expect(start.reply).toHaveBeenCalledWith('Elige:\n\n1) A\n2) B'))
+    await vi.waitFor(() => expect(texts(start.reply)).toContain('Elige:\n\n1) A\n2) B'))
     rt.deliver(makeMsg('1'))
     await vi.waitFor(() => expect(start.reply).toHaveBeenCalledTimes(2))
-    expect(start.reply).toHaveBeenNthCalledWith(2, 'Elige:\n\n1) A\n2) B')
+    expect(texts(start.reply)[1]).toBe('Elige:\n\n1) A\n2) B')
     rt.deliver(makeMsg('b'))
-    await vi.waitFor(() => expect(start.reply).toHaveBeenCalledWith('Esa no, elige otra:\n\n1) A\n2) B'))
+    await vi.waitFor(() => expect(texts(start.reply)).toContain('Esa no, elige otra:\n\n1) A\n2) B'))
     rt.deliver(makeMsg('2'))
     await entry
     expect(picks).toEqual(['a', 'b', 'b'])
@@ -133,9 +137,9 @@ describe('c.retry() — async conversations (in place)', () => {
       if (got.body === 'borrosa') got = await c.retry<RuntimeMessage>('Está borrosa, envía otra')
     }, start)
     rt.deliver(makeMsg('borrosa', 'image'))
-    await vi.waitFor(() => expect(start.reply).toHaveBeenCalledWith('Está borrosa, envía otra'))
+    await vi.waitFor(() => expect(texts(start.reply)).toContain('Está borrosa, envía otra'))
     rt.deliver(makeMsg('texto', 'text'))                     // still rejected by the image filter
-    await vi.waitFor(() => expect(start.reply).toHaveBeenCalledWith('📎 Envía un archivo válido.'))
+    await vi.waitFor(() => expect(texts(start.reply)).toContain('📎 Envía un archivo válido.'))
     rt.deliver(makeMsg('nítida', 'image'))
     await entry
     expect(got?.body).toBe('nítida')
@@ -150,10 +154,10 @@ describe('c.retry() — async conversations (in place)', () => {
       got.push((await c.waitAny()).body)
       got.push((await c.retry<RuntimeMessage>('de nuevo')).body)
     }, start)
-    await vi.waitFor(() => expect(start.reply).toHaveBeenCalledWith('pregunta'))
+    await vi.waitFor(() => expect(texts(start.reply)).toContain('pregunta'))
     rt.deliver(makeMsg('respuesta'))
     rt.deliver(makeMsg('any-1'))
-    await vi.waitFor(() => expect(start.reply).toHaveBeenCalledWith('de nuevo'))
+    await vi.waitFor(() => expect(texts(start.reply)).toContain('de nuevo'))
     expect(start.reply).toHaveBeenCalledTimes(2)              // did not re-run (re-ask) the ask
     rt.deliver(makeMsg('any-2'))
     await entry
@@ -188,11 +192,11 @@ describe('c.retry() — async conversations (in place)', () => {
       await c.retry('otra')                                    // 1 validate failure + 1 retry = 2 → exceeded
     }, start)
     rt.deliver(makeMsg('mal'))
-    await vi.waitFor(() => expect(start.reply).toHaveBeenCalledWith('inválido'))
+    await vi.waitFor(() => expect(texts(start.reply)).toContain('inválido'))
     rt.deliver(makeMsg('bien'))
     await entry
-    expect(start.reply).toHaveBeenLastCalledWith('agotado')
-    expect(start.reply).not.toHaveBeenCalledWith('otra')
+    expect(texts(start.reply).at(-1)).toBe('agotado')
+    expect(texts(start.reply)).not.toContain('otra')
   })
 
   it('retries: Infinity allows unlimited manual retries', async () => {
@@ -225,7 +229,7 @@ describe('c.retry() — async conversations (in place)', () => {
     for (const b of ['a', 'b', 'c', 'd']) rt.deliver(makeMsg(b))
     await entry
     expect(got).toEqual(['b', 'd'])
-    expect(start.reply).not.toHaveBeenCalledWith('agotado')
+    expect(texts(start.reply)).not.toContain('agotado')
   })
 
   it('retry() before any wait rejects with RetryUnavailableError (→ error path)', async () => {
@@ -239,7 +243,7 @@ describe('c.retry() — async conversations (in place)', () => {
     expect(thrown).toBeInstanceOf(RetryUnavailableError)
     expect(thrown).toBeInstanceOf(ConversationError)
     expect(onError).toHaveBeenCalledOnce()
-    expect(start.reply).toHaveBeenCalledWith('boom')
+    expect(texts(start.reply)).toContain('boom')
   })
 
   it('an un-awaited retry() never surfaces as an unhandled rejection', async () => {
@@ -314,7 +318,7 @@ describe('c.retry() — concurrent waits (un-awaited retry)', () => {
     expect(rt.hasActive(rt.keyFor(start))).toBe(false)
     expect(vi.getTimerCount()).toBe(0)                       // the retry's 1m wait timer did not outlive it
     await vi.advanceTimersByTimeAsync(15 * 60_000)
-    expect(start.reply).not.toHaveBeenCalledWith('expiró')
+    expect(texts(start.reply)).not.toContain('expiró')
     expect(rejections).toHaveLength(0)
   })
 
@@ -351,7 +355,7 @@ describe('c.retry() — concurrent waits (un-awaited retry)', () => {
     rt.deliver(makeMsg('dos'))
     await entry
     expect(got).toEqual(['uno', 'dos'])
-    expect(start.reply).not.toHaveBeenCalledWith('expiró')
+    expect(texts(start.reply)).not.toContain('expiró')
   })
 })
 

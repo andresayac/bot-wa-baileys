@@ -7,10 +7,12 @@ import { flowToConversation, runSteps } from './interpreter.js'
 import type { ConversationControls } from './controls.js'
 import type { FlowCheckpoint } from '../store/IStore.js'
 import type { UserData } from '../user/types.js'
+import type { ReplyOptions } from '../core/messaging.js'
 
 export interface RuntimeMessage {
   from: string; sender: string; body: string; type: string; isGroup: boolean
-  reply(text: string): Promise<unknown>
+  /** `opts` is honored by bot contexts (pacing, `cancelIf`); other implementations may ignore it. */
+  reply(text: string, opts?: ReplyOptions): Promise<unknown>
   /** Sender profile when the message came through a Bot (`userOf(ctx)` gives a non-optional handle). */
   user?: UserData
 }
@@ -391,6 +393,12 @@ export class ConversationRuntime {
    * Controls call this before emitting any output, so a cancelled conversation
    * cannot produce further side effects — it unwinds silently instead.
    */
+  /** `true` while `handle` is the live, non-cancelled entry for its key (no side effects). */
+  isAlive(handle: ConversationHandle): boolean {
+    const entry = handle as ActiveConversation
+    return this.active.get(entry.key) === entry && !entry.cancelled
+  }
+
   assertAlive(handle: ConversationHandle): void {
     const entry = handle as ActiveConversation
     if (this.active.get(entry.key) !== entry || entry.cancelled) {

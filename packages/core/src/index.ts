@@ -303,3 +303,30 @@ export type { FlowMediaKind, FlowFileMediaKind, FlowLocation, FlowMediaOptions, 
 export { isSchemaLike, DEFAULT_SCHEMA_MESSAGE } from './flows/schema.js'
 export type { SchemaLike, SchemaParseResult, SchemaIssueLike, InferSchema } from './flows/schema.js'
 export type { SchemaWaitOptions } from './conversations/controls.js'
+// messaging
+// Automatic typing indicator (BotConfig.typing), reply delays, ctx.edit / ctx.react
+// capability resolution (native / degraded / unsupported).
+export {
+  DEFAULT_TYPING,
+  TYPING_REFRESH_MS,
+  ExternalSendClock,
+  createPacer,
+  messagingSupport,
+  normalizeTypingConfig,
+  resolveReplyTyping,
+  typingDuration,
+  parseReplyDelay,
+  PacedSendCancelled,
+} from './core/messaging.js'
+export type {
+  TypingConfig,
+  ResolvedTypingConfig,
+  ReplyOptions,
+  EditOptions,
+  EditResult,
+  MessagingFeature,
+  MessagingSupport,
+  Pacer,
+  PacerOptions,
+  PaceGuard,
+} from './core/messaging.js'

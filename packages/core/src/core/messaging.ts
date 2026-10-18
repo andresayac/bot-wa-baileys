@@ -1,0 +1,299 @@
+/**
+ * Outbound messaging ergonomics: automatic typing indicator, reply delays,
+ * the external-send clock behind `ctx.edit` and capability resolution.
+ *
+ * Everything here is transport-agnostic: it only reads
+ * {@link ProviderCapabilities} and feature-detects the optional
+ * `IProvider.typing` / `IProvider.editMessage` methods. A failing typing
+ * indicator NEVER fails a send — it is cosmetic and best effort.
+ *
+ * Support levels (see {@link messagingSupport}):
+ *  - `typing`: `native` when `capabilities.typing` and `provider.typing` exist;
+ *    otherwise `unsupported` (no indicator AND no artificial wait).
+ *  - `delay`:  always `native` (it is a core-side pause).
+ *  - `edit`:   `native` when `capabilities.edit` and `provider.editMessage` exist;
+ *    otherwise `degraded` (`ctx.edit` sends the new content as a new message,
+ *    unless called with `{ fallback: 'skip' }`).
+ *  - `react`:  `native` when `capabilities.reactions`; otherwise `unsupported`
+ *    (`ctx.react` resolves a `skipped` result instead of rejecting).
+ */
+
+import { parseDuration } from '../utils/duration.js'
+import { MAX_TIMER_MS, sleep as defaultSleep } from '../utils/timers.js'
+import type { ChatId, IProvider, MessageRef, OutboundContent } from './provider.js'
+
+/** Automatic typing-indicator policy (`BotConfig.typing`, `ctx.reply(text, { typing })`). */
+export interface TypingConfig {
+  /** Show the indicator before text replies. Defaults to `false` globally, `true` when set per reply. */
+  enabled?: boolean
+  /** Shortest time the indicator is shown before the text is sent (ms). Default 800. */
+  minMs?: number
+  /** Longest time the indicator is shown before the text is sent (ms). Default 3000. */
+  maxMs?: number
+  /** Simulated typing speed used to size the wait between `minMs` and `maxMs`. Default 20. */
+  charsPerSecond?: number
+}
+
+/** A fully-resolved {@link TypingConfig}. */
+export type ResolvedTypingConfig = Required<TypingConfig>
+
+/** Defaults applied to every missing {@link TypingConfig} field. */
+export const DEFAULT_TYPING: Readonly<ResolvedTypingConfig> = Object.freeze({
+  enabled: false,
+  minMs: 800,
+  maxMs: 3000,
+  charsPerSecond: 20,
+})
+
+/** Per-reply pacing options accepted by `ctx.reply/say/answer/text/quote(text, opts)`. */
+export interface ReplyOptions {
+  /**
+   * Override the bot-wide typing policy for this reply: `true` shows it with the
+   * bot's timing, `false` suppresses it, an object enables it with these overrides
+   * (set `enabled: false` inside it to suppress).
+   */
+  typing?: boolean | TypingConfig
+  /**
+   * Pause before this reply (before the typing indicator, if any). Milliseconds or a
+   * duration string (`'1.5s'`, `'500ms'`). Honored on every transport.
+   */
+  delay?: number | string
+  /**
+   * Checked after the delay / typing wait (only when there was one): when it returns
+   * `true` the reply is dropped and resolves a `skipped` result. Flow `.say` uses it so
+   * an aborted conversation does not speak after the fact. The bot also drops a paced
+   * reply when it stops or the chat is handed off during the wait.
+   */
+  cancelIf?: () => boolean
+}
+
+/** How a provider supports a messaging feature. */
+export type MessagingSupport = 'native' | 'degraded' | 'unsupported'
+
+/** Messaging features whose support can be queried with `ctx.supports()` / {@link messagingSupport}. */
+export type MessagingFeature = 'typing' | 'delay' | 'edit' | 'react'
+
+/** Options for `ctx.edit()`. */
+export interface EditOptions {
+  /**
+   * What to do when the provider cannot edit (no `capabilities.edit`, no
+   * `editMessage`, the content kind is not editable there, or there is no message to
+   * edit): `'send'` (default) sends the content as a new message; `'skip'` sends
+   * nothing and resolves `{ edited: false, skipped: true }`.
+   */
+  fallback?: 'send' | 'skip'
+}
+
+/** Result of `ctx.edit()`: a {@link SentMessage}-shaped object plus whether it was edited in place. */
+export interface EditResult {
+  ref: MessageRef
+  id: string
+  chatId: ChatId
+  raw?: unknown
+  skipped?: boolean
+  /** `true` when the provider edited the message in place; `false` on fallback or skip. */
+  edited: boolean
+}
+
+/** Minimal logger surface used here. */
+interface DebugLogger { debug(...args: unknown[]): void }
+
+/** Resolve the support level of a messaging feature for a provider. */
+export function messagingSupport(provider: Pick<IProvider, 'capabilities' | 'typing' | 'editMessage'>, feature: MessagingFeature): MessagingSupport {
+  const caps = provider.capabilities
+  switch (feature) {
+    case 'typing':
+      return caps.typing && typeof provider.typing === 'function' ? 'native' : 'unsupported'
+    case 'delay':
+      return 'native'
+    case 'edit':
+      return caps.edit && typeof provider.editMessage === 'function' ? 'native' : 'degraded'
+    case 'react':
+      return caps.reactions ? 'native' : 'unsupported'
+  }
+}
+
+function checkMs(value: unknown, name: string): void {
+  if (value === undefined) return
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > MAX_TIMER_MS) {
+    throw new RangeError(`${name} must be a finite number between 0 and ${MAX_TIMER_MS} — got ${String(value)}`)
+  }
+}
+
+/**
+ * Normalize a `BotConfig.typing` value (`true` = defaults enabled). Throws
+ * `RangeError` on negative/non-finite timings, a non-positive speed or `minMs > maxMs`.
+ */
+export function normalizeTypingConfig(input: boolean | TypingConfig | undefined, base: ResolvedTypingConfig = DEFAULT_TYPING): ResolvedTypingConfig {
+  if (input === undefined) return { ...base }
+  if (typeof input === 'boolean') return { ...base, enabled: input }
+  checkMs(input.minMs, 'typing.minMs')
+  checkMs(input.maxMs, 'typing.maxMs')
+  if (input.charsPerSecond !== undefined && (!Number.isFinite(input.charsPerSecond) || input.charsPerSecond <= 0)) {
+    throw new RangeError(`typing.charsPerSecond must be a positive number — got ${String(input.charsPerSecond)}`)
+  }
+  const out: ResolvedTypingConfig = {
+    enabled: input.enabled ?? base.enabled,
+    minMs: input.minMs ?? base.minMs,
+    maxMs: input.maxMs ?? base.maxMs,
+    charsPerSecond: input.charsPerSecond ?? base.charsPerSecond,
+  }
+  if (out.minMs > out.maxMs) {
+    // An explicit bound wins over an inherited one: an explicit min raises the inherited
+    // max, an explicit max lowers the inherited min. Only two explicit bounds can conflict.
+    if (input.maxMs === undefined) out.maxMs = out.minMs
+    else if (input.minMs === undefined) out.minMs = out.maxMs
+    else throw new RangeError(`typing.minMs (${out.minMs}) must be <= typing.maxMs (${out.maxMs})`)
+  }
+  return out
+}
+
+/** Combine the bot-wide policy with a per-reply override. */
+export function resolveReplyTyping(global: ResolvedTypingConfig, override: ReplyOptions['typing']): ResolvedTypingConfig {
+  if (override === undefined) return global
+  if (typeof override === 'boolean') return { ...global, enabled: override }
+  return normalizeTypingConfig({ enabled: true, ...override }, global)
+}
+
+/** How long the indicator is shown for `text`: `len / charsPerSecond`, clamped to `[minMs, maxMs]`. */
+export function typingDuration(text: string, cfg: Pick<ResolvedTypingConfig, 'minMs' | 'maxMs' | 'charsPerSecond'>): number {
+  const raw = Math.round((Array.from(text).length / cfg.charsPerSecond) * 1000)
+  return Math.min(cfg.maxMs, Math.max(cfg.minMs, raw))
+}
+
+/** Parse `ReplyOptions.delay` to ms (`undefined` → 0). Throws `RangeError` when negative/too large. */
+export function parseReplyDelay(delay: number | string | undefined): number {
+  if (delay === undefined) return 0
+  const ms = parseDuration(delay)
+  checkMs(ms, 'delay')
+  return ms
+}
+
+/**
+ * Logical clock of sends that did NOT come from a handler's `ctx` (`bot.send`,
+ * `bot.sendTo` from a human agent, campaigns, a `ctx` send into another chat).
+ * Each context remembers its own last reply together with {@link now} at send time;
+ * `ctx.edit(content)` only edits it while no such send went to the chat afterwards
+ * (`lastExternal(chatId) <= recordedAt`). Bounded: the oldest chats are evicted.
+ */
+export class ExternalSendClock {
+  private seq = 0
+  private readonly last = new Map<ChatId, number>()
+  constructor(private readonly max = 10_000) {}
+
+  /** Current tick; a context records it right after each of its own sends. */
+  now(): number {
+    return this.seq
+  }
+
+  /** Record an external send to `chatId`. */
+  mark(chatId: ChatId): void {
+    this.last.delete(chatId)
+    this.last.set(chatId, ++this.seq)
+    if (this.last.size > this.max) {
+      const oldest = this.last.keys().next().value
+      if (oldest !== undefined) this.last.delete(oldest)
+    }
+  }
+
+  /** Tick of the latest external send to `chatId` (`0` when none is known). */
+  lastExternal(chatId: ChatId): number {
+    return this.last.get(chatId) ?? 0
+  }
+}
+
+/** True when a send of `content` should become the chat's "last sent" message. */
+export function isEditableSend(content: OutboundContent): boolean {
+  return content.kind !== 'reaction'
+}
+
+/** Some transports (Telegram) expire the indicator after ~5 s: re-issue it this often. */
+export const TYPING_REFRESH_MS = 4000
+
+export interface PacerOptions {
+  provider: Pick<IProvider, 'capabilities' | 'typing'>
+  typing: ResolvedTypingConfig
+  logger?: DebugLogger
+  /** Injected for tests. */
+  sleep?: (ms: number) => Promise<void>
+}
+
+/** Re-checked after every pacing wait; when `cancelled()` is true the send is dropped. */
+export interface PaceGuard<T> {
+  cancelled(): boolean
+  /** Result returned instead of sending. */
+  skip(): T
+}
+
+/** Paces text replies: optional delay, then a typing indicator sized to the text, then the send. */
+export interface Pacer {
+  run<T>(chatId: ChatId, text: string, opts: ReplyOptions | undefined, send: () => Promise<T>, guard?: PaceGuard<T>): Promise<T>
+}
+
+export function createPacer(options: PacerOptions): Pacer {
+  const { provider, logger } = options
+  const wait = options.sleep ?? defaultSleep
+
+  const indicate = (chatId: ChatId, state: 'typing' | 'paused'): void => {
+    // Fire-and-forget: a slow or failing indicator never delays or fails the send.
+    void Promise.resolve()
+      .then(() => provider.typing?.(chatId, state))
+      .catch((error: unknown) => {
+        logger?.debug({ chatId, state, err: error instanceof Error ? error.message : String(error) }, 'typing indicator failed (ignored)')
+      })
+  }
+
+  return {
+    async run(chatId, text, opts, send, guard) {
+      const delayMs = parseReplyDelay(opts?.delay)
+      const cfg = resolveReplyTyping(options.typing, opts?.typing)
+      // Anything may happen while we wait (handoff, abort, stop): re-check before sending.
+      const cancelled = (): boolean => guard?.cancelled() === true || opts?.cancelIf?.() === true
+      if (delayMs > 0) {
+        await wait(delayMs)
+        if (cancelled()) return skipOrThrow(guard)
+      }
+
+      const typingMs = cfg.enabled && messagingSupport(provider as IProvider, 'typing') === 'native'
+        ? typingDuration(text, cfg)
+        : 0
+      if (typingMs <= 0) return send()
+
+      indicate(chatId, 'typing')
+      try {
+        let remaining = typingMs
+        while (remaining > 0) {
+          const step = Math.min(remaining, TYPING_REFRESH_MS)
+          await wait(step)
+          remaining -= step
+          if (cancelled()) return skipOrThrow(guard)
+          if (remaining > 0) indicate(chatId, 'typing')
+        }
+        return await send()
+      } finally {
+        indicate(chatId, 'paused')
+      }
+    },
+  }
+}
+
+/** A cancelled paced send without a guard cannot fabricate a result: report it as an abort. */
+function skipOrThrow<T>(guard: PaceGuard<T> | undefined): T {
+  if (guard) return guard.skip()
+  throw new PacedSendCancelled()
+}
+
+/** Thrown by {@link Pacer.run} when a reply is cancelled during its wait and no guard supplies a result. */
+export class PacedSendCancelled extends Error {
+  constructor() {
+    super('paced reply cancelled before it was sent')
+    this.name = 'PacedSendCancelled'
+  }
+}
+
+/** Distinguish `ctx.edit(ref, …)` from `ctx.edit(content)`. */
+export function isMessageRef(x: unknown): x is MessageRef {
+  return typeof x === 'object' && x !== null && !('kind' in x)
+    && typeof (x as { id?: unknown }).id === 'string'
+    && typeof (x as { chatId?: unknown }).chatId === 'string'
+}

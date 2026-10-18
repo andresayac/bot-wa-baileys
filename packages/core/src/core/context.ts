@@ -16,14 +16,19 @@
 
 import { humanTypingDelay, sleep } from '../utils/timers.js'
 import { unavailableUserData } from '../user/UserDataService.js'
+import { isEditableSend, isMessageRef, type EditOptions, type EditResult, type ReplyOptions } from './messaging.js'
+import { UnsupportedContentError } from './provider.js'
 import type {
   BuildContextDeps,
   Button,
+  ChatId,
   DefaultTools,
   MediaPayload,
   MediaRef,
   MediaSource,
   MessageContext as IMessageContext,
+  MessageRef,
+  OutboundContent,
   SendOptions,
   SentMessage,
 } from './provider.js'
@@ -35,9 +40,60 @@ export function buildMessageContext(deps: BuildContextDeps): IMessageContext {
   const isGroup = inbound.isGroup
   const isPrivate = inbound.chat.kind === 'dm'
 
-  const sendOut = async (content: Parameters<typeof send>[1], opts?: SendOptions): Promise<SentMessage> => {
-    const r = await send(from, content, opts)
+  // This context's own last reply (target of `ctx.edit(content)`), stamped with the
+  // external-send clock so a later `bot.send`/`sendTo` to the chat invalidates it.
+  let ownLast: { ref: MessageRef; kind: OutboundContent['kind']; at: number } | undefined
+
+  const sendTo = async (chatId: ChatId, content: OutboundContent, opts?: SendOptions): Promise<SentMessage> => {
+    const r = await send(chatId, content, opts)
+    if (chatId === from && !r.skipped && isEditableSend(content)) {
+      ownLast = { ref: r.ref, kind: content.kind, at: deps.sendClock?.now() ?? 0 }
+    }
     return { ref: r.ref, id: r.ref.id, chatId: r.ref.chatId, raw: r.raw, skipped: r.skipped }
+  }
+  const sendOut = (content: OutboundContent, opts?: SendOptions): Promise<SentMessage> => sendTo(from, content, opts)
+
+  // Text replies run through the pacer (delay + typing indicator) when the bot provides one.
+  const sendText = (t: string, opts?: ReplyOptions, sendOpts?: SendOptions): Promise<SentMessage> => {
+    const run = () => sendOut({ kind: 'text', text: t }, sendOpts)
+    return deps.pace ? deps.pace(from, t, opts, run) : run()
+  }
+
+  const skipped = (ref: MessageRef = { id: 'skipped', chatId: from }): SentMessage =>
+    ({ ref, id: ref.id, chatId: ref.chatId, skipped: true })
+
+  const edit = async (
+    a: MessageRef | string | OutboundContent,
+    b?: string | OutboundContent | EditOptions,
+    c?: EditOptions,
+  ): Promise<EditResult> => {
+    const explicit = isMessageRef(a)
+    const raw = (explicit ? b : a) as string | OutboundContent
+    const opts = (explicit ? c : b as EditOptions | undefined) ?? {}
+    const content: OutboundContent = typeof raw === 'string' ? { kind: 'text', text: raw } : raw
+    // The implicit target is this context's own last reply, and only when it has the same
+    // kind (editing text over a photo or poll is not a meaningful, or portable, edit) and no
+    // send from outside this chat's ctx replies reached the chat after it.
+    const own = explicit ? undefined : ownLast
+    const fresh = own !== undefined && own.kind === content.kind
+      && (deps.sendClock ? deps.sendClock.lastExternal(from) <= own.at : true)
+    const target = explicit ? a : fresh ? own.ref : undefined
+    const native = deps.editMessage && (deps.supports ? deps.supports('edit') === 'native' : true)
+    if (target && native) {
+      try {
+        const r = await deps.editMessage!(target, content)
+        // A before('send') hook blocked the edit: honor it, do not send a new message instead.
+        if (r.skipped) return { ...skipped(target), edited: false }
+        const ref = r.ref ?? target
+        return { ref, id: ref.id, chatId: ref.chatId, raw: r.raw, edited: true }
+      } catch (error) {
+        if (!(error instanceof UnsupportedContentError)) throw error
+      }
+    }
+    if (opts.fallback === 'skip') return { ...skipped(target), edited: false }
+    // Degraded edit: a new message in the chat of the message being edited.
+    const sent = await sendTo(target?.chatId ?? from, content)
+    return { ...sent, edited: false }
   }
 
   const ctx: IMessageContext = {
@@ -67,10 +123,10 @@ export function buildMessageContext(deps: BuildContextDeps): IMessageContext {
     },
 
     /* Send helpers — build OutboundContent descriptors ------------------- */
-    async say(t: string) { return sendOut({ kind: 'text', text: t }) },
-    async reply(t: string) { return sendOut({ kind: 'text', text: t }) },
-    async answer(t: string) { return sendOut({ kind: 'text', text: t }) },
-    async text(t: string) { return sendOut({ kind: 'text', text: t }) },
+    async say(t: string, opts?: ReplyOptions) { return sendText(t, opts) },
+    async reply(t: string, opts?: ReplyOptions) { return sendText(t, opts) },
+    async answer(t: string, opts?: ReplyOptions) { return sendText(t, opts) },
+    async text(t: string, opts?: ReplyOptions) { return sendText(t, opts) },
     async photo(source: MediaSource, caption?: string) {
       return sendOut({ kind: 'image', media: source, caption })
     },
@@ -97,17 +153,22 @@ export function buildMessageContext(deps: BuildContextDeps): IMessageContext {
     async buttons(text: string, buttons: Button[]) {
       return sendOut({ kind: 'buttons', text, buttons })
     },
-    async react(emoji: string) {
-      return sendOut({ kind: 'reaction', emoji, target: inbound.ref })
+    async react(emoji: string, target?: MessageRef) {
+      // Degrade to a no-op where reactions cannot be sent (Messenger, Instagram).
+      if (deps.supports?.('react') === 'unsupported') return skipped()
+      return sendOut({ kind: 'reaction', emoji, target: target ?? inbound.ref })
     },
-    async quote(t: string) {
-      return sendOut({ kind: 'text', text: t }, { quoted: inbound.ref })
+    async quote(t: string, opts?: ReplyOptions) {
+      return sendText(t, opts, { quoted: inbound.ref })
     },
+    edit,
+    supports(feature) { return deps.supports ? deps.supports(feature) : 'native' },
     async replyWithTyping(t: string, msPerChar = 40) {
       const ms = humanTypingDelay(t, msPerChar)
       await ctx.typing()
       await sleep(ms)
-      return ctx.text(t)
+      // Straight to the send: replyWithTyping already paced itself (no BotConfig.typing on top).
+      return sendOut({ kind: 'text', text: t })
     },
     async sendNative(provider: string, payload: unknown) {
       return sendOut({ kind: 'native', provider, payload })
