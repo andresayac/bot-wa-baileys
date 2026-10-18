@@ -389,6 +389,27 @@ describe('conversations and built-in messages', () => {
     await bot.stop()
   })
 
+  it('c.goto() carries the latest language into the target conversation', async () => {
+    const { bot, provider } = await makeBot()
+    bot.locale('es', ES).locale('en', EN)
+    bot.conversation('a', async (c) => {
+      await c.say('a')
+      await c.waitText()
+      c.goto('b')
+    })
+    bot.conversation('b', async (c) => {
+      await c.say(`${c.lang}:${c.t('menu.title')}`)
+    })
+    bot.command('lang', async (ctx, [code]) => { await ctx.setLang(code) })
+    await deliver(bot, provider, 'a')
+    await until(() => texts(provider).length === 1)
+    await deliver(bot, provider, '/lang en')
+    await deliver(bot, provider, 'ok')
+    await until(() => texts(provider).length === 2)
+    expect(texts(provider)).toEqual(['a', 'en:Main menu'])
+    await bot.stop()
+  })
+
   it('flow DSL steps can translate through c.t', async () => {
     const { bot, provider } = await makeBot()
     bot.locale('es', ES).locale('en', EN)

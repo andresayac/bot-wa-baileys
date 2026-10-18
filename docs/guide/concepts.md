@@ -20,7 +20,8 @@ flowchart TD
     ACL -->|No| P[Persist chat, contact, message]
     P --> GM{"groupMode filter"}
     GM -->|Ignored| X2[Stops here]
-    GM -->|OK| B["before('message') hooks"]
+    GM -->|OK| L["Resolve ctx.lang (i18n)"]
+    L --> B["before('message') hooks"]
     B --> HO{"Chat handed off<br/>to a human?"}
     HO -->|"Yes (except allowCommands)"| J
     HO -->|No| C{"Command? e.g. /reset"}
@@ -48,7 +49,11 @@ flowchart TD
 3. **Persistence**: the chat, contact and message are upserted in the store.
 4. **`groupMode` filter**: a group message the bot must ignore stops here
    (it is still persisted).
-5. **`before('message')` hooks**: they may `abort()` the message.
+5. **Language resolution, then `before('message')` hooks**: when
+   [i18n](./i18n) is enabled, `ctx.lang` is resolved first (stored
+   `ctx.user` preference → provider-reported language → `detect` →
+   default), so hooks and handlers already see it. Then the hooks run and
+   may `abort()` the message.
 6. **Handoff gate**: while a chat is [handed off to a human](./handoff),
    steps 7–11 are skipped (except the commands in `handoff.allowCommands`).
    The message is still persisted, hooks still run and `'message'` still
@@ -71,7 +76,8 @@ flowchart TD
     (`bot.onIdle` timers re-arm here).
 
 Incoming **calls** take a separate path: the same access-list and handoff
-gates, then only [`CALL` triggers](./triggers#call). No message hooks,
+gates, the same language resolution, then only
+[`CALL` triggers](./triggers#call). No message hooks,
 commands or `'message'` event.
 
 If a handler throws, the `onError('message')` hooks run and the error is

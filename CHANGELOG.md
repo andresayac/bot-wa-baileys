@@ -4,6 +4,12 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/). Versionado po
 
 ## [Unreleased]
 
+### `@bot-wa/core`: i18n nativo
+- **`bot.locale(code, messages)` / `bot.locale(options)`** (o `BotConfig.i18n`): registro de idiomas con claves anidadas, interpolación `{param}` y formas plurales (`params.count`, `Intl.PluralRules`). Una clave que falta cae al idioma base, luego al idioma por defecto y luego a la propia clave.
+- **`ctx.t()` / `ctx.lang` / `ctx.setLang()`** y **`c.t()` / `c.lang`** en conversaciones (siguen el último mensaje, también tras `c.goto()`); **`bot.t()`**, **`bot.langOf()`** y **`bot.locales()`** fuera de los handlers. Nuevo `SenderInfo.language` para que el provider informe del idioma del remitente.
+- El idioma se resuelve en cada mensaje, dentro de la cola por chat y antes de los hooks `before('message')`: preferencia en `ctx.user` → idioma del provider → `detect` → idioma por defecto. Sin configuración de i18n no cambia nada.
+- Los mensajes internos del core (timeouts, reintentos, errores, validación de esperas, comandos slash) se pueden traducir bajo `core.*`, con `es` y `en` incluidos. Guía nueva: Internacionalización (i18n).
+
 ### Repositorio
 - **Reorganizado a monorepo pnpm transporte-agnóstico.** El core dejó de ser específico de WhatsApp: `@bot-wa/bot-wa-baileys` pasó a **`@bot-wa/core`** (motor con `IProvider v2`, cero concepto de transporte). WhatsApp/Baileys vive ahora en `@bot-wa/baileys`.
 - **24 paquetes**: core; transportes (`baileys`, `meta`, `telegram`, `messenger`, `instagram`, `discord`); stores (`sqlite-store`, `redis-store`, `mongo-store`, `postgres-store`, `mysql-store`); infra compartida (`http`, `graph-core`); plugins (`ai`, `nlu`, `manager`, `events`); producto/operación (`inbox`, `crm`, `hub`, `campaigns`, `deployments`); tooling (`create-bot-wa`).

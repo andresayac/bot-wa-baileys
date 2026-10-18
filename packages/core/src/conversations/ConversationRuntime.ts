@@ -244,6 +244,15 @@ export class ConversationRuntime {
   }
 
   async enter(nameOrFn: string | ConversationFn, ctx: RuntimeMessage): Promise<void> {
+    return this.run(nameOrFn, ctx)
+  }
+
+  /**
+   * `latest` seeds the new entry's latest message: on `c.goto()` the target inherits the
+   * newest message of the conversation it replaces, so `c.t`/`c.lang` and the built-in
+   * messages keep the language the user switched to mid-conversation.
+   */
+  private async run(nameOrFn: string | ConversationFn, ctx: RuntimeMessage, latest?: RuntimeMessage): Promise<void> {
     const fn = typeof nameOrFn === 'string' ? this.registry.get(nameOrFn) : nameOrFn
     if (!fn) throw new Error(`Conversation "${String(nameOrFn)}" is not registered`)
 
@@ -253,7 +262,7 @@ export class ConversationRuntime {
     this.preserveOnAbort.delete(key)
     if (this.active.has(key)) this.abort(key)
 
-    const entry: ActiveConversation = { key, state: {}, inbox: [] }
+    const entry: ActiveConversation = { key, state: {}, inbox: [], ...(latest ? { latest } : {}) }
     this.active.set(key, entry)
 
     const controls = (this.cfg.controlsFactory ?? defaultControlsFactory)(this, entry, ctx)
@@ -282,7 +291,7 @@ export class ConversationRuntime {
     } finally {
       this.cleanup(entry)
     }
-    if (goto && !entry.cancelled) await this.enter(goto.target, ctx)
+    if (goto && !entry.cancelled) await this.run(goto.target, ctx, entry.latest)
   }
 
   deliver(ctx: RuntimeMessage): boolean {
