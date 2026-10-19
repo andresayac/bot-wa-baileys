@@ -40,10 +40,10 @@ código que antes, en memoria y en un solo proceso.
 | Backend | Paquete | Sobrevive a una caída | Varias réplicas |
 | --- | --- | --- | --- |
 | `MemoryDurability` (el de `durability: {}`) | `@bot-wa/core` | No (solo reintentos, backoff y DLQ) | No |
-| `FileDurability.open(ruta)` | `@bot-wa/core` | Sí | No (un archivo de lock rechaza un segundo proceso vivo) |
+| `FileDurability.open(ruta)` | `@bot-wa/core` | Sí | No (un archivo de lock rechaza un segundo proceso vivo, y un segundo `open()` en el mismo proceso hasta `close()`) |
 | `PostgresDurability({ pool \| connectionString, tablePrefix })` | `@bot-wa/postgres-store` | Sí | Sí, con enrutado fijo por chat (ver *Varias réplicas*) |
 | `RedisDurability({ client \| url, prefix })` | `@bot-wa/redis-store` | Sí (con la persistencia de Redis activada) | Sí, con enrutado fijo por chat (ver *Varias réplicas*) |
-| `eventsDurability({ journal })` | `@bot-wa/events/durability` (privado, solo en el monorepo) | Con un `FileEventJournal` abierto con `{ lock: true }` | No (ver *Un journal de `@bot-wa/events`*) |
+| `eventsDurability({ journal })` | `@bot-wa/events/durability` (privado, solo en el monorepo) | Con un `FileEventJournal` abierto con `{ lock: true }` o un `SharedFileEventJournal` | Con un `SharedFileEventJournal` (procesos en un mismo host; ver *Un journal de `@bot-wa/events`*) |
 
 PostgreSQL crea una tabla, `{tablePrefix}durable`, de forma idempotente al
 arrancar. Redis usa claves bajo `{prefix}:{durable:inbox:<scope>}` y
@@ -96,9 +96,27 @@ const bot = new Bot({ provider, durability: { journal: eventsDurability({ journa
   bot un archivo de journal propio, acorta la retención o pasa un `outbox` respaldado por
   una base de datos; o usa `FileDurability` o un backend de base de datos.
 - Para varias réplicas hace falta un `LeasedEventJournal` compartido, con operaciones
-  atómicas y con fencing, y un `outbox` compartido
-  (`eventsDurability({ journal, outbox: kv })`, con el `DurableKv` de un backend de
-  Postgres o Redis). Todavía no se incluye ningún journal así.
+  atómicas y con fencing. `SharedFileEventJournal` es uno: varios procesos abren el mismo
+  archivo y cada escritura corre bajo un mutex entre procesos (`<archivo>.mutex`) sobre el
+  archivo actual, así que los claims son exclusivos y los fencing tokens valen entre
+  procesos. El outbox vive en el mismo archivo y también se comparte:
+
+  ```ts
+  import { SharedFileEventJournal } from '@bot-wa/events'
+
+  const journal = await SharedFileEventJournal.open('./data/events.json')
+  const bot = new Bot({ provider, durability: { journal: eventsDurability({ journal }) } })
+  ```
+
+  Está pensado para pocos procesos en un mismo host (o un sistema de archivos con rename
+  atómico y creación exclusiva; no NFS): cada escritura relee y reescribe el archivo
+  entero. Un mutex que dejó un proceso muerto se rompe al momento, y uno retenido más de
+  `staleLockMs` (30 s por defecto) se da por abandonado; nunca se mata nada. El formato
+  del archivo es el de `FileEventJournal`, pero no abras un archivo con los dos a la vez
+  (el journal compartido rechaza un archivo que tiene un `FileEventJournal` vivo). La
+  regla del mismo chat de *Varias réplicas* sigue valiendo. Para mucho tráfico, usa otro
+  `LeasedEventJournal` con un `outbox` compartido (`eventsDurability({ journal, outbox: kv })`,
+  con el `DurableKv` de un backend de Postgres o Redis), o esos backends directamente.
 
 ## Qué se garantiza
 
@@ -247,6 +265,8 @@ y la media se descarga igual que con un mensaje en vivo.
 | `@bot-wa/meta` (Cloud API) | El id de la media | Meta guarda la media entrante unos 30 días. |
 | `@bot-wa/telegram` | El `file_id` | Solo sirve con el mismo token del bot. |
 | `@bot-wa/twilio` | La URL de la media | Al leerla solo se aceptan URLs `https` del origen de la API o de un host `twilio.com`. |
+| `@bot-wa/messenger`, `@bot-wa/instagram` | La URL del adjunto | Solo se guardan y se aceptan URLs de las CDN de Meta (`fbcdn.net`, `fbsbx.com`, `cdninstagram.com`; `mediaRefHosts` reemplaza la lista). Las URLs van firmadas y caducan, así que una reproducción tardía no puede descargar. |
+| `@bot-wa/discord` | La URL del adjunto | Solo URLs de las CDN de Discord (`discordapp.com`, `discordapp.net`; `mediaRefHosts` reemplaza la lista). Las URLs de adjuntos de Discord caducan a las 24 horas, más o menos. |
 | Otros providers | El token tal cual (como antes) | Sus tokens ya son ids o URLs. |
 
 No se anota ninguna credencial: los tokens y las claves se añaden de nuevo al

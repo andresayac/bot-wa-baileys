@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { mkdir, open, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises'
+import { link, mkdir, open, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 
 export interface EventContext {
@@ -266,7 +266,21 @@ export interface LeasedEventJournal extends EventJournal {
    * data, if any, is restored before this returns. A name is registered once per journal.
    */
   sidecar?(name: string, state: JournalSidecar): SidecarHandle
+  /**
+   * Multi-process journals (no `sidecar`): read named side state from the current snapshot
+   * (`undefined` when absent). Used with {@link updateSidecar}.
+   */
+  readSidecar?(name: string): Promise<unknown>
+  /**
+   * Multi-process journals: update named side state atomically (under the same cross-process
+   * exclusion as the records). `update` gets the current data; returning `data` writes it,
+   * returning only `result` writes nothing.
+   */
+  updateSidecar?<T>(name: string, update: SidecarUpdate<T>): Promise<T>
 }
+
+/** See {@link LeasedEventJournal.updateSidecar}. */
+export type SidecarUpdate<T> = (data: unknown) => { data?: unknown; result: T } | Promise<{ data?: unknown; result: T }>
 
 function claimable(record: EventRecord, now: number, owner: string | undefined, reclaimOwn: boolean): boolean {
   if (record.state === 'pending' || record.state === 'failed') return record.nextAttemptAt <= now
@@ -475,6 +489,21 @@ export interface FileEventJournalOptions {
   lock?: boolean
 }
 
+/** Parse a journal snapshot (format version 1 or 2). @throws {Error} when it is not one. */
+function parseSnapshot(text: string): { records: EventRecord[]; sidecars: Record<string, unknown> } {
+  const parsed = JSON.parse(text) as { version?: number; records?: EventRecord[]; sidecars?: unknown }
+  const okSidecars = parsed?.version === 1 || (typeof parsed?.sidecars === 'object' && parsed.sidecars !== null && !Array.isArray(parsed.sidecars))
+  if ((parsed?.version !== 1 && parsed?.version !== 2) || !Array.isArray(parsed.records) || !okSidecars) {
+    throw new Error('invalid event journal snapshot')
+  }
+  return { records: parsed.records, sidecars: parsed.version === 2 ? parsed.sidecars as Record<string, unknown> : {} }
+}
+
+/** Snapshot text: version 1 while there is no side state (readable by older versions), else 2. */
+function snapshotText(records: EventRecord[], sidecars: Record<string, unknown>): string {
+  return Object.keys(sidecars).length === 0 ? JSON.stringify({ version: 1, records }) : JSON.stringify({ version: 2, records, sidecars })
+}
+
 function pidAlive(pid: number): boolean {
   if (!Number.isInteger(pid) || pid <= 0) return false
   if (pid === process.pid) return true
@@ -567,13 +596,7 @@ export class FileEventJournal implements LeasedEventJournal {
     let records: EventRecord[] = []
     let sidecars: Record<string, unknown> = {}
     try {
-      const parsed = JSON.parse(await readFile(filePath, 'utf8')) as { version?: number; records?: EventRecord[]; sidecars?: unknown }
-      const okSidecars = parsed.version === 1 || (typeof parsed.sidecars === 'object' && parsed.sidecars !== null && !Array.isArray(parsed.sidecars))
-      if ((parsed.version !== 1 && parsed.version !== 2) || !Array.isArray(parsed.records) || !okSidecars) {
-        throw new Error('invalid event journal snapshot')
-      }
-      records = parsed.records
-      if (parsed.version === 2) sidecars = parsed.sidecars as Record<string, unknown>
+      ;({ records, sidecars } = parseSnapshot(await readFile(filePath, 'utf8')))
     } catch (error: unknown) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
         if (lockPath) await rm(lockPath, { force: true }).catch(() => {})
@@ -665,6 +688,280 @@ export class FileEventJournal implements LeasedEventJournal {
     this.queuedWrite = write
     this.writeQueue = write.catch(() => {})
     return write
+  }
+}
+
+/** Options of {@link SharedFileEventJournal.open}. */
+export interface SharedFileEventJournalOptions {
+  /** How long an operation waits for the cross-process mutex before it rejects. Default `10_000` ms. */
+  lockTimeoutMs?: number
+  /**
+   * A mutex held longer than this is considered abandoned and broken (a holder that froze, or
+   * one on another host whose pid cannot be probed). Must exceed the slowest snapshot rewrite.
+   * A mutex of a dead process on this host is broken at once. Default `30_000` ms.
+   */
+  staleLockMs?: number
+}
+
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
+
+/** Transient Windows errors (antivirus, a reader holding the file) worth a short retry. */
+function transient(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException)?.code
+  return code === 'EPERM' || code === 'EACCES' || code === 'EBUSY'
+}
+
+async function retrying<T>(fn: () => Promise<T>): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await fn()
+    } catch (error) {
+      if (!transient(error) || attempt >= 20) throw error
+      await sleep(Math.min(100, 5 * (attempt + 1)))
+    }
+  }
+}
+
+/** Per-file in-process queues: journals of this process on one file take turns before the file mutex. */
+const sharedQueues = new Map<string, Promise<void>>()
+
+/**
+ * A cross-process mutex file (`<file>.mutex`) holding `<pid>:<nonce>`. Returns its release.
+ * A mutex of a dead local pid, or one older than `staleMs`, is broken.
+ */
+async function acquireMutex(path: string, timeoutMs: number, staleMs: number): Promise<() => Promise<void>> {
+  const token = `${process.pid}:${randomUUID()}`
+  const deadline = Date.now() + timeoutMs
+  let delay = 2
+  for (;;) {
+    try {
+      const handle = await open(path, 'wx')
+      try {
+        await handle.writeFile(token, 'utf8')
+      } finally {
+        await handle.close()
+      }
+      return async () => {
+        // Remove it only while it is still ours (it may have been broken as stale meanwhile).
+        const current = await readFile(path, 'utf8').catch(() => undefined)
+        if (current === token) await retrying(() => rm(path, { force: true }))
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST' && !transient(error)) throw error
+    }
+    const [text, info] = await Promise.all([readFile(path, 'utf8').catch(() => undefined), stat(path).catch(() => undefined)])
+    if (text !== undefined && info) {
+      const pid = Number.parseInt(text.split(':')[0] ?? '', 10)
+      const deadHolder = Number.isInteger(pid) && pid > 0 && pid !== process.pid && !pidAlive(pid)
+      if (deadHolder || Date.now() - info.mtimeMs > staleMs) {
+        await breakMutex(path, text)
+        continue
+      }
+    }
+    if (Date.now() >= deadline) throw new Error(`timed out waiting for the event journal mutex: ${path}`)
+    await sleep(delay + Math.random() * delay)
+    delay = Math.min(delay * 2, 40)
+  }
+}
+
+/** Break a stale mutex: move it aside, and put it back if it changed after it was inspected. */
+async function breakMutex(path: string, seen: string): Promise<void> {
+  const aside = `${path}.${randomUUID()}.stale`
+  try {
+    await rename(path, aside)
+  } catch {
+    return // already gone, or another process is breaking it
+  }
+  const moved = await readFile(aside, 'utf8').catch(() => undefined)
+  // Another process broke it and took it in between: hand its fresh mutex back.
+  if (moved !== seen) await link(aside, path).catch(() => {})
+  await rm(aside, { force: true }).catch(() => {})
+}
+
+/**
+ * Multi-process event journal on one JSON file: several processes (bot replicas, workers) on the
+ * same host, or on a filesystem with atomic rename and exclusive create, use it at once.
+ *
+ * Every write runs under a cross-process mutex (`<file>.mutex`) against the CURRENT file: it reads
+ * the snapshot, applies the operation and atomically replaces the file (temp file + rename). So
+ * claims are exclusive and fencing tokens hold across processes. Reads take the mutex too and
+ * see the last committed snapshot. Named side state ({@link updateSidecar}) is part of the same snapshot: the bot's
+ * outbox lives there with `@bot-wa/events/durability`.
+ *
+ * Every write rewrites the whole file: fine for modest volumes and a few processes; use a database
+ * journal for heavy traffic. The file format is the {@link FileEventJournal} one, but never open
+ * one file with both at the same time. A mutex left by a dead process is broken (nothing is
+ * killed); one held longer than `staleLockMs` is treated as abandoned.
+ */
+export class SharedFileEventJournal implements LeasedEventJournal {
+  /** Several processes share this journal. */
+  readonly exclusive = false
+  private closed = false
+  private inflight = new Set<Promise<unknown>>()
+
+  private constructor(
+    private readonly filePath: string,
+    private readonly mutexPath: string,
+    private readonly queueKey: string,
+    private readonly lockTimeoutMs: number,
+    private readonly staleLockMs: number,
+  ) {}
+
+  /**
+   * Open (or create) the shared journal at `filePath`.
+   * @throws {Error} when the file is not a valid journal or a {@link FileEventJournal} holds it.
+   */
+  static async open(filePath: string, options: SharedFileEventJournalOptions = {}): Promise<SharedFileEventJournal> {
+    const lockTimeoutMs = options.lockTimeoutMs ?? 10_000
+    const staleLockMs = options.staleLockMs ?? 30_000
+    if (!Number.isFinite(lockTimeoutMs) || lockTimeoutMs < 0) throw new TypeError('SharedFileEventJournal: lockTimeoutMs must be a non-negative number')
+    if (!Number.isFinite(staleLockMs) || staleLockMs <= 0) throw new TypeError('SharedFileEventJournal: staleLockMs must be a positive number')
+    await mkdir(dirname(filePath), { recursive: true })
+    const singleLock = `${filePath}.lock`
+    const key = await lockKey(singleLock)
+    const holder = Number.parseInt(await readFile(singleLock, 'utf8').catch(() => ''), 10)
+    if (heldLocks.has(key) || (holder !== process.pid && pidAlive(holder))) {
+      throw new Error(`event journal is open as a single-process FileEventJournal: ${filePath}`)
+    }
+    try {
+      parseSnapshot(await readFile(filePath, 'utf8'))
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    }
+    return new SharedFileEventJournal(filePath, `${filePath}.mutex`, key.replace(/\.lock$/, ''), lockTimeoutMs, staleLockMs)
+  }
+
+  async append<TPayload>(envelope: EventEnvelope<TPayload>): Promise<boolean> {
+    return (await this.appendRecord(envelope)).status === 'appended'
+  }
+
+  appendRecord<TPayload>(envelope: EventEnvelope<TPayload>, options?: AppendEventOptions): Promise<{ status: 'appended' | 'duplicate'; record: EventRecord }> {
+    return this.write(async (m) => {
+      const out = await m.appendRecord(envelope, options)
+      return { changed: out.status === 'appended', result: out }
+    })
+  }
+
+  get(eventId: string): Promise<EventRecord | undefined> {
+    return this.write(async (m) => ({ changed: false, result: await m.get(eventId) }))
+  }
+  list(options?: ListEventOptions): Promise<EventRecord[]> {
+    return this.write(async (m) => ({ changed: false, result: await m.list(options) }))
+  }
+
+  claim(limit: number, options?: ClaimEventOptions): Promise<EventRecord[]> {
+    return this.write(async (m) => {
+      const records = await m.claim(limit, options)
+      return { changed: records.length > 0, result: records }
+    })
+  }
+
+  claimOne(eventId: string, lease: EventLease): Promise<EventRecord | null> {
+    return this.write(async (m) => {
+      const record = await m.claimOne(eventId, lease)
+      return { changed: record !== null, result: record }
+    })
+  }
+
+  /** Extends the lease in the shared file (other processes must see the heartbeat). */
+  extend(eventId: string, options: { fencingToken: number; leaseUntil: number }): Promise<void> {
+    return this.write(async (m) => ({ changed: true, result: await m.extend(eventId, options) }))
+  }
+  ack(eventId: string, options?: AckEventOptions): Promise<void> {
+    return this.write(async (m) => ({ changed: true, result: await m.ack(eventId, options) }))
+  }
+  fail(eventId: string, error: unknown, options?: FailEventOptions): Promise<void> {
+    return this.write(async (m) => ({ changed: true, result: await m.fail(eventId, error, options) }))
+  }
+  release(eventId: string, options?: ReleaseEventOptions): Promise<void> {
+    return this.write(async (m) => ({ changed: true, result: await m.release(eventId, options) }))
+  }
+  replay(eventId: string, now?: number): Promise<void> {
+    return this.write(async (m) => ({ changed: true, result: await m.replay(eventId, now) }))
+  }
+  purge(options: PurgeEventOptions): Promise<number> {
+    return this.write(async (m) => {
+      const n = await m.purge(options)
+      return { changed: n > 0, result: n }
+    })
+  }
+
+  readSidecar(name: string): Promise<unknown> {
+    return this.write(async (_m, sidecars) => ({
+      changed: false,
+      result: Object.prototype.hasOwnProperty.call(sidecars, name) ? structuredClone(sidecars[name]) : undefined,
+    }))
+  }
+
+  updateSidecar<T>(name: string, update: SidecarUpdate<T>): Promise<T> {
+    return this.write(async (_m, sidecars) => {
+      const current = Object.prototype.hasOwnProperty.call(sidecars, name) ? structuredClone(sidecars[name]) : undefined
+      const out = await update(current)
+      if (!('data' in out)) return { changed: false, result: out.result }
+      sidecars[name] = out.data
+      return { changed: true, result: out.result }
+    })
+  }
+
+  /** Wait for operations in flight; later operations reject. Idempotent. Nothing is held between operations. */
+  async close(): Promise<void> {
+    this.closed = true
+    await Promise.allSettled([...this.inflight])
+  }
+
+  private assertOpen(): void {
+    if (this.closed) throw new Error(`event journal is closed: ${this.filePath}`)
+  }
+
+  private async read(): Promise<{ memory: MemoryEventJournal; sidecars: Record<string, unknown> }> {
+    this.assertOpen()
+    let text: string
+    try {
+      text = await retrying(() => readFile(this.filePath, 'utf8'))
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { memory: new MemoryEventJournal(), sidecars: {} }
+      throw error
+    }
+    const { records, sidecars } = parseSnapshot(text)
+    return { memory: MemoryEventJournal.fromSnapshot(records), sidecars }
+  }
+
+  /**
+   * Run `op` on the current snapshot under the in-process queue and the cross-process mutex.
+   * Reads take it too: no reader holds the file open while a writer replaces it (Windows
+   * refuses to replace an open file).
+   */
+  private write<T>(op: (memory: MemoryEventJournal, sidecars: Record<string, unknown>) => Promise<{ changed: boolean; result: T }>): Promise<T> {
+    try { this.assertOpen() } catch (error) { return Promise.reject(error) }
+    const previous = sharedQueues.get(this.queueKey) ?? Promise.resolve()
+    const run = previous.then(async () => {
+      const release = await acquireMutex(this.mutexPath, this.lockTimeoutMs, this.staleLockMs)
+      try {
+        const { memory, sidecars } = await this.read()
+        const out = await op(memory, sidecars)
+        if (out.changed) await this.persist(memory.snapshot(), sidecars)
+        return out.result
+      } finally {
+        await release()
+      }
+    })
+    const settled = run.then(() => {}, () => {})
+    sharedQueues.set(this.queueKey, settled)
+    void settled.then(() => { if (sharedQueues.get(this.queueKey) === settled) sharedQueues.delete(this.queueKey) })
+    this.inflight.add(run)
+    void settled.then(() => this.inflight.delete(run))
+    return run
+  }
+
+  private async persist(records: EventRecord[], sidecars: Record<string, unknown>): Promise<void> {
+    const temporary = `${this.filePath}.${randomUUID()}.tmp`
+    try {
+      await writeFile(temporary, snapshotText(records, sidecars), 'utf8')
+      await retrying(() => rename(temporary, this.filePath))
+    } catch (error) {
+      await rm(temporary, { force: true }).catch(() => {})
+      throw error
+    }
   }
 }
 

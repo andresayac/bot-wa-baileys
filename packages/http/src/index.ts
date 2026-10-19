@@ -229,6 +229,44 @@ export async function assertSafeTarget(
   return addresses
 }
 
+/** Policy of {@link isAllowedHostUrl}. */
+export interface HostAllowList {
+  /**
+   * Allowed hosts. A name also allows its subdomains (`fbcdn.net` allows `scontent.xx.fbcdn.net`);
+   * an IP literal only matches itself. Case-insensitive.
+   */
+  hosts: readonly string[]
+  /** Also accept plain `http:` (default: `https:` only). */
+  allowHttp?: boolean
+  /** Longest accepted URL, in characters (default 4096). */
+  maxLength?: number
+}
+
+function normalizeHost(host: string): string {
+  return host.toLowerCase().replace(/^\[|\]$/g, '').replace(/\.$/, '')
+}
+
+/**
+ * Synchronous allow-list check for a URL read back from storage (e.g. a journaled media
+ * reference): a string of at most `maxLength` characters, `https:` (or `http:` with
+ * `allowHttp`), without credentials, whose host is listed or a subdomain of a listed name.
+ * It does not resolve DNS: still fetch the URL through {@link secureFetch}.
+ */
+export function isAllowedHostUrl(url: unknown, policy: HostAllowList): url is string {
+  if (typeof url !== 'string' || url.length === 0 || url.length > (policy.maxLength ?? 4096)) return false
+  let parsed: URL
+  try { parsed = new URL(url) } catch { return false }
+  if (parsed.protocol !== 'https:' && !(policy.allowHttp === true && parsed.protocol === 'http:')) return false
+  if (parsed.username || parsed.password || !parsed.hostname) return false
+  const host = normalizeHost(parsed.hostname)
+  return policy.hosts.some((entry) => {
+    const allowed = normalizeHost(entry)
+    if (!allowed) return false
+    if (host === allowed) return true
+    return isIP(allowed) === 0 && isIP(host) === 0 && host.endsWith(`.${allowed}`)
+  })
+}
+
 export async function resolvePublicHost(hostname: string): Promise<readonly string[]> {
   const records = await lookup(hostname, { all: true, verbatim: true })
   return records.map((record) => record.address)

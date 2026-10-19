@@ -30,6 +30,7 @@ import type {
   ProviderCapabilities,
   SendOptions,
   SendResult,
+  SerializedMediaRef,
   UserId,
 } from '@bot-wa/core'
 import { ProviderError, UnsupportedContentError } from '@bot-wa/core'
@@ -39,10 +40,13 @@ import {
   verifyChallenge,
   checkGraphSignature,
   tryParseGraphBody,
+  META_MEDIA_HOSTS,
+  serializeUrlMediaRef,
+  rehydrateUrlMediaRef,
   type GraphError,
   type ChallengeQuery,
 } from '@bot-wa/graph-core'
-import { secureFetch } from '@bot-wa/http'
+import { isAllowedHostUrl, secureFetch } from '@bot-wa/http'
 import type { MessengerProviderConfig, MessengerSendResponse } from './types.js'
 import { toOutboundMessages } from './toOutbound.js'
 import { parseInbound, type PageWebhookBody } from './parseInbound.js'
@@ -77,6 +81,10 @@ export class MessengerProvider implements IProvider<unknown> {
   constructor(config: MessengerProviderConfig) {
     this.config = { apiVersion: 'v21.0', graphUrl: 'https://graph.facebook.com', pageId: 'me', ...config }
     this.logger = config.logger ?? pino({ level: config.debug ? 'debug' : 'error' })
+    if (config.mediaRefHosts !== undefined &&
+      (!Array.isArray(config.mediaRefHosts) || config.mediaRefHosts.some((h) => typeof h !== 'string' || h.trim() === ''))) {
+      throw new TypeError('MessengerProvider: mediaRefHosts must be an array of host names')
+    }
     if (!this.config.appSecret && !this.config.allowUnsignedWebhooks) {
       throw new Error(
         'MessengerProvider requires `appSecret` to authenticate webhook POSTs. ' +
@@ -212,6 +220,25 @@ export class MessengerProvider implements IProvider<unknown> {
     if (!res.ok) throw new ProviderError(`Media download failed: HTTP ${res.status}`)
     return body
   }
+
+  /**
+   * Durable inbox: the attachment URL (`{ url }`), only on a Meta CDN host (or `mediaRefHosts`).
+   * No credentials are stored. Meta attachment URLs are signed and expire: a replay long after
+   * the message arrived fails with the usual download error.
+   */
+  serializeMediaRef(ref: MediaRef): SerializedMediaRef | undefined {
+    return serializeUrlMediaRef(ref, this.mediaUrlAllowed)
+  }
+
+  /** Rebuild a journaled attachment URL. @throws {ProviderError} on an invalid, foreign or unknown-version value. */
+  rehydrateMediaRef(stored: SerializedMediaRef, ref: Omit<MediaRef, 'token'>): MediaRef {
+    return rehydrateUrlMediaRef(stored, ref, this.mediaUrlAllowed, 'Messenger')
+  }
+
+  private readonly mediaUrlAllowed = (url: string): boolean => isAllowedHostUrl(url, {
+    hosts: this.config.mediaRefHosts ?? META_MEDIA_HOSTS,
+    allowHttp: this.config.mediaDownload?.allowHttp === true,
+  })
 
   /** Mark conversations as seen (sender_action 'mark_seen' per chat). */
   async markRead(refs: MessageRef[]): Promise<void> {

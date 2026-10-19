@@ -33,6 +33,7 @@ import type {
   ProviderCapabilities,
   SendOptions,
   SendResult,
+  SerializedMediaRef,
   UserId,
 } from '@bot-wa/core'
 import { ProviderError } from '@bot-wa/core'
@@ -40,7 +41,11 @@ import type { InstagramProviderConfig } from './types.js'
 import { GraphClient } from './graphClient.js'
 import { toOutbound } from './toOutbound.js'
 import { parseInbound, type IgWebhookBody } from './parseInbound.js'
-import { verifyChallenge, checkGraphSignature, tryParseGraphBody, type ChallengeQuery } from '@bot-wa/graph-core'
+import {
+  verifyChallenge, checkGraphSignature, tryParseGraphBody, META_MEDIA_HOSTS, serializeUrlMediaRef, rehydrateUrlMediaRef,
+  type ChallengeQuery,
+} from '@bot-wa/graph-core'
+import { isAllowedHostUrl } from '@bot-wa/http'
 
 export class InstagramProvider implements IProvider<unknown> {
   readonly id = 'instagram'
@@ -71,6 +76,10 @@ export class InstagramProvider implements IProvider<unknown> {
   constructor(config: InstagramProviderConfig) {
     this.config = { apiVersion: 'v21.0', graphUrl: 'https://graph.facebook.com', ...config }
     this.logger = config.logger ?? pino({ level: config.debug ? 'debug' : 'error' })
+    if (config.mediaRefHosts !== undefined &&
+      (!Array.isArray(config.mediaRefHosts) || config.mediaRefHosts.some((h) => typeof h !== 'string' || h.trim() === ''))) {
+      throw new TypeError('InstagramProvider: mediaRefHosts must be an array of host names')
+    }
     this.graph = new GraphClient({
       accessToken: this.config.accessToken,
       apiVersion: this.config.apiVersion,
@@ -168,6 +177,25 @@ export class InstagramProvider implements IProvider<unknown> {
     }
     return this.graph.downloadUrl(url)
   }
+
+  /**
+   * Durable inbox: the attachment URL (`{ url }`), only on a Meta CDN host (or `mediaRefHosts`).
+   * No credentials are stored. Meta attachment URLs are signed and expire: a replay long after
+   * the message arrived fails with the usual download error.
+   */
+  serializeMediaRef(ref: MediaRef): SerializedMediaRef | undefined {
+    return serializeUrlMediaRef(ref, this.mediaUrlAllowed)
+  }
+
+  /** Rebuild a journaled attachment URL. @throws {ProviderError} on an invalid, foreign or unknown-version value. */
+  rehydrateMediaRef(stored: SerializedMediaRef, ref: Omit<MediaRef, 'token'>): MediaRef {
+    return rehydrateUrlMediaRef(stored, ref, this.mediaUrlAllowed, 'Instagram')
+  }
+
+  private readonly mediaUrlAllowed = (url: string): boolean => isAllowedHostUrl(url, {
+    hosts: this.config.mediaRefHosts ?? META_MEDIA_HOSTS,
+    allowHttp: this.config.mediaDownload?.allowHttp === true,
+  })
 
   /** Mark conversations as seen (sender_action 'mark_seen', one per chat). */
   async markRead(refs: MessageRef[]): Promise<void> {

@@ -38,7 +38,10 @@ describe('FileDurability persistence', () => {
       const a = await FileDurability.open(file)
       await a.inbox.append({ id: 'e1', partitionKey: 'p', kind: 'message', payload: { b: 1 }, receivedAt: 1 }, 1)
       await a.outbox.put({ key: 'k1', chatId: 'c', content: { kind: 'text', text: 'hi' }, createdAt: 1 }, 1, { owner: 'o', leaseMs: 10, now: 1 })
-      const b = await FileDurability.open(file) // same process: the lock is ours
+      // Same process: a second open is refused until the first journal is closed.
+      await expect(FileDurability.open(file)).rejects.toThrow(/already open in this process/)
+      await a.close()
+      const b = await FileDurability.open(file)
       expect(await b.inbox.get('e1')).toMatchObject({ state: 'pending', payload: { b: 1 } })
       expect(await b.outbox.get('k1')).toMatchObject({ state: 'sending', fencingToken: 1 })
       await b.close()
