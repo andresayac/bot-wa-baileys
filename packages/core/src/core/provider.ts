@@ -1104,8 +1104,34 @@ export interface IStore {
   stop(): Promise<void>
 }
 
-/** keyFor-compatible message key over the neutral ref. */
+/** Escape one key part: `%` -> `%25`, `:` -> `%3A` (injective; identity for the common case). */
+function escapeKeyPart(part: string): string {
+  return part.replace(/%/g, '%25').replace(/:/g, '%3A')
+}
+
+/**
+ * Unambiguous storage key for a message: `<chatId>:<id>` with `%` and `:`
+ * percent-escaped in each part, so the single raw `:` always separates the
+ * two. Ids without `:` or `%` (WhatsApp JIDs, Telegram/Discord numbers…) get
+ * the exact same key as before; ids that do contain them (Twilio's
+ * `whatsapp:+1555…` chat ids) no longer collide — the former plain
+ * `${chatId}:${id}` mapped `('a:b', 'c')` and `('a', 'b:c')` to one key.
+ *
+ * Persistent stores that wrote keys in the old format read and delete through
+ * {@link legacyMessageKey} as a fallback (see the store READMEs).
+ */
 export function messageKey(ref: MessageRef): string {
+  return `${escapeKeyPart(ref.chatId)}:${escapeKeyPart(ref.id)}`
+}
+
+/**
+ * The pre-escaping message key (`${chatId}:${id}`), ambiguous when either part
+ * contains `:`. Only for stores migrating rows written before
+ * {@link messageKey} escaped its parts: it differs from `messageKey(ref)`
+ * exactly when a part contains `:` or `%`, and a row found under it must be
+ * checked to belong to `ref` (same chat id and message id) before use.
+ */
+export function legacyMessageKey(ref: MessageRef): string {
   return `${ref.chatId}:${ref.id}`
 }
 
