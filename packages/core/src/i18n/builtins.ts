@@ -16,6 +16,8 @@ export const CORE_MESSAGES = {
   retries: 'core.conversation.retries',
   /** A conversation threw an unexpected error. */
   error: 'core.conversation.error',
+  /** A conversation was interrupted when another replica took the chat (`coordination.handover.fallback: 'notify'`). */
+  conversationInterrupted: 'core.conversation.interrupted',
   /** A text wait received something that is not text. */
   waitText: 'core.wait.text',
   /** A `validate` rejection without its own message. */
@@ -119,6 +121,7 @@ export const BUILTIN_LOCALES: Readonly<Record<'es' | 'en', LocaleMessages>> = {
         timeout: '⏰ La conversación expiró por inactividad.',
         retries: '❌ Demasiados intentos. Conversación terminada.',
         error: '⚠️ Ocurrió un error. La conversación terminó.',
+        interrupted: '⚠️ La conversación anterior se interrumpió. Por favor, empieza de nuevo.',
       },
       wait: {
         text: '✍️ Escribe tu respuesta como texto.',
@@ -186,6 +189,7 @@ export const BUILTIN_LOCALES: Readonly<Record<'es' | 'en', LocaleMessages>> = {
         timeout: '⏰ The conversation expired due to inactivity.',
         retries: '❌ Too many attempts. Conversation ended.',
         error: '⚠️ Something went wrong. The conversation ended.',
+        interrupted: '⚠️ Your previous conversation was interrupted. Please start again.',
       },
       wait: {
         text: '✍️ Please reply with text.',

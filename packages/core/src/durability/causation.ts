@@ -101,6 +101,17 @@ export function restoreCause(cause: { id: string; seq: number }): void {
   box.ref = { id: cause.id, seq: cause.seq, replay: true, settles: box.ref.settles }
 }
 
+/**
+ * A cause for a message replayed out of a checkpoint (a hand-over answer): its sends continue
+ * at the recorded `seq` of `cause.id` (the outbox recognises what the previous replica already
+ * sent), while settles go to the CURRENT event. `undefined` outside a cause.
+ */
+export function replayCauseRef(cause: { id: string; seq: number }): CauseRef | undefined {
+  const current = als.getStore()?.ref
+  if (!current) return undefined
+  return { id: cause.id, seq: cause.seq, replay: true, settles: current.settles }
+}
+
 /** True when a cause is active (lets callers skip allocating a settle promise otherwise). */
 export function hasCause(): boolean { return als.getStore() !== undefined }
 

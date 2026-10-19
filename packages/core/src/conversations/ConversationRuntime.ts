@@ -12,10 +12,16 @@ import { randomId } from '../utils/timers.js'
 import { translateFor } from '../i18n/I18n.js'
 import { CORE_MESSAGES } from '../i18n/builtins.js'
 import type { TranslateParams } from '../i18n/types.js'
-import type { InboundLocation } from '../core/provider.js'
+import type { CheckpointAnswer, InboundLocation } from '../core/provider.js'
 import {
-  adoptCause, currentCause, forkCause, hasCause, restoreCause, trackSettle, type CauseBox, type CauseRef, type SettleOutcome,
+  adoptCause, currentCause, forkCause, hasCause, replayCauseRef, restoreCause, trackSettle,
+  type CauseBox, type CauseRef, type SettleOutcome,
 } from '../durability/causation.js'
+import { LeaseLostError } from '../coordination/types.js'
+import {
+  flowShape, isPlainJson,
+  type AnswerCodec, type HandoverOutcome, type InterruptedConversation, type RuntimeHandover,
+} from './handover.js'
 
 export interface RuntimeMessage {
   from: string; sender: string; body: string; type: string; isGroup: boolean
@@ -109,6 +115,21 @@ export interface RuntimeConfig {
    * message answers that wait. Off (default): checkpoints are written once per step.
    */
   trackParked?: boolean
+  /**
+   * Multi-replica coordination: throws (`LeaseLostError`) when `key`'s chat turn is known
+   * lost. Called right before every checkpoint write or clear, so a replica known to have lost
+   * the chat (a GC pause, a frozen VM) does not overwrite the checkpoint of the replica that
+   * took it. A local check, not a conditional write; an aborted conversation's step never
+   * writes nor clears its checkpoint anyway (see `wrapCompiled`).
+   */
+  fence?: (key: string) => void
+  /**
+   * Multi-replica coordination: records the answer of a flow step's FIRST wait in its
+   * checkpoint ({@link FlowCheckpoint.answer}) and reads it back on the replica that resumes it.
+   */
+  answers?: AnswerCodec
+  /** Multi-replica coordination: the conversation hand-over policy (`coordination.handover`). */
+  handover?: RuntimeHandover
 }
 
 /**
@@ -191,7 +212,25 @@ interface ActiveConversation extends ConversationHandle {
   cause?: CauseBox
   /** Durability: settles of the steps fed to it, resolved when it next blocks on a wait or ends. */
   idle?: Array<(outcome: SettleOutcome) => void>
+  /** The last checkpoint (marker or stub) write of this conversation failed (`trackParked`). */
+  cpDirty?: boolean
+  /** Aborted keeping its stored state (shutdown, suspension): no checkpoint/stub clear on unwind. */
+  preserved?: boolean
+  /** `handover.fallback`: this conversation cannot be forwarded; it keeps a stub while it waits. */
+  wantsStub?: boolean
+  /** The stub last written for it (see {@link ConversationRuntime.writeStub}). */
+  stub?: FlowCheckpoint
+  /** A stub write was started (cleared again on unwind). */
+  stubbed?: boolean
+  /** Initial `c.state` when plain JSON (`handover`): recorded in stubs/ephemeral checkpoints. */
+  startState?: Record<string, unknown>
 }
+
+/** Marks a conversation function that keeps its own checkpoint (no hand-over stub needed). */
+const CHECKPOINTS = Symbol('botwa.checkpoints')
+type Marked = ConversationFn & { [CHECKPOINTS]?: true }
+const isMarked = (fn: ConversationFn): boolean => (fn as Marked)[CHECKPOINTS] === true
+function mark(fn: ConversationFn): ConversationFn { (fn as Marked)[CHECKPOINTS] = true; return fn }
 
 const INBOX_CAP = 10
 
@@ -230,8 +269,8 @@ export class ConversationRuntime {
   private settleWaiters = new Map<string, Set<() => void>>()
   /** Keys whose dormant checkpoint was handed over by another replica (see {@link refreshDormant}). */
   private handovers = new Set<string>()
-  /** Waking message of a handover resume, consumed by the entry {@link run} creates next for its key. */
-  private handoverAnswers = new Map<string, RuntimeMessage>()
+  /** Waking message(s) of a handover resume, consumed by the entry {@link run} creates next for its key. */
+  private handoverAnswers = new Map<string, RuntimeMessage[]>()
   /** Durability: the cause of each buffered (not yet consumed) message. */
   private bufferedCauses = new WeakMap<RuntimeMessage, CauseRef>()
 
@@ -280,50 +319,137 @@ export class ConversationRuntime {
   }
 
   private wrapCompiled(flow: CompiledFlow, startAt = 0, resumedFrom?: FlowCheckpoint): ConversationFn {
-    if (!flow.opts.persistent || !this.store) {
-      return startAt === 0
-        ? flowToConversation(flow)
-        : async (c, ctx) => { await runSteps(flow, ctx, c as ConversationControls, startAt) }
+    // Multi-replica hand-over (`handover.flows: 'forward'`): a flow WITHOUT .persistent() is
+    // checkpointed too ("ephemeral", TTL-bound) so the replica that takes its chat continues it.
+    const forward = !flow.opts.persistent && this.cfg.handover?.flows === 'forward'
+    if ((!flow.opts.persistent && !forward) || !this.store) {
+      if (startAt === 0 && !resumedFrom) return flowToConversation(flow)
+      return async (c, ctx) => {
+        // A checkpoint resumed by a replica that does not checkpoint this flow (an ephemeral
+        // one written by a replica with `handover.flows: 'forward'`, mixed configuration):
+        // nothing here will ever advance or clear it, so drop it now. Left in place, a
+        // replica taking the chat later would resume this (finished) flow at a stale step.
+        if (resumedFrom) this.queueClear(this.keyFor(ctx), undefined, true)
+        await runSteps(flow, ctx, c as ConversationControls, startAt)
+      }
     }
-    return async (c, ctx) => {
+    const shape = forward ? flowShape(flow) : undefined
+    return mark(async (c, ctx) => {
       const key = this.keyFor(ctx)
       const entry = this.active.get(key)
       if (entry && resumedFrom) { entry.cp = resumedFrom; entry.waits = 0 }
+      /** A forwarded flow that can no longer be checkpointed (non-JSON state, store down). */
+      let degraded = false
       const save = async (step: number) => {
         // A clear of the checkpoint this conversation replaced may still be in flight:
         // let it land first, or it would wipe this conversation's fresh checkpoint.
         await this.pendingClears.get(key)
         await entry?.parking
+        // Aborted (suspended, replaced, stopped) while the step ran: whatever this step still
+        // does belongs to no live conversation. A newer one (possibly on this same replica,
+        // which re-acquired the chat's turn) owns the key's checkpoint now: stop here.
+        if (entry?.cancelled) throw entry.cancelled
+        if (degraded) return
+        const state = { ...(c as ConversationControls).state }
+        if (forward && !isPlainJson(state)) {
+          degraded = true
+          this.degradeForward(key, entry, 'its state is not plain JSON')
+          return
+        }
         const cause = currentCause()
+        const now = Date.now()
         const cp: FlowCheckpoint = {
           flowId: flow.id,
           step,
-          state: { ...(c as ConversationControls).state },
-          updatedAt: Date.now(),
+          state,
+          updatedAt: now,
           // Durability: the inbound record whose effects this checkpoint captures (the message
           // that entered the flow or that the step consumed — a replay of it is skipped) and
           // where the next step's send keys continue (a re-run step re-derives the same keys).
           ...(cause ? { inboundId: cause.id, cause: { id: cause.id, seq: cause.seq } } : {}),
+          ...(forward ? { handover: this.ephemeralMeta(entry, flow.id, shape!, now) } : {}),
         }
-        await this.store!.setCheckpoint(key, cp)
-        if (entry) { entry.cp = cp; entry.waits = 0 }
+        // Coordination: a replica known to have lost the chat does not overwrite the new owner's checkpoint.
+        this.cfg.fence?.(key)
+        if (!forward) {
+          await this.store!.setCheckpoint(key, cp)
+        } else {
+          try {
+            await this.store!.setCheckpoint(key, cp)
+          } catch (error) {
+            // Best effort: the flow goes on in memory, and no stale step is left to hand over.
+            this.cfg.logger?.warn?.('hand-over checkpoint write failed; the flow continues without it', error)
+            degraded = true
+            this.degradeForward(key, entry)
+            return
+          }
+        }
+        if (entry) { entry.cp = cp; entry.waits = 0; entry.cpDirty = false }
       }
       try {
         // Durability: checkpoint the entry too, so a crash before the first step completes
-        // can resume the flow when the answer that was in flight is replayed.
-        if (startAt === 0 && hasCause()) await save(0)
+        // can resume the flow when the answer that was in flight is replayed. Coordination:
+        // likewise, so a flow suspended in its first step can be handed over.
+        if (startAt === 0 && (hasCause() || this.cfg.trackParked)) await save(0)
         await runSteps(flow, ctx, c as ConversationControls, startAt, (stepIndex) => save(stepIndex + 1))
       } finally {
         await entry?.parking
-        // On a graceful shutdown (abortAll) we KEEP the checkpoint so a restart can resume it.
-        // Every other exit (completion, error, timeout, user /reset) clears it.
-        if (this.preserveOnAbort.delete(key)) {
+        // On a graceful shutdown (abortAll) or a suspension we KEEP the checkpoint so a restart
+        // (or the replica that takes the chat) can resume it. Every other exit (completion,
+        // error, timeout, user /reset) clears it. Decided per conversation, not per key: a
+        // suspended step that unwinds only after a newer conversation took the key (and
+        // consumed the key's flag) must still leave that conversation's checkpoint alone.
+        const preserved = entry ? entry.preserved === true : this.preserveOnAbort.delete(key)
+        if (preserved) {
           // preserved — leave the persisted checkpoint intact for resume-on-restart
-        } else {
+        } else if (this.mayWrite(key)) {
           await this.store!.clearCheckpoint(key).catch(() => {})
+          if (entry) entry.stubbed = false
         }
       }
+    })
+  }
+
+  /**
+   * A checkpointed conversation cut short mid-step consumed an answer its stored checkpoint
+   * does not hold: the answer of a later wait of the step (only the first wait's answer is
+   * recorded), or a first-wait answer that could not be recorded (too large, unknown origin).
+   */
+  private answerUnheld(entry: ActiveConversation): boolean {
+    const cp = entry.cp
+    if (!cp || !this.cfg.trackParked) return false
+    const waits = entry.waits ?? 0
+    return waits > 1 || (waits === 1 && cp.answer === undefined)
+  }
+
+  /** `true` unless the coordination fence refuses writes for `key` (its chat turn was lost). */
+  private mayWrite(key: string): boolean {
+    try { this.cfg.fence?.(key); return true } catch { return false }
+  }
+
+  /** Hand-over metadata of an ephemeral checkpoint (forwarded flow without `.persistent()`). */
+  private ephemeralMeta(entry: ActiveConversation | undefined, name: string, shape: string, now: number): NonNullable<FlowCheckpoint['handover']> {
+    return {
+      kind: 'ephemeral',
+      expiresAt: now + this.cfg.handover!.ttlMs,
+      shape,
+      name,
+      ...(entry?.life ? { startedAt: entry.life.startedAt } : {}),
+      ...(entry?.startState ? { startState: entry.startState } : {}),
     }
+  }
+
+  /**
+   * A forwarded flow can no longer be checkpointed: drop its ephemeral checkpoint and, with a
+   * hand-over fallback, keep a stub for it instead (written at its next wait).
+   */
+  private degradeForward(key: string, entry: ActiveConversation | undefined, why?: string): void {
+    if (why) this.cfg.logger?.debug?.(`flow not forwarded for hand-over: ${why}`, { key })
+    if (entry) {
+      entry.cp = undefined
+      entry.wantsStub = this.cfg.handover !== undefined && this.cfg.handover.fallback !== 'drop'
+    }
+    this.queueClear(key, entry?.parking, true)
   }
 
   /**
@@ -336,7 +462,12 @@ export class ConversationRuntime {
     const checkpoints = await this.store.listCheckpoints()
     this.dormant.clear()
     this.handovers.clear()
-    for (const [key, cp] of checkpoints) this.dormant.set(key, cp)
+    const now = Date.now()
+    for (const [key, cp] of checkpoints) {
+      // An expired hand-over entry (ephemeral checkpoint / stub) is not resumable: drop it.
+      if (cp.handover && cp.handover.expiresAt <= now) { this.queueClear(key); continue }
+      this.dormant.set(key, cp)
+    }
   }
 
   /**
@@ -351,20 +482,45 @@ export class ConversationRuntime {
     if (!cp) return false
     this.dormant.delete(key)
     const handover = this.handovers.delete(key)
+    const meta = cp.handover
+    if (meta) {
+      // Multi-replica hand-over entries (`coordination.handover`).
+      const name = meta.name ?? cp.flowId
+      if (meta.expiresAt <= Date.now()) {
+        this.queueClear(key, undefined, true)
+        this.reportHandover(key, name, 'expired')
+        return false
+      }
+      if (meta.kind === 'stub') {
+        this.queueClear(key, undefined, true)
+        return this.interrupted(ctx, interruptedOf(key, name, 'unforwardable', meta))
+      }
+    }
     const flow = this.compiled.get(cp.flowId)
     if (!flow) { await this.store?.clearCheckpoint(key).catch(() => {}); return false }
+    if (meta?.kind === 'ephemeral' && meta.shape !== undefined && meta.shape !== flowShape(flow)) {
+      // The flow changed on this replica (rolling deploy): its step index means something else.
+      this.queueClear(key, undefined, true)
+      return this.interrupted(ctx, interruptedOf(key, cp.flowId, 'changed', meta))
+    }
     // Durability (a cause is active and the checkpoint recorded one): the pending step re-runs
     // under the causation it had, so its prompt — already sent before the restart — is answered
     // from the outbox instead of being repeated, and the waking message is its answer.
     const cause = hasCause() ? cp.cause : undefined
+    const inner = this.wrapCompiled(flow, cp.step, cp)
     const resumed: ConversationFn = async (c, rctx) => {
       if (cause) restoreCause(cause)
       Object.assign((c as ConversationControlsBase).state, cp.state)
-      await this.wrapCompiled(flow, cp.step, cp)(c, rctx)
+      await inner(c, rctx)
     }
+    if (isMarked(inner)) mark(resumed)
     // Durability: a replay of the message this checkpoint already captured is not an answer.
     const replayOfCaptured = cause !== undefined && cp.inboundId === currentCause()?.id
-    if (handover && !replayOfCaptured) this.handoverAnswers.set(key, ctx)
+    // Coordination: the step was cut short after its first wait consumed an answer — feed it
+    // that answer again (and keep the waking message for the next wait).
+    const answers = cp.answer ? await this.answersFor(cp.answer, ctx, replayOfCaptured) : undefined
+    if (answers) this.handoverAnswers.set(key, answers)
+    else if (handover && !replayOfCaptured) this.handoverAnswers.set(key, [ctx])
     // enter() is fire-and-forget (it only resolves when the resumed flow ends); a rejection
     // here (e.g. a bad goto target) would otherwise become an unhandled rejection → crash.
     void this.enter(resumed, ctx, { name: cp.flowId }).catch((e) => {
@@ -372,11 +528,78 @@ export class ConversationRuntime {
       this.cfg.logger?.error?.('resume failed', e)
     })
     this.handoverAnswers.delete(key)   // consumed synchronously by run(); never left behind
+    if (meta?.kind === 'ephemeral') this.reportHandover(key, cp.flowId, 'resumed')
     // Durability: the waking message answers the re-run step (a handover already queued it as
     // the parked wait's answer) — unless the checkpoint already captured this very message (a
     // replay after the step that consumed it): the flow then only re-runs its pending steps.
-    if (cause && !handover && !replayOfCaptured) this.deliver(ctx)
+    if (cause && !handover && !answers && !replayOfCaptured) this.deliver(ctx)
     return true
+  }
+
+  /**
+   * The messages a resumed step consumes first, from a checkpoint's recorded answer: the
+   * answer itself (rehydrated, or the waking event when it IS that answer being replayed),
+   * then the waking message. `undefined` when the answer is no longer available.
+   */
+  private async answersFor(answer: CheckpointAnswer, ctx: RuntimeMessage, replayOfCaptured: boolean): Promise<RuntimeMessage[] | undefined> {
+    const current = currentCause()
+    if (answer.inboundId !== undefined && current?.id === answer.inboundId) {
+      // A replay of the answer itself (the previous replica stopped before acknowledging it).
+      const ref = answer.cause ? replayCauseRef(answer.cause) : undefined
+      if (ref) this.bufferedCauses.set(ctx, ref)
+      return [ctx]
+    }
+    const codec = this.cfg.answers
+    if (!codec) return undefined
+    let rehydrated: RuntimeMessage | undefined
+    try {
+      rehydrated = await codec.rehydrate(answer)
+    } catch (error) {
+      this.cfg.logger?.warn?.('hand-over answer could not be read back; the step re-runs', error)
+    }
+    if (!rehydrated) return undefined
+    const ref = answer.cause ? replayCauseRef(answer.cause) : undefined
+    if (ref) this.bufferedCauses.set(rehydrated, ref)
+    if (replayOfCaptured) return [rehydrated]
+    if (current) this.bufferedCauses.set(ctx, current)
+    return [rehydrated, ctx]
+  }
+
+  /**
+   * A conversation another replica ran cannot be continued here (a stub, or a forwarded
+   * flow that changed): apply `handover.fallback`. `true` when the waking message was consumed.
+   */
+  private async interrupted(ctx: RuntimeMessage, info: InterruptedConversation): Promise<boolean> {
+    const h = this.cfg.handover
+    const policy = h?.fallback ?? 'drop'
+    let outcome: HandoverOutcome = info.reason === 'changed' ? 'changed' : 'dropped'
+    let consumed = false
+    if (typeof policy === 'function') {
+      try {
+        consumed = (await policy(info, ctx)) === true
+      } catch (error) {
+        this.reportError(error, ctx)
+      }
+      if (consumed) outcome = 'migrated'
+    } else if (policy === 'restart' && this.registry.has(info.name)) {
+      void this.enter(info.name, ctx, info.startState ? { state: info.startState } : {}).catch((e) => {
+        this.cfg.onError?.(e, ctx)
+        this.cfg.logger?.error?.('hand-over restart failed', e)
+      })
+      consumed = true
+      outcome = 'restarted'
+    } else if (policy === 'notify' || policy === 'restart') {
+      await this.safeReply(ctx, h?.notifyMessage ?? translateFor(ctx, CORE_MESSAGES.conversationInterrupted))
+      consumed = true
+      outcome = 'notified'
+    }
+    this.reportHandover(info.key, info.name, outcome)
+    return consumed
+  }
+
+  private reportHandover(key: string, name: string, outcome: HandoverOutcome): void {
+    const report = this.cfg.handover?.onHandover
+    if (report) this.notifyLifecycle(() => report({ key, name, outcome }))
   }
 
   keyFor(ctx: Pick<RuntimeMessage, 'from' | 'sender' | 'isGroup'>): string {
@@ -390,16 +613,24 @@ export class ConversationRuntime {
   discardDormant(key: string): boolean {
     this.handovers.delete(key)
     if (!this.dormant.delete(key)) return false
-    if (this.store) {
-      // Tracked per key so a persistent flow entered right after this waits for the clear
-      // before writing its own checkpoint (async stores do not order the two writes).
-      const clear: Promise<void> = Promise.resolve(this.pendingClears.get(key))
-        .then(() => this.store?.clearCheckpoint(key))
-        .catch(() => {})
-        .finally(() => { if (this.pendingClears.get(key) === clear) this.pendingClears.delete(key) })
-      this.pendingClears.set(key, clear)
-    }
+    this.queueClear(key)
     return true
+  }
+
+  /**
+   * Clear `key`'s stored checkpoint after `after` (and after any clear already queued).
+   * Tracked per key so a conversation entered right after this waits for the clear before
+   * writing its own checkpoint (async stores do not order the two writes). `fenced`: skipped
+   * when this replica lost the chat's turn (coordination).
+   */
+  private queueClear(key: string, after?: Promise<unknown>, fenced = false): void {
+    const store = this.store
+    if (!store) return
+    const clear: Promise<void> = Promise.all([this.pendingClears.get(key), after])
+      .then(() => (fenced && !this.mayWrite(key) ? undefined : store.clearCheckpoint(key)))
+      .catch(() => {})
+      .finally(() => { if (this.pendingClears.get(key) === clear) this.pendingClears.delete(key) })
+    this.pendingClears.set(key, clear)
   }
 
   /**
@@ -536,13 +767,21 @@ export class ConversationRuntime {
     const entry: ActiveConversation = { key, state: opts.state ? { ...opts.state } : {}, inbox: [], ...(latest ? { latest } : {}) }
     let markUnwound!: () => void
     entry.unwound = new Promise<void>((resolve) => { markUnwound = resolve })
-    const answer = this.handoverAnswers.get(key)
-    if (answer) {
-      // Multi-replica handover resume: the waking message answers the parked wait.
+    const answers = this.handoverAnswers.get(key)
+    if (answers) {
+      // Multi-replica handover resume: the waking message (or the step's recorded answer,
+      // then the waking message) answers the parked wait.
       this.handoverAnswers.delete(key)
       entry.handover = true
-      entry.inbox.push(answer)
-      entry.latest = answer
+      entry.inbox.push(...answers)
+      entry.latest = answers[answers.length - 1]
+    }
+    const h = this.cfg.handover
+    if (h) {
+      if (opts.state && isPlainJson(opts.state)) entry.startState = { ...opts.state }
+      // A conversation that keeps no checkpoint of its own leaves a stub while it waits, so
+      // the replica that takes the chat can apply `handover.fallback`.
+      entry.wantsStub = h.fallback !== 'drop' && this.store !== undefined && !isMarked(fn)
     }
     this.active.set(key, entry)
     this.trackIdle(entry)
@@ -577,6 +816,11 @@ export class ConversationRuntime {
       } else if (e instanceof RetriesExceeded) {
         outcome = 'retriesExceeded'
         await this.safeReply(ctx, this.cfg.retriesMessage ?? translateFor(entry.latest ?? ctx, CORE_MESSAGES.retries))
+      } else if (e instanceof LeaseLostError) {
+        // Coordination fence: this replica lost the chat (a checkpoint write was refused);
+        // another replica owns the conversation now — end silently, nothing can be sent anyway.
+        outcome = 'cancelled'
+        this.cfg.logger?.debug?.('conversation stopped: chat turn lost', { key })
       } else {
         outcome = 'error'
         this.cfg.onError?.(e, ctx)
@@ -627,9 +871,19 @@ export class ConversationRuntime {
     if (!entry) return false
     const cancel = new ConversationCancelled(true)
     entry.cancelled = cancel
+    // Shutdown / suspension: the stored checkpoint (or stub) is kept for whoever resumes it.
+    const preserved = this.preserveOnAbort.has(key)
+    if (preserved) entry.preserved = true
+    const running = entry.pending === undefined
     if (entry.pending) entry.pending.reject(cancel)
     // A step still running is never resumed: its fed events settle now (as 'aborted' on stop()).
-    this.settleIdle(entry, this.closed ? 'aborted' : 'settled')
+    // Coordination: only once the checkpoint marker in flight landed — the inbox record is
+    // acknowledged as handed over when the stored checkpoint holds its effect, and released
+    // (replayed) when that write failed or when no checkpoint holds the answer the step consumed.
+    const closed = this.closed
+    this.settleAfter(this.detachIdle(entry), entry.parking,
+      () => (closed || (preserved && (entry.cpDirty || (running && this.answerUnheld(entry)))) ? 'aborted' : 'settled'))
+    if (!preserved) this.dropStub(entry)
     this.active.delete(key)
     this.notifyEnd(entry)
     // Report the end now, synchronously: a replacing conversation's start must come
@@ -729,10 +983,13 @@ export class ConversationRuntime {
     if (queued) {
       const cause = this.bufferedCauses.get(queued)
       if (cause && entry.cause) entry.cause.ref = cause
-      const marked = this.markParked(entry, false)
+      const marked = this.markParked(entry, false, queued)
       return marked ? marked.then(() => queued) : Promise.resolve(queued)
     }
-    this.settleIdle(entry, 'settled')
+    // The step fed by these events reached its wait: they settle (their inbox records are
+    // acknowledged) — with coordination, only once the parked marker / stub below landed, so
+    // a crash in between replays them instead of losing the marker.
+    const idle = this.detachIdle(entry)
 
     return new Promise<RuntimeMessage>((resolve, reject) => {
       const timeoutMs = opts.timeoutMs ?? this.cfg.defaultTimeoutMs ?? 300_000
@@ -747,8 +1004,9 @@ export class ConversationRuntime {
         accepts: opts.accepts,
         resolve: (ctx) => {
           release()
-          // The answered wait no longer parks the flow: its marker must not outlive it.
-          const marked = this.markParked(entry, false)
+          // The answered wait no longer parks the flow: its marker must not outlive it. The
+          // first wait of a step records its answer, in case the step is cut short.
+          const marked = this.markParked(entry, false, ctx)
           if (marked) void marked.then(() => resolve(ctx))
           else resolve(ctx)
         },
@@ -760,7 +1018,9 @@ export class ConversationRuntime {
         }, timeoutMs)
       }
       entry.pending = pending
-      this.markParked(entry, entry.waits === 1)
+      const parking = { timeoutMs: opts.timeoutMs }
+      const marked = this.markParked(entry, entry.waits === 1, undefined, parking) ?? this.writeStub(entry, parking.timeoutMs)
+      this.settleAfter(idle, marked, () => 'settled')
       if (this.settleWaiters.size > 0) this.notifySettled(entry.key)
     })
   }
@@ -780,26 +1040,123 @@ export class ConversationRuntime {
   }
 
   /**
-   * `trackParked`: write {@link FlowCheckpoint.parked} = `parked` when it differs from the
-   * stored checkpoint. Writes of one conversation are chained, and the turn is not
-   * released (see {@link whenSettled}) until they landed. Resolves when this one did.
+   * `trackParked`: keep the stored checkpoint's {@link FlowCheckpoint.parked} marker equal to
+   * `parked`, and its {@link FlowCheckpoint.answer} equal to the answer of the step's FIRST
+   * wait (`answerOf`, when that wait was just satisfied); a later wait of the step drops the
+   * answer (the step then re-runs from its start on another replica). Writes of one
+   * conversation are chained, and the turn is not released (see {@link whenSettled}) until
+   * they landed. Resolves when this one did; `undefined` when nothing had to be written.
+   *
+   * `parking`: the step is parking on a wait (with its explicit timeout, if any). An
+   * ephemeral checkpoint (`handover.flows: 'forward'`) then stays resumable at least as long
+   * as that wait (`max(ttl, timeout)` from now), refreshed at every wait that would outlive
+   * it: a validation-retry loop writes nothing else.
    */
-  private markParked(entry: ActiveConversation, parked: boolean): Promise<void> | undefined {
+  private markParked(
+    entry: ActiveConversation, parked: boolean, answerOf?: RuntimeMessage, parking?: { timeoutMs?: number },
+  ): Promise<void> | undefined {
     const store = this.store
-    if (!this.cfg.trackParked || !store || !entry.cp) return undefined
-    if ((entry.cp.parked === true) === parked) return undefined
-    const cp: FlowCheckpoint = { ...entry.cp, parked }
+    const current = entry.cp
+    if (!this.cfg.trackParked || !store || !current) return undefined
+    const answer = answerOf && entry.waits === 1 ? this.captureAnswer(entry, answerOf) : undefined
+    const dropAnswer = current.answer !== undefined && answer === undefined && entry.waits !== 1
+    const h = this.cfg.handover
+    const meta = current.handover?.kind === 'ephemeral' && h ? current.handover : undefined
+    const now = Date.now()
+    const lifeMs = h ? Math.max(h.ttlMs, parking?.timeoutMs ?? 0) : 0
+    const refresh = meta !== undefined && parking !== undefined && meta.expiresAt - now < lifeMs
+    if (answer === undefined && !dropAnswer && !refresh && (current.parked === true) === parked) return undefined
+    const cp: FlowCheckpoint = { ...current, parked }
+    if (answer) cp.answer = answer
+    else if (dropAnswer) delete cp.answer
+    if (meta && h) cp.handover = { ...meta, expiresAt: now + (parking ? lifeMs : h.ttlMs) }
     entry.cp = cp
-    const write: Promise<void> = Promise.resolve(entry.parking)
-      .then(() => store.setCheckpoint(entry.key, cp))
-      .catch((error: unknown) => { this.cfg.logger?.warn?.('checkpoint marker write failed', error) })
+    return this.chainWrite(entry, () => store.setCheckpoint(entry.key, cp), 'checkpoint marker write failed')
+  }
+
+  /** The answer `ctx` of `entry`'s current step's first wait, as recorded in its checkpoint. */
+  private captureAnswer(entry: ActiveConversation, ctx: RuntimeMessage): CheckpointAnswer | undefined {
+    const codec = this.cfg.answers
+    if (!codec) return undefined
+    const ref = entry.cause?.ref
+    let captured: Omit<CheckpointAnswer, 'cause' | 'at'> | undefined
+    try {
+      captured = codec.capture(ctx, ref?.id)
+    } catch (error) {
+      this.cfg.logger?.debug?.('hand-over answer not recorded', error)
+    }
+    if (!captured) return undefined
+    return { ...captured, ...(ref ? { cause: { id: ref.id, seq: ref.seq } } : {}), at: Date.now() }
+  }
+
+  /**
+   * `handover.fallback`: write (or refresh) the stub of a conversation that keeps no
+   * checkpoint, when it parks on a wait. A stub lives twice `max(ttl, the wait's explicit
+   * timeout)` and is refreshed once less than one such period is left, so it always
+   * outlives the wait it parks on.
+   */
+  private writeStub(entry: ActiveConversation, waitTimeoutMs?: number): Promise<void> | undefined {
+    const h = this.cfg.handover
+    const store = this.store
+    const life = entry.life
+    if (!entry.wantsStub || !h || !store || !life) return undefined
+    const now = Date.now()
+    const lifeMs = Math.max(h.ttlMs, waitTimeoutMs ?? 0)
+    if (entry.stub && entry.stub.handover!.expiresAt - now > lifeMs) return undefined
+    const stub: FlowCheckpoint = {
+      flowId: life.info.name,
+      step: -1,
+      state: {},
+      updatedAt: now,
+      handover: {
+        kind: 'stub',
+        expiresAt: now + 2 * lifeMs,
+        name: life.info.name,
+        startedAt: life.startedAt,
+        ...(entry.startState ? { startState: entry.startState } : {}),
+      },
+    }
+    entry.stub = stub
+    entry.stubbed = true
+    return this.chainWrite(entry, () => store.setCheckpoint(entry.key, stub), 'hand-over stub write failed', () => {
+      if (entry.stub === stub) entry.stub = undefined
+    })
+  }
+
+  /** Clear `entry`'s stub (if one was written), after any write of it still in flight. */
+  private dropStub(entry: ActiveConversation): void {
+    if (!entry.stubbed) return
+    entry.stubbed = false
+    entry.stub = undefined
+    this.queueClear(entry.key, entry.parking, true)
+  }
+
+  /**
+   * Chain one checkpoint write of `entry` after its previous ones (and after a clear of its
+   * key still in flight). Fenced (coordination). Never rejects: a failure is logged and marks
+   * the entry dirty (a suspension then releases the inbox records it fed instead of
+   * acknowledging them).
+   */
+  private chainWrite(entry: ActiveConversation, write: () => Promise<void>, failure: string, onFail?: () => void): Promise<void> {
+    const key = entry.key
+    const done: Promise<void> = Promise.all([entry.parking, this.pendingClears.get(key)])
+      .then(() => { this.cfg.fence?.(key); return write() })
+      .then(
+        () => { entry.cpDirty = false },
+        (error: unknown) => {
+          entry.cpDirty = true
+          onFail?.()
+          if (error instanceof LeaseLostError) this.cfg.logger?.debug?.(`${failure}: chat turn lost`, { key })
+          else this.cfg.logger?.warn?.(failure, error)
+        },
+      )
       .finally(() => {
-        if (entry.parking !== write) return
+        if (entry.parking !== done) return
         entry.parking = undefined
-        if (this.settleWaiters.size > 0) this.notifySettled(entry.key)
+        if (this.settleWaiters.size > 0) this.notifySettled(key)
       })
-    entry.parking = write
-    return write
+    entry.parking = done
+    return done
   }
 
   /**
@@ -895,15 +1252,33 @@ export class ConversationRuntime {
   }
 
   private settleIdle(entry: ActiveConversation, outcome: SettleOutcome): void {
+    this.settleAfter(this.detachIdle(entry), undefined, () => outcome)
+  }
+
+  /** Take the pending settles of `entry` (later deliveries register new ones). */
+  private detachIdle(entry: ActiveConversation): Array<(outcome: SettleOutcome) => void> | undefined {
     const idle = entry.idle
-    if (!idle) return
     entry.idle = undefined
-    for (const resolve of idle) resolve(outcome)
+    return idle
+  }
+
+  /** Resolve `idle` with `outcome()` — at once, or once `after` (a checkpoint write) settled. */
+  private settleAfter(
+    idle: Array<(outcome: SettleOutcome) => void> | undefined,
+    after: Promise<void> | undefined,
+    outcome: () => SettleOutcome,
+  ): void {
+    if (!idle) return
+    const resolveAll = () => { const o = outcome(); for (const resolve of idle) resolve(o) }
+    if (after) void after.then(resolveAll)
+    else resolveAll()
   }
 
   private cleanup(entry: ActiveConversation, settled = true): void {
     // Torn down by stop(): the step did not complete — its inbound must be replayed, not acknowledged.
     this.settleIdle(entry, this.closed ? 'aborted' : 'settled')
+    // Hand-over stub: dropped when the conversation is over, kept when it was suspended/stopped.
+    if (!entry.preserved) this.dropStub(entry)
     if (entry.pending?.timer) clearTimeout(entry.pending.timer)
     if (this.active.get(entry.key) === entry) this.active.delete(entry.key)
     // A shutdown-preserve flag is consumed by a persistent flow's own unwind (wrapCompiled);
@@ -923,6 +1298,18 @@ function takeInterrupt(entry: ActiveConversation): Error | undefined {
   const e = entry.interrupted
   entry.interrupted = undefined
   return e
+}
+
+function interruptedOf(
+  key: string, name: string, reason: InterruptedConversation['reason'], meta: NonNullable<FlowCheckpoint['handover']>,
+): InterruptedConversation {
+  return {
+    name,
+    key,
+    reason,
+    ...(meta.startedAt !== undefined ? { startedAt: meta.startedAt } : {}),
+    ...(meta.startState ? { startState: { ...meta.startState } } : {}),
+  }
 }
 
 function defaultControlsFactory(rt: ConversationRuntime, handle: ConversationHandle, ctx: RuntimeMessage): ConversationControlsBase {

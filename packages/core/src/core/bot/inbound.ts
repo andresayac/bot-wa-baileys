@@ -10,13 +10,38 @@ import type { DispatchContext } from '../Dispatcher.js'
 import { callToInbound, RecentIds } from '../calls.js'
 import { guardDownload } from '../mediaRefs.js'
 import { receiveTimestamp } from '../ledger.js'
-import type { CallEvent, ChatId, HookEvent, InboundEvent, InboundInteraction, InboundMessage, UserId } from '../types.js'
+import type { CallEvent, ChatId, HookEvent, InboundEvent, InboundInteraction, InboundMessage, MessageContext, UserId } from '../types.js'
 import type { ContextFactory } from './contextFactory.js'
 import { admitAccess, admitHandoff } from './gates.js'
 import { assertCoordinated, type BotKernel } from './kernel.js'
 import type { Persistence } from './persistence.js'
 
-type InteractionInfo = { id: string; data: string; respondBy?: number }
+/** The interaction projection a message-shaped context carries (`ctx.interaction`). */
+export type InteractionInfo = { id: string; data: string; respondBy?: number }
+
+/** Project an interaction (button/slash/callback) into the inbound message its context is built from. */
+export function projectInteraction(it: InboundInteraction): { inbound: InboundMessage; interaction: InteractionInfo } {
+  return {
+    inbound: {
+      ref: it.ref,
+      chat: it.chat,
+      senderInfo: it.senderInfo,
+      from: it.from,
+      sender: it.sender,
+      chatId: it.chatId,
+      senderId: it.senderId,
+      isGroup: it.isGroup,
+      isBroadcast: false,
+      fromMe: false,
+      type: 'buttons',
+      body: it.data,
+      timestamp: it.timestamp,
+      mentions: [],
+      raw: it.raw,
+    },
+    interaction: { id: it.interactionId, data: it.data, respondBy: it.respondBy },
+  }
+}
 
 export class InboundPipeline {
   /** Call ids already handed to `CALL` triggers (fire once per call). */
@@ -153,30 +178,18 @@ export class InboundPipeline {
 
   /** Project an interaction (button/slash/callback) into a message-shaped context. */
   async handleInteraction(it: InboundInteraction): Promise<boolean> {
-    const inbound: InboundMessage = {
-      ref: it.ref,
-      chat: it.chat,
-      senderInfo: it.senderInfo,
-      from: it.from,
-      sender: it.sender,
-      chatId: it.chatId,
-      senderId: it.senderId,
-      isGroup: it.isGroup,
-      isBroadcast: false,
-      fromMe: false,
-      type: 'buttons',
-      body: it.data,
-      timestamp: it.timestamp,
-      mentions: [],
-      raw: it.raw,
-    }
-    return this.handleInbound(inbound, { id: it.interactionId, data: it.data, respondBy: it.respondBy })
+    const { inbound, interaction } = projectInteraction(it)
+    return this.handleInbound(inbound, interaction)
   }
 
-  /** `false` only when the message was dropped unprocessed because the bot stopped. */
-  private async processMessage(inbound: InboundMessage, interaction?: InteractionInfo): Promise<boolean> {
-    const { provider, config } = this.k
-    const ctx = this.contextFor(inbound, {
+  /**
+   * The context of a real inbound message (with the seams only a received message has:
+   * read receipts, deletes, media download, interaction acknowledgement). Also used to
+   * rebuild a conversation's recorded answer on the replica that takes the chat.
+   */
+  contextOf(inbound: InboundMessage, interaction?: InteractionInfo): MessageContext {
+    const { provider } = this.k
+    return this.contextFor(inbound, {
       markRead: async (ref) => { assertCoordinated(this.k); await provider.markRead?.([ref]) },
       deleteMessage: async (ref) => { assertCoordinated(this.k); await provider.deleteMessage?.(ref) },
       downloadMedia: guardDownload(provider.downloadMedia ? (ref) => provider.downloadMedia!(ref) : undefined),
@@ -185,6 +198,12 @@ export class InboundPipeline {
         : undefined,
       interaction,
     })
+  }
+
+  /** `false` only when the message was dropped unprocessed because the bot stopped. */
+  private async processMessage(inbound: InboundMessage, interaction?: InteractionInfo): Promise<boolean> {
+    const { provider, config } = this.k
+    const ctx = this.contextOf(inbound, interaction)
 
     // Group mode filter.
     if (ctx.isGroup && config.groupMode && config.groupMode !== 'all') {

@@ -120,16 +120,114 @@ queda para la nueva dueña). Una liberación que falla en la red (un corte
 breve de Redis) la repara el watchdog en `leaseMs / 3`, así que el chat no
 se queda bloqueado detrás de una réplica viva.
 
+## Relevo de conversaciones
+
+Qué pasa con la conversación en curso de un chat cuando otra réplica toma el
+chat (la réplica que la ejecutaba se cayó, se detuvo por un despliegue, se
+congeló más allá de su lease o cortó un paso en `settleMs`):
+
+| Conversación | Por defecto | Con `handover` |
+| --- | --- | --- |
+| flujo `.persistent()` | sigue desde su checkpoint | igual |
+| flujo sin `.persistent()` | se pierde (el mensaje se enruta como uno nuevo) | `flows: 'forward'`: sigue desde un checkpoint efímero |
+| `bot.conversation` asíncrona, o un flujo que no se puede reenviar | se pierde | `fallback`: `'notify'`, `'restart'` o tu propia función |
+
+```ts
+const bot = new Bot({
+  provider, store,
+  coordination: {
+    coordinator,
+    handover: {
+      flows: 'forward',      // guarda también los flujos sin .persistent() (con TTL)
+      fallback: 'notify',    // el resto: avisa al usuario de que se interrumpió
+      ttl: '10m',            // igual o mayor que conversation.timeout
+    },
+  },
+})
+bot.on('coordination:handover', ({ key, name, outcome }) => log.info({ key, name, outcome }, 'relevo'))
+```
+
+- **`flows: 'forward'`** escribe un checkpoint por paso también para los
+  flujos sin `.persistent()`, marcado como efímero: caduca `ttl` después de su
+  última escritura (por defecto `conversation.timeout`, si no 5 minutos;
+  mientras el flujo espera, nunca antes del timeout de esa espera, y se
+  renueva en cada espera) y lleva una huella del flujo, para que una réplica con el flujo cambiado
+  (despliegue gradual) no lo retome en el paso equivocado; ese caso va a
+  `fallback` con `reason: 'changed'`. `c.state` tiene que ser JSON plano: un
+  flujo cuyo estado guarda una instancia de clase, una función o un `Date` no
+  se reenvía y va a `fallback`. Tras un `bot.stop()` ordenado el checkpoint se
+  conserva, así que la réplica que toma el relevo (o esta misma, reiniciada
+  dentro del TTL) sigue. Actualiza todas las réplicas antes de activar
+  `forward` (y desactívalo antes de volver atrás): una réplica que no reenvía
+  igualmente retoma un checkpoint efímero y lo borra, pero una versión anterior
+  ignora su caducidad.
+- **`fallback`** se aplica a lo que no se puede serializar (la pila y los
+  closures de una función asíncrona). La conversación deja un pequeño
+  marcador en el store mientras espera (dos escrituras por conversación: una
+  cuando espera por primera vez y otra para borrarlo). La réplica que toma el
+  chat entonces:
+  - `'notify'`: responde `notifyMessage` (por defecto, el texto localizado
+    `core.conversation.interrupted`) y consume el mensaje;
+  - `'restart'`: vuelve a entrar en la conversación por nombre, desde el
+    principio y con su estado inicial (lo que se ejecutó antes de su primera
+    espera se repite);
+  - una función `(info, ctx) => boolean`: tu migración; devuelve `true` si
+    consumió el mensaje;
+  - `'drop'` (por defecto): nada, el mensaje se enruta con normalidad.
+
+**Un paso cortado conserva su respuesta.** Cuando la primera pregunta de un
+paso ya tenía respuesta pero el paso no había terminado (un validador lento,
+un `.do()` tras su `c.ask`) y el paso se suspende (`settleMs`, un turno
+perdido), la respuesta se guarda en el checkpoint antes de que el paso siga.
+La réplica que toma el chat le da esa respuesta en lugar de volver a
+preguntar, y guarda el mensaje que la despertó para la siguiente pregunta.
+Con `durability` el checkpoint solo apunta al mensaje del journal (y los
+envíos del paso los deduplica el outbox); sin ella, se incrusta el propio
+mensaje si cabe en `maxAnswerBytes` (por defecto 16 KiB). Lo que los hooks
+`before('message')` hicieron con la respuesta (una transcripción de voz en
+`ctx.body`, `ctx.type`, `ctx.lang`) viaja con ella; los hooks no se repiten.
+
+**Los acuses siguen al checkpoint.** Con `durability`, un registro de entrada
+se confirma solo después de que aterrice la escritura del checkpoint que
+guarda su efecto (la marca de espera, la respuesta guardada). Si esa
+escritura falló, o el paso suspendido había consumido una respuesta que ningún
+checkpoint guarda (una pregunta posterior del paso, una respuesta demasiado
+grande para incrustarla), libera el registro, que se reprocesa. Las escrituras
+de checkpoints tienen fencing como los envíos: una réplica que sabe que perdió
+el turno no escribe el checkpoint. Un paso suspendido que sigue ejecutándose
+tampoco lo escribe ni lo borra después, aunque la misma réplica haya vuelto a
+tomar el chat.
+
+Límites:
+
+- La unidad del relevo es el paso. Un paso que se repite en la réplica nueva
+  repite sus efectos anteriores a su primera espera: los envíos solo se
+  deduplican con `durability`, y el trabajo de `.do()` es al-menos-una-vez.
+- Las respuestas a preguntas posteriores de un paso con varias preguntas (un
+  formulario en modo texto, un `.do()` con varios `c.ask`) no se reenvían: el
+  paso vuelve a empezar.
+- Sin `durability`, el envío de la pregunta y su marca no son atómicos: una
+  caída entre ambos pregunta una vez más. Las respuestas mayores que
+  `maxAnswerBytes` no se incrustan (el paso vuelve a preguntar).
+- El timeout de una espera vuelve a empezar en la réplica nueva, acotado por
+  el TTL. Los vigilantes `c.idle()` solo se rearman con el código que se
+  repite.
+- Una conversación suspendida antes de su primera espera no deja marcador
+  (todavía no hay nada que relevar).
+- Las conversaciones asíncronas nunca se migran solas.
+- El fencing es una comprobación local justo antes de cada escritura (como en
+  los envíos), no una escritura condicional en el store.
+
 ## Requisitos y límites
 
 - **Un store compartido** (`RedisStore`, o Postgres/Mongo/MySQL). Con
   `MemoryStore`/`SQLiteStore` cada réplica tiene sus propios datos.
-- **Los flujos de varios turnos deberían ser `.persistent()`.** Un
-  `bot.conversation` o un flujo no persistente vive en la memoria de la
-  réplica que lo inició; si el siguiente mensaje llega a otra réplica, se
-  enruta como un mensaje nuevo. Un flujo persistente solo se guarda tras su
-  primer paso, así que empiézalo con un `.say()` si la primera pregunta debe
-  sobrevivir a un cambio de réplica.
+- **Los flujos de varios turnos deberían ser `.persistent()`** (o usa el
+  [`handover`](#relevo-de-conversaciones)). Sin eso, un `bot.conversation` o
+  un flujo no persistente vive en la memoria de la réplica que lo inició; si
+  el siguiente mensaje llega a otra réplica, se enruta como un mensaje nuevo.
+  Con coordinación un flujo persistente se guarda en cuanto se entra en él,
+  así que incluso su primera pregunta sobrevive a un cambio de réplica.
 - **El dedupe de entrada es por proceso.** Un reintento de webhook que llegue
   a otra réplica se procesa otra vez. Haz los handlers idempotentes, deja el
   transporte en una sola réplica (`'leader'`) o activa
@@ -163,6 +261,7 @@ Mientras espera un turno, la réplica consulta Redis cada 5 a 100 ms
 bot.on('coordination:leader', ({ name, fence }) => log.info({ name, fence }, 'transporte conectado'))
 bot.on('coordination:follower', ({ name, reason }) => log.warn({ name, reason }, 'en espera'))
 bot.on('coordination:lease-lost', ({ key, reason }) => log.warn({ key, reason }, 'lease perdido'))
+bot.on('coordination:handover', ({ key, name, outcome }) => log.info({ key, name, outcome }, 'conversación relevada'))
 bot.on('error', ({ error }) => {
   // CoordinationUnavailableError: un mensaje no consiguió su turno (timeout o Redis caído)
 })

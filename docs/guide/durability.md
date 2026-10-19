@@ -300,6 +300,12 @@ transport session (`providerSession: 'leader'`, e.g. Baileys) a standby's outbox
 sweeper never calls the transport (the attempt is refused with `ProviderNotLeaderError`
 and retried); the leader delivers it.
 
+With coordination, a record that fed a conversation step is acknowledged only once the
+checkpoint write holding its effect landed (the parked marker, or the answer of a step
+cut short); a suspended step whose write failed releases the record instead, so it is
+replayed. A recorded answer points at its inbox record, so keep `retention` above your
+longest conversation pause. See [Conversation hand-over](./replicas.md#conversation-hand-over).
+
 ## Testing crash recovery
 
 `@bot-wa/core/testing` exports `crashable(backend)`, which can "kill" a bot at a

@@ -78,7 +78,7 @@ import { type BroadcastOptions, type BroadcastResult } from '../ops/broadcast.js
 import { deleteSubjectData, exportSubjectData, type SubjectDataExport, type SubjectDeletionResult } from './subjectData.js'
 import { type TriggerOptions, type TriggerResult } from '../ops/trigger.js'
 import type { I18n } from '../i18n/I18n.js'
-import type { CoordinatorEvents, Fence, LeaseLossReason } from '../coordination/types.js'
+import type { ConversationHandoverEvent, CoordinatorEvents, Fence, LeaseLossReason } from '../coordination/types.js'
 import type { DurabilityControl } from '../durability/bind.js'
 import type { I18nConfig, LocaleMessages, TranslateParams } from '../i18n/types.js'
 import { composeBot } from './bot/compose.js'
@@ -137,6 +137,11 @@ export interface BotEvents {
   'coordination:follower': { name: string; reason?: LeaseLossReason }
   /** Multi-replica: a chat turn or leadership was lost before its release (pause, partition, backend down). */
   'coordination:lease-lost': CoordinatorEvents['lease-lost']
+  /**
+   * Multi-replica (`coordination.handover`): a conversation another replica ran was taken
+   * over on this one — resumed, or handled by the hand-over fallback (see `outcome`).
+   */
+  'coordination:handover': ConversationHandoverEvent
   /**
    * Durability (`BotConfig.durability`): an inbound event or a send was dead-lettered after its
    * retries (`id` is the inbox record id or the outbox key). Replay/retry it through `bot.durability`.

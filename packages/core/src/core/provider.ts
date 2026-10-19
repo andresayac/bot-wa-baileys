@@ -1088,6 +1088,56 @@ export interface FlowCheckpoint {
    * that already went out is not sent twice.
    */
   cause?: { id: string; seq: number }
+  /**
+   * Multi-replica coordination: the message the FIRST wait of `step` consumed while the step
+   * had not completed yet (a slow validator, a `.do()` running after its first `c.ask`). The
+   * replica that resumes the flow feeds it to that wait instead of asking again. The next
+   * step's checkpoint drops it; a later wait of the same step parking drops it too (the step
+   * then re-runs from its start, as without it).
+   */
+  answer?: CheckpointAnswer
+  /** Multi-replica hand-over metadata (`coordination.handover`): an ephemeral checkpoint or a stub. */
+  handover?: CheckpointHandover
+}
+
+/** See {@link FlowCheckpoint.answer}. Stores persist it opaquely, as JSON. */
+export interface CheckpointAnswer {
+  /** Durability on: the inbox record holding the message (read back from the journal). */
+  inboundId?: string
+  /** Durability: where the answered step's send keys continue (re-derived on the replica that resumes it). */
+  cause?: { id: string; seq: number }
+  /** Durability off: the encoded inbound message (`raw` stripped), when it fits `handover.maxAnswerBytes`. */
+  message?: unknown
+  /** Button/callback answers: the interaction projection (`id`, `data`, `respondBy`). */
+  interaction?: unknown
+  /** `ctx.body` after the `before('message')` hooks (a voice transcript survives the hand-over). */
+  body?: string
+  /** `ctx.type` after the hooks, when they changed it (a transcribed voice note becomes `'text'`). */
+  type?: string
+  /** `ctx.lang` as resolved for the message. */
+  lang?: string
+  /** When it was captured (epoch ms). */
+  at: number
+}
+
+/** See {@link FlowCheckpoint.handover}. */
+export interface CheckpointHandover {
+  /**
+   * `'ephemeral'`: a flow WITHOUT `.persistent()` checkpointed only so another replica can
+   * continue it (`handover.flows: 'forward'`); `'stub'`: a marker of a conversation that
+   * cannot be forwarded (an async `bot.conversation`), read by `handover.fallback`.
+   */
+  kind: 'ephemeral' | 'stub'
+  /** Not resumable after this instant (epoch ms); expired entries are discarded. */
+  expiresAt: number
+  /** Ephemeral: fingerprint of the flow's steps, to detect a flow changed by a deploy. */
+  shape?: string
+  /** Conversation name (stubs; the flow id for ephemeral checkpoints). */
+  name?: string
+  /** When the conversation started (epoch ms). */
+  startedAt?: number
+  /** Initial `c.state`, when it was plain JSON (`fallback: 'restart'` re-enters with it). */
+  startState?: Record<string, unknown>
 }
 
 /**

@@ -115,15 +115,109 @@ owner). A release that fails on the wire (a Redis blip) is repaired by the
 watchdog within `leaseMs / 3`, so the chat does not stall behind a live
 replica.
 
+## Conversation hand-over
+
+What happens to a chat's live conversation when another replica takes the chat
+(the replica that ran it crashed, was stopped for a deploy, froze past its
+lease, or cut a step short at `settleMs`):
+
+| Conversation | Default | With `handover` |
+| --- | --- | --- |
+| `.persistent()` flow | continues from its checkpoint | same |
+| flow without `.persistent()` | lost (the message routes as a new one) | `flows: 'forward'`: continues from an ephemeral checkpoint |
+| async `bot.conversation`, or a flow that cannot be forwarded | lost | `fallback`: `'notify'`, `'restart'` or your own function |
+
+```ts
+const bot = new Bot({
+  provider, store,
+  coordination: {
+    coordinator,
+    handover: {
+      flows: 'forward',      // checkpoint flows without .persistent() too (TTL-bound)
+      fallback: 'notify',    // the rest: tell the user it was interrupted
+      ttl: '10m',            // keep at or above conversation.timeout
+    },
+  },
+})
+bot.on('coordination:handover', ({ key, name, outcome }) => log.info({ key, name, outcome }, 'hand-over'))
+```
+
+- **`flows: 'forward'`** writes a checkpoint per step for flows without
+  `.persistent()` too, marked ephemeral: it expires `ttl` after its last write
+  (default `conversation.timeout`, else 5 minutes; while the flow waits, never
+  before that wait's own timeout, refreshed at every wait) and carries a fingerprint
+  of the flow, so a replica running a changed flow (rolling deploy) does not
+  resume it at the wrong step; that case goes to `fallback` with
+  `reason: 'changed'`. `c.state` must be plain JSON: a flow whose state holds
+  a class instance, a function or a `Date` is not forwarded and goes to
+  `fallback`. After a graceful `bot.stop()` the checkpoint is kept, so the
+  replica that takes over (or this one, restarted within the TTL) continues.
+  Upgrade every replica before turning `forward` on (and turn it off before
+  rolling back): a replica that does not forward still resumes an ephemeral
+  checkpoint and clears it, but an older version ignores its expiry.
+- **`fallback`** applies to what cannot be serialized (an async function's
+  stack and closures). The conversation keeps a small stub in the store while
+  it waits (two writes per conversation: one when it first waits, one to
+  clear it). The replica that takes the chat then:
+  - `'notify'`: replies `notifyMessage` (default: the localized
+    `core.conversation.interrupted` text) and consumes the message;
+  - `'restart'`: enters the conversation again by name, from the beginning,
+    with its initial state (what ran before its first wait runs again);
+  - a function `(info, ctx) => boolean`: your migration; return `true` when
+    it consumed the message;
+  - `'drop'` (default): nothing, the message routes normally.
+
+**A step cut short keeps its answer.** When a step's first question was
+already answered but the step had not finished (a slow validator, a `.do()`
+after its `c.ask`) and the step is suspended (`settleMs`, a lost turn), the
+answer is recorded in the checkpoint before the step goes on. The replica
+that takes the chat feeds it that answer instead of asking again, and keeps
+the waking message for the next question. With `durability` the checkpoint
+only points at the journaled message (and the step's sends are deduplicated
+by the outbox); without it, the message itself is embedded when it fits
+`maxAnswerBytes` (default 16 KiB). What the `before('message')` hooks made of
+the answer (a voice transcript in `ctx.body`, `ctx.type`, `ctx.lang`) travels
+with it; the hooks do not run again.
+
+**Acknowledgements follow the checkpoint.** With `durability`, an inbound
+record is acknowledged only after the checkpoint write that holds its effect
+landed (the parked marker, the recorded answer). If that write failed, or
+the suspended step had consumed an answer no checkpoint holds (a later
+question of the step, an answer too large to embed), it releases the record
+instead, so it is replayed. Checkpoint writes are fenced like sends: a
+replica whose turn is known lost does not write the checkpoint. A suspended
+step that keeps running anyway never writes or clears it afterwards either,
+even once the same replica took the chat again.
+
+Limits:
+
+- The unit of hand-over is the step. A step run again on the new replica runs
+  its side effects before its first wait again: sends are deduplicated only
+  with `durability`, and `.do()` work is at-least-once.
+- Answers to later questions of a multi-question step (a text-mode form, a
+  `.do()` with several `c.ask`) are not forwarded: the step restarts.
+- Without `durability`, the prompt send and its marker are not atomic: a
+  crash in between asks once more. Answers larger than `maxAnswerBytes` are
+  not embedded (the step asks again).
+- A wait's timeout restarts on the new replica, bounded by the TTL. `c.idle()`
+  watchdogs are armed again only by the code that runs again.
+- A conversation suspended before its first wait leaves no stub (nothing to
+  hand over yet).
+- Async conversations are never migrated automatically.
+- The fence is a local check right before each write (like sends), not a
+  conditional write in the store.
+
 ## Requirements and limits
 
 - **A shared store** (`RedisStore`, or Postgres/Mongo/MySQL). With
   `MemoryStore`/`SQLiteStore` each replica has its own data.
-- **Multi-turn flows should be `.persistent()`.** A plain `bot.conversation`
-  or non-persistent flow lives in the memory of the replica that started it;
-  if the next message reaches another replica it is routed as a fresh
-  message. A persistent flow is only checkpointed after its first step, so
-  start it with a `.say()` if the very first question must survive a handover.
+- **Multi-turn flows should be `.persistent()`** (or use
+  [`handover`](#conversation-hand-over)). Without it, a plain
+  `bot.conversation` or non-persistent flow lives in the memory of the
+  replica that started it; if the next message reaches another replica it is
+  routed as a fresh message. With coordination a persistent flow is
+  checkpointed as soon as it is entered, so even its first question survives
+  a hand-over.
 - **Inbound dedupe is per process.** A webhook retry that reaches another
   replica is processed again. Make handlers idempotent, keep the transport
   on one replica (`'leader'`), or turn on [`durability`](./durability.md) with
@@ -153,6 +247,7 @@ bots. Locally, turn waits poll Redis every 5 to 100 ms (`maxPollMs`).
 bot.on('coordination:leader', ({ name, fence }) => log.info({ name, fence }, 'connected the transport'))
 bot.on('coordination:follower', ({ name, reason }) => log.warn({ name, reason }, 'standing by'))
 bot.on('coordination:lease-lost', ({ key, reason }) => log.warn({ key, reason }, 'lease lost'))
+bot.on('coordination:handover', ({ key, name, outcome }) => log.info({ key, name, outcome }, 'conversation handed over'))
 bot.on('error', ({ error }) => {
   // CoordinationUnavailableError: a message could not get its turn (timeout or Redis down)
 })
