@@ -5,8 +5,10 @@
  * `checkpoints`, `conversations`, `cursors`, `user_data` — each optionally prefixed) inside
  * one configurable database, so any number of bot replicas can share one
  * MongoDB deployment. `getMessagesByChat(limit)` is served by a compound
- * `{chatId: 1, timestamp: 1}` index: the latest `limit` messages come back
- * ASCENDING by timestamp (same windowing semantics as the redis/sqlite stores).
+ * `{chatId: 1, timestamp: 1, _id: 1}` index: the latest `limit` messages come
+ * back ASCENDING by timestamp, ties broken by message key (`_id`) — the same
+ * order the SQL stores use, so the window and the `maxMessagesPerChat` trim
+ * agree on which of several same-millisecond messages are the newest.
  *
  * The client is injectable (`opts.client`) so tests — and callers that own a
  * connection pool — never need a live MongoDB. When no client is injected,
@@ -45,7 +47,7 @@ import type {
   UserDataEntry,
   UserId,
 } from '@bot-wa/core'
-import { messageKey } from '@bot-wa/core'
+import { legacyMessageKey, messageKey } from '@bot-wa/core'
 import { MongoUserData, type UserDataDoc } from './userData.js'
 
 /** The native mongodb v6 client type (accepted through {@link MongoStoreOptions.client}). */
@@ -119,11 +121,19 @@ export interface MongoStoreOptions {
    * Must be a non-negative integer, else the constructor throws a `RangeError`.
    */
   maxMessagesPerChat?: number
+  /**
+   * Documents deleted per `deleteMany` by `purgeExpiredUserData` (default
+   * 1000). The purge loops until no expired document is left, so a huge
+   * backlog is removed in short operations instead of one long delete. Must be
+   * a positive integer, else the constructor throws a `RangeError`.
+   */
+  purgeBatchSize?: number
   logger?: { error?: (...args: unknown[]) => void }
 }
 
 /* Document shapes ---------------------------------------------------------- *
  *   messages      { _id: messageKey(ref), chatId, timestamp, msg }
+ *                 (documents written before keys were escaped use legacyMessageKey(ref))
  *   chats         { _id: chat.id, ...StoredChat }
  *   contacts      { _id: contact.id, ...StoredContact }
  *   checkpoints   { _id: key, cp }
@@ -172,6 +182,12 @@ const READ = { promoteBuffers: true } as const
  */
 export const TRIM_DELETE_BATCH = 10_000
 
+/**
+ * Newest-first order of a chat's log: timestamp, then message key, so equal
+ * timestamps never make the window or the trim depend on insertion order.
+ */
+const NEWEST_FIRST = { timestamp: -1, _id: -1 } as const
+
 /** Largest `limit` sent to the server (int32); a larger window simply reads without a limit. */
 const MAX_LIMIT = 2_147_483_647
 
@@ -212,6 +228,9 @@ export class MongoStore implements IStore {
     if (opts.maxMessagesPerChat != null && !(Number.isInteger(opts.maxMessagesPerChat) && opts.maxMessagesPerChat >= 0)) {
       throw new RangeError(`MongoStore: maxMessagesPerChat must be a non-negative integer, got ${opts.maxMessagesPerChat}`)
     }
+    if (opts.purgeBatchSize != null && !(Number.isInteger(opts.purgeBatchSize) && opts.purgeBatchSize > 0)) {
+      throw new RangeError(`MongoStore: purgeBatchSize must be a positive integer, got ${opts.purgeBatchSize}`)
+    }
     this.dbName = opts.dbName ?? 'botwa'
     this.logger = opts.logger
     this.maxMessagesPerChat = opts.maxMessagesPerChat
@@ -230,7 +249,7 @@ export class MongoStore implements IStore {
     this.checkpoints = db.collection<CheckpointDoc>(`${p}checkpoints`)
     this.conversations = db.collection<ConversationDoc>(`${p}conversations`)
     this.cursors = db.collection<CursorDoc>(`${p}cursors`)
-    this.userData = new MongoUserData(db.collection<UserDataDoc>(`${p}user_data`))
+    this.userData = new MongoUserData(db.collection<UserDataDoc>(`${p}user_data`), opts.purgeBatchSize)
   }
 
   /* Messages -------------------------------------------------------------- */
@@ -242,11 +261,16 @@ export class MongoStore implements IStore {
    */
   async saveMessage(msg: StoredMessage): Promise<void> {
     if (!msg.ref?.id || !msg.chatId) return
+    const key = messageKey(msg.ref)
     await this.messages.updateOne(
-      { _id: messageKey(msg.ref) },
+      { _id: key },
       { $set: { chatId: msg.chatId, timestamp: msg.timestamp, msg } },
       UPSERT,
     )
+    // Drop the copy an older version wrote under the legacy key (else the
+    // message would be listed twice). No-op for ids without ':' or '%'.
+    const legacy = legacyMessageKey(msg.ref)
+    if (legacy !== key) await this.messages.deleteMany({ _id: legacy, chatId: msg.chatId })
     await this.trimChat(msg.chatId)
   }
 
@@ -257,7 +281,7 @@ export class MongoStore implements IStore {
     // Only the ids travel back; the overflow goes in as few deleteMany as fit.
     const stale = await this.messages
       .find({ chatId }, { projection: { _id: 1 } })
-      .sort({ timestamp: -1 })
+      .sort(NEWEST_FIRST)
       .skip(this.maxMessagesPerChat)
       .toArray()
     // Chunked so a large backlog never exceeds the BSON command size limit.
@@ -269,8 +293,18 @@ export class MongoStore implements IStore {
 
   async getMessage(ref: MessageRef): Promise<StoredMessage | undefined> {
     if (!ref.id || !ref.chatId) return undefined
-    const doc = await this.messages.findOne({ _id: messageKey(ref) }, READ)
-    return doc?.msg
+    const key = messageKey(ref)
+    const found = await this.messageIn(key, ref.chatId)
+    if (found) return found
+    // Documents written before keys were escaped (only differs when an id has ':' or '%').
+    const legacy = legacyMessageKey(ref)
+    return legacy === key ? undefined : this.messageIn(legacy, ref.chatId)
+  }
+
+  /** The message stored under `key` IN `chatId` (a legacy key alone may belong to another chat). */
+  private async messageIn(key: string, chatId: string): Promise<StoredMessage | undefined> {
+    const doc = await this.messages.findOne({ _id: key }, READ)
+    return doc?.chatId === chatId ? doc.msg : undefined
   }
 
   async getMessagesByChat(chatId: string, limit = 50): Promise<StoredMessage[]> {
@@ -279,14 +313,15 @@ export class MongoStore implements IStore {
     // "no limit" and limit(-n) as n, and rejects a fraction, so normalize first.
     if (!(limit > 0)) return []
     // Latest `limit` messages, newest first, then flipped to oldest -> newest.
-    const cursor = this.messages.find({ chatId }, READ).sort({ timestamp: -1 })
+    const cursor = this.messages.find({ chatId }, READ).sort(NEWEST_FIRST)
     if (limit <= MAX_LIMIT) cursor.limit(Math.ceil(limit)) // beyond: every message, i.e. no limit at all
     const docs = await cursor.toArray()
     return docs.reverse().map((d) => d.msg)
   }
 
   async deleteMessage(ref: MessageRef): Promise<void> {
-    await this.messages.deleteOne({ _id: messageKey(ref) })
+    // Both key formats, scoped to the chat: a legacy key alone may belong to another chat.
+    await this.messages.deleteMany({ _id: { $in: [messageKey(ref), legacyMessageKey(ref)] }, chatId: ref.chatId })
   }
 
   /* Chats ----------------------------------------------------------------- */
@@ -382,7 +417,7 @@ export class MongoStore implements IStore {
   async listUserData(userId: UserId, namespace?: string): Promise<UserDataEntry[]> {
     return this.userData.list(userId, namespace, Date.now())
   }
-  /** Delete every expired user-data document (all users); resolves with the count. */
+  /** Delete every expired user-data document (all users) in batches of `purgeBatchSize`; resolves with the count. */
   async purgeExpiredUserData(now: number = Date.now()): Promise<number> {
     return this.userData.purge(now)
   }
@@ -392,8 +427,11 @@ export class MongoStore implements IStore {
   async start(): Promise<void> {
     // Injected clients are caller-managed; never connect/close them.
     if (this.ownsClient && !this.started) await this.client.connect()
-    // Backs the per-chat time-ordered read in getMessagesByChat.
-    await this.messages.createIndex({ chatId: 1, timestamp: 1 })
+    // Backs the per-chat time-ordered read in getMessagesByChat and the trim,
+    // including the `_id` tie-break. Idempotent (same spec = no-op). Stores
+    // created by older versions also keep a now-redundant
+    // `chatId_1_timestamp_1` index, which can be dropped by hand.
+    await this.messages.createIndex({ chatId: 1, timestamp: 1, _id: 1 })
     await this.userData.ensureIndexes()
     this.started = true
   }

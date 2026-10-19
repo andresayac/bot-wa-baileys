@@ -69,13 +69,14 @@ const store = new MongoStore({ client: fake })
 | `collectionPrefix` | `string`                   | `''`                        | Prefix applied to every collection name. |
 | `client`           | `MongoClient \| MongoLikeClient` | —                     | Inject an existing client (required for tests). The store never connects/closes it. |
 | `maxMessagesPerChat` | `number`                 | — (unbounded)               | When set, `saveMessage` prunes each chat's oldest messages (by timestamp) beyond the cap. Must be a non-negative integer (else `RangeError`). |
+| `purgeBatchSize` | `number` | `1000` | Documents deleted per statement by `purgeExpiredUserData`; the purge loops until nothing expired is left, so a large backlog never runs as one long delete. Must be a positive integer (else `RangeError`). |
 | `logger`           | `{ error? }`               | —                           | Receives lifecycle errors (e.g. close failure). |
 
 ## Collection layout
 
 | Collection          | `_id`              | Document |
 | ------------------- | ------------------ | -------- |
-| `{prefix}messages`      | `messageKey(ref)` (`{chatId}:{id}`) | `{ chatId, timestamp, msg: StoredMessage }` — indexed by `{chatId: 1, timestamp: 1}` |
+| `{prefix}messages`      | `messageKey(ref)` (`{chatId}:{id}`, escaped) | `{ chatId, timestamp, msg: StoredMessage }` — indexed by `{chatId: 1, timestamp: 1, _id: 1}` |
 | `{prefix}chats`         | `chat.id`          | the whole `StoredChat` |
 | `{prefix}contacts`      | `contact.id`       | the whole `StoredContact` |
 | `{prefix}checkpoints`   | key                | `{ cp: FlowCheckpoint }` |
@@ -83,6 +84,12 @@ const store = new MongoStore({ client: fake })
 | `{prefix}cursors`       | key                | `{ value: string }` (delivery cursor, e.g. Telegram `update_id`) |
 
 `deleteChat(chatId)` removes the chat document **and** purges that chat's message log (same semantics as `MemoryStore` and the other stores). `upsertChat` / `upsertContact` shallow-merge over the existing document: fields you pass replace the stored ones, omitted fields are kept, and a field passed explicitly as `undefined` is removed.
+
+`getMessagesByChat` and the `maxMessagesPerChat` trim sort by `timestamp`, then `_id` (the message key), like the SQL stores, so several messages with the same timestamp always produce the same window and the trim keeps exactly the messages the window shows. `start()` creates the `{chatId: 1, timestamp: 1, _id: 1}` index idempotently; databases created by an earlier version also keep the old `chatId_1_timestamp_1` index, which is now redundant and can be dropped (`db.messages.dropIndex('chatId_1_timestamp_1')`).
+
+`purgeExpiredUserData` reads up to `purgeBatchSize` expired `_id`s through the `expiresAt` index and removes them with one `deleteMany`, repeating until nothing expired is left.
+
+- **Message keys.** `messageKey(ref)` (from `@bot-wa/core`) is `{chatId}:{id}` with `%` and `:` percent-escaped in each part (`%25`, `%3A`), so ids that contain `:` — Twilio's `whatsapp:+1…` chat ids — never collide (`('a:b', 'c')` and `('a', 'b:c')` used to share the key `a:b:c`). Ids without `:` or `%` keep exactly the key earlier versions wrote. Rows written by an earlier version under the old unescaped key are still read and deleted (a fallback that only runs for ids containing `:` or `%`, and only returns a row that belongs to that chat), and re-saving such a message moves it to the new key — no manual migration. One theoretical edge remains: an id that literally contains `%3A` and was stored by an earlier version can be overwritten by a new message whose id has `:` in the same place.
 
 ## BSON notes
 

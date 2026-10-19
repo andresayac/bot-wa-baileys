@@ -9,8 +9,8 @@
  *
  * The value is kept as JSON TEXT so arbitrary user keys (`$x`, `a.b`) never
  * clash with MongoDB field-name rules. Expiry is enforced lazily on read and
- * physically by `purge()` (`deleteMany({ expiresAt: { $lte: now } })`, backed by
- * an `{ expiresAt: 1 }` index); `{ userId: 1, namespace: 1 }` serves the list
+ * physically by `purge()` (batches of expired `_id`s read through the
+ * `{ expiresAt: 1 }` index, each removed with one `deleteMany`); `{ userId: 1, namespace: 1 }` serves the list
  * and namespace/user deletes.
  */
 
@@ -48,8 +48,14 @@ function toEntry(doc: UserDataDoc): UserDataEntry {
   return entry
 }
 
+/** Default documents per `deleteMany` of {@link MongoUserData.purge}. */
+export const DEFAULT_PURGE_BATCH_SIZE = 1000
+
 export class MongoUserData {
-  constructor(private readonly collection: MongoLikeCollection<UserDataDoc>) {}
+  constructor(
+    private readonly collection: MongoLikeCollection<UserDataDoc>,
+    private readonly batchSize = DEFAULT_PURGE_BATCH_SIZE,
+  ) {}
 
   /** Idempotent index creation (called from MongoStore.start). */
   async ensureIndexes(): Promise<void> {
@@ -93,8 +99,27 @@ export class MongoUserData {
     return docs.filter((doc) => isLive(doc, now)).map(toEntry)
   }
 
+  /**
+   * Delete expired documents `batchSize` at a time — read a batch of `_id`s
+   * through the expiry index, then `deleteMany` them (the expiry is re-checked,
+   * so a TTL extended in between survives) — until a batch comes back short.
+   * One unbounded `deleteMany` over a huge backlog ran as a single long
+   * operation.
+   */
   async purge(now: number): Promise<number> {
-    const { deletedCount } = await this.collection.deleteMany({ expiresAt: { $lte: now } })
-    return deletedCount
+    let total = 0
+    for (;;) {
+      const batch = await this.collection
+        .find({ expiresAt: { $lte: now } }, { projection: { _id: 1 } })
+        .limit(this.batchSize)
+        .toArray()
+      if (batch.length === 0) return total
+      const { deletedCount } = await this.collection.deleteMany({
+        _id: { $in: batch.map((d) => d._id) },
+        expiresAt: { $lte: now },
+      })
+      total += deletedCount
+      if (batch.length < this.batchSize) return total
+    }
   }
 }
