@@ -316,6 +316,11 @@ Revisión de los 10 paquetes públicos, con hallazgos y decisiones en [`docs/api
 - **`examples/bakery-ai`**: las variables enteras (`PORT`, `AI_TIMEOUT_MS`) solo aceptan enteros decimales (antes `0x10` o `1e3` pasaban) y `AI_PROVIDER`, `GROUP_MODE` y `LOG_LEVEL` no distinguen mayúsculas.
 - **Scripts**: `scripts/clean-lib.mjs` resuelve las rutas desde la raíz del repo, no desde el directorio actual.
 
+### Plugins y tooling: ronda H (2026-10)
+- **`@bot-wa/http`** (**cambio incompatible menor**): códigos de `SecureHttpError` precisos. `timeoutMs`, `maxBytes` o `maxRedirects` fuera de rango rechazan con `INVALID_OPTIONS`, y una respuesta no 2xx en `fetchBuffer` rechaza con `HTTP_STATUS` y el código en el nuevo `error.status`; antes ambos reutilizaban `INVALID_URL`, que ahora significa solo una URL (o un `Location` de redirección) que no se puede parsear. Si comparabas `INVALID_URL` para detectar fallos HTTP, cambia a `HTTP_STATUS`.
+- **`@bot-wa/events`** (privado; **cambio incompatible**): fencing tokens. Cada `claim` asigna a `record.fencingToken` un valor estrictamente creciente por evento (nunca se reutiliza, ni tras `replay`); `ack`/`fail` con un token superado rechazan con `StaleLeaseError`, así que un worker cuyo lease expiró mientras su handler corría ya no puede completar, reintentar ni mandar a la DLQ un evento que otro worker reclamó. `EventJournal.ack(eventId, { now, fencingToken })` sustituye a `ack(eventId, now)`; `ack`/`fail` sin token quedan como override de operador. `EventWorker` pasa el token, acepta `leaseMs` y `clock`, se salta los registros cuyo lease venció antes de empezar su handler (y los devuelve con el nuevo `EventJournal.release(eventId, { now, fencingToken })`, que no gasta el intento, así que saltarse un registro nunca lo acerca a la DLQ) y `runBatch()` devuelve `{ processed, failed, stale }`. El ejemplo del README usaba un constructor de `EventWorker` que no existe; corregido.
+- **`@bot-wa/manager`, `create-bot-wa`**: revisados en busca de `TODO`/`FIXME` pendientes; no queda ninguno (los únicos `console.*` son las excepciones documentadas). `pnpm pack:smoke` sigue verde para los 10 paquetes públicos y las 10 plantillas.
+
 ---
 
 ## @bot-wa/ai

@@ -7,16 +7,33 @@ import { Agent, fetch as undiciFetch } from 'undici'
 // bundled undici that rejects a foreign dispatcher (UND_ERR_INVALID_ARG).
 const defaultFetch = undiciFetch as unknown as typeof globalThis.fetch
 
-/** Error raised when an outbound request violates a safe-client policy. */
+/** Error raised when an outbound request violates a safe-client policy or fails. */
 export class SecureHttpError extends Error {
-  constructor(message: string, readonly code: SecureHttpErrorCode) {
+  /** HTTP status of the response, set only for `HTTP_STATUS` errors. */
+  readonly status?: number
+
+  constructor(message: string, readonly code: SecureHttpErrorCode, details: { status?: number } = {}) {
     super(message)
     this.name = 'SecureHttpError'
+    if (details.status !== undefined) this.status = details.status
   }
 }
 
+/**
+ * Why a {@link SecureHttpError} was raised:
+ * - `INVALID_URL`: the URL (or a redirect `Location`) cannot be parsed.
+ * - `INVALID_OPTIONS`: `timeoutMs`, `maxBytes` or `maxRedirects` is out of range.
+ * - `UNSAFE_URL`: non-HTTPS scheme (without `allowHttp`), embedded credentials or no hostname.
+ * - `UNSAFE_HOST`: the host or its DNS result is private/loopback/link-local.
+ * - `TIMEOUT`: the whole request exceeded `timeoutMs`.
+ * - `RESPONSE_TOO_LARGE`: the body exceeded `maxBytes`.
+ * - `TOO_MANY_REDIRECTS`: more than `maxRedirects` hops.
+ * - `HTTP_STATUS`: {@link fetchBuffer} got a non-2xx response (see `status`).
+ */
 export type SecureHttpErrorCode =
   | 'INVALID_URL'
+  | 'INVALID_OPTIONS'
+  | 'HTTP_STATUS'
   | 'UNSAFE_URL'
   | 'UNSAFE_HOST'
   | 'TIMEOUT'
@@ -65,9 +82,9 @@ export async function secureFetch(input: string | URL, options: SecureFetchOptio
     ...init
   } = options
 
-  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) throw new SecureHttpError('timeoutMs must be positive', 'INVALID_URL')
-  if (!Number.isSafeInteger(maxBytes) || maxBytes < 0) throw new SecureHttpError('maxBytes must be a non-negative integer', 'INVALID_URL')
-  if (!Number.isSafeInteger(maxRedirects) || maxRedirects < 0) throw new SecureHttpError('maxRedirects must be a non-negative integer', 'INVALID_URL')
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) throw new SecureHttpError('timeoutMs must be positive', 'INVALID_OPTIONS')
+  if (!Number.isSafeInteger(maxBytes) || maxBytes < 0) throw new SecureHttpError('maxBytes must be a non-negative integer', 'INVALID_OPTIONS')
+  if (!Number.isSafeInteger(maxRedirects) || maxRedirects < 0) throw new SecureHttpError('maxRedirects must be a non-negative integer', 'INVALID_OPTIONS')
 
   let url = parseUrl(input)
   // An `abort` listener never fires for a signal that is already aborted.
@@ -179,9 +196,13 @@ function rewritesToGet(status: number, method: string): boolean {
   return (status === 301 || status === 302) && method === 'POST'
 }
 
+/**
+ * {@link secureFetch} that returns only the body and rejects a non-2xx final
+ * response with a `HTTP_STATUS` {@link SecureHttpError} carrying its `status`.
+ */
 export async function fetchBuffer(input: string | URL, options: SecureFetchOptions = {}): Promise<Buffer> {
   const result = await secureFetch(input, options)
-  if (!result.response.ok) throw new SecureHttpError(`request failed: HTTP ${result.response.status}`, 'INVALID_URL')
+  if (!result.response.ok) throw new SecureHttpError(`request failed: HTTP ${result.response.status}`, 'HTTP_STATUS', { status: result.response.status })
   return result.body
 }
 

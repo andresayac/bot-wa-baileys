@@ -51,7 +51,10 @@ siga en la ventana de dedupe.
   por `secureFetch`: solo HTTPS por defecto, sin credenciales en la URL,
   respuestas DNS comprobadas contra rangos privados y socket fijado a la IP
   comprobada (sin DNS rebinding), cada redirección revalidada, timeouts y
-  límites de tamaño.
+  límites de tamaño. Los rechazos son un `SecureHttpError` cuyo `code` dice
+  el motivo: `INVALID_URL`, `INVALID_OPTIONS`, `UNSAFE_URL`, `UNSAFE_HOST`,
+  `TIMEOUT`, `RESPONSE_TOO_LARGE`, `TOO_MANY_REDIRECTS` o `HTTP_STATUS` (un
+  status no 2xx en `fetchBuffer`, con el código en `error.status`).
 - **REST `/v1` del manager.** Tokens obligatorios (≥ 16 caracteres, comparados
   como digests SHA-256 sin salida temprana), scopes por ruta, aislamiento por
   tenant (los bots de otro tenant responden `404`), rate limiting por token

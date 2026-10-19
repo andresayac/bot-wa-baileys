@@ -38,7 +38,7 @@ describe('EventWorker.on unsubscribe', () => {
     worker.on('x', (e) => { seen.push(e.payload) })
     off() // stale: must be a no-op
     await journal.append(createEnvelope({ eventType: 'x', context, payload: 42 }))
-    expect(await worker.runBatch()).toEqual({ processed: 1, failed: 0 })
+    expect(await worker.runBatch()).toEqual({ processed: 1, failed: 0, stale: 0 })
     expect(seen).toEqual([42])
   })
 })

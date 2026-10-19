@@ -85,7 +85,7 @@ describe('@bot-wa/events', () => {
     worker.on('x', handler)
     await journal.append(createEnvelope({ eventId: 'e1', eventType: 'x', context, payload: { value: 1 } }))
 
-    expect(await worker.runBatch()).toEqual({ processed: 1, failed: 0 })
+    expect(await worker.runBatch()).toEqual({ processed: 1, failed: 0, stale: 0 })
     expect(handler).toHaveBeenCalledOnce()
     expect((await journal.get('e1'))?.state).toBe('done')
   })
