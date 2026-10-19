@@ -7,6 +7,11 @@
  *    (`ProfileName`, `WaId`, `ButtonPayload`, `Latitude`…);
  *  - a status callback for an outgoing message: `MessageStatus` + `MessageSid`.
  *
+ * MEDIA: a message with several attachments (`NumMedia` > 1, up to 10) becomes
+ * one `InboundMessage` per item, in order. The first keeps `ref.id` =
+ * MessageSid and the `Body`; item i gets `ref.id` = `${MessageSid}:${i}` and an
+ * empty body (unique per item, identical on a webhook retry).
+ *
  * IDENTITY: `chatId` = `senderId` = Twilio's `From` exactly as sent
  * (`whatsapp:+15551234567` for WhatsApp, `+15551234567` for SMS). Twilio
  * already resolves the address, so the same person always yields the same id
@@ -123,42 +128,63 @@ export function parseInbound(params: TwilioWebhookParams, now: () => number = Da
 
   let type: MessageType = 'text'
   let body = one(params, 'Body') ?? ''
-  let media: MediaRef | undefined
-  const numMedia = Number(one(params, 'NumMedia') ?? '0')
-  const mediaUrl = one(params, 'MediaUrl0')
-  if (numMedia > 0 && mediaUrl) {
-    const mimetype = one(params, 'MediaContentType0')
-    const kind = mediaKind(mimetype)
-    type = kind
-    media = { kind, ...(mimetype ? { mimetype } : {}), token: { url: mediaUrl } }
-  } else if (one(params, 'Latitude') !== undefined && one(params, 'Longitude') !== undefined) {
+  const media = mediaItems(params)
+  if (media.length === 0 && one(params, 'Latitude') !== undefined && one(params, 'Longitude') !== undefined) {
     type = 'location'
     body = body || (one(params, 'Address') ?? one(params, 'Label') ?? '')
   }
 
   const repliedSid = one(params, 'OriginalRepliedMessageSid')
   const repliedSender = one(params, 'OriginalRepliedMessageSender')
+  const quoted = repliedSid ? { quoted: { ref: { id: repliedSid, chatId: from }, ...(repliedSender ? { senderId: repliedSender } : {}) } } : {}
+  const message = (id: string, extra: { type: MessageType; body: string; media?: MediaRef }): InboundEvent<TwilioWebhookParams> => ({
+    kind: 'message',
+    message: {
+      ref: id === sid ? ref : { ...ref, id },
+      chat,
+      senderInfo,
+      from, sender: from, chatId: from, senderId: from,
+      isGroup: false,
+      isBroadcast: false,
+      fromMe: false,
+      type: extra.type,
+      body: extra.body,
+      timestamp,
+      mentions: [],
+      ...quoted,
+      ...(extra.media ? { media: extra.media } : {}),
+      raw: params,
+    },
+  })
 
+  if (media.length === 0) return { inbound, events: [message(sid, { type, body })] }
+  // One message per media item (Twilio MMS / WhatsApp can carry up to 10). The
+  // first keeps the MessageSid and the Body; the rest get `${sid}:${i}` (unique
+  // and stable across webhook retries, so dedupe works) and an empty body.
   return {
     inbound,
-    events: [{
-      kind: 'message',
-      message: {
-        ref,
-        chat,
-        senderInfo,
-        from, sender: from, chatId: from, senderId: from,
-        isGroup: false,
-        isBroadcast: false,
-        fromMe: false,
-        type,
-        body,
-        timestamp,
-        mentions: [],
-        ...(repliedSid ? { quoted: { ref: { id: repliedSid, chatId: from }, ...(repliedSender ? { senderId: repliedSender } : {}) } } : {}),
-        ...(media ? { media } : {}),
-        raw: params,
-      },
-    }],
+    events: media.map((item, n) => message(n === 0 ? sid : `${sid}:${item.index}`, {
+      type: item.ref.kind,
+      body: n === 0 ? body : '',
+      media: item.ref,
+    })),
   }
+}
+
+/** Twilio's documented ceiling of media per message. */
+const MAX_MEDIA = 10
+
+/** `MediaUrl{i}` / `MediaContentType{i}` for i < NumMedia (capped), skipping empty slots. */
+function mediaItems(params: TwilioWebhookParams): Array<{ index: number; ref: MediaRef }> {
+  const declared = Number(one(params, 'NumMedia') ?? '0')
+  const count = Number.isFinite(declared) ? Math.min(Math.max(Math.trunc(declared), 0), MAX_MEDIA) : 0
+  const out: Array<{ index: number; ref: MediaRef }> = []
+  for (let i = 0; i < count; i++) {
+    const url = one(params, `MediaUrl${i}`)
+    if (!url) continue
+    const mimetype = one(params, `MediaContentType${i}`)
+    const kind = mediaKind(mimetype)
+    out.push({ index: i, ref: { kind, ...(mimetype ? { mimetype } : {}), token: { url } } })
+  }
+  return out
 }

@@ -371,6 +371,10 @@ const provider = new TwilioProvider({
 - `ingestRequest({ url, body, headers })` for per-request URLs
   (multi-tenant).
 - Error 63016 maps to `OutsideSessionWindowError`.
+- A message with several attachments (`NumMedia` > 1, up to 10) arrives as
+  **one message per attachment**, in order: the first keeps the `MessageSid`
+  and the text (`Body`); attachment `i` gets the id `MessageSid:i` and an
+  empty body (unique ids, stable across webhook retries).
 
 [README](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/twilio-provider)
 
