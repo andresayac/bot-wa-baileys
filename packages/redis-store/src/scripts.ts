@@ -72,3 +72,25 @@ if #batch > 0 then redis.call('del', unpack(batch)) end
 redis.call('del', KEYS[1], KEYS[2])
 return #members
 `
+
+/**
+ * Fenced lock acquire: SET NX PX, and on success INCR the lock's fence counter.
+ * KEYS[1] = lock, KEYS[2] = fence counter; ARGV = token, ttlMs. Returns the new
+ * fence (≥ 1) when acquired, 0 when the lock is held. The counter never expires,
+ * so fences only grow.
+ */
+export const ACQUIRE_FENCED_LOCK_SCRIPT = `
+if redis.call('set', KEYS[1], ARGV[1], 'NX', 'PX', ARGV[2]) then
+  return redis.call('incr', KEYS[2])
+end
+return 0
+`
+
+/** Extend a lock only while `token` still owns it. KEYS[1] = lock; ARGV = token, ttlMs. Returns 1 or 0. */
+export const RENEW_LOCK_SCRIPT = `
+-- store: renew lock
+if redis.call('get', KEYS[1]) == ARGV[1] then
+  return redis.call('pexpire', KEYS[1], ARGV[2])
+end
+return 0
+`

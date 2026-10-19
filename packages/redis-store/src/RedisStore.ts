@@ -42,7 +42,10 @@ import { legacyMessageKey, messageKey, parseDuration } from '@bot-wa/core'
 import { RedisUserData } from './userData.js'
 import { escapeGlob } from './glob.js'
 import { matchKeys } from './keys.js'
-import { DELETE_CHAT_SCRIPT, DROP_MESSAGE_SCRIPT, MERGE_CAS_SCRIPT, RELEASE_LOCK_SCRIPT } from './scripts.js'
+import {
+  ACQUIRE_FENCED_LOCK_SCRIPT, DELETE_CHAT_SCRIPT, DROP_MESSAGE_SCRIPT, MERGE_CAS_SCRIPT, RELEASE_LOCK_SCRIPT, RENEW_LOCK_SCRIPT,
+} from './scripts.js'
+import { RedisCoordinator, type RedisCoordinatorOptions } from './RedisCoordinator.js'
 
 /**
  * Compare-and-set attempts per upsert. Each failed attempt means another
@@ -293,6 +296,8 @@ export class RedisStore implements IStore {
    *   {prefix}:conv:{key}               JSON AIMessage[]      (ttl-aware)
    *   {prefix}:cursor:{key}             string
    *   {prefix}:lock:{key}               token (SET NX PX)
+   *   {prefix}:lockfence:{key}          INCR fence counter of acquireLockFenced (never expires)
+   *   {prefix}:co:…                     RedisCoordinator (see coordScripts.ts)
    *   {prefix}:ud:{user}:{ns}:{key}     JSON user-data entry (native PX expiry; segments percent-encoded)
    * ---------------------------------------------------------------------- */
 
@@ -320,6 +325,9 @@ export class RedisStore implements IStore {
   }
   private lockKey(key: string): string {
     return `${this.prefix}:lock:${key}`
+  }
+  private lockFenceKey(key: string): string {
+    return `${this.prefix}:lockfence:${key}`
   }
 
   /** SET with the configured TTL when one is set, plain SET otherwise. */
@@ -614,7 +622,7 @@ export class RedisStore implements IStore {
     return 0
   }
 
-  /* Distributed lock (building block; the core does not use it yet) -------- */
+  /* Distributed lock (building block for your own jobs) --------------------- */
 
   /**
    * Try to acquire a distributed lock at `{prefix}:lock:{key}`.
@@ -637,6 +645,10 @@ export class RedisStore implements IStore {
    *
    * It is a best-effort coordination primitive, adequate for at-most-once-ish
    * scheduling of idempotent work — not a guarantee of strict exclusion.
+   *
+   * @deprecated For new code use {@link acquireLockFenced} (adds a fencing token and
+   * {@link renewLock}) or, to run bot replicas, {@link RedisCoordinator}
+   * (`BotConfig.coordination`). Kept with the same behaviour for compatibility.
    */
   async acquireLock(key: string, ttlMs = 30_000): Promise<string | null> {
     // PX only takes a positive integer: the server rejected fractions, and a
@@ -647,6 +659,51 @@ export class RedisStore implements IStore {
     const token = randomUUID()
     const acquired = await this.client.set(this.lockKey(key), token, { NX: true, PX: Math.ceil(ttlMs) })
     return acquired === 'OK' ? token : null
+  }
+
+  /**
+   * Like {@link acquireLock}, plus a **fencing token**: `fence` grows by one every time
+   * the lock `key` is acquired (by anyone), so a protected resource can reject writes
+   * carrying a fence lower than the highest it has seen — which stops a holder that
+   * stalled past `ttlMs` from overwriting its successor's work. Release with
+   * {@link releaseLock}(key, token); extend a long section with {@link renewLock}.
+   * Returns `null` when the lock is held.
+   */
+  async acquireLockFenced(key: string, ttlMs = 30_000): Promise<{ token: string; fence: number } | null> {
+    if (!(ttlMs > 0) || !Number.isFinite(ttlMs)) {
+      throw new RangeError(`RedisStore.acquireLockFenced: ttlMs must be a positive number, got ${ttlMs}`)
+    }
+    const token = randomUUID()
+    const fence = Number(await this.client.eval(ACQUIRE_FENCED_LOCK_SCRIPT, {
+      keys: [this.lockKey(key), this.lockFenceKey(key)],
+      arguments: [token, String(Math.ceil(ttlMs))],
+    }))
+    return fence > 0 ? { token, fence } : null
+  }
+
+  /**
+   * Extend a lock's deadline to `ttlMs` from now, ONLY while `token` still owns it
+   * (atomic). Returns false when it already expired or changed hands — stop the
+   * protected work then.
+   */
+  async renewLock(key: string, token: string, ttlMs = 30_000): Promise<boolean> {
+    if (!(ttlMs > 0) || !Number.isFinite(ttlMs)) {
+      throw new RangeError(`RedisStore.renewLock: ttlMs must be a positive number, got ${ttlMs}`)
+    }
+    const result = await this.client.eval(RENEW_LOCK_SCRIPT, {
+      keys: [this.lockKey(key)],
+      arguments: [token, String(Math.ceil(ttlMs))],
+    })
+    return Number(result) === 1
+  }
+
+  /**
+   * A {@link RedisCoordinator} sharing this store's client and prefix — the usual way to
+   * enable `BotConfig.coordination` when the store already is Redis. Start the store
+   * before the bot starts the coordinator (`bot.start()` does both, store first).
+   */
+  coordinator(opts: Omit<RedisCoordinatorOptions, 'client' | 'url' | 'prefix'> = {}): RedisCoordinator {
+    return new RedisCoordinator({ ...opts, client: this.client, prefix: this.prefix })
   }
 
   /**
