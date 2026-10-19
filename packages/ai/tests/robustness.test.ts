@@ -271,3 +271,9 @@ describe('memory extraction — truncated answers', () => {
     expect(String(errors[0])).toMatch(/maxTokens.*50/)
   })
 })
+
+describe('resolveProvider — unknown name', () => {
+  it('lists the valid provider names', async () => {
+    await expect(resolveProvider({ provider: 'claude' as never })).rejects.toThrow(/claude.*anthropic.*openai.*ollama.*gemini.*deepseek/)
+  })
+})

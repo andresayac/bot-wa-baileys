@@ -59,6 +59,6 @@ export async function resolveProvider(cfg: AIConfig): Promise<AIProvider> {
       return new GeminiProvider(new mod.GoogleGenerativeAI(apiKey), cfg)
     }
     default:
-      throw new Error(`Proveedor desconocido: ${String(name)}`)
+      throw new Error(`Proveedor desconocido: ${String(name)}. Usa uno de: ${['anthropic', 'openai', 'ollama', 'gemini', ...Object.keys(PRESETS)].join(', ')}`)
   }
 }
