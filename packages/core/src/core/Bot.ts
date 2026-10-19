@@ -1111,8 +1111,9 @@ export class Bot extends EventEmitter {
   /**
    * Register (deep-merge) the messages of locale `code`, or — with an options
    * object — configure i18n (`defaultLocale`, `detect`, `providerLanguage`,
-   * `userKey`). Either form turns on per-message language resolution:
-   * `ctx.user` preference → provider-reported language → `detect` → default.
+   * `userKey`, `locales`). Either form turns on per-message language resolution:
+   * `ctx.user` preference → provider-reported language → `detect` → default,
+   * limited to the `locales` allow-list when one is set.
    * Keys nest (`ctx.t('menu.title')`), `{param}` placeholders are interpolated
    * and `{ one, other, zero? }` leaves pick a plural form from `params.count`.
    * The built-in core messages live under `core.*` (`es` and `en` ship) and

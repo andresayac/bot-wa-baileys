@@ -11,7 +11,9 @@
  *   default locale (and its base) → the key itself. Every fallback is logged at
  *   debug level. `core.*` keys finally fall back to the built-in Spanish text.
  * - **Resolution** ({@link I18n.resolve}): `ctx.user` preference → provider-
- *   reported language → custom detector → default. Only active once the bot
+ *   reported language (an update without one reuses the sender's last report) →
+ *   custom detector → default, each limited to the `locales` allow-list when one
+ *   is configured. Only active once the bot
  *   opted in (a `bot.locale()` call or `BotConfig.i18n`), so bots that never
  *   touch i18n keep their historical Spanish defaults without extra store reads.
  *
@@ -44,6 +46,8 @@ export interface I18nOptions extends I18nConfig {
 
 const DEFAULT_LOCALE = 'es'
 const DEFAULT_USER_KEY = 'lang'
+/** Senders whose last provider-reported language is remembered. */
+const MAX_REPORTED = 10_000
 const PLURAL_CATEGORIES: ReadonlySet<string> = new Set<PluralCategory>(['zero', 'one', 'two', 'few', 'many', 'other'])
 const FORBIDDEN_KEYS: ReadonlySet<string> = new Set(['__proto__', 'constructor', 'prototype'])
 
@@ -153,6 +157,9 @@ export class I18n {
   private detector?: LanguageDetector
   private useProviderLanguage = true
   private preferenceKey = DEFAULT_USER_KEY
+  private allowed?: ReadonlySet<string>
+  /** Last language the provider reported per sender, for updates that report none. */
+  private reported = new Map<string, string>()
 
   constructor(options: I18nOptions = {}) {
     this.logger = options.logger
@@ -184,6 +191,16 @@ export class I18n {
       }
       this.preferenceKey = config.userKey
     }
+    if (config.locales !== undefined) {
+      if (!Array.isArray(config.locales)) throw new TypeError('i18n: locales must be an array of locale codes')
+      const allowed = new Set<string>()
+      for (const code of config.locales as readonly unknown[]) {
+        const n = normalizeLocale(code)
+        if (!n) throw new TypeError('i18n: locales must contain non-empty locale codes')
+        allowed.add(n)
+      }
+      this.allowed = allowed
+    }
     this.configured = true
     return this
   }
@@ -214,14 +231,17 @@ export class I18n {
 
   /**
    * The registered locale serving `code`: itself, else its base language
-   * (`'es-AR'` → `'es'`). `undefined` when neither is registered.
+   * (`'es-AR'` → `'es'`). `undefined` when neither is registered, or when the
+   * `locales` allow-list leaves it out (the default locale is always served).
    */
   supported(code: unknown): string | undefined {
     const n = normalizeLocale(code)
     if (!n) return undefined
-    if (this.tree.has(n)) return n
     const base = baseOf(n)
-    return base && this.tree.has(base) ? base : undefined
+    const served = this.tree.has(n) ? n : base && this.tree.has(base) ? base : undefined
+    if (!served || !this.allowed) return served
+    const ok = served === this.defaultCode || this.allowed.has(served) || this.allowed.has(n) || (base !== undefined && this.allowed.has(base))
+    return ok ? served : undefined
   }
 
   /**
@@ -267,7 +287,7 @@ export class I18n {
     const stored = this.supported(await this.preferenceOf(ctx.user))
     if (stored) return { lang: stored, source: 'user' }
     if (this.useProviderLanguage) {
-      const fromProvider = this.supported(providerLanguageOf(ctx.senderInfo))
+      const fromProvider = this.supported(this.reportedLanguage(ctx))
       if (fromProvider) return { lang: fromProvider, source: 'provider' }
     }
     if (this.detector) {
@@ -292,6 +312,25 @@ export class I18n {
   async languageOf(user: UserData): Promise<string> {
     if (!this.enabled) return this.defaultCode
     return this.supported(await this.preferenceOf(user)) ?? this.defaultCode
+  }
+
+  /**
+   * The language the provider reports for this update, else the last one it reported
+   * for the same sender: some transports omit it on some updates (Telegram's optional
+   * `language_code`), and a chat must not flip to the default between turns. Kept in
+   * memory, bounded (least recently seen senders are forgotten first).
+   */
+  private reportedLanguage(ctx: MessageContext): string | undefined {
+    const sender = typeof ctx.sender === 'string' && ctx.sender !== '' ? ctx.sender : undefined
+    const now = providerLanguageOf(ctx.senderInfo)
+    if (sender === undefined) return now
+    const lang = now ?? this.reported.get(sender)
+    if (lang !== undefined) {
+      this.reported.delete(sender)
+      this.reported.set(sender, lang)
+      if (this.reported.size > MAX_REPORTED) this.reported.delete(this.reported.keys().next().value as string)
+    }
+    return lang
   }
 
   private async preferenceOf(user: UserData | undefined): Promise<string | undefined> {

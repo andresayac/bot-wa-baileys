@@ -170,3 +170,42 @@ describe('tool confirmations without native buttons', () => {
     expect(provider.outbox.some((m) => m.content.kind === 'buttons')).toBe(false)
   })
 })
+
+describe('confirmation language in one chat (live Telegram report)', () => {
+  /** A Telegram-like chat: the client reports `language_code` on some updates only. */
+  async function telegramLike(i18n: Record<string, unknown>) {
+    const { bot, provider } = await createTestBot({ i18n }, { provider: {} })
+    const tools: AIToolSet = {
+      borrar: { description: 'b', title: 'Delete order', confirm: true, handler: () => 'ok' },
+    }
+    bot.plug(aiPlugin({ __provider: scripted('borrar', 'delete'), tools, humanizeTyping: false }))
+    const asks = () => provider.outbox.filter((m) => m.content.kind === 'buttons').map((m) => m.content as ButtonsContent)
+    const turn = async (text: string, opts: { platformData?: Record<string, unknown> }) => {
+      provider.incoming(text, { from: 'tg-1', ...opts })
+      await tick(30)
+      const ask = asks().at(-1)!
+      provider.interaction(ask.buttons[1]!.id, { from: 'tg-1' })
+      await tick(30)
+      return `${ask.text} [${ask.buttons.map((b) => b.title).join('/')}]`
+    }
+    return { bot, turn }
+  }
+
+  it('keeps the chat language when an update reports none (no flip to the default)', async () => {
+    const { bot, turn } = await telegramLike({ defaultLocale: 'en' })
+    const first = await turn('delete it', { platformData: { languageCode: 'es' } })
+    const second = await turn('delete it again', {})
+    expect(first).toBe('Voy a: Delete order\n¿Confirmas? [Sí/No]')
+    expect(second).toBe(first)
+    await bot.stop()
+  })
+
+  it("a bot pinned to English (locales: ['en']) confirms in English whatever the client reports", async () => {
+    const { bot, turn } = await telegramLike({ defaultLocale: 'en', locales: ['en'] })
+    const first = await turn('delete it', {})
+    const second = await turn('delete it again', { platformData: { languageCode: 'es' } })
+    expect(first).toBe('About to: Delete order\nDo you confirm? [Yes/No]')
+    expect(second).toBe(first)
+    await bot.stop()
+  })
+})

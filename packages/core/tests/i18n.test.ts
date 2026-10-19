@@ -475,7 +475,8 @@ describe('conversations and built-in messages', () => {
       ['/ping', { language: 'en' }],
       ['/nope', { language: 'en' }],
       ['/help', { language: 'en' }],
-      ['/reset', {}],
+      // Another user whose client reports no language: the default.
+      ['/reset', { from: 'user-2' }],
     ]
     for (const [i, [text, opts]] of steps.entries()) {
       await deliver(bot, provider, text, opts)
@@ -610,6 +611,72 @@ describe('i18n + before(message) hooks that rewrite ctx.body (e.g. voice transcr
     await deliver(bot, provider, 'x', { from: 'p2' })
     await deliver(bot, provider, '/lang en', { from: 'p2' })
     expect(texts(provider)).toEqual(['en:provider', 'es:default', 'en:user'])
+    await bot.stop()
+  })
+})
+
+describe('i18n: pinning the served languages (locales allow-list)', () => {
+  it('a language outside `locales` falls back to the default: provider, stored preference and detector', async () => {
+    const detect = vi.fn(() => 'es')
+    const { bot, provider } = await makeBot({ i18n: { defaultLocale: 'en', locales: ['en'], detect } })
+    bot.onMessage(async (ctx) => { await ctx.reply(`${ctx.lang}:${ctx.langSource ?? '-'}:${ctx.t(CORE_MESSAGES.timeout)}`) })
+    await deliver(bot, provider, 'hola', { from: 'tg', platformData: { languageCode: 'es' } })
+    await bot.user('stored').set('lang', 'es')
+    await deliver(bot, provider, 'hola', { from: 'stored' })
+    const en = new I18n().translate('en', CORE_MESSAGES.timeout)
+    expect(texts(provider)).toEqual([`en:default:${en}`, `en:default:${en}`])
+    await bot.stop()
+  })
+
+  it('regional variants of an allowed locale are served; setLang refuses the others', async () => {
+    const { bot, provider } = await makeBot({ i18n: { defaultLocale: 'en', locales: ['en'] } })
+    let err: unknown
+    bot.command('lang', async (ctx, [code]) => { try { await ctx.setLang(code!) } catch (e) { err = e } })
+    bot.onMessage(async (ctx) => { await ctx.reply(ctx.lang) })
+    await deliver(bot, provider, 'hi', { language: 'en-GB' })
+    await deliver(bot, provider, '/lang es')
+    expect(err).toBeInstanceOf(TypeError)
+    expect(await bot.user('user-1').get('lang')).toBeUndefined()
+    expect(texts(provider)).toEqual(['en'])
+    await bot.stop()
+  })
+
+  it('the default locale is always served, and locales accepts several codes', () => {
+    const i18n = new I18n({ defaultLocale: 'es', locales: ['en'] })
+    expect(i18n.supported('es')).toBe('es')
+    expect(i18n.supported('en-US')).toBe('en')
+    i18n.add('fr', { hi: 'Salut' })
+    expect(i18n.supported('fr')).toBeUndefined()
+    i18n.configure({ locales: ['en', 'fr'] })
+    expect(i18n.supported('fr')).toBe('fr')
+  })
+
+  it('rejects invalid locales', () => {
+    expect(() => new I18n({ locales: 'en' as never })).toThrow(TypeError)
+    expect(() => new I18n({ locales: ['en', ''] })).toThrow(TypeError)
+  })
+})
+
+describe('i18n: a chat keeps its language when an update reports none', () => {
+  it('reuses the last language the provider reported for the sender', async () => {
+    const { bot, provider } = await makeBot({ i18n: { defaultLocale: 'en' } })
+    bot.onMessage(async (ctx) => { await ctx.reply(`${ctx.lang}:${ctx.langSource ?? '-'}`) })
+    // Telegram's language_code is optional: some updates of the same user come without it.
+    await deliver(bot, provider, 'hola', { from: 'tg', platformData: { languageCode: 'es' } })
+    await deliver(bot, provider, 'hola', { from: 'tg' })
+    await deliver(bot, provider, 'hola', { from: 'other' })
+    await deliver(bot, provider, 'hi', { from: 'tg', platformData: { languageCode: 'en' } })
+    await deliver(bot, provider, 'hi', { from: 'tg' })
+    expect(texts(provider)).toEqual(['es:provider', 'es:provider', 'en:default', 'en:provider', 'en:provider'])
+    await bot.stop()
+  })
+
+  it('does not remember anything with providerLanguage: false', async () => {
+    const { bot, provider } = await makeBot({ i18n: { defaultLocale: 'en', providerLanguage: false } })
+    bot.onMessage(async (ctx) => { await ctx.reply(ctx.lang) })
+    await deliver(bot, provider, 'hola', { language: 'es' })
+    await deliver(bot, provider, 'hola')
+    expect(texts(provider)).toEqual(['en', 'en'])
     await bot.stop()
   })
 })

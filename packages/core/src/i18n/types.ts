@@ -71,4 +71,13 @@ export interface I18nConfig {
   providerLanguage?: boolean
   /** `ctx.user` key holding the user's preference (read on every message, written by `ctx.setLang`). Default `'lang'`. */
   userKey?: string
+  /**
+   * Allow-list of the languages the bot serves (e.g. `['en']` for a bot whose
+   * content — persona, flows, button titles — is only in English). A stored
+   * preference, provider-reported or detected language outside it is ignored, so
+   * resolution falls back to `defaultLocale` (always served); `ctx.setLang()`
+   * refuses it. Regional variants follow their base (`'en'` serves `'en-GB'`).
+   * Default: every registered locale (the built-in `es` and `en` included).
+   */
+  locales?: readonly string[]
 }
