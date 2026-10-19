@@ -50,6 +50,14 @@ export interface DiscordProviderConfig {
   socketFactory?: SocketFactory
   /** Base delay between gateway reconnects (ms, exponential backoff on top). Default 500. */
   reconnectDelayMs?: number
+  /**
+   * How many messages the provider remembers the bot's own reaction for
+   * (bounded LRU, in memory). Discord removes a reaction by emoji, so this is
+   * what makes `ctx.react('')` remove it and a new emoji replace the previous
+   * one. Default 1000; `0` keeps every reaction (no replace) and makes removal
+   * unsupported.
+   */
+  reactionMemory?: number
   debug?: boolean
   logger?: Logger
 }

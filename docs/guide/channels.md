@@ -284,6 +284,11 @@ const provider = new DiscordProvider({ token: process.env.DISCORD_TOKEN! })
 
 - Buttons, select menus, polls, reactions and edits are native;
   `ctx.stream()` edits one message as the text grows.
+- The bot keeps one reaction per message, like WhatsApp/Telegram: a new
+  `ctx.react(emoji)` replaces its previous one and `ctx.react('')` removes it.
+  Discord deletes reactions by emoji, so the provider remembers the emoji it
+  set (in memory, `reactionMemory`, default 1000 messages); an unknown one
+  (set before a restart, or evicted) rejects with `UnsupportedContentError`.
 - Interactions have a hard acknowledgement deadline
   (`interactionsRequireAck`).
 

@@ -83,13 +83,29 @@ INVALID_SESSION no resumible, y parada definitiva en códigos fatales
 | **Listas** → select menu (type 3); la interacción trae el id de la fila elegida en `data` | ✅ nativo |
 | Card → embed (`title`/`description`/`image`) | ✅ |
 | **Encuestas** (poll 24h) | ✅ |
-| Reacciones (PUT `.../reactions/{emoji}/@me`) | ✅ |
+| Reacciones (PUT `.../reactions/{emoji}/@me`; una por mensaje, `react('')` la quita: ver abajo) | ✅ |
 | Typing, editar y borrar mensajes | ✅ |
 | Interacciones: botón / menú / slash command con ack obligatorio (~3s) | ✅ |
 | Grupos (guilds) y DMs (con `DirectMessages` intent) | ✅ |
 | Plantillas (kind `template`) | ❌ (no existe en Discord) |
 | Presence, confirmaciones de lectura (`markRead` no-op) | ❌ (no aplica) |
 | Ubicación / contacto | ⚠️ degradación explícita a texto (link de mapa / tarjeta de texto) |
+
+## Reacciones del bot
+
+Discord permite varias reacciones por usuario y las borra **por emoji**
+(`DELETE .../reactions/{emoji}/@me`). Para que `ctx.react()` se comporte igual
+que en WhatsApp y Telegram, el provider recuerda el emoji que puso el bot en
+cada mensaje (LRU en memoria, `reactionMemory`, 1000 mensajes por defecto):
+
+- `ctx.react('✅')` sobre un mensaje donde el bot ya reaccionó con `⏳` añade
+  `✅` y luego quita `⏳` (una reacción del bot por mensaje; si quitar la
+  anterior falla, solo se registra un aviso).
+- `ctx.react('')` quita la reacción recordada.
+- Si el emoji no se conoce (se puso antes de reiniciar el proceso, salió del
+  LRU o `reactionMemory: 0`), `react('')` rechaza con `UnsupportedContentError`
+  en vez de adivinar. Con `reactionMemory: 0` tampoco hay reemplazo: cada emoji
+  se suma a los anteriores.
 
 ## Errores tipados
 

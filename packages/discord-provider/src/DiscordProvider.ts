@@ -37,6 +37,9 @@ import { DiscordRestClient } from './restClient.js'
 import { parseDispatch } from './parseInbound.js'
 import { toOutbound, type DiscordFile } from './toOutbound.js'
 
+/** Default `reactionMemory`: messages whose own-reaction emoji is remembered. */
+const DEFAULT_REACTION_MEMORY = 1000
+
 const MEDIA_KINDS = ['image', 'video', 'audio', 'voice', 'document', 'sticker'] as const
 
 const EXT_MIME: Record<string, string> = {
@@ -87,8 +90,20 @@ export class DiscordProvider implements IProvider<unknown> {
   private gateway: GatewaySocket | null = null
   private listeners = new Set<(e: InboundEvent) => void | Promise<void>>()
   private _selfId: UserId | null
+  /**
+   * `channelId \0 messageId` → the emoji the bot last reacted with (bounded LRU,
+   * `reactionMemory` entries). Discord removes a reaction by emoji, so this is
+   * what lets an empty-emoji `react('')` remove it and a new emoji replace it.
+   */
+  private readonly ownReactions = new Map<string, string>()
+  private readonly reactionMemory: number
 
   constructor(config: DiscordProviderConfig) {
+    const memory = config.reactionMemory ?? DEFAULT_REACTION_MEMORY
+    if (!Number.isSafeInteger(memory) || memory < 0) {
+      throw new Error(`DiscordProvider: reactionMemory must be a non-negative integer (got ${String(memory)})`)
+    }
+    this.reactionMemory = memory
     this.config = {
       intents: DEFAULT_INTENTS,
       gatewayUrl: 'wss://gateway.discord.gg',
@@ -165,13 +180,51 @@ export class DiscordProvider implements IProvider<unknown> {
 
   /* Outbound ---------------------------------------------------------------- */
 
+  /**
+   * Set, replace or remove the bot's own reaction on a message. Discord allows
+   * many reactions per user and removes them by emoji, so the provider remembers
+   * the emoji it set (bounded by `reactionMemory`):
+   *  - a new emoji is added, then the previous one is removed (one reaction per
+   *    message, as on WhatsApp/Telegram); removing the old one is best-effort;
+   *  - an empty emoji removes the remembered one, or rejects with
+   *    `UnsupportedContentError` when it is unknown (set in a previous process,
+   *    evicted, or `reactionMemory: 0`).
+   */
+  private async react(channelId: ChatId, messageId: string, emoji: string): Promise<void> {
+    const key = `${channelId}\u0000${messageId}`
+    const previous = this.ownReactions.get(key)
+    if (!emoji) {
+      if (!previous) {
+        throw new UnsupportedContentError(
+          'reaction',
+          'Discord removes a reaction by its emoji and this provider does not remember one for that message ' +
+            '(set before a restart, evicted from reactionMemory, or reactionMemory is 0).',
+        )
+      }
+      await this.rest.deleteOwnReaction(channelId, messageId, previous)
+      this.ownReactions.delete(key)
+      return
+    }
+    await this.rest.putReaction(channelId, messageId, emoji)
+    if (this.reactionMemory === 0) return
+    this.ownReactions.delete(key)
+    this.ownReactions.set(key, emoji)
+    while (this.ownReactions.size > this.reactionMemory) {
+      const oldest = this.ownReactions.keys().next().value
+      if (oldest === undefined) break
+      this.ownReactions.delete(oldest)
+    }
+    if (previous && previous !== emoji) {
+      await this.rest.deleteOwnReaction(channelId, messageId, previous).catch((err: unknown) => {
+        this.logger.warn({ err }, 'could not remove the previous reaction')
+      })
+    }
+  }
+
   async send(chatId: ChatId, content: OutboundContent, options?: SendOptions): Promise<SendResult<unknown>> {
     // Reactions live on their own REST route.
     if (content.kind === 'reaction') {
-      if (!content.emoji) {
-        throw new UnsupportedContentError('reaction', 'Discord cannot remove a reaction without knowing its emoji: pass the emoji to react with.')
-      }
-      await this.rest.putReaction(content.target.chatId || chatId, content.target.id, content.emoji)
+      await this.react(content.target.chatId || chatId, content.target.id, content.emoji)
       return { ref: content.target }
     }
 

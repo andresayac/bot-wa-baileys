@@ -122,6 +122,11 @@ export class DiscordRestClient {
     await this.request('PUT', `channels/${channelId}/messages/${messageId}/reactions/${encodeURIComponent(emoji)}/@me`, { chatId: channelId })
   }
 
+  /** DELETE /channels/{channelId}/messages/{messageId}/reactions/{emoji}/@me. */
+  async deleteOwnReaction(channelId: ChatId, messageId: string, emoji: string): Promise<void> {
+    await this.request('DELETE', `channels/${channelId}/messages/${messageId}/reactions/${encodeURIComponent(emoji)}/@me`, { chatId: channelId })
+  }
+
   /** POST /channels/{channelId}/typing. */
   async triggerTyping(channelId: ChatId): Promise<void> {
     await this.request('POST', `channels/${channelId}/typing`, { chatId: channelId })
