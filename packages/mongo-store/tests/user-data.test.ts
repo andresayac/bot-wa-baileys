@@ -3,7 +3,7 @@
  * JSON-text values and physical purge. The shared contract is covered by the
  * user-data conformance suite.
  */
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { MongoStore } from '../src/MongoStore.js'
 import { FakeMongoClient, type FakeMongoCollection } from './fakeMongo.js'
 
@@ -57,5 +57,26 @@ describe('MongoStore — user data', () => {
     expect(await store.purgeExpiredUserData(now)).toBe(2)
     expect([...userDataOf(fake).docs.values()].map((d) => d.key).sort()).toEqual(['forever', 'live'])
     expect(await store.purgeExpiredUserData(now)).toBe(0)
+  })
+
+  it('purgeExpiredUserData deletes in batches of purgeBatchSize and still removes every expired document', async () => {
+    const batched = new MongoStore({ client: fake, purgeBatchSize: 3 })
+    await batched.start()
+    const now = Date.now()
+    for (let i = 0; i < 7; i++) {
+      await batched.setUserData({ userId: `u${i}`, namespace: 'g', key: 'old', value: i, expiresAt: now - i, updatedAt: now })
+    }
+    await batched.setUserData({ userId: 'u1', namespace: 'g', key: 'live', value: 'x', expiresAt: now + 60_000, updatedAt: now })
+    await batched.setUserData({ userId: 'u1', namespace: 'g', key: 'forever', value: 'y', updatedAt: now })
+    const deleteMany = vi.spyOn(userDataOf(fake), 'deleteMany')
+    expect(await batched.purgeExpiredUserData(now)).toBe(7)
+    expect(deleteMany).toHaveBeenCalledTimes(3) // 3 + 3 + 1: a short batch means nothing is left
+    expect([...userDataOf(fake).docs.values()].map((d) => d.key).sort()).toEqual(['forever', 'live'])
+  })
+
+  it('rejects a purgeBatchSize that is not a positive integer', () => {
+    for (const purgeBatchSize of [0, -1, 1.5, Number.NaN]) {
+      expect(() => new MongoStore({ client: fake, purgeBatchSize })).toThrow(RangeError)
+    }
   })
 })

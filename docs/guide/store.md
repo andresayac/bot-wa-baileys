@@ -30,10 +30,16 @@ const bot = new Bot({
   storeConfig: {
     file: './store.json',
     autoSaveInterval: '1m', // duration or ms (0 = disable)
-    maxMessagesPerChat: 1000,
+    maxMessagesPerChat: 1000, // the default; Infinity disables the cap
   },
 })
 ```
+
+`MemoryStore` keeps at most **1000 messages per chat** by default. Unlike the
+persistent stores, where the cap is opt-in, this log lives in the process's
+RAM and is never written to disk, so an unbounded default would only grow
+memory on a long-running bot. Pass `maxMessagesPerChat: Infinity` to keep
+everything.
 
 ::: warning Messages are NOT restored
 `MemoryStore` intentionally skips messages on reload (privacy + size). Only chats, contacts, flow states, checkpoints and AI conversations survive a restart via the JSON dump.
@@ -65,6 +71,7 @@ const bot = new Bot({
 | `file` | `string` | `'./bot.db'` | Path to the SQLite database file |
 | `wal` | `boolean` | `true` | Enable WAL mode (better concurrent reads) |
 | `maxMessagesPerChat` | `number` | — (unbounded) | Keep only the newest N messages per chat; older rows are pruned on save |
+| `purgeBatchSize` | `number` | `1000` | Rows deleted per statement by `purgeExpiredUserData` (it loops until nothing expired is left) |
 | `logger` | `object` | — | Logger for errors (`{ error: fn }`) |
 
 ### What it stores
@@ -146,7 +153,9 @@ state, honouring `tablePrefix` / `collectionPrefix`:
 
 Postgres and MySQL now create seven tables in `start()`. Expired rows are
 removed lazily by `bot.purgeExpiredUserData()` (Redis expires them by
-itself).
+itself). SQLite, Postgres, MySQL and MongoDB delete them in batches of
+`purgeBatchSize` (default `1000`) until nothing expired is left, so a large
+backlog never runs as one long delete.
 
 ## Custom stores
 
@@ -176,8 +185,21 @@ Semantics every store must keep:
   omit what it does not know. The `Bot` already does: a message without a
   display name (or chat name) never erases the one stored.
 - `deleteChat` also deletes that chat's message log.
-- `maxMessagesPerChat` is opt-in; by default the message log is unbounded.
-  Every built-in store rejects a negative or fractional cap with a `RangeError`.
+- `maxMessagesPerChat` is opt-in in the persistent stores; by default their
+  message log is unbounded. `MemoryStore` is the exception: it keeps 1000
+  messages per chat by default because its log lives in RAM (`Infinity`
+  disables the cap). Every built-in store rejects a negative or fractional cap
+  with a `RangeError`.
+- Message rows are keyed by `messageKey(ref)`: `{chatId}:{id}` with `%` and `:`
+  escaped in each part (`%25`, `%3A`), so ids that contain `:` (Twilio's
+  `whatsapp:+1…` chat ids) never collide. Ids without `:` or `%` keep the key
+  earlier versions wrote; rows stored under the old unescaped key
+  (`legacyMessageKey(ref)`) are still read and deleted, and re-saving moves
+  them to the new key. A custom persistent store that keys rows by
+  `messageKey` should do the same and check that a row found under the legacy
+  key is the requested message (its stored `ref.id` and `ref.chatId`): the
+  legacy key can be another chat's key, or the new key of another message of
+  the same chat (legacy `c:%3A` of `('c', '%3A')` is the key of `('c', ':')`).
 - `saveMessage` ignores a message without `ref.id` or `chatId` (providers send
   `ref.id: ''` when they have no stable id), and `getMessage` of such a ref
   resolves `undefined`. Re-saving an id replaces the stored message.

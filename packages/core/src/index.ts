@@ -144,7 +144,7 @@ export type { SlashCommandsConfig } from './plugins/slashCommands.js'
 export { MemoryStore } from './store/MemoryStore.js'
 export type { IStore, AIMessage, StoredMessage, StoredChat, StoredContact, FlowCheckpoint } from './store/IStore.js'
 export type { MemoryStoreOptions, MemoryStoreLogger } from './store/MemoryStore.js'
-export { messageKey } from './store/IStore.js'
+export { messageKey, legacyMessageKey } from './store/IStore.js'
 export { NamespacedStore } from './store/NamespacedStore.js'
 export type { StoreNamespace } from './store/NamespacedStore.js'
 

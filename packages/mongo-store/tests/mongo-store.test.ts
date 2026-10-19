@@ -183,8 +183,20 @@ describe('MongoStore', () => {
     expect(await store.getCursor('k')).toBeUndefined()
   })
 
-  it('creates the messages compound index on start', async () => {
-    expect(messagesOf(fake).indexes).toContainEqual({ chatId: 1, timestamp: 1 })
+  it('creates the messages compound index on start (with _id as the tie-break key)', async () => {
+    expect(messagesOf(fake).indexes).toContainEqual({ chatId: 1, timestamp: 1, _id: 1 })
+  })
+
+  it('breaks timestamp ties by message key, like the SQL stores (window and trim agree)', async () => {
+    // Same timestamp, inserted out of key order: the window must not depend on insertion order.
+    for (const id of ['b', 'a', 'c']) await store.saveMessage(msg('tie@x', id, id, 5))
+    expect((await store.getMessagesByChat('tie@x', 2)).map((m) => m.ref.id)).toEqual(['b', 'c'])
+    expect((await store.getMessagesByChat('tie@x')).map((m) => m.ref.id)).toEqual(['a', 'b', 'c'])
+
+    const capped = new MongoStore({ client: fake, collectionPrefix: 'cap_', maxMessagesPerChat: 2 })
+    await capped.start()
+    for (const id of ['b', 'a', 'c']) await capped.saveMessage(msg('tie@x', id, id, 5))
+    expect((await capped.getMessagesByChat('tie@x')).map((m) => m.ref.id)).toEqual(['b', 'c'])
   })
 })
 
@@ -198,7 +210,7 @@ describe('MongoStore — lifecycle', () => {
       const store = new MongoStore({ url: 'mongodb://fake:27017', dbName: 'lifecycle' })
       await store.start()
       expect(connectSpy).toHaveBeenCalledTimes(1)
-      expect(indexSpy).toHaveBeenCalledWith({ chatId: 1, timestamp: 1 })
+      expect(indexSpy).toHaveBeenCalledWith({ chatId: 1, timestamp: 1, _id: 1 })
       // start() is idempotent for an already-connected own client.
       await store.start()
       expect(connectSpy).toHaveBeenCalledTimes(1)

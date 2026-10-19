@@ -20,7 +20,7 @@ import { randomUUID } from 'node:crypto'
 import { MongoClient } from 'mongodb'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { MemoryStore } from '@bot-wa/core'
-import type { FlowCheckpoint, IStore, StoredChat, StoredContact, StoredMessage } from '@bot-wa/core'
+import { legacyMessageKey, type FlowCheckpoint, type IStore, type StoredChat, type StoredContact, type StoredMessage } from '@bot-wa/core'
 import { MongoStore } from '../src/MongoStore.js'
 import type { MongoStoreOptions } from '../src/MongoStore.js'
 import { runStoreConformance } from '../../../test-utils/store-conformance.js'
@@ -77,8 +77,13 @@ describe.skipIf(!MONGO_URL)('MongoStore — real MongoDB integration', () => {
 
   runStoreConformance('MongoStore (real MongoDB)', {
     async make() {
-      const { store } = await makeStore()
-      return { store, teardown: () => store.stop() }
+      const { store, prefix } = await makeStore()
+      // A message document exactly as older versions wrote it (unescaped key).
+      const seedLegacyMessage = async (m: StoredMessage): Promise<void> => {
+        await client.db(DB_NAME).collection<{ _id: string; chatId: string; timestamp: number; msg: StoredMessage }>(`${prefix}messages`)
+          .insertOne({ _id: legacyMessageKey(m.ref), chatId: m.chatId, timestamp: m.timestamp, msg: m })
+      }
+      return { store, teardown: () => store.stop(), seedLegacyMessage }
     },
   })
 
@@ -90,6 +95,19 @@ describe.skipIf(!MONGO_URL)('MongoStore — real MongoDB integration', () => {
   })
 
   describe('user data (ctx.user)', () => {
+    it('purges expired documents in batches of purgeBatchSize on the server', async () => {
+      const { store } = await makeStore({ purgeBatchSize: 2 })
+      const now = Date.now()
+      for (let i = 0; i < 5; i++) {
+        await store.setUserData({ userId: `u${i}`, namespace: 'g', key: 'old', value: i, expiresAt: now - i, updatedAt: now })
+      }
+      await store.setUserData({ userId: 'u0', namespace: 'g', key: 'live', value: 1, expiresAt: now + 60_000, updatedAt: now })
+      expect(await store.purgeExpiredUserData(now)).toBe(5)
+      expect((await store.listUserData('u0')).map((e) => e.key)).toEqual(['live'])
+      expect(await store.purgeExpiredUserData(now)).toBe(0)
+      await store.stop()
+    })
+
     it('keys with $ and dots, and values with U+0000 or lone surrogates, round-trip exactly', async () => {
       const { store, prefix } = await makeStore()
       const value = { $where: 1, 'a.b': 'a\u0000b', lone: 'x\ud83d' }
@@ -104,7 +122,7 @@ describe.skipIf(!MONGO_URL)('MongoStore — real MongoDB integration', () => {
   /* Schema / indexes ------------------------------------------------------- */
 
   describe('schema and indexes', () => {
-    it('start() creates the {chatId, timestamp} index and is idempotent', async () => {
+    it('start() creates the {chatId, timestamp, _id} index and is idempotent', async () => {
       const { store, prefix } = await makeStore()
       await store.start() // same instance again
       const second = new MongoStore({ client, dbName: DB_NAME, collectionPrefix: prefix })
@@ -112,15 +130,16 @@ describe.skipIf(!MONGO_URL)('MongoStore — real MongoDB integration', () => {
 
       const indexes = await collection(prefix, 'messages').listIndexes().toArray()
       expect(indexes.map((i) => i.key).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))))
-        .toEqual([{ _id: 1 }, { chatId: 1, timestamp: 1 }])
+        .toEqual([{ _id: 1 }, { chatId: 1, timestamp: 1, _id: 1 }])
     })
 
     it('the per-chat window query is served by the compound index', async () => {
       const { store, prefix } = await makeStore()
       for (let i = 0; i < 3; i++) await store.saveMessage(msg('c@x', `m${i}`, `b${i}`, 100 + i))
       // Same query shape as getMessagesByChat.
-      const plan = await collection(prefix, 'messages').find({ chatId: 'c@x' }).sort({ timestamp: -1 }).limit(2).explain()
-      expect(JSON.stringify(plan)).toContain('chatId_1_timestamp_1')
+      const plan = await collection(prefix, 'messages').find({ chatId: 'c@x' }).sort({ timestamp: -1, _id: -1 }).limit(2).explain()
+      expect(JSON.stringify(plan)).toContain('chatId_1_timestamp_1__id_1')
+      expect(JSON.stringify(plan)).not.toContain('"SORT"') // served in index order, no in-memory sort
     })
   })
 

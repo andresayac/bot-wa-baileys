@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   messageKey,
+  legacyMessageKey,
   ProviderError,
   UnsupportedContentError,
   RateLimitedError,
@@ -37,6 +38,24 @@ function makeFakeProvider(): IProvider {
 describe('IProvider v2 contract', () => {
   it('messageKey composes chatId:id', () => {
     expect(messageKey({ id: 'm1', chatId: 'c1' })).toBe('c1:m1')
+  })
+
+  it('messageKey is unambiguous when ids contain ":" or "%" (escaped, one separator)', () => {
+    const a = messageKey({ chatId: 'whatsapp:+1555', id: 'SM1' })
+    const b = messageKey({ chatId: 'whatsapp', id: '+1555:SM1' })
+    expect(a).not.toBe(b)
+    expect(a).toBe('whatsapp%3A+1555:SM1')
+    expect(b).toBe('whatsapp:+1555%3ASM1')
+    // '%' is escaped too, so a literal "%3A" never aliases an escaped ':'
+    expect(messageKey({ chatId: 'a%3Ab', id: 'c' })).toBe('a%253Ab:c')
+    expect(messageKey({ chatId: 'a:b', id: 'c' })).not.toBe(messageKey({ chatId: 'a%3Ab', id: 'c' }))
+    // exactly one raw separator
+    expect(a.split(':')).toHaveLength(2)
+  })
+
+  it('legacyMessageKey keeps the pre-escaping format (read fallback for old rows)', () => {
+    expect(legacyMessageKey({ chatId: 'whatsapp:+1555', id: 'SM1' })).toBe('whatsapp:+1555:SM1')
+    expect(legacyMessageKey({ chatId: 'c1', id: 'm1' })).toBe(messageKey({ chatId: 'c1', id: 'm1' }))
   })
 
   it('a fake provider (no WhatsApp concept) satisfies the interface', async () => {

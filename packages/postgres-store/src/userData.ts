@@ -55,8 +55,15 @@ function serializeValue(value: unknown): string {
   return json
 }
 
+/** Default rows per DELETE of {@link PostgresUserData.purge}. */
+export const DEFAULT_PURGE_BATCH_SIZE = 1000
+
 export class PostgresUserData {
-  constructor(private readonly query: Query, private readonly table: string) {}
+  constructor(
+    private readonly query: Query,
+    private readonly table: string,
+    private readonly batchSize = DEFAULT_PURGE_BATCH_SIZE,
+  ) {}
 
   /** Idempotent schema (part of PostgresStore.start). */
   schemaStatements(): string[] {
@@ -105,11 +112,25 @@ export class PostgresUserData {
     return rows.map(toEntry)
   }
 
+  /**
+   * Delete expired rows `batchSize` at a time (PostgreSQL has no DELETE ...
+   * LIMIT: the batch is picked by primary key through the expiry index) until
+   * a batch comes back short. Each statement is a short transaction, so a huge
+   * backlog never holds row locks or bloats one transaction. The outer expiry
+   * check makes a row whose TTL was extended concurrently survive.
+   */
   async purge(now: number): Promise<number> {
-    const { rowCount } = await this.query(
-      `DELETE FROM ${this.table} WHERE expires_at IS NOT NULL AND expires_at <= $1`,
-      [now],
-    )
-    return rowCount ?? 0
+    const t = this.table
+    let total = 0
+    for (;;) {
+      const { rowCount } = await this.query(
+        `DELETE FROM ${t} WHERE expires_at IS NOT NULL AND expires_at <= $1 AND (user_id, namespace, key) IN ` +
+          `(SELECT user_id, namespace, key FROM ${t} WHERE expires_at IS NOT NULL AND expires_at <= $1 LIMIT $2)`,
+        [now, this.batchSize],
+      )
+      const removed = rowCount ?? 0
+      total += removed
+      if (removed < this.batchSize) return total
+    }
   }
 }

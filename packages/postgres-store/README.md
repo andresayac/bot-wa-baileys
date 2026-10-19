@@ -65,13 +65,14 @@ await store.start()
 | `tablePrefix`      | `string`            | `''`                           | Identifier prefix for every table (`'mybot_'` → `mybot_messages`). Plain identifier characters only. |
 | `pool`             | `PostgresPoolLike`  | —                              | Inject an existing `pg` `Pool`-like client (required for tests). The store never creates/ends it. |
 | `maxMessagesPerChat` | `number`          | unbounded                      | Per-chat cap: `saveMessage` prunes the oldest rows (by timestamp) beyond it. Must be a non-negative integer (else `RangeError`). |
+| `purgeBatchSize` | `number` | `1000` | Rows deleted per statement by `purgeExpiredUserData`; the purge loops until nothing expired is left, so a large backlog never runs as one long delete. Must be a positive integer (else `RangeError`). |
 | `logger`           | `{ error? }`        | —                              | Receives lifecycle errors (e.g. pool end failure) and the connection errors of idle clients of a store-created pool (the pool reconnects on the next query). An injected pool needs its own `pool.on('error', …)`: without one, node-postgres crashes the process when the server drops an idle connection. |
 
 ## Schema
 
 | Table | Columns | Contents |
 | ----- | ------- | -------- |
-| `{prefix}messages` | `id TEXT PK`, `chat_id TEXT`, `timestamp BIGINT`, `msg JSONB` | `StoredMessage` keyed by `messageKey(ref)` (`chatId:id`) |
+| `{prefix}messages` | `id TEXT PK`, `chat_id TEXT`, `timestamp BIGINT`, `msg JSONB` | `StoredMessage` keyed by `messageKey(ref)` (`chatId:id`, escaped) |
 | `{prefix}chats` | `id TEXT PK`, `data JSONB` | `StoredChat` |
 | `{prefix}contacts` | `id TEXT PK`, `data JSONB` | `StoredContact` |
 | `{prefix}checkpoints` | `key TEXT PK`, `cp JSONB` | `FlowCheckpoint` |
@@ -90,7 +91,9 @@ An index on `(chat_id, timestamp)` backs `getMessagesByChat`. All writes are par
 - `ctx.user` values (`{prefix}user_data.value`) are stored **exactly**, with no U+FFFD replacement. The column is `TEXT`, and PostgreSQL `TEXT` rejects a raw NUL byte too (SQLSTATE `22021`), so the value is written as its `JSON.stringify` text: U+0000 and unpaired surrogates always travel as six-character `\u0000`-style escapes (plain ASCII), which `JSON.parse` turns back into the original characters. The round trip is lossless (proved against a real server in `tests/integration.test.ts`).
 - Ids and keys (`id`, `chat_id`, `key`, and `user_id` / `namespace` / `key` in `user_data`) are `TEXT` columns stored verbatim: PostgreSQL rejects U+0000 in them (`22021`), so they must not contain it.
 - `timestamp` may be any number: the `BIGINT` sort column gets `Math.floor(timestamp)`, while the exact value is kept in the `msg` document. Order among messages with the same (floored) timestamp is not defined.
-- Message IDs are `messageKey(ref)` = `` `${ref.chatId}:${ref.id}` `` (imported from `@bot-wa/core`), so message ids that are only unique per chat on some transports are safe.
+- `deleteChat` removes the message log and the chat record in **one statement** (a data-modifying CTE), so both commit or neither does.
+- `purgeExpiredUserData` deletes `purgeBatchSize` rows per statement (picked by primary key through the expiry index) until nothing expired is left, so a large backlog never runs as one long transaction.
+- **Message keys.** `messageKey(ref)` (from `@bot-wa/core`) is `{chatId}:{id}` with `%` and `:` percent-escaped in each part (`%25`, `%3A`), so ids that contain `:` — Twilio's `whatsapp:+1…` chat ids — never collide (`('a:b', 'c')` and `('a', 'b:c')` used to share the key `a:b:c`). Ids without `:` or `%` keep exactly the key earlier versions wrote. Rows written by an earlier version under the old unescaped key are still read and deleted (a fallback that only runs for ids containing `:` or `%`, and only returns or deletes a row whose stored `ref` is that very message, since a legacy key can be another message's new key), and re-saving such a message moves it to the new key — no manual migration. One theoretical edge remains: an id that literally contains `%3A` and was stored by an earlier version can be overwritten by a new message whose id has `:` in the same place.
 
 ## Integration tests
 

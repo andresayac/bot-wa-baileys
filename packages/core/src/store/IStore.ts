@@ -14,4 +14,4 @@ export type {
   AIMessage,
   MessageRef,
 } from '../core/provider.js'
-export { messageKey } from '../core/provider.js'
+export { messageKey, legacyMessageKey } from '../core/provider.js'

@@ -15,7 +15,7 @@
  *  - Cursors apply sort → skip → limit whatever the call order; `limit(0)`
  *    means no limit and a negative limit its absolute value; `projection`
  *    (inclusion) is honoured.
- *  - Filters: top-level equality plus the `$lte` and `$in` operators —
+ *  - Filters: equality on top-level or dotted paths plus the `$lte` and `$in` operators —
  *    exactly the shapes MongoStore sends.
  */
 import type {
@@ -140,15 +140,26 @@ function applyOperator(op: string, actual: unknown, operand: unknown): boolean {
 }
 
 /**
- * Every filter entry must match the document's top-level value: plain
+ * Every filter entry must match the document's value at that (dotted) path: plain
  * equality, or an operator object (`{ $lte: n }`, `{ $in: [...] }`) evaluated per operator.
  */
 function matches(doc: Doc, filter: Record<string, unknown>): boolean {
-  return Object.entries(filter).every(([key, value]) =>
-    isOperatorObject(value)
-      ? Object.entries(value).every(([op, operand]) => applyOperator(op, doc[key], operand))
-      : doc[key] === value,
-  )
+  return Object.entries(filter).every(([key, value]) => {
+    const actual = path(doc, key)
+    return isOperatorObject(value)
+      ? Object.entries(value).every(([op, operand]) => applyOperator(op, actual, operand))
+      : actual === value
+  })
+}
+
+/** A (possibly dotted, e.g. `msg.ref.id`) field of a document; undefined when missing. */
+function path(doc: Doc, key: string): unknown {
+  let cur: unknown = doc
+  for (const part of key.split('.')) {
+    if (typeof cur !== 'object' || cur === null || Array.isArray(cur)) return undefined
+    cur = (cur as Record<string, unknown>)[part]
+  }
+  return cur
 }
 
 /** BSON sort order for the scalar types the store sorts on: null/missing < numbers < strings. */

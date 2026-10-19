@@ -62,3 +62,32 @@ describe('MemoryStore persistence', () => {
     await store.stop()
   })
 })
+
+describe('MemoryStore maxMessagesPerChat', () => {
+  const msg = (i: number) => ({
+    ref: { id: `m${i}`, chatId: 'c' }, chatId: 'c', timestamp: i, type: 'text' as const, body: `b${i}`, fromMe: false,
+  })
+
+  it('caps each chat at 1000 messages by default (RAM-only store, not opt-in like the persistent stores)', async () => {
+    const store = new MemoryStore()
+    for (let i = 0; i < 1005; i++) await store.saveMessage(msg(i))
+    const all = await store.getMessagesByChat('c', Infinity)
+    expect(all).toHaveLength(1000)
+    expect(all[0]?.ref.id).toBe('m5')
+  })
+
+  it('Infinity disables the cap; an explicit number overrides the default', async () => {
+    const unbounded = new MemoryStore({ maxMessagesPerChat: Infinity })
+    for (let i = 0; i < 1005; i++) await unbounded.saveMessage(msg(i))
+    expect(await unbounded.getMessagesByChat('c', Infinity)).toHaveLength(1005)
+    const small = new MemoryStore({ maxMessagesPerChat: 2 })
+    for (let i = 0; i < 5; i++) await small.saveMessage(msg(i))
+    expect((await small.getMessagesByChat('c')).map((m) => m.ref.id)).toEqual(['m3', 'm4'])
+  })
+
+  it('rejects a negative, fractional or NaN cap with a RangeError, like the persistent stores', () => {
+    for (const maxMessagesPerChat of [-1, 1.5, Number.NaN]) {
+      expect(() => new MemoryStore({ maxMessagesPerChat })).toThrow(RangeError)
+    }
+  })
+})

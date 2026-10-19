@@ -115,4 +115,27 @@ describe('MysqlStore — user data', () => {
     })
     expect(await viaStrings.listUserData('u1', 'n')).toEqual([{ userId: 'u1', namespace: 'n', key: 'k', value: 'v', expiresAt, updatedAt: 42 }])
   })
+
+  it('purgeExpiredUserData deletes in batches of purgeBatchSize and still removes every expired row', async () => {
+    const batched = new MysqlStore({ pool: fake, purgeBatchSize: 3 })
+    await batched.start()
+    const now = Date.now()
+    for (let i = 0; i < 7; i++) {
+      await batched.setUserData({ userId: `u${i}`, namespace: 'g', key: 'old', value: i, expiresAt: now - i, updatedAt: now })
+    }
+    await batched.setUserData({ userId: 'u1', namespace: 'g', key: 'live', value: 'x', expiresAt: now + 60_000, updatedAt: now })
+    await batched.setUserData({ userId: 'u1', namespace: 'g', key: 'forever', value: 'y', updatedAt: now })
+    const before = fake.queries.length
+    expect(await batched.purgeExpiredUserData(now)).toBe(7)
+    const deletes = fake.queries.slice(before).map((q) => q.sql).filter((s) => s.startsWith('DELETE FROM `user_data`'))
+    expect(deletes).toHaveLength(3) // 3 + 3 + 1: a short batch means nothing is left
+    expect(deletes[0]).toContain('LIMIT ?')
+    expect([...(fake.tables.get('user_data')?.values() ?? [])].map((r) => r.key).sort()).toEqual(['forever', 'live'])
+  })
+
+  it('rejects a purgeBatchSize that is not a positive integer', () => {
+    for (const purgeBatchSize of [0, -1, 1.5, Number.NaN]) {
+      expect(() => new MysqlStore({ pool: fake, purgeBatchSize })).toThrow(RangeError)
+    }
+  })
 })

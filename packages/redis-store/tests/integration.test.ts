@@ -20,7 +20,7 @@ import { randomUUID } from 'node:crypto'
 import net from 'node:net'
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { createClient } from 'redis'
-import type { FlowCheckpoint, StoredMessage } from '@bot-wa/core'
+import { legacyMessageKey, type FlowCheckpoint, type StoredMessage } from '@bot-wa/core'
 import { RedisStore, type NativeRedisClient, type RedisLikeClient, type RedisStoreOptions } from '../src/index.js'
 import { PROBES, meets, outcome } from './redis-probes.js'
 import { runStoreConformance } from '../../../test-utils/store-conformance.js'
@@ -143,9 +143,16 @@ describe.skipIf(!REDIS_URL)('RedisStore against a real Redis server', { timeout:
   describe('conformance — injected client', () => {
     runStoreConformance('RedisStore (real server, injected client)', {
       async make() {
-        const store = new RedisStore({ client: admin, prefix: nextPrefix('conf-inj') })
+        const prefix = nextPrefix('conf-inj')
+        const store = new RedisStore({ client: admin, prefix })
         await store.start()
-        return { store, teardown: () => store.stop() }
+        // A message exactly as older versions wrote it (unescaped item key + ZSET member).
+        const seedLegacyMessage = async (m: StoredMessage): Promise<void> => {
+          const member = legacyMessageKey(m.ref)
+          await admin.set(`${prefix}:msg:item:${member}`, JSON.stringify(m))
+          await admin.zAdd(`${prefix}:msg:${m.chatId}`, { score: m.timestamp, value: member })
+        }
+        return { store, teardown: () => store.stop(), seedLegacyMessage }
       },
     })
 

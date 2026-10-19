@@ -81,6 +81,7 @@ await store.start()
 | `tablePrefix` | `string`           | `''`                         | Prefix for every table (`[A-Za-z0-9_]` only). |
 | `pool`        | `PoolLike`         | —                            | Inject an existing mysql2/promise pool (required for tests): `query`, `getConnection` and `end`. The store never creates/closes it. |
 | `maxMessagesPerChat` | `number`    | — (unbounded)                | Keep at most N messages per chat; `saveMessage` prunes the oldest (by `timestamp`) beyond the cap. Must be a non-negative integer (else `RangeError`). |
+| `purgeBatchSize` | `number` | `1000` | Rows deleted per statement by `purgeExpiredUserData`; the purge loops until nothing expired is left, so a large backlog never runs as one long delete. Must be a positive integer (else `RangeError`). |
 | `logger`      | `{ error?, warn? }` | —                           | Receives lifecycle errors (e.g. pool close failure) and, through `warn` (else `error`), the legacy-schema notice of `start()`. |
 
 ## Schema
@@ -89,7 +90,7 @@ Provisioned idempotently on `start()` (`CREATE TABLE IF NOT EXISTS`), with `{p}`
 
 | Table | Columns | Contents |
 | ----- | ------- | -------- |
-| `{p}messages` | `id VARBINARY(1024) PRIMARY KEY, chat_id VARBINARY(1024) NOT NULL, timestamp BIGINT, msg JSON`, index `chat_ts (chat_id, timestamp)` | one row per `StoredMessage` (`id` = `${chatId}:${messageId}`) |
+| `{p}messages` | `id VARBINARY(1024) PRIMARY KEY, chat_id VARBINARY(1024) NOT NULL, timestamp BIGINT, msg JSON`, index `chat_ts (chat_id, timestamp)` | one row per `StoredMessage` (`id` = `messageKey(ref)`, `{chatId}:{id}` escaped) |
 | `{p}chats` | `id VARBINARY(1024) PRIMARY KEY, data JSON` | `StoredChat` |
 | `{p}contacts` | `id VARBINARY(1024) PRIMARY KEY, data JSON` | `StoredContact` |
 | `{p}checkpoints` | `` `key` VARBINARY(1024) PRIMARY KEY, cp JSON `` | `FlowCheckpoint` |
@@ -122,6 +123,8 @@ ALTER TABLE `{p}cursors` MODIFY `key` VARBINARY(1024) NOT NULL;
 - An injected pool must therefore also provide `getConnection()` (every mysql2/promise pool does); see `PoolLike`/`ConnectionLike`.
 - Works against MySQL 5.7+/8.x and MariaDB 10.x (`VALUES(col)` upsert syntax). The integration suite has been run against MySQL 8.4 and 8.0.
 - The database named in the URI/config must exist — the store creates tables, not databases.
+- `purgeExpiredUserData` deletes `purgeBatchSize` rows per statement (`DELETE … ORDER BY expires_at LIMIT ?`) until nothing expired is left, so a large backlog never holds InnoDB locks for one long delete.
+- **Message keys.** `messageKey(ref)` (from `@bot-wa/core`) is `{chatId}:{id}` with `%` and `:` percent-escaped in each part (`%25`, `%3A`), so ids that contain `:` — Twilio's `whatsapp:+1…` chat ids — never collide (`('a:b', 'c')` and `('a', 'b:c')` used to share the key `a:b:c`). Ids without `:` or `%` keep exactly the key earlier versions wrote. Rows written by an earlier version under the old unescaped key are still read and deleted (a fallback that only runs for ids containing `:` or `%`, and only returns or deletes a row whose stored `ref` is that very message, since a legacy key can be another message's new key), and re-saving such a message moves it to the new key — no manual migration. One theoretical edge remains: an id that literally contains `%3A` and was stored by an earlier version can be overwritten by a new message whose id has `:` in the same place.
 
 ## Tests de integración
 

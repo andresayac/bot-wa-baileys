@@ -46,9 +46,19 @@ import type {
   UserDataEntry,
   UserId,
 } from '@bot-wa/core'
-import { messageKey } from '@bot-wa/core'
+import { legacyMessageKey, messageKey } from '@bot-wa/core'
 import { PostgresUserData } from './userData.js'
 import { jsonbSafeString, toJsonb } from './jsonb.js'
+
+/**
+ * SQL predicate: the row's message is the one with `ref.id = <a>` and
+ * `ref.chatId = <b>` (placeholders). A legacy (unescaped) key can be another message's escaped
+ * key — legacy 'c:%3A' of ('c', '%3A') is the key of ('c', ':') — so a row
+ * found under one is only touched when its payload names the same message.
+ */
+function ownsMessage(a: string, b: string): string {
+  return `msg #>> '{ref,id}' = ${a} AND msg #>> '{ref,chatId}' = ${b}`
+}
 
 /** The slice of a `pg` `QueryResult` this store consumes. */
 export interface PostgresQueryResult {
@@ -95,6 +105,14 @@ export interface PostgresStoreOptions {
    * Must be a non-negative integer, else the constructor throws a `RangeError`.
    */
   maxMessagesPerChat?: number
+  /**
+   * Rows deleted per statement by `purgeExpiredUserData` (default 1000). The
+   * purge loops until no expired row is left, so a huge backlog is removed in
+   * short statements instead of one long delete that holds locks (and, on
+   * SQLite, blocks the event loop) for its whole duration. Must be a positive
+   * integer, else the constructor throws a `RangeError`.
+   */
+  purgeBatchSize?: number
   /**
    * Receives lifecycle errors (pool end failure) and the connection errors of
    * idle clients of a store-created pool. An injected pool's 'error' events are
@@ -145,6 +163,9 @@ export class PostgresStore implements IStore {
     if (opts.maxMessagesPerChat != null && !(Number.isInteger(opts.maxMessagesPerChat) && opts.maxMessagesPerChat >= 0)) {
       throw new RangeError(`PostgresStore: maxMessagesPerChat must be a non-negative integer, got ${opts.maxMessagesPerChat}`)
     }
+    if (opts.purgeBatchSize != null && !(Number.isInteger(opts.purgeBatchSize) && opts.purgeBatchSize > 0)) {
+      throw new RangeError(`PostgresStore: purgeBatchSize must be a positive integer, got ${opts.purgeBatchSize}`)
+    }
     this.connectionString = opts.connectionString ?? 'postgres://localhost:5432/botwa'
     this.maxMessagesPerChat = opts.maxMessagesPerChat
     const prefix = opts.tablePrefix ?? ''
@@ -161,6 +182,7 @@ export class PostgresStore implements IStore {
       <T>(text: string, values?: unknown[]) =>
         this.query<T>(text, values) as Promise<{ rows: T[]; rowCount?: number | null }>,
       `${this.prefix}user_data`,
+      opts.purgeBatchSize,
     )
   }
 
@@ -218,10 +240,24 @@ export class PostgresStore implements IStore {
    */
   async saveMessage(msg: StoredMessage): Promise<void> {
     if (!msg.ref?.id || !msg.chatId) return
-    await this.query(
-      `INSERT INTO ${this.table('messages')} (id, chat_id, timestamp, msg) VALUES ($1, $2, $3, $4) ON CONFLICT (id) DO UPDATE SET chat_id = EXCLUDED.chat_id, timestamp = EXCLUDED.timestamp, msg = EXCLUDED.msg`,
-      [messageKey(msg.ref), msg.chatId, sortKey(msg.timestamp), toJsonb(msg)],
-    )
+    const t = this.table('messages')
+    const key = messageKey(msg.ref)
+    const legacy = legacyMessageKey(msg.ref)
+    const upsert =
+      `INSERT INTO ${t} (id, chat_id, timestamp, msg) VALUES ($1, $2, $3, $4) ` +
+      'ON CONFLICT (id) DO UPDATE SET chat_id = EXCLUDED.chat_id, timestamp = EXCLUDED.timestamp, msg = EXCLUDED.msg'
+    const values = [key, msg.chatId, sortKey(msg.timestamp), toJsonb(msg)]
+    if (legacy === key) {
+      await this.query(upsert, values)
+    } else {
+      // Same statement drops the copy an older version wrote under the legacy
+      // key (else the message would be listed twice) — only when that row
+      // holds THIS message: the legacy key can be another message's key.
+      await this.query(
+        `WITH legacy AS (DELETE FROM ${t} WHERE id = $5 AND chat_id = $2 AND ${ownsMessage('$6', '$7')}) ${upsert}`,
+        [...values, legacy, msg.ref.id, msg.ref.chatId],
+      )
+    }
     await this.trimChat(msg.chatId)
   }
 
@@ -238,12 +274,27 @@ export class PostgresStore implements IStore {
 
   async getMessage(ref: MessageRef): Promise<StoredMessage | undefined> {
     if (!ref.id || !ref.chatId) return undefined
+    const key = messageKey(ref)
+    const found = await this.messageRow(key, ref)
+    if (found) return found
+    // Rows written before keys were escaped (only differs when an id has ':' or '%').
+    const legacy = legacyMessageKey(ref)
+    return legacy === key ? undefined : this.messageRow(legacy, ref)
+  }
+
+  /**
+   * The message stored under `key` when it IS `ref`. A legacy key alone may
+   * belong to another chat, or be another message's escaped key, so the
+   * payload's own ref is checked.
+   */
+  private async messageRow(key: string, ref: MessageRef): Promise<StoredMessage | undefined> {
     const { rows } = await this.query<{ msg: unknown }>(
-      `SELECT msg FROM ${this.table('messages')} WHERE id = $1`,
-      [messageKey(ref)],
+      `SELECT msg FROM ${this.table('messages')} WHERE id = $1 AND chat_id = $2`,
+      [key, ref.chatId],
     )
     const row = rows[0]
-    return row ? this.asJson<StoredMessage>(row.msg) : undefined
+    const msg = row ? this.asJson<StoredMessage>(row.msg) : undefined
+    return msg?.ref?.id === ref.id && msg?.ref?.chatId === ref.chatId ? msg : undefined
   }
 
   async getMessagesByChat(chatId: string, limit = 50): Promise<StoredMessage[]> {
@@ -263,7 +314,19 @@ export class PostgresStore implements IStore {
   }
 
   async deleteMessage(ref: MessageRef): Promise<void> {
-    await this.query(`DELETE FROM ${this.table('messages')} WHERE id = $1`, [messageKey(ref)])
+    const key = messageKey(ref)
+    const legacy = legacyMessageKey(ref)
+    const t = this.table('messages')
+    // Only rows that hold THIS message: a legacy key can be another message's key.
+    const owns = ownsMessage('$3', '$2')
+    if (legacy === key) {
+      await this.query(`DELETE FROM ${t} WHERE id = $1 AND chat_id = $2 AND ${owns}`, [key, ref.chatId, ref.id])
+    } else {
+      await this.query(
+        `WITH legacy AS (DELETE FROM ${t} WHERE id = $4 AND chat_id = $2 AND ${owns}) DELETE FROM ${t} WHERE id = $1 AND chat_id = $2 AND ${owns}`,
+        [key, ref.chatId, ref.id, legacy],
+      )
+    }
   }
 
   /* Chats ------------------------------------------------------------------- */
@@ -283,10 +346,17 @@ export class PostgresStore implements IStore {
     const { rows } = await this.query<{ data: unknown }>(`SELECT data FROM ${this.table('chats')}`)
     return rows.map((r) => this.asJson<StoredChat>(r.data))
   }
-  /** Removes the chat record AND purges its message log (consistent with MemoryStore). */
+  /**
+   * Removes the chat record AND purges its message log (consistent with
+   * MemoryStore) in ONE statement — a data-modifying CTE — so both commit or
+   * neither does. Two `pool.query()` calls were two transactions: a failure in
+   * between left the chat record without its log, or the reverse.
+   */
   async deleteChat(chatId: string): Promise<void> {
-    await this.query(`DELETE FROM ${this.table('messages')} WHERE chat_id = $1`, [chatId])
-    await this.query(`DELETE FROM ${this.table('chats')} WHERE id = $1`, [chatId])
+    await this.query(
+      `WITH purged AS (DELETE FROM ${this.table('messages')} WHERE chat_id = $1) DELETE FROM ${this.table('chats')} WHERE id = $1`,
+      [chatId],
+    )
   }
 
   /* Contacts ---------------------------------------------------------------- */
@@ -415,7 +485,7 @@ export class PostgresStore implements IStore {
   async listUserData(userId: UserId, namespace?: string): Promise<UserDataEntry[]> {
     return this.userData.list(userId, namespace, Date.now())
   }
-  /** Delete every expired user-data row (all users); resolves with the count. */
+  /** Delete every expired user-data row (all users) in batches of `purgeBatchSize`; resolves with the count. */
   async purgeExpiredUserData(now: number = Date.now()): Promise<number> {
     return this.userData.purge(now)
   }

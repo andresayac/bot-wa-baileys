@@ -17,7 +17,7 @@
 import { randomBytes } from 'node:crypto'
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest'
 import pg from 'pg'
-import { MemoryStore, type FlowCheckpoint, type StoredChat, type StoredContact, type StoredMessage } from '@bot-wa/core'
+import { MemoryStore, legacyMessageKey, type FlowCheckpoint, type StoredChat, type StoredContact, type StoredMessage } from '@bot-wa/core'
 import { PostgresStore, type PostgresStoreOptions } from '../src/PostgresStore.js'
 import { runStoreConformance } from '../../../test-utils/store-conformance.js'
 import { runUserDataConformance } from '../../../test-utils/user-data-conformance.js'
@@ -109,9 +109,17 @@ describe.skipIf(!URL)('PostgresStore — real PostgreSQL integration', () => {
 
   runStoreConformance('PostgresStore (real PostgreSQL)', {
     async make() {
-      const store = new PostgresStore({ connectionString, tablePrefix: nextPrefix() })
+      const tablePrefix = nextPrefix()
+      const store = new PostgresStore({ connectionString, tablePrefix })
       await store.start()
-      return { store, teardown: () => store.stop() }
+      // A message row exactly as older versions wrote it (unescaped key).
+      const seedLegacyMessage = async (m: StoredMessage): Promise<void> => {
+        await admin.query(
+          `INSERT INTO ${tablePrefix}messages (id, chat_id, timestamp, msg) VALUES ($1, $2, $3, $4)`,
+          [legacyMessageKey(m.ref), m.chatId, m.timestamp, JSON.stringify(m)],
+        )
+      }
+      return { store, teardown: () => store.stop(), seedLegacyMessage }
     },
   })
 
@@ -124,6 +132,19 @@ describe.skipIf(!URL)('PostgresStore — real PostgreSQL integration', () => {
   })
 
   describe('user data (ctx.user)', () => {
+    it('purges expired rows in batches of purgeBatchSize on the server', async () => {
+      const store = makeStore({ purgeBatchSize: 2 })
+      await store.start()
+      const now = Date.now()
+      for (let i = 0; i < 5; i++) {
+        await store.setUserData({ userId: `u${i}`, namespace: 'g', key: 'old', value: i, expiresAt: now - i, updatedAt: now })
+      }
+      await store.setUserData({ userId: 'u0', namespace: 'g', key: 'live', value: 1, expiresAt: now + 60_000, updatedAt: now })
+      expect(await store.purgeExpiredUserData(now)).toBe(5)
+      expect((await store.listUserData('u0')).map((e) => e.key)).toEqual(['live'])
+      expect(await store.purgeExpiredUserData(now)).toBe(0)
+    })
+
     it('stores values exactly: U+0000, lone surrogates and U+FFFD round-trip unchanged (TEXT, not JSONB)', async () => {
       const store = makeStore()
       await store.start()

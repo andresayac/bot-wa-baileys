@@ -26,8 +26,18 @@ function hasCursor(store: IStore): store is CursorStore {
 }
 
 export interface ConformanceHarness {
-  /** Build a fresh, started store and a teardown that releases it. */
-  make(): Promise<{ store: IStore; teardown: () => Promise<void> }>
+  /**
+   * Build a fresh, started store and a teardown that releases it. Persistent
+   * stores also return `seedLegacyMessage`, which writes a message row straight
+   * into the backend under the PRE-ESCAPING key (`legacyMessageKey`, i.e.
+   * `${chatId}:${id}`) exactly as older versions of the store did, so the
+   * legacy-key migration tests can run.
+   */
+  make(): Promise<{
+    store: IStore
+    teardown: () => Promise<void>
+    seedLegacyMessage?: (msg: StoredMessage) => Promise<void>
+  }>
 }
 
 const msg = (chatId: string, id: string, body: string, ts: number): StoredMessage => ({
@@ -38,11 +48,13 @@ export function runStoreConformance(name: string, h: ConformanceHarness): void {
   describe(`IStore conformance: ${name}`, () => {
     let store: IStore
     let teardown: () => Promise<void>
+    let seedLegacy: ((msg: StoredMessage) => Promise<void>) | undefined
 
     beforeEach(async () => {
       const made = await h.make()
       store = made.store
       teardown = made.teardown
+      seedLegacy = made.seedLegacyMessage
     })
     afterEach(async () => { await teardown() })
 
@@ -249,6 +261,101 @@ export function runStoreConformance(name: string, h: ConformanceHarness): void {
       const got = await store.getConversation('c@x')
       got?.push({ role: 'assistant', content: 'mutated' })
       expect(await store.getConversation('c@x')).toEqual([{ role: 'user', content: 'hi' }])
+    })
+
+    it('ids containing ":" or "%" never collide (Twilio-style "whatsapp:+1…" chat ids)', async () => {
+      // The former `${chatId}:${id}` key mapped both of these to "a:b:c".
+      await store.saveMessage(msg('a:b', 'c', 'chat a:b', 1))
+      await store.saveMessage(msg('a', 'b:c', 'chat a', 2))
+      // A literal "%3A" must not alias an escaped ':' either.
+      await store.saveMessage(msg('a%3Ab', 'c', 'chat a%3Ab', 3))
+      expect((await store.getMessage({ chatId: 'a:b', id: 'c' }))?.body).toBe('chat a:b')
+      expect((await store.getMessage({ chatId: 'a', id: 'b:c' }))?.body).toBe('chat a')
+      expect((await store.getMessage({ chatId: 'a%3Ab', id: 'c' }))?.body).toBe('chat a%3Ab')
+      expect((await store.getMessagesByChat('a:b')).map((m) => m.body)).toEqual(['chat a:b'])
+      expect((await store.getMessagesByChat('a')).map((m) => m.body)).toEqual(['chat a'])
+      expect((await store.getMessagesByChat('a%3Ab')).map((m) => m.body)).toEqual(['chat a%3Ab'])
+
+      await store.deleteMessage({ chatId: 'a:b', id: 'c' })
+      expect(await store.getMessage({ chatId: 'a:b', id: 'c' })).toBeUndefined()
+      expect((await store.getMessage({ chatId: 'a', id: 'b:c' }))?.body).toBe('chat a')
+      expect((await store.getMessage({ chatId: 'a%3Ab', id: 'c' }))?.body).toBe('chat a%3Ab')
+
+      await store.saveMessage(msg('a:b', 'c', 'again', 4))
+      await store.deleteChat('a')
+      expect(await store.getMessage({ chatId: 'a', id: 'b:c' })).toBeUndefined()
+      expect((await store.getMessage({ chatId: 'a:b', id: 'c' }))?.body).toBe('again')
+    })
+
+    it("never mixes up same-chat ids whose legacy key is another message's key", async () => {
+      // legacyMessageKey(('c', '%3A')) === 'c:%3A' === messageKey(('c', ':')).
+      await store.saveMessage(msg('c', ':', 'colon', 1))
+      expect(await store.getMessage({ chatId: 'c', id: '%3A' })).toBeUndefined()
+      await store.deleteMessage({ chatId: 'c', id: '%3A' })
+      expect((await store.getMessage({ chatId: 'c', id: ':' }))?.body).toBe('colon')
+      await store.saveMessage(msg('c', '%3A', 'percent', 2))
+      expect((await store.getMessage({ chatId: 'c', id: ':' }))?.body).toBe('colon')
+      expect((await store.getMessage({ chatId: 'c', id: '%3A' }))?.body).toBe('percent')
+      expect((await store.getMessagesByChat('c')).map((m) => m.body)).toEqual(['colon', 'percent'])
+      await store.deleteMessage({ chatId: 'c', id: '%3A' })
+      expect((await store.getMessagesByChat('c')).map((m) => m.body)).toEqual(['colon'])
+    })
+
+    describe('legacy `${chatId}:${id}` rows (written before keys were escaped)', () => {
+      const legacyIt = (title: string, fn: (seed: (m: StoredMessage) => Promise<void>) => Promise<void>) =>
+        it(title, async (ctx) => {
+          if (!seedLegacy) return ctx.skip() // in-memory stores have no rows from older versions
+          await fn(seedLegacy)
+        })
+
+      legacyIt('reads and lists a legacy row', async (seed) => {
+        await seed(msg('whatsapp:+1555', 'SM1', 'old', 1))
+        expect((await store.getMessage({ chatId: 'whatsapp:+1555', id: 'SM1' }))?.body).toBe('old')
+        expect((await store.getMessagesByChat('whatsapp:+1555')).map((m) => m.body)).toEqual(['old'])
+      })
+
+      legacyIt('re-saving a legacy message replaces it (no duplicate in the window)', async (seed) => {
+        await seed(msg('whatsapp:+1555', 'SM1', 'old', 1))
+        await store.saveMessage({ ...msg('whatsapp:+1555', 'SM1', 'new', 1), status: 'read' })
+        expect((await store.getMessagesByChat('whatsapp:+1555')).map((m) => m.body)).toEqual(['new'])
+        expect((await store.getMessage({ chatId: 'whatsapp:+1555', id: 'SM1' }))?.status).toBe('read')
+      })
+
+      legacyIt('deletes a legacy row (deleteMessage and deleteChat)', async (seed) => {
+        await seed(msg('whatsapp:+1555', 'SM1', 'one', 1))
+        await seed(msg('whatsapp:+1555', 'SM2', 'two', 2))
+        await store.deleteMessage({ chatId: 'whatsapp:+1555', id: 'SM1' })
+        expect(await store.getMessage({ chatId: 'whatsapp:+1555', id: 'SM1' })).toBeUndefined()
+        expect((await store.getMessagesByChat('whatsapp:+1555')).map((m) => m.body)).toEqual(['two'])
+        await store.deleteChat('whatsapp:+1555')
+        expect(await store.getMessage({ chatId: 'whatsapp:+1555', id: 'SM2' })).toBeUndefined()
+        expect(await store.getMessagesByChat('whatsapp:+1555')).toEqual([])
+      })
+
+      legacyIt('never returns a legacy row that belongs to another message', async (seed) => {
+        // Legacy key "a:b:c" belongs to ('a', 'b:c'), not to ('a:b', 'c').
+        await seed(msg('a', 'b:c', 'owner a', 1))
+        expect(await store.getMessage({ chatId: 'a:b', id: 'c' })).toBeUndefined()
+        expect((await store.getMessage({ chatId: 'a', id: 'b:c' }))?.body).toBe('owner a')
+        // Legacy key "x%3Ay:z" is also the NEW key of ('x:y', 'z').
+        await seed(msg('x%3Ay', 'z', 'owner x%3Ay', 2))
+        expect(await store.getMessage({ chatId: 'x:y', id: 'z' })).toBeUndefined()
+        expect((await store.getMessage({ chatId: 'x%3Ay', id: 'z' }))?.body).toBe('owner x%3Ay')
+        // Deleting the non-owner leaves the legacy rows alone.
+        await store.deleteMessage({ chatId: 'a:b', id: 'c' })
+        await store.deleteMessage({ chatId: 'x:y', id: 'z' })
+        expect((await store.getMessage({ chatId: 'a', id: 'b:c' }))?.body).toBe('owner a')
+        expect((await store.getMessage({ chatId: 'x%3Ay', id: 'z' }))?.body).toBe('owner x%3Ay')
+      })
+      legacyIt("never returns a legacy row stored under another message's escaped key", async (seed) => {
+        // The legacy row of ('c', '%3A') sits under 'c:%3A', the NEW key of ('c', ':').
+        await seed(msg('c', '%3A', 'old percent', 1))
+        expect(await store.getMessage({ chatId: 'c', id: ':' })).toBeUndefined()
+        await store.deleteMessage({ chatId: 'c', id: ':' })
+        expect((await store.getMessage({ chatId: 'c', id: '%3A' }))?.body).toBe('old percent')
+        await store.saveMessage(msg('c', '%3A', 'new percent', 1))
+        expect((await store.getMessagesByChat('c')).map((m) => m.body)).toEqual(['new percent'])
+      })
     })
 
     it('treats deleting or clearing missing data as a no-op', async () => {

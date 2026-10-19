@@ -40,7 +40,7 @@ import type {
   UserDataEntry,
   UserId,
 } from '@bot-wa/core'
-import { messageKey } from '@bot-wa/core'
+import { legacyMessageKey, messageKey } from '@bot-wa/core'
 import { MysqlUserData } from './userData.js'
 import { toJson } from './json.js'
 
@@ -120,6 +120,14 @@ export interface MysqlStoreOptions {
    */
   maxMessagesPerChat?: number
   /**
+   * Rows deleted per statement by `purgeExpiredUserData` (default 1000). The
+   * purge loops until no expired row is left, so a huge backlog is removed in
+   * short statements instead of one long delete that holds locks for its whole
+   * duration. Must be a positive integer, else the constructor throws a
+   * `RangeError`.
+   */
+  purgeBatchSize?: number
+  /**
    * Receives lifecycle errors (pool close failure) and, through `warn` (falling
    * back to `error`), the legacy-schema notice `start()` emits for tables
    * created by an earlier version.
@@ -159,6 +167,9 @@ export class MysqlStore implements IStore {
     if (opts.maxMessagesPerChat != null && !(Number.isInteger(opts.maxMessagesPerChat) && opts.maxMessagesPerChat >= 0)) {
       throw new RangeError(`MysqlStore: maxMessagesPerChat must be a non-negative integer, got ${opts.maxMessagesPerChat}`)
     }
+    if (opts.purgeBatchSize != null && !(Number.isInteger(opts.purgeBatchSize) && opts.purgeBatchSize > 0)) {
+      throw new RangeError(`MysqlStore: purgeBatchSize must be a positive integer, got ${opts.purgeBatchSize}`)
+    }
     // mysql2's pool typings are a wide generic union; the `query(sql, params)`
     // subset used here matches at runtime, so narrow at the boundary.
     this.pool = (opts.pool ?? null) as PoolLike | null
@@ -182,7 +193,7 @@ export class MysqlStore implements IStore {
       conversations: `${p}conversations`,
       cursors: `${p}cursors`,
     }
-    this.userData = new MysqlUserData((sql, params) => this.query(sql, params), `${p}user_data`)
+    this.userData = new MysqlUserData((sql, params) => this.query(sql, params), `${p}user_data`, opts.purgeBatchSize)
   }
 
   /** All DB access funnels through here — SQL stays small, fixed and parameterized. */
@@ -270,6 +281,10 @@ export class MysqlStore implements IStore {
         'ON DUPLICATE KEY UPDATE chat_id = VALUES(chat_id), timestamp = VALUES(timestamp), msg = VALUES(msg)',
       [messageKey(msg.ref), msg.chatId, msg.timestamp, toJson(msg)],
     )
+    // Drop the copy an older version wrote under the legacy key (else the
+    // message would be listed twice). No-op for ids without ':' or '%'.
+    const legacy = legacyMessageKey(msg.ref)
+    if (legacy !== messageKey(msg.ref)) await this.deleteMessageRows(msg.chatId, legacy, legacy, msg.ref)
     await this.trimChat(msg.chatId)
   }
 
@@ -290,8 +305,36 @@ export class MysqlStore implements IStore {
 
   async getMessage(ref: MessageRef): Promise<StoredMessage | undefined> {
     if (!ref.id || !ref.chatId) return undefined
-    const [rows] = await this.query(`SELECT msg FROM \`${this.t.messages}\` WHERE id = ?`, [messageKey(ref)])
-    return fromJson<StoredMessage>(rows[0]?.msg)
+    const key = messageKey(ref)
+    const found = await this.messageRow(key, ref)
+    if (found) return found
+    // Rows written before keys were escaped (only differs when an id has ':' or '%').
+    const legacy = legacyMessageKey(ref)
+    return legacy === key ? undefined : this.messageRow(legacy, ref)
+  }
+
+  /**
+   * The message stored under `key` when it IS `ref`. A legacy key alone may
+   * belong to another chat, or be another message's escaped key, so the
+   * payload's own ref is checked.
+   */
+  private async messageRow(key: string, ref: MessageRef): Promise<StoredMessage | undefined> {
+    const [rows] = await this.query(`SELECT msg FROM \`${this.t.messages}\` WHERE id = ? AND chat_id = ?`, [key, ref.chatId])
+    const msg = fromJson<StoredMessage>(rows[0]?.msg)
+    return msg?.ref?.id === ref.id && msg?.ref?.chatId === ref.chatId ? msg : undefined
+  }
+
+  /**
+   * Delete the rows of `chatId` stored under either key (the escaped one
+   * and/or the legacy one) that hold THIS message: a legacy key can be another
+   * message's escaped key (legacy 'c:%3A' of ('c', '%3A') is the key of ('c', ':')).
+   */
+  private async deleteMessageRows(chatId: string, key: string, legacy: string, ref: MessageRef): Promise<void> {
+    await this.query(
+      `DELETE FROM \`${this.t.messages}\` WHERE chat_id = ? AND id IN (?, ?) ` +
+        "AND JSON_UNQUOTE(JSON_EXTRACT(msg, '$.ref.id')) = ? AND JSON_UNQUOTE(JSON_EXTRACT(msg, '$.ref.chatId')) = ?",
+      [chatId, key, legacy, ref.id, ref.chatId],
+    )
   }
 
   async getMessagesByChat(chatId: string, limit = 50): Promise<StoredMessage[]> {
@@ -313,7 +356,7 @@ export class MysqlStore implements IStore {
   }
 
   async deleteMessage(ref: MessageRef): Promise<void> {
-    await this.query(`DELETE FROM \`${this.t.messages}\` WHERE id = ?`, [messageKey(ref)])
+    await this.deleteMessageRows(ref.chatId, messageKey(ref), legacyMessageKey(ref), ref)
   }
 
   /* Chats ----------------------------------------------------------------- */

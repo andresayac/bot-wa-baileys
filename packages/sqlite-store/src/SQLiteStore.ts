@@ -27,7 +27,7 @@ import type {
   UserDataEntry,
   UserId,
 } from '@bot-wa/core'
-import { messageKey } from '@bot-wa/core'
+import { legacyMessageKey, messageKey } from '@bot-wa/core'
 import { SqliteUserData } from './userData.js'
 
 export interface SQLiteStoreOptions {
@@ -42,6 +42,14 @@ export interface SQLiteStoreOptions {
    * non-negative integer, else the constructor throws a `RangeError`.
    */
   maxMessagesPerChat?: number
+  /**
+   * Rows deleted per statement by `purgeExpiredUserData` (default 1000). The
+   * purge loops until no expired row is left, so a huge backlog is removed in
+   * short statements instead of one long delete that holds locks (and, on
+   * SQLite, blocks the event loop) for its whole duration. Must be a positive
+   * integer, else the constructor throws a `RangeError`.
+   */
+  purgeBatchSize?: number
   logger?: { error?: (...args: unknown[]) => void }
 }
 
@@ -92,12 +100,16 @@ export class SQLiteStore implements IStore {
   private readonly userData: SqliteUserData
   private readonly stmts: Statements
   private readonly deleteChatTx: (chatId: string) => void
+  private readonly saveMessageTx: (msg: StoredMessage) => void
   private readonly mergeChatTx: (chat: StoredChat) => void
   private readonly mergeContactTx: (contact: StoredContact) => void
 
   constructor(opts: SQLiteStoreOptions = {}) {
     if (opts.maxMessagesPerChat != null && !(Number.isInteger(opts.maxMessagesPerChat) && opts.maxMessagesPerChat >= 0)) {
       throw new RangeError(`SQLiteStore: maxMessagesPerChat must be a non-negative integer, got ${opts.maxMessagesPerChat}`)
+    }
+    if (opts.purgeBatchSize != null && !(Number.isInteger(opts.purgeBatchSize) && opts.purgeBatchSize > 0)) {
+      throw new RangeError(`SQLiteStore: purgeBatchSize must be a positive integer, got ${opts.purgeBatchSize}`)
     }
     this.logger = opts.logger
     this.maxMessagesPerChat = opts.maxMessagesPerChat
@@ -113,8 +125,25 @@ export class SQLiteStore implements IStore {
     if (opts.wal !== false) this.db.pragma('journal_mode = WAL')
     this.db.pragma('synchronous = NORMAL')
     this.migrate()
-    this.userData = new SqliteUserData(this.db)
+    this.userData = new SqliteUserData(this.db, opts.purgeBatchSize)
     const stmts = (this.stmts = this.prepare())
+    // Write under the escaped key and drop the legacy-key copy an older version
+    // may have written (else the message would be listed twice), atomically.
+    this.saveMessageTx = this.db.transaction((msg: StoredMessage) => {
+      const key = messageKey(msg.ref)
+      stmts.saveMessage.run(
+        key,
+        msg.chatId,
+        msg.senderId ?? null,
+        msg.timestamp,
+        msg.type,
+        msg.body ?? null,
+        msg.fromMe ? 1 : 0,
+        JSON.stringify(msg),
+      )
+      const legacy = legacyMessageKey(msg.ref)
+      if (legacy !== key) stmts.deleteMessage.run(legacy, msg.chatId, msg.ref.id, msg.ref.chatId)
+    })
     this.deleteChatTx = this.db.transaction((id: string) => {
       stmts.deleteChatMessages.run(id)
       stmts.deleteChat.run(id)
@@ -161,10 +190,16 @@ export class SQLiteStore implements IStore {
         'DELETE FROM messages WHERE chat_id = ? AND id NOT IN ' +
           '(SELECT id FROM messages WHERE chat_id = ? ORDER BY timestamp DESC, id DESC LIMIT ?)',
       ),
-      getMessage: db.prepare('SELECT msg_json FROM messages WHERE id = ?'),
+      // `chat_id` is checked too: a legacy (unescaped) key alone may belong to another chat.
+      getMessage: db.prepare('SELECT msg_json FROM messages WHERE id = ? AND chat_id = ?'),
       // Timestamp ties break by id — the order trimChat keeps — so the window is deterministic.
       messagesByChat: db.prepare('SELECT msg_json FROM messages WHERE chat_id = ? ORDER BY timestamp DESC, id DESC LIMIT ?'),
-      deleteMessage: db.prepare('DELETE FROM messages WHERE id = ?'),
+      // Only the row that holds THIS message: a legacy key can be another
+      // message's escaped key (legacy 'c:%3A' of ('c', '%3A') is the key of ('c', ':')).
+      deleteMessage: db.prepare(
+        "DELETE FROM messages WHERE id = ? AND chat_id = ? AND json_extract(msg_json, '$.ref.id') = ? " +
+          "AND json_extract(msg_json, '$.ref.chatId') = ?",
+      ),
       deleteChatMessages: db.prepare('DELETE FROM messages WHERE chat_id = ?'),
       getChat: db.prepare('SELECT chat_json AS json FROM chats WHERE id = ?'),
       putChat: db.prepare('INSERT OR REPLACE INTO chats (id, chat_json) VALUES (?, ?)'),
@@ -191,20 +226,12 @@ export class SQLiteStore implements IStore {
   /**
    * Upsert keyed by `messageKey(ref)`. A message without `ref.id` or `chatId`
    * is ignored, like MemoryStore: providers send `''` when they have no stable
-   * id, and keying those rows would make them overwrite each other.
+   * id, and keying those rows would make them overwrite each other. A copy of
+   * the same message under the legacy key (`legacyMessageKey`) is removed.
    */
   async saveMessage(msg: StoredMessage): Promise<void> {
     if (!msg.ref?.id || !msg.chatId) return
-    this.stmts.saveMessage.run(
-      messageKey(msg.ref),
-      msg.chatId,
-      msg.senderId ?? null,
-      msg.timestamp,
-      msg.type,
-      msg.body ?? null,
-      msg.fromMe ? 1 : 0,
-      JSON.stringify(msg),
-    )
+    this.saveMessageTx(msg)
     this.trimChat(msg.chatId)
   }
 
@@ -216,8 +243,24 @@ export class SQLiteStore implements IStore {
 
   async getMessage(ref: MessageRef): Promise<StoredMessage | undefined> {
     if (!ref.id || !ref.chatId) return undefined
-    const row = this.stmts.getMessage.get(messageKey(ref)) as { msg_json: string } | undefined
-    return row ? (JSON.parse(row.msg_json) as StoredMessage) : undefined
+    const key = messageKey(ref)
+    const found = this.messageRow(key, ref)
+    if (found) return found
+    // Rows written before keys were escaped (only differs when an id has ':' or '%').
+    const legacy = legacyMessageKey(ref)
+    return legacy === key ? undefined : this.messageRow(legacy, ref)
+  }
+
+  /**
+   * The message stored under `key` when it IS `ref`. A legacy key alone may
+   * belong to another chat, or be another message's escaped key, so the
+   * payload's own ref is checked.
+   */
+  private messageRow(key: string, ref: MessageRef): StoredMessage | undefined {
+    const row = this.stmts.getMessage.get(key, ref.chatId) as { msg_json: string } | undefined
+    if (!row) return undefined
+    const msg = JSON.parse(row.msg_json) as StoredMessage
+    return msg.ref?.id === ref.id && msg.ref?.chatId === ref.chatId ? msg : undefined
   }
 
   async getMessagesByChat(chatId: string, limit = 50): Promise<StoredMessage[]> {
@@ -228,7 +271,10 @@ export class SQLiteStore implements IStore {
   }
 
   async deleteMessage(ref: MessageRef): Promise<void> {
-    this.stmts.deleteMessage.run(messageKey(ref))
+    const key = messageKey(ref)
+    this.stmts.deleteMessage.run(key, ref.chatId, ref.id, ref.chatId)
+    const legacy = legacyMessageKey(ref)
+    if (legacy !== key) this.stmts.deleteMessage.run(legacy, ref.chatId, ref.id, ref.chatId)
   }
 
   /* Chats ----------------------------------------------------------------- */
@@ -326,7 +372,11 @@ export class SQLiteStore implements IStore {
   async listUserData(userId: UserId, namespace?: string): Promise<UserDataEntry[]> {
     return this.userData.list(userId, namespace, Date.now())
   }
-  /** Delete every expired user-data row (all users); resolves with the count. */
+  /**
+   * Delete every expired user-data row (all users) in batches of
+   * `purgeBatchSize`, yielding to the event loop between batches; resolves
+   * with the count.
+   */
   async purgeExpiredUserData(now: number = Date.now()): Promise<number> {
     return this.userData.purge(now)
   }

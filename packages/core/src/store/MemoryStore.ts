@@ -1,7 +1,7 @@
 /**
  * MemoryStore — default in-process store (transport-agnostic).
  *
- * Buffered Map of messages per chat (capped), full chat/contact maps, flow
+ * Buffered Map of messages per chat (capped at 1000 by default), full chat/contact maps, flow
  * checkpoints, AI conversation history, and delivery cursors. Optional JSON
  * dump/load for restarts (messages are intentionally NOT persisted).
  */
@@ -28,7 +28,14 @@ export interface MemoryStoreLogger {
 }
 
 export interface MemoryStoreOptions {
-  /** Max messages retained per chat. Default 1000. */
+  /**
+   * Max messages retained per chat; older ones are dropped on save. Default
+   * **1000** — unlike the persistent stores, where the cap is opt-in, because
+   * this log lives in the process's RAM and is never persisted: an unbounded
+   * default would grow memory forever on a long-running bot. Pass `Infinity`
+   * to disable it. Must be a non-negative integer or `Infinity`, else the
+   * constructor throws a `RangeError`.
+   */
   maxMessagesPerChat?: number
   /** Optional JSON file for persistence across restarts. */
   file?: string
@@ -37,6 +44,9 @@ export interface MemoryStoreOptions {
   /** Optional logger for load/persist failures. Falls back to silence when omitted. */
   logger?: MemoryStoreLogger
 }
+
+/** Default per-chat message cap of {@link MemoryStore} (RAM safety; see `maxMessagesPerChat`). */
+const DEFAULT_MAX_MESSAGES_PER_CHAT = 1000
 
 export class MemoryStore implements IStore {
   private messages = new Map<string, Map<string, StoredMessage>>() // chatId -> messageId -> msg
@@ -53,8 +63,14 @@ export class MemoryStore implements IStore {
 
   /** `autoSaveInterval` in ms, parsed up front so a bad duration fails at construction. */
   private readonly autoSaveMs: number
+  private readonly maxMessagesPerChat: number
 
   constructor(private opts: MemoryStoreOptions = {}) {
+    const cap = opts.maxMessagesPerChat ?? DEFAULT_MAX_MESSAGES_PER_CHAT
+    if (!(cap === Number.POSITIVE_INFINITY || (Number.isInteger(cap) && cap >= 0))) {
+      throw new RangeError(`MemoryStore: maxMessagesPerChat must be a non-negative integer or Infinity, got ${cap}`)
+    }
+    this.maxMessagesPerChat = cap
     this.autoSaveMs = parseTimerDuration(opts.autoSaveInterval ?? 60_000, 'MemoryStore autoSaveInterval')
   }
 
@@ -138,7 +154,7 @@ export class MemoryStore implements IStore {
   }
 
   private trimChat(chatId: string): void {
-    const cap = this.opts.maxMessagesPerChat ?? 1000
+    const cap = this.maxMessagesPerChat
     const m = this.messages.get(chatId)
     if (!m || m.size <= cap) return
     const overflow = m.size - cap
