@@ -300,6 +300,12 @@ export function runUserDataConformance(name: string, h: UserDataConformanceHarne
       expect((await ud.getUserData('u1', 'default', 'profile'))?.value).toEqual({ tags: ['a'] })
     })
 
+    it('rejects a value that is not JSON (undefined) and writes nothing', async () => {
+      await expect(ud.setUserData(entry('u1', 'default', 'nothing', undefined))).rejects.toThrow(TypeError)
+      expect(await ud.getUserData('u1', 'default', 'nothing')).toBeUndefined()
+      expect(await ud.listUserData('u1')).toEqual([])
+    })
+
     it('stores large values without truncation', async () => {
       const big = 'x'.repeat(100_000)
       await ud.setUserData(entry('u1', 'default', 'big', { big }))
