@@ -26,6 +26,8 @@ export interface MessengerMessage {
   text?: string
   attachments?: MessengerAttachment[]
   quick_reply?: { payload?: string }
+  /** Present when the user replied to a specific message. */
+  reply_to?: { mid?: string }
   sticker_id?: number
   is_echo?: boolean
   reaction?: { reaction?: string; emoji?: string; action?: string; mid?: string }
@@ -59,6 +61,7 @@ function attachType(type: string | undefined): MessageType {
     case 'image': return 'image'
     case 'video': return 'video'
     case 'audio': return 'audio'
+    case 'location': return 'location'
     default: return 'document' // 'file', 'fallback', anything else
   }
 }
@@ -74,10 +77,15 @@ function toMessage(ev: MessagingEvent, selfId?: string): InboundMessage<Messagin
   if (attach) {
     type = attachType(attach.type)
     body = m.text ?? '' // Messenger attachments carry no caption; text doubles as one
-    media = {
-      kind: type as MediaRef['kind'],
-      mimetype: ATTACH_MIME[attach.type ?? ''] ?? 'application/octet-stream',
-      token: attach.payload?.url,
+    // A shared location has no downloadable bytes.
+    if (type === 'location') {
+      body = m.text ?? attach.payload?.title ?? ''
+    } else {
+      media = {
+        kind: type as MediaRef['kind'],
+        mimetype: ATTACH_MIME[attach.type ?? ''] ?? 'application/octet-stream',
+        token: attach.payload?.url,
+      }
     }
   }
 
@@ -97,6 +105,7 @@ function toMessage(ev: MessagingEvent, selfId?: string): InboundMessage<Messagin
     timestamp: ev.timestamp ?? 0,
     mentions: [],
     media,
+    ...(m.reply_to?.mid ? { quoted: { ref: { id: m.reply_to.mid, chatId } } } : {}),
     raw: ev,
   }
 }

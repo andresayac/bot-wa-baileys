@@ -38,6 +38,15 @@ function mediaUrl(source: MediaSource, kind: OutboundContent['kind']): string {
   )
 }
 
+/** IG quick replies: at most 13, titles up to 20 chars; an empty payload falls back to the title. */
+function quickReplies(buttons: ReadonlyArray<{ id: string; title: string }>): Array<Record<string, unknown>> {
+  return buttons.slice(0, 13).map((b) => ({
+    content_type: 'text',
+    title: b.title.slice(0, 20),
+    payload: b.id || b.title,
+  }))
+}
+
 function attachment(type: string, url: string): Record<string, unknown> {
   return { attachment: { type, payload: { url, is_reusable: true } } }
 }
@@ -74,20 +83,18 @@ export function toOutbound(content: OutboundContent): Record<string, unknown> {
 
     case 'buttons': {
       // IG supports quick replies (tappable chips), NOT structured buttons.
-      const quick_replies = content.buttons.slice(0, 13).map((b) => ({
-        content_type: 'text',
-        title: b.title.slice(0, 20),
-        payload: b.id,
-      }))
-      return { text: content.text, quick_replies }
+      return { text: content.text, quick_replies: quickReplies(content.buttons) }
     }
 
     case 'list':
       // No list messages in IG DMs — degrade to numbered text.
       return { text: listAsText(content) }
 
-    case 'card':
-      return { text: [content.title, content.body].filter(Boolean).join('\n') }
+    case 'card': {
+      // Degrades to text; its buttons survive as quick replies.
+      const text = [content.title, content.body].filter(Boolean).join('\n')
+      return content.buttons?.length ? { text, quick_replies: quickReplies(content.buttons) } : { text }
+    }
 
     case 'native':
       return content.payload as Record<string, unknown>

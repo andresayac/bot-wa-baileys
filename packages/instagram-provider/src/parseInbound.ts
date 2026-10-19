@@ -35,6 +35,10 @@ interface IgMessage {
   text?: string
   /** True when this message was sent by the connected IG account (our own). */
   is_echo?: boolean
+  /** True when the user unsent (deleted) the message `mid`. */
+  is_deleted?: boolean
+  /** True when IG could not render the message for the API (unsupported type). */
+  is_unsupported?: boolean
   attachments?: IgAttachment[]
   quick_reply?: { payload?: string }
   reply_to?: { mid?: string }
@@ -201,6 +205,8 @@ export function parseInbound(body: IgWebhookBody): InboundEvent[] {
       if (!msg) continue
       // is_echo = a message the connected IG account sent itself; skip it.
       if (msg.is_echo) continue
+      // An unsend notification is not new input: never answer a deleted message.
+      if (msg.is_deleted) continue
       // Quick reply tap → interaction (IG has no structured postback buttons).
       if (msg.quick_reply) {
         events.push({ kind: 'interaction', interaction: toInteraction(ev, msg.quick_reply.payload ?? '', msg.mid) })

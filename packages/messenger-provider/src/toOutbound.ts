@@ -10,7 +10,25 @@
  * throw {@link UnsupportedContentError}.
  */
 
-import { UnsupportedContentError, type OutboundContent } from '@bot-wa/core'
+import { UnsupportedContentError, type Button, type OutboundContent } from '@bot-wa/core'
+
+/** Send API limits: button titles 20 chars, template titles/subtitles 80, 3 buttons per template. */
+const BUTTON_TITLE = 20
+const ELEMENT_TEXT = 80
+const MAX_BUTTONS = 3
+
+/** A URL button opens the link (web_url); any other button posts its id back (postback). */
+function sendApiButton(b: Pick<Button, 'id' | 'title'> & { url?: string }): Record<string, unknown> {
+  const title = b.title.slice(0, BUTTON_TITLE)
+  return b.url
+    ? { type: 'web_url', title, url: b.url }
+    // An empty payload is rejected by the Send API: fall back to the title.
+    : { type: 'postback', title, payload: b.id || b.title }
+}
+
+function genericTemplate(elements: Array<Record<string, unknown>>): Record<string, unknown> {
+  return { attachment: { type: 'template', payload: { template_type: 'generic', elements } } }
+}
 
 function attachmentMessage(type: 'image' | 'video' | 'audio' | 'file', url: string | undefined): Record<string, unknown> {
   if (!url) {
@@ -39,11 +57,7 @@ export function toOutbound(content: OutboundContent, mediaUrl?: string): Record<
       return attachmentMessage('file', mediaUrl)
 
     case 'buttons': {
-      const buttons = content.buttons.slice(0, 3).map((b) => ({
-        type: 'postback',
-        title: b.title.slice(0, 20),
-        payload: b.id,
-      }))
+      const buttons = content.buttons.slice(0, MAX_BUTTONS).map(sendApiButton)
       return {
         attachment: {
           type: 'template',
@@ -58,21 +72,27 @@ export function toOutbound(content: OutboundContent, mediaUrl?: string): Record<
       const rows = content.sections.flatMap((s) => s.rows).slice(0, 10)
       const elements = rows.length
         ? rows.map((r) => ({
-            title: r.title,
-            ...(r.description ? { subtitle: r.description } : {}),
-            buttons: [{ type: 'postback', title: r.title.slice(0, 20), payload: r.id }],
+            title: r.title.slice(0, ELEMENT_TEXT),
+            ...(r.description ? { subtitle: r.description.slice(0, ELEMENT_TEXT) } : {}),
+            buttons: [sendApiButton(r)],
           }))
-        : [{ title: content.text }]
-      return {
-        attachment: {
-          type: 'template',
-          payload: { template_type: 'generic', elements },
-        },
-      }
+        : [{ title: content.text.slice(0, ELEMENT_TEXT) }]
+      return genericTemplate(elements)
     }
 
-    case 'card':
-      return { text: [content.title, content.body].filter(Boolean).join('\n') }
+    case 'card': {
+      // Without image or buttons a card is just text; otherwise a one-element
+      // generic template keeps both instead of dropping them.
+      if (!content.imageUrl && !content.buttons?.length) {
+        return { text: [content.title, content.body].filter(Boolean).join('\n') }
+      }
+      return genericTemplate([{
+        title: content.title.slice(0, ELEMENT_TEXT),
+        ...(content.body ? { subtitle: content.body.slice(0, ELEMENT_TEXT) } : {}),
+        ...(content.imageUrl ? { image_url: content.imageUrl } : {}),
+        ...(content.buttons?.length ? { buttons: content.buttons.slice(0, MAX_BUTTONS).map(sendApiButton) } : {}),
+      }])
+    }
 
     case 'native':
       return content.payload as Record<string, unknown>

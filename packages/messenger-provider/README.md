@@ -70,9 +70,11 @@ app.listen(3000)
 | Feature | Messenger |
 |---|---|
 | Texto, imagen, video, audio, documento (por URL pública) | ✅ |
-| **Botones postback** (`ctx.buttons`, template `button`, máx 3) | ✅ nativo |
+| **Botones postback** (`ctx.buttons`, template `button`, máx 3; un botón con `url` es `web_url`) | ✅ nativo |
+| **Tarjetas** (`card` con imagen o botones → template `generic`; sin ellos, texto) | ✅ nativo |
 | **Listas** (template `generic`, un elemento por fila) | ✅ nativo |
 | Quick replies / postbacks entrantes → interacciones (`kind: 'button'`) | ✅ |
+| Ubicación entrante (`type: 'location'`) y respuestas citadas (`quoted`) | ✅ |
 | Reacciones entrantes (`message.reaction` → evento `reaction`) | ✅ |
 | Typing (`typing_on`/`typing_off`) y confirmación de lectura (`mark_seen`) | ✅ |
 | Descarga de media entrante (`MediaRef.token` es la URL del attachment) | ✅ |
@@ -89,4 +91,4 @@ app.listen(3000)
 
 ## Errores
 
-Los errores del Graph (`res.error`) se mapean a los tipos de `@bot-wa/core`: códigos de rate limit **4/613** → `RateLimitedError` (honrando `Retry-After`); el resto → `ProviderError`.
+Los errores del Graph (`res.error`) se mapean a los tipos de `@bot-wa/core`: códigos de rate limit **4/613** → `RateLimitedError` (honrando `Retry-After`); fuera de la ventana de 24 h (código 10, subcódigo 2018278) → `OutsideSessionWindowError`; destinatario no disponible o inexistente (código 551, subcódigos 1545041/2018001) → `RecipientUnreachableError`, ambos con el `chatId`; el resto → `ProviderError`.
