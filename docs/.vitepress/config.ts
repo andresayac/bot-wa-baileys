@@ -1,5 +1,7 @@
+import { readdirSync } from 'node:fs'
 import { createRequire } from 'node:module'
-import { defineConfig } from 'vitepress'
+import { fileURLToPath } from 'node:url'
+import { defineConfig, type DefaultTheme } from 'vitepress'
 
 /**
  * pnpm's strict node_modules does not expose `vue` at the workspace root (it is
@@ -10,8 +12,223 @@ import { defineConfig } from 'vitepress'
  */
 const vitepressEntry = createRequire(import.meta.url).resolve('vitepress')
 
+/**
+ * The language switcher of the default theme imports `../composables/langs`;
+ * this file swaps in ./theme/langs.ts, which reads `themeConfig.localeAlternates`.
+ */
+const localeLinksModule = fileURLToPath(new URL('./theme/langs.ts', import.meta.url))
+
 /** Public base path of the site (served from the root). */
 const base = '/'
+
+const enSidebar = {
+  '/guide/': [
+    {
+      text: 'Getting started',
+      items: [
+        { text: 'Installation', link: '/guide/getting-started' },
+        { text: 'Your first bot', link: '/guide/first-bot' },
+        { text: 'Core concepts', link: '/guide/concepts' },
+        { text: 'Channels', link: '/guide/channels' },
+      ],
+    },
+    {
+      text: 'Features',
+      items: [
+        { text: 'Messages & media', link: '/guide/messages' },
+        { text: 'Conversation flows', link: '/guide/flows' },
+        { text: 'Special triggers', link: '/guide/triggers' },
+        { text: 'Forms (WhatsApp Flows)', link: '/guide/forms' },
+        { text: 'Persistent user data', link: '/guide/user-data' },
+        { text: 'Internationalization (i18n)', link: '/guide/i18n' },
+        { text: 'Handoff & access lists', link: '/guide/handoff' },
+        { text: 'Hooks (middleware)', link: '/guide/hooks' },
+        { text: 'Plugins', link: '/guide/plugins' },
+        { text: 'AI plugin', link: '/guide/ai' },
+        { text: 'AI tool calling', link: '/guide/ai-tools' },
+        { text: 'AI memory & RAG', link: '/guide/ai-memory-rag' },
+        { text: 'Streaming replies', link: '/guide/streaming' },
+        { text: 'Voice (STT/TTS)', link: '/guide/voice' },
+        { text: 'Integrations', link: '/guide/integrations' },
+        { text: 'Dependency injection', link: '/guide/di' },
+        { text: 'Scheduler', link: '/guide/scheduler' },
+        { text: 'Rate limiting (anti-ban)', link: '/guide/rate-limiting' },
+        { text: 'Persistent store', link: '/guide/store' },
+        { text: 'Control plane', link: '/guide/control-plane' },
+        { text: 'Webhook server', link: '/guide/server' },
+        { text: 'WhatsApp 24h window', link: '/guide/session-window' },
+        { text: 'Operations', link: '/guide/operations' },
+        { text: 'Tracing (OpenTelemetry)', link: '/guide/tracing' },
+        { text: 'Durable processing', link: '/guide/durability' },
+      ],
+    },
+    {
+      text: 'Develop & test',
+      items: [
+        { text: 'Terminal simulator', link: '/guide/dev-simulator' },
+        { text: 'Testing', link: '/guide/testing' },
+        { text: 'Inspect & lint flows', link: '/guide/flow-tools' },
+        { text: 'Golden transcripts', link: '/guide/golden-transcripts' },
+        { text: 'ESLint plugin', link: '/guide/eslint' },
+      ],
+    },
+    {
+      text: 'Advanced',
+      items: [
+        { text: 'Sub-APIs', link: '/guide/sub-apis' },
+        { text: 'Deployment', link: '/guide/deploy' },
+        { text: 'Running N replicas', link: '/guide/replicas' },
+        { text: 'Architecture', link: '/guide/architecture' },
+        { text: 'Redis Cluster', link: '/guide/redis-cluster' },
+        { text: 'Security', link: '/guide/security' },
+        { text: 'FAQ', link: '/guide/faq' },
+      ],
+    },
+  ],
+  '/examples/': [
+    {
+      text: 'Recipes',
+      items: [
+        { text: 'Send messages', link: '/examples/messages' },
+        { text: 'Send media', link: '/examples/media' },
+        { text: 'Registration flow', link: '/examples/registration-flow' },
+        { text: 'Shopping flow', link: '/examples/shopping-flow' },
+        { text: 'Support with timeout', link: '/examples/support-flow' },
+        { text: 'Plugin: rate limiter', link: '/examples/rate-limiter' },
+      ],
+    },
+  ],
+} satisfies DefaultTheme.SidebarMulti
+
+const esSidebar = {
+  '/es/guide/': [
+    {
+      text: 'Primeros pasos',
+      items: [
+        { text: 'Instalación', link: '/es/guide/inicio' },
+        { text: 'Tu primer bot', link: '/es/guide/primer-bot' },
+        { text: 'Conceptos básicos', link: '/es/guide/conceptos' },
+        { text: 'Canales', link: '/es/guide/canales' },
+      ],
+    },
+    {
+      text: 'Características',
+      items: [
+        { text: 'Mensajes y media', link: '/es/guide/mensajes' },
+        { text: 'Flujos conversacionales', link: '/es/guide/flujos' },
+        { text: 'Triggers especiales', link: '/es/guide/triggers' },
+        { text: 'Formularios (WhatsApp Flows)', link: '/es/guide/formularios' },
+        { text: 'Datos por usuario', link: '/es/guide/datos-usuario' },
+        { text: 'Internacionalización (i18n)', link: '/es/guide/i18n' },
+        { text: 'Handoff y listas de acceso', link: '/es/guide/handoff' },
+        { text: 'Hooks (middleware)', link: '/es/guide/hooks' },
+        { text: 'Plugins', link: '/es/guide/plugins' },
+        { text: 'Plugin de IA', link: '/es/guide/ai' },
+        { text: 'Herramientas de IA', link: '/es/guide/ai-herramientas' },
+        { text: 'Memoria y RAG', link: '/es/guide/ai-memoria-rag' },
+        { text: 'Respuestas en streaming', link: '/es/guide/streaming' },
+        { text: 'Voz (STT/TTS)', link: '/es/guide/voz' },
+        { text: 'Integraciones', link: '/es/guide/integraciones' },
+        { text: 'Inyección de dependencias', link: '/es/guide/di' },
+        { text: 'Scheduler', link: '/es/guide/scheduler' },
+        { text: 'Rate limiting (anti-ban)', link: '/es/guide/rate-limiting' },
+        { text: 'Store persistente', link: '/es/guide/store' },
+        { text: 'Control plane', link: '/es/guide/control-plane' },
+        { text: 'Servidor de webhooks', link: '/es/guide/servidor' },
+        { text: 'Ventana de 24 h de WhatsApp', link: '/es/guide/ventana-24h' },
+        { text: 'Operación', link: '/es/guide/operations' },
+        { text: 'Trazas (OpenTelemetry)', link: '/es/guide/trazas' },
+        { text: 'Procesamiento durable', link: '/es/guide/durabilidad' },
+      ],
+    },
+    {
+      text: 'Desarrollo y tests',
+      items: [
+        { text: 'Simulador en la terminal', link: '/es/guide/simulador' },
+        { text: 'Testing', link: '/es/guide/testing' },
+        { text: 'Inspeccionar y validar flujos', link: '/es/guide/inspeccion-flujos' },
+        { text: 'Transcripciones doradas', link: '/es/guide/transcripciones' },
+        { text: 'Plugin de ESLint', link: '/es/guide/eslint' },
+      ],
+    },
+    {
+      text: 'Avanzado',
+      items: [
+        { text: 'Sub-APIs', link: '/es/guide/sub-apis' },
+        { text: 'Despliegue', link: '/es/guide/deploy' },
+        { text: 'Varias réplicas', link: '/es/guide/replicas' },
+        { text: 'Arquitectura', link: '/es/guide/arquitectura' },
+        { text: 'Redis Cluster', link: '/es/guide/redis-cluster' },
+        { text: 'Seguridad', link: '/es/guide/seguridad' },
+        { text: 'Preguntas frecuentes', link: '/es/guide/faq' },
+      ],
+    },
+  ],
+  '/es/ejemplos/': [
+    {
+      text: 'Recetas',
+      items: [
+        { text: 'Enviar mensajes', link: '/es/ejemplos/mensajes' },
+        { text: 'Enviar media', link: '/es/ejemplos/media' },
+        { text: 'Flujo de registro', link: '/es/ejemplos/flujo-registro' },
+        { text: 'Flujo de compra', link: '/es/ejemplos/flujo-compra' },
+        { text: 'Soporte con timeout', link: '/es/ejemplos/flujo-soporte' },
+        { text: 'Plugin: rate limiter', link: '/es/ejemplos/rate-limiter' },
+      ],
+    },
+  ],
+} satisfies DefaultTheme.SidebarMulti
+
+/** Every page of the site as a VitePress `relativePath` (`guide/flows.md`). */
+function listPages(dir: string, prefix = ''): string[] {
+  return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    if (entry.isDirectory()) {
+      if (prefix === '' && ['api', 'dist', 'public', 'node_modules'].includes(entry.name)) return []
+      if (entry.name.startsWith('.')) return []
+      return listPages(`${dir}/${entry.name}`, `${prefix}${entry.name}/`)
+    }
+    return entry.name.endsWith('.md') ? [`${prefix}${entry.name}`] : []
+  })
+}
+
+function sidebarPages(sidebar: DefaultTheme.SidebarMulti): string[] {
+  const walk = (items: DefaultTheme.SidebarItem[]): string[] =>
+    items.flatMap((item) => [...(item.link ? [`${item.link.slice(1)}.md`] : []), ...walk(item.items ?? [])])
+  return Object.values(sidebar).flatMap((group) => walk(Array.isArray(group) ? group : group.items))
+}
+
+/**
+ * The Spanish pages use Spanish slugs, so the default language switcher
+ * (which keeps the path and swaps the locale prefix) would link
+ * `/guide/flows` to a missing `/es/guide/flows`. Both sidebars list the
+ * same pages in the same order, which pairs each page with its translation.
+ * Pages without one switch to the other locale's home page. Only pages whose
+ * naive counterpart is wrong get an entry.
+ */
+function localeAlternates(): Record<string, Record<string, string>> {
+  const en = sidebarPages(enSidebar)
+  const es = sidebarPages(esSidebar)
+  if (en.length !== es.length) {
+    throw new Error(`docs sidebars are out of sync: ${en.length} English vs ${es.length} Spanish pages`)
+  }
+  const pairs = new Map<string, string>()
+  en.forEach((page, i) => {
+    pairs.set(page, es[i]!)
+    pairs.set(es[i]!, page)
+  })
+  const pages = new Set(listPages(fileURLToPath(new URL('..', import.meta.url))))
+  const toLink = (page: string) => `/${page.replace(/(^|\/)index\.md$/, '$1').replace(/\.md$/, '')}`
+  const out: Record<string, Record<string, string>> = {}
+  for (const page of pages) {
+    const isEs = page.startsWith('es/')
+    const target = isEs ? 'root' : 'es'
+    const naive = isEs ? page.slice('es/'.length) : `es/${page}`
+    const counterpart = pairs.get(page) ?? (pages.has(naive) ? naive : undefined)
+    if (counterpart === naive) continue
+    out[page] = { [target]: counterpart ? toLink(counterpart) : isEs ? '/' : '/es/' }
+  }
+  return out
+}
 
 // https://vitepress.dev/reference/site-config
 export default defineConfig({
@@ -34,7 +251,22 @@ export default defineConfig({
   base,
 
   vite: {
+    // mermaid is only imported on the client, on demand; pre-bundle it for `docs:dev`.
+    optimizeDeps: { include: ['mermaid'] },
+    build: {
+      // The largest chunks are mermaid's (~700 kB), loaded lazily on pages with
+      // a diagram; they never block the first paint. Kilobytes.
+      chunkSizeWarningLimit: 1024,
+    },
     plugins: [
+      {
+        name: 'bot-wa:locale-links',
+        enforce: 'pre',
+        resolveId(source, importer) {
+          if (!importer || !/[\\/]vitepress[\\/]dist[\\/]client[\\/]theme-default[\\/]/.test(importer)) return null
+          return /(^|\/)composables\/langs(\.js)?$/.test(source) ? localeLinksModule : null
+        },
+      },
       {
         name: 'bot-wa:resolve-vue-through-vitepress',
         enforce: 'pre',
@@ -47,11 +279,23 @@ export default defineConfig({
   },
 
   markdown: {
-    // Links into the TypeDoc reference (/api/...) leave the VitePress app. Give
-    // them target="_self" so the SPA router does a full load instead of
-    // rendering its 404 page. VitePress skips links that already carry a
-    // target, so the base prefix is added here.
     config(md) {
+      // ```mermaid fences become <Mermaid>, rendered on the client by
+      // ./theme/Mermaid.vue. The source is URI-encoded so that Vue does not
+      // treat it as template syntax.
+      const fence = md.renderer.rules.fence!
+      md.renderer.rules.fence = (tokens, idx, options, env, self) => {
+        const token = tokens[idx]
+        if (token.info.trim().split(/\s+/)[0] === 'mermaid') {
+          return `<Mermaid code="${encodeURIComponent(token.content)}" />\n`
+        }
+        return fence(tokens, idx, options, env, self)
+      }
+
+      // Links into the TypeDoc reference (/api/...) leave the VitePress app. Give
+      // them target="_self" so the SPA router does a full load instead of
+      // rendering its 404 page. VitePress skips links that already carry a
+      // target, so the base prefix is added here.
       const next = md.renderer.rules.link_open
       md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
         const token = tokens[idx]
@@ -77,84 +321,7 @@ export default defineConfig({
           // TypeDoc output is plain HTML, not a VitePress page: bypass the SPA router.
           { text: 'API', link: '/api/', target: '_self' },
         ],
-        sidebar: {
-          '/guide/': [
-            {
-              text: 'Getting started',
-              items: [
-                { text: 'Installation', link: '/guide/getting-started' },
-                { text: 'Your first bot', link: '/guide/first-bot' },
-                { text: 'Core concepts', link: '/guide/concepts' },
-                { text: 'Channels', link: '/guide/channels' },
-              ],
-            },
-            {
-              text: 'Features',
-              items: [
-                { text: 'Messages & media', link: '/guide/messages' },
-                { text: 'Conversation flows', link: '/guide/flows' },
-                { text: 'Special triggers', link: '/guide/triggers' },
-                { text: 'Forms (WhatsApp Flows)', link: '/guide/forms' },
-                { text: 'Persistent user data', link: '/guide/user-data' },
-                { text: 'Internationalization (i18n)', link: '/guide/i18n' },
-                { text: 'Handoff & access lists', link: '/guide/handoff' },
-                { text: 'Hooks (middleware)', link: '/guide/hooks' },
-                { text: 'Plugins', link: '/guide/plugins' },
-                { text: 'AI plugin', link: '/guide/ai' },
-                { text: 'AI tool calling', link: '/guide/ai-tools' },
-                { text: 'AI memory & RAG', link: '/guide/ai-memory-rag' },
-                { text: 'Streaming replies', link: '/guide/streaming' },
-                { text: 'Voice (STT/TTS)', link: '/guide/voice' },
-                { text: 'Integrations', link: '/guide/integrations' },
-                { text: 'Dependency injection', link: '/guide/di' },
-                { text: 'Scheduler', link: '/guide/scheduler' },
-                { text: 'Rate limiting (anti-ban)', link: '/guide/rate-limiting' },
-                { text: 'Persistent store', link: '/guide/store' },
-                { text: 'Control plane', link: '/guide/control-plane' },
-                { text: 'Webhook server', link: '/guide/server' },
-                { text: 'WhatsApp 24h window', link: '/guide/session-window' },
-                { text: 'Operations', link: '/guide/operations' },
-                { text: 'Tracing (OpenTelemetry)', link: '/guide/tracing' },
-                { text: 'Durable processing', link: '/guide/durability' },
-              ],
-            },
-            {
-              text: 'Develop & test',
-              items: [
-                { text: 'Terminal simulator', link: '/guide/dev-simulator' },
-                { text: 'Testing', link: '/guide/testing' },
-                { text: 'Inspect & lint flows', link: '/guide/flow-tools' },
-                { text: 'Golden transcripts', link: '/guide/golden-transcripts' },
-                { text: 'ESLint plugin', link: '/guide/eslint' },
-              ],
-            },
-            {
-              text: 'Advanced',
-              items: [
-                { text: 'Sub-APIs', link: '/guide/sub-apis' },
-                { text: 'Deployment', link: '/guide/deploy' },
-                { text: 'Running N replicas', link: '/guide/replicas' },
-                { text: 'Architecture', link: '/guide/architecture' },
-                { text: 'Redis Cluster', link: '/guide/redis-cluster' },
-                { text: 'Security', link: '/guide/security' },
-                { text: 'FAQ', link: '/guide/faq' },
-              ],
-            },
-          ],
-          '/examples/': [
-            {
-              text: 'Recipes',
-              items: [
-                { text: 'Send messages', link: '/examples/messages' },
-                { text: 'Send media', link: '/examples/media' },
-                { text: 'Registration flow', link: '/examples/registration-flow' },
-                { text: 'Shopping flow', link: '/examples/shopping-flow' },
-                { text: 'Support with timeout', link: '/examples/support-flow' },
-                { text: 'Plugin: rate limiter', link: '/examples/rate-limiter' },
-              ],
-            },
-          ],
-        },
+        sidebar: enSidebar,
         editLink: {
           pattern: 'https://github.com/andresayac/bot-wa-baileys/edit/main/docs/:path',
           text: 'Edit this page on GitHub',
@@ -174,84 +341,7 @@ export default defineConfig({
           { text: 'Ejemplos', link: '/es/ejemplos/mensajes' },
           { text: 'API', link: '/api/', target: '_self' },
         ],
-        sidebar: {
-          '/es/guide/': [
-            {
-              text: 'Primeros pasos',
-              items: [
-                { text: 'Instalación', link: '/es/guide/inicio' },
-                { text: 'Tu primer bot', link: '/es/guide/primer-bot' },
-                { text: 'Conceptos básicos', link: '/es/guide/conceptos' },
-                { text: 'Canales', link: '/es/guide/canales' },
-              ],
-            },
-            {
-              text: 'Características',
-              items: [
-                { text: 'Mensajes y media', link: '/es/guide/mensajes' },
-                { text: 'Flujos conversacionales', link: '/es/guide/flujos' },
-                { text: 'Triggers especiales', link: '/es/guide/triggers' },
-                { text: 'Formularios (WhatsApp Flows)', link: '/es/guide/formularios' },
-                { text: 'Datos por usuario', link: '/es/guide/datos-usuario' },
-                { text: 'Internacionalización (i18n)', link: '/es/guide/i18n' },
-                { text: 'Handoff y listas de acceso', link: '/es/guide/handoff' },
-                { text: 'Hooks (middleware)', link: '/es/guide/hooks' },
-                { text: 'Plugins', link: '/es/guide/plugins' },
-                { text: 'Plugin de IA', link: '/es/guide/ai' },
-                { text: 'Herramientas de IA', link: '/es/guide/ai-herramientas' },
-                { text: 'Memoria y RAG', link: '/es/guide/ai-memoria-rag' },
-                { text: 'Respuestas en streaming', link: '/es/guide/streaming' },
-                { text: 'Voz (STT/TTS)', link: '/es/guide/voz' },
-                { text: 'Integraciones', link: '/es/guide/integraciones' },
-                { text: 'Inyección de dependencias', link: '/es/guide/di' },
-                { text: 'Scheduler', link: '/es/guide/scheduler' },
-                { text: 'Rate limiting (anti-ban)', link: '/es/guide/rate-limiting' },
-                { text: 'Store persistente', link: '/es/guide/store' },
-                { text: 'Control plane', link: '/es/guide/control-plane' },
-                { text: 'Servidor de webhooks', link: '/es/guide/servidor' },
-                { text: 'Ventana de 24 h de WhatsApp', link: '/es/guide/ventana-24h' },
-                { text: 'Operación', link: '/es/guide/operations' },
-                { text: 'Trazas (OpenTelemetry)', link: '/es/guide/trazas' },
-                { text: 'Procesamiento durable', link: '/es/guide/durabilidad' },
-              ],
-            },
-            {
-              text: 'Desarrollo y tests',
-              items: [
-                { text: 'Simulador en la terminal', link: '/es/guide/simulador' },
-                { text: 'Testing', link: '/es/guide/testing' },
-                { text: 'Inspeccionar y validar flujos', link: '/es/guide/inspeccion-flujos' },
-                { text: 'Transcripciones doradas', link: '/es/guide/transcripciones' },
-                { text: 'Plugin de ESLint', link: '/es/guide/eslint' },
-              ],
-            },
-            {
-              text: 'Avanzado',
-              items: [
-                { text: 'Sub-APIs', link: '/es/guide/sub-apis' },
-                { text: 'Despliegue', link: '/es/guide/deploy' },
-                { text: 'Varias réplicas', link: '/es/guide/replicas' },
-                { text: 'Arquitectura', link: '/es/guide/arquitectura' },
-                { text: 'Redis Cluster', link: '/es/guide/redis-cluster' },
-                { text: 'Seguridad', link: '/es/guide/seguridad' },
-                { text: 'Preguntas frecuentes', link: '/es/guide/faq' },
-              ],
-            },
-          ],
-          '/es/ejemplos/': [
-            {
-              text: 'Recetas',
-              items: [
-                { text: 'Enviar mensajes', link: '/es/ejemplos/mensajes' },
-                { text: 'Enviar media', link: '/es/ejemplos/media' },
-                { text: 'Flujo de registro', link: '/es/ejemplos/flujo-registro' },
-                { text: 'Flujo de compra', link: '/es/ejemplos/flujo-compra' },
-                { text: 'Soporte con timeout', link: '/es/ejemplos/flujo-soporte' },
-                { text: 'Plugin: rate limiter', link: '/es/ejemplos/rate-limiter' },
-              ],
-            },
-          ],
-        },
+        sidebar: esSidebar,
         docFooter: {
           prev: 'Anterior',
           next: 'Siguiente',
@@ -291,6 +381,8 @@ export default defineConfig({
   },
 
   themeConfig: {
+    // Read by ./theme/langs.ts (the language switcher).
+    localeAlternates: localeAlternates(),
     socialLinks: [
       { icon: 'github', link: 'https://github.com/andresayac/bot-wa-baileys' },
     ],

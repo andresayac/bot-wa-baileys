@@ -117,7 +117,7 @@ conversation. The mapping lives in the bot store through the cursor API
 (`chatwoot:chat:<chatId>`, `chatwoot:conv:<id>`), so it survives restarts
 with a persistent store. Chat ids are only used as opaque keys.
 
-### Options
+### Chatwoot options
 
 | Option | Default | Description |
 | --- | --- | --- |
@@ -163,7 +163,7 @@ on shutdown and in tests) and `client` (`ChatwootClient`).
 - With `syncMode: 'all'` every conversation is copied to Chatwoot. Use
   `syncMode: 'handoff'` if only escalated chats should leave the bot.
 
-### Limitations
+### Chatwoot limitations
 
 - Inbound media is mirrored as text (`[image] caption`), not uploaded.
 - One chat, one conversation. If Chatwoot answers 404 for the mapped
@@ -218,7 +218,7 @@ await tickets.close('1', { reason: 'solved' })
 Statuses: `open` (queued), `assigned`, `pending` (waiting on the customer,
 out of the queue) and `closed`. Ids are sequential strings (`'1'`, `'2'`…).
 
-### Options
+### Ticket options
 
 | Option | Default | Description |
 | --- | --- | --- |
@@ -246,7 +246,7 @@ on the first call and mutations are serialized: a failed store write
 rejects the call and leaves the desk unchanged. `TicketDesk` can also be
 used without a bot: `new TicketDesk({ storage: memoryTicketStorage() })`.
 
-### Limitations
+### Ticket limitations
 
 - There is no agent UI or agent identity: `assignee` is a free string.
   Build the panel on `bot.injectTools.tickets` and protect it yourself.
@@ -335,7 +335,7 @@ mention the bot or are not commands never reach moderation. Use
 logs a warning at install when it sees a restrictive mode.
 :::
 
-### Limitations
+### Moderation limitations
 
 - State (spam windows, warnings, mutes) lives in memory and is lost on
   restart.
@@ -402,7 +402,7 @@ agent's text, so those messages never reach your `onMessage` or the
 `aiPlugin` catch-all. Keep `'off'` or `'unrouted'` if an LLM should answer
 what Dialogflow does not understand.
 
-### Options
+### Dialogflow options
 
 | Option | Default | Description |
 | --- | --- | --- |
@@ -434,7 +434,7 @@ what Dialogflow does not understand.
   Google. The message **text** is.
 - Keep the service-account JSON in a secret, never in the repo.
 
-### Limitations
+### Dialogflow limitations
 
 - Only text is sent (no audio, no events). CX form filling lives in pages:
   `allRequiredParamsPresent` is always `true` there.

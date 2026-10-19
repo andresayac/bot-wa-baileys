@@ -175,6 +175,6 @@ Quita `"private": true` de su `package.json`, comprueba que tiene `publishConfig
 
 ## Documentación
 
-- Sitio VitePress en `docs/` (`pnpm docs:dev` para previsualizar en `http://localhost:5173/`). No se publica en ningún hosting: la documentación se lee en el propio repo.
+- Sitio VitePress en `docs/` (`pnpm docs:dev` para previsualizar en `http://localhost:5173/`). No se publica en ningún hosting: la documentación se lee en el propio repo. Antes de dar por buenos cambios en `docs/`, ejecuta `pnpm run docs:site && pnpm docs:check` (enlaces y anclas rotos, diagramas Mermaid sin renderizar, títulos repetidos).
 - Referencia de API generada con TypeDoc (`pnpm docs:api`) — nota: TypeDoc corre contra TypeScript 5.9 en la raíz (TypeDoc 0.28 aún no soporta TS 7, que es el compilador de los paquetes).
 - Diseños y decisiones históricas: `docs/superpowers/specs/` y `docs/superpowers/plans/`.
