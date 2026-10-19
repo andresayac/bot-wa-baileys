@@ -203,6 +203,7 @@ Con telemetría activa, cada checkpoint que escribe una conversación (flujos pe
 Notas:
 
 - Solo se transportan ids con forma W3C (32/16 hex en minúsculas, lo que produce OpenTelemetry). Un tracer con otros ids no guarda nada y el turno simplemente no tiene enlace. Un valor guardado mal formado se ignora.
+- El contexto guardado es siempre el del **último** turno que escribió o quedó en espera: un stub de hand-over se reescribe cuando un turno posterior queda en espera (solo con telemetría; si no, solo se refresca antes de caducar), y el marcador de espera de un paso reenviado también lo actualiza. Un turno cuyo contexto no se puede transportar conserva el que ya estaba guardado en vez de borrarlo.
 - Una función `handover.fallback` propia recibe el contexto en `info.trace`, para enlazar sus propios spans.
 - `formatTraceparent(spanContext)` y `parseTraceparent(traceparent, tracestate?)` se exportan desde `@bot-wa/core` para tu propia propagación.
 

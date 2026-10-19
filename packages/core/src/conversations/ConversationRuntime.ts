@@ -416,7 +416,7 @@ export class ConversationRuntime {
           // where the next step's send keys continue (a re-run step re-derives the same keys).
           ...(cause ? { inboundId: cause.id, cause: { id: cause.id, seq: cause.seq } } : {}),
           ...(forward ? { handover: this.ephemeralMeta(entry, flow.id, shape!, now) } : {}),
-          ...this.traceField(entry),
+          ...this.traceField(entry, entry?.cp?.trace),
         }
         // Coordination: a replica known to have lost the chat does not overwrite the new owner's checkpoint.
         this.cfg.fence?.(key)
@@ -1172,13 +1172,17 @@ export class ConversationRuntime {
 
   /**
    * Tracing: `{ trace }` — the W3C context of `entry`'s current (or last parked) turn — to
-   * spread into a checkpoint or stub it writes; `{}` without tracing or a carriable context.
+   * spread into a checkpoint or stub it writes. When that turn has no carriable context
+   * (a tracer without W3C ids, a throwing `carry`), `previous` (the trace the stored
+   * checkpoint or stub already holds) is kept rather than dropped; `{}` if neither.
    */
-  private traceField(entry: ActiveConversation | undefined): { trace?: CheckpointTrace } {
+  private traceField(entry: ActiveConversation | undefined, previous?: CheckpointTrace): { trace?: CheckpointTrace } {
     const hooks = this.cfg.tracing
-    if (!hooks?.carry || !entry?.trace) return {}
     let trace: CheckpointTrace | undefined
-    try { trace = hooks.carry(entry.trace) } catch { /* telemetry never breaks a checkpoint */ }
+    if (hooks?.carry && entry?.trace) {
+      try { trace = hooks.carry(entry.trace) } catch { /* telemetry never breaks a checkpoint */ }
+    }
+    trace ??= previous
     return trace ? { trace } : {}
   }
 
@@ -1195,7 +1199,12 @@ export class ConversationRuntime {
     if (!entry.wantsStub || !h || !store || !life) return undefined
     const now = Date.now()
     const lifeMs = Math.max(h.ttlMs, waitTimeoutMs ?? 0)
-    if (entry.stub && entry.stub.handover!.expiresAt - now > lifeMs) return undefined
+    // Tracing: the stub carries the context of the LAST turn that parked, so a still-fresh
+    // stub is rewritten when that context changed (never without tracing).
+    const carried = this.traceField(entry, entry.stub?.trace)
+    const sameTrace = entry.stub?.trace?.traceparent === carried.trace?.traceparent
+      && entry.stub?.trace?.tracestate === carried.trace?.tracestate
+    if (entry.stub && entry.stub.handover!.expiresAt - now > lifeMs && sameTrace) return undefined
     const stub: FlowCheckpoint = {
       flowId: life.info.name,
       step: -1,
@@ -1208,7 +1217,7 @@ export class ConversationRuntime {
         startedAt: life.startedAt,
         ...(entry.startState ? { startState: entry.startState } : {}),
       },
-      ...this.traceField(entry),
+      ...carried,
     }
     entry.stub = stub
     entry.stubbed = true

@@ -192,4 +192,68 @@ describe('telemetry: trace context across a multi-replica hand-over', () => {
     await vi.waitFor(() => expect(seen).toHaveLength(1))
     expect(seen[0]!.trace).toEqual(stored)
   })
+
+  it('a hand-over stub carries the trace context of the LAST parking turn, not the first', async () => {
+    const hub = new MemoryCoordinationHub()
+    const store = new MemoryStore({})
+    const recA = createRecordingTracer({ w3c: true })
+    const a = replica(hub, store, 'a', recA, { fallback: 'restart' })
+    a.bot.conversation('quiz', async (c) => { await c.ask('q1?'); await c.ask('q2?') }, { trigger: 'quiz' })
+    await a.bot.start()
+    a.provider.incoming('quiz', { from: 'c1', id: 'm1' })
+    await vi.waitFor(async () => expect((await onlyCheckpoint(store))?.handover?.kind).toBe('stub'))
+    const firstPark = turns(recA).at(-1)!
+    const firstExpiry = (await onlyCheckpoint(store))!.handover!.expiresAt
+    a.provider.incoming('a1', { from: 'c1', id: 'm2' })
+    await vi.waitFor(() => expect(a.provider.outbox).toHaveLength(2))
+    const lastPark = turns(recA).at(-1)!
+    expect(lastPark.spanId).not.toBe(firstPark.spanId)
+    await vi.waitFor(async () => expect((await onlyCheckpoint(store))?.trace?.traceparent).toBe(traceparentOf(lastPark)))
+    expect((await onlyCheckpoint(store))!.handover!.expiresAt).toBeGreaterThanOrEqual(firstExpiry)
+  })
+
+  it('a turn whose context cannot be carried keeps the trace already stored (stub, step checkpoint, parked marker)', async () => {
+    // Stub: the second park has no W3C context → the stub keeps the first park's trace.
+    {
+      const hub = new MemoryCoordinationHub()
+      const store = new MemoryStore({})
+      const opts = { w3c: true }
+      const rec = createRecordingTracer(opts)
+      const a = replica(hub, store, 'a', rec, { fallback: 'restart' })
+      a.bot.conversation('quiz', async (c) => { await c.ask('q1?'); await c.ask('q2?') }, { trigger: 'quiz' })
+      await a.bot.start()
+      a.provider.incoming('quiz', { from: 'c1', id: 'm1' })
+      await vi.waitFor(async () => expect((await onlyCheckpoint(store))?.trace).toBeDefined())
+      const stored = (await onlyCheckpoint(store))!.trace
+      opts.w3c = false
+      a.provider.incoming('a1', { from: 'c1', id: 'm2' })
+      await vi.waitFor(() => expect(a.provider.outbox).toHaveLength(2))
+      await tick()
+      expect((await onlyCheckpoint(store))?.trace).toEqual(stored)
+    }
+    // Forwarded flow: the next step's checkpoint and its parked marker keep the stored trace.
+    {
+      const hub = new MemoryCoordinationHub()
+      const store = new MemoryStore({})
+      const opts = { w3c: true }
+      const rec = createRecordingTracer(opts)
+      const a = replica(hub, store, 'a', rec, { flows: 'forward' })
+      a.bot.use(flow('signup').ask('name?', 'name').ask('email?', 'email').ask('phone?', 'phone').say('done'))
+      await a.bot.start()
+      a.provider.incoming('signup', { from: 'c1', id: 'm1' })
+      await vi.waitFor(() => expect(a.provider.outbox).toHaveLength(1))
+      a.provider.incoming('Ana', { from: 'c1', id: 'm2' })
+      await vi.waitFor(() => expect(a.provider.outbox).toHaveLength(2))
+      await vi.waitFor(async () => expect((await onlyCheckpoint(store))?.trace).toBeDefined())
+      const before = await onlyCheckpoint(store)
+      opts.w3c = false
+      a.provider.incoming('ana@x.co', { from: 'c1', id: 'm3' })
+      await vi.waitFor(() => expect(a.provider.outbox).toHaveLength(3))
+      await tick()
+      const after = (await onlyCheckpoint(store))!
+      expect(after.step).toBeGreaterThan(before!.step)
+      expect(after.parked).toBe(true)
+      expect(after.trace).toEqual(before!.trace)
+    }
+  })
 })

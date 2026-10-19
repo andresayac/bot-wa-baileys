@@ -203,6 +203,7 @@ With telemetry on, every checkpoint a conversation writes (persistent flows, eph
 Notes:
 
 - Only W3C-shaped ids are carried (32/16 lowercase hex, which OpenTelemetry produces). A tracer with other ids stores nothing and the turn simply has no link. A malformed stored value is ignored.
+- The stored context is always the **latest** turn that wrote or parked: a hand-over stub is rewritten when a later turn parks (only with telemetry on; otherwise it is refreshed only before it expires), and the parked marker of a forwarded step refreshes it too. A turn whose context cannot be carried keeps the one already stored instead of erasing it.
 - A custom `handover.fallback` function receives the context in `info.trace`, to link spans of its own.
 - `formatTraceparent(spanContext)` and `parseTraceparent(traceparent, tracestate?)` are exported from `@bot-wa/core` for your own propagation.
 
