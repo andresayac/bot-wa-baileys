@@ -46,8 +46,6 @@ export interface DurabilityMetrics {
   inboundDuplicates: number
   /** Journaled events processed again (restart recovery, background retry). */
   inboundReplayed: number
-  /** Replayed events skipped because their conversation step had already consumed them. */
-  inboundConsumed: number
   /** Inbound events dead-lettered after `inbox.maxAttempts`. */
   inboundDead: number
   /** Sends written to the outbox. */
@@ -99,8 +97,6 @@ export interface DurableEngineDeps {
    * persistence, dispatch). `false` = dropped unprocessed because the bot is stopping.
    */
   replay(event: InboundEvent): Promise<boolean>
-  /** The subject's persistent flow already consumed inbound record `id` (checkpoint `inboundId`). */
-  consumed(event: InboundEvent, id: string): Promise<boolean>
   /** The provider send. */
   transportSend(chatId: string, content: OutboundContent, options?: SendOptions): Promise<SendResult>
   /** `before('send')` hooks for a background-enqueued send (`false` = aborted). */
@@ -185,7 +181,7 @@ export class DurableEngine implements DurabilityControl {
   private readonly partitions = new KeyedQueue()
   private readonly chats = new KeyedQueue()
   private readonly counters: DurabilityMetrics = {
-    inboundJournaled: 0, inboundDuplicates: 0, inboundReplayed: 0, inboundConsumed: 0, inboundDead: 0,
+    inboundJournaled: 0, inboundDuplicates: 0, inboundReplayed: 0, inboundDead: 0,
     outboxJournaled: 0, outboxDeduped: 0, outboxRetried: 0, outboxDeferred: 0, outboxDead: 0,
     outboxAmbiguous: 0, outboxBypassed: 0, staleLeases: 0,
   }
@@ -196,6 +192,8 @@ export class DurableEngine implements DurabilityControl {
   private lastPurge = 0
   /** Records this process is working on (the sweeper never re-claims them). */
   private readonly inFlight = new Set<string>()
+  /** Background deliveries in progress, by key (a live send of the same key waits for it). */
+  private readonly deliveries = new Map<string, Promise<SendResult | undefined>>()
   /** Inbound records between claim and completion (stop() waits briefly for them). */
   private readonly processing = new Set<Promise<unknown>>()
 
@@ -240,7 +238,15 @@ export class DurableEngine implements DurabilityControl {
   /** `bot.start()`, before the provider starts: open the backend and reclaim what a previous run left in flight. */
   async recover(): Promise<void> {
     await this.backend.start?.()
-    this.recovered = await this.inbox.claim({ owner: this.instanceId, leaseMs: this.inboxLeaseMs, now: this.now(), limit: 10_000, reclaimOwn: true })
+    const now = this.now()
+    // Sends a previous incarnation of this instance left `sending` are ambiguous: settle them
+    // before anything is replayed, so a replayed handler finds them resolved.
+    const leftovers = await this.outbox.claimDue({ owner: this.instanceId, leaseMs: this.outboxLeaseMs, now, limit: 10_000, reclaimOwn: true })
+    for (const c of leftovers) {
+      if (c.ambiguous) await this.resolveAmbiguous(c)
+      else await this.settleSend(c.record, () => this.outbox.resolveAmbiguous(c.record.key, c.record.fencingToken, 'pending', now))
+    }
+    this.recovered = await this.inbox.claim({ owner: this.instanceId, leaseMs: this.inboxLeaseMs, now, limit: 10_000, reclaimOwn: true })
   }
 
   /**
@@ -347,7 +353,7 @@ export class DurableEngine implements DurabilityControl {
       return
     }
     this.counters.inboundReplayed++
-    this.process(record, () => this.deps.replay(event), true, event)
+    this.process(record, () => this.deps.replay(event), true)
       .catch((error) => this.deps.reportError(error))
   }
 
@@ -355,7 +361,7 @@ export class DurableEngine implements DurabilityControl {
    * Process a claimed record in its partition's order; settle → ack outside the queue.
    * Synchronously enqueues on the partition (callers rely on that for FIFO).
    */
-  private process(record: InboxRecord, handle: () => Promise<boolean>, replay: boolean, event?: InboundEvent): Promise<boolean> {
+  private process(record: InboxRecord, handle: () => Promise<boolean>, replay: boolean): Promise<boolean> {
     this.inFlight.add(record.id)
     const lease = { id: record.id, token: record.fencingToken }
     const heartbeat = setInterval(() => {
@@ -366,13 +372,9 @@ export class DurableEngine implements DurabilityControl {
     }, Math.max(5, Math.floor(this.inboxLeaseMs / 3)))
     heartbeat.unref?.()
 
-    type Step = { kind: 'ok'; ref: CauseRef } | { kind: 'stopped' } | { kind: 'skip' } | { kind: 'error'; error: unknown }
+    type Step = { kind: 'ok'; ref: CauseRef } | { kind: 'stopped' } | { kind: 'error'; error: unknown }
     const step = this.partitions.run(record.partitionKey, async (): Promise<Step> => {
       try {
-        if (replay && event && await this.deps.consumed(event, record.id)) {
-          this.counters.inboundConsumed++
-          return { kind: 'skip' }
-        }
         const { ref, result } = runWithCause(record.id, handle, { replay })
         return (await result) === false ? { kind: 'stopped' } : { kind: 'ok', ref }
       } catch (error) {
@@ -387,7 +389,6 @@ export class DurableEngine implements DurabilityControl {
           await this.complete(record, outcome === 'aborted' ? 'release' : 'ack')
           return true
         }
-        if (s.kind === 'skip') { await this.complete(record, 'ack'); return true }
         if (s.kind === 'stopped') { await this.complete(record, 'release'); return false }
         await this.complete(record, 'fail', s.error)
         throw s.error
@@ -479,7 +480,9 @@ export class DurableEngine implements DurabilityControl {
       this.deps.logger.warn({ key, chatId: payload.chatId, kind: payload.content.kind }, 'send bypasses the outbox (unencodable or above maxPayloadBytes)')
       return call()
     }
-    return this.chats.run(payload.chatId, async () => {
+    const running = this.deliveries.get(key)
+    if (running) return this.awaitDelivery(key, running)
+    const outcome = this.chats.run(payload.chatId, async (): Promise<SendResult | { wait: Promise<SendResult | undefined> }> => {
       const startedAt = this.now()
       const lease = { owner: this.instanceId, leaseMs: this.outboxLeaseMs, now: startedAt }
       let record: OutboxRecord | null
@@ -490,9 +493,18 @@ export class DurableEngine implements DurabilityControl {
         record = put.record
         if (put.status === 'created') this.counters.outboxJournaled++
         else {
+          // Being sent elsewhere: by our own sweeper (queued behind this send — wait for it outside
+          // the chat queue), or by another replica (poll its outcome within the inline window).
+          while (record.state === 'sending') {
+            const queued = this.deliveries.get(key)
+            if (queued) return { wait: queued }
+            if (this.now() - startedAt >= this.inlineMaxMs || (record.leaseUntil ?? 0) <= this.now()) break
+            await sleep(25)
+            record = (await this.outbox.get(key)) ?? record
+          }
           if (record.state === 'sent' && record.result) { this.counters.outboxDeduped++; return { ref: { ...record.result.ref } } }
           if (record.state === 'unknown' || record.state === 'dead') { this.counters.outboxDeduped++; return SKIPPED(record.chatId) }
-          record = this.inFlight.has(key) ? null : await this.outbox.begin(key, lease)
+          record = this.inFlight.has(key) ? null : await this.outbox.begin(key, { ...lease, now: this.now() })
           if (!record) throw new SendDeferredError(key)
         }
       } catch (error) {
@@ -507,6 +519,14 @@ export class DurableEngine implements DurabilityControl {
         this.inFlight.delete(key)
       }
     })
+    return outcome.then((o) => ('wait' in o ? this.awaitDelivery(key, o.wait) : o))
+  }
+
+  private async awaitDelivery(key: string, delivery: Promise<SendResult | undefined>): Promise<SendResult> {
+    const result = await delivery
+    if (!result) throw new SendDeferredError(key)
+    this.counters.outboxDeduped++
+    return { ref: { ...result.ref } }
   }
 
   /**
@@ -593,34 +613,44 @@ export class DurableEngine implements DurabilityControl {
     return { key, status: put.status === 'created' ? 'queued' : 'exists' }
   }
 
+  /** Settle an ambiguous claim per `onAmbiguous`: `unknown` (skip) or `pending` (resend, by whoever runs next). */
+  private async resolveAmbiguous(c: ClaimedSend): Promise<void> {
+    const record = c.record
+    this.counters.outboxAmbiguous++
+    this.deps.emit('durability:ambiguous', { key: record.key, chatId: record.chatId })
+    const to = this.onAmbiguous === 'skip' ? 'unknown' : 'pending'
+    await this.settleSend(record, () => this.outbox.resolveAmbiguous(record.key, record.fencingToken, to, this.now()))
+  }
+
   /** Deliver one send claimed by the sweeper. */
   private async deliverClaimed(c: ClaimedSend): Promise<void> {
     const record = c.record
     if (c.ambiguous) {
-      this.counters.outboxAmbiguous++
-      this.deps.emit('durability:ambiguous', { key: record.key, chatId: record.chatId })
-      if (this.onAmbiguous === 'skip') {
-        await this.settleSend(record, () => this.outbox.resolveAmbiguous(record.key, record.fencingToken, 'unknown', this.now()))
-        return
-      }
+      // Resolved first (a `'resend'` record becomes `pending` and goes out on the next pass).
+      await this.resolveAmbiguous(c)
+      return
     }
     const payload: { chatId: string; content: OutboundContent; options?: SendOptions } = {
       chatId: record.chatId,
       content: decodeJson<OutboundContent>(record.content),
       ...(record.options !== undefined ? { options: decodeJson<SendOptions>(record.options) } : {}),
     }
-    await this.chats.run(record.chatId, async () => {
+    const delivery = this.chats.run(record.chatId, async (): Promise<SendResult | undefined> => {
       this.inFlight.add(record.key)
       try {
         if (record.attempts > 1) this.counters.outboxRetried++
         const result = await this.attempt(record, () => this.deps.transportSend(payload.chatId, payload.content, payload.options), this.now(), false)
         await this.deps.afterSend(payload, result)
+        return result
       } catch (error) {
         this.deps.logger.debug({ key: record.key, err: error instanceof Error ? error.message : String(error) }, 'background send attempt failed')
+        return undefined
       } finally {
         this.inFlight.delete(record.key)
       }
     })
+    this.deliveries.set(record.key, delivery)
+    try { await delivery } finally { this.deliveries.delete(record.key) }
   }
 
   /* ------------------------------------------------------------------------

@@ -257,7 +257,7 @@ export class ConversationRuntime {
     }
     return async (c, ctx) => {
       const key = this.keyFor(ctx)
-      const save = async (step: number, consumed: boolean) => {
+      const save = async (step: number) => {
         // A clear of the checkpoint this conversation replaced may still be in flight:
         // let it land first, or it would wipe this conversation's fresh checkpoint.
         await this.pendingClears.get(key)
@@ -267,16 +267,17 @@ export class ConversationRuntime {
           step,
           state: { ...(c as ConversationControls).state },
           updatedAt: Date.now(),
-          // Durability: the inbound record this step consumed (a replay of it is skipped) and
+          // Durability: the inbound record whose effects this checkpoint captures (the message
+          // that entered the flow or that the step consumed — a replay of it is skipped) and
           // where the next step's send keys continue (a re-run step re-derives the same keys).
-          ...(cause ? { cause: { id: cause.id, seq: cause.seq }, ...(consumed ? { inboundId: cause.id } : {}) } : {}),
+          ...(cause ? { inboundId: cause.id, cause: { id: cause.id, seq: cause.seq } } : {}),
         })
       }
       try {
         // Durability: checkpoint the entry too, so a crash before the first step completes
         // can resume the flow when the answer that was in flight is replayed.
-        if (startAt === 0 && hasCause()) await save(0, false)
-        await runSteps(flow, ctx, c as ConversationControls, startAt, (stepIndex) => save(stepIndex + 1, true))
+        if (startAt === 0 && hasCause()) await save(0)
+        await runSteps(flow, ctx, c as ConversationControls, startAt, (stepIndex) => save(stepIndex + 1))
       } finally {
         // On a graceful shutdown (abortAll) we KEEP the checkpoint so a restart can resume it.
         // Every other exit (completion, error, timeout, user /reset) clears it.
@@ -314,9 +315,12 @@ export class ConversationRuntime {
     this.dormant.delete(key)
     const flow = this.compiled.get(cp.flowId)
     if (!flow) { await this.store?.clearCheckpoint(key).catch(() => {}); return false }
-    const replay = currentCause()?.replay === true
+    // Durability (a cause is active and the checkpoint recorded one): the pending step re-runs
+    // under the causation it had, so its prompt — already sent before the restart — is answered
+    // from the outbox instead of being repeated, and the waking message is its answer.
+    const cause = hasCause() ? cp.cause : undefined
     const resumed: ConversationFn = async (c, rctx) => {
-      if (replay && cp.cause) restoreCause(cp.cause)
+      if (cause) restoreCause(cause)
       Object.assign((c as ConversationControlsBase).state, cp.state)
       await this.wrapCompiled(flow, cp.step)(c, rctx)
     }
@@ -326,9 +330,9 @@ export class ConversationRuntime {
       this.cfg.onError?.(e, ctx)
       this.cfg.logger?.error?.('resume failed', e)
     })
-    // Durability replay: the message being replayed is the answer the pending step was
-    // waiting for when the process died — hand it to the resumed flow instead of only waking it.
-    if (replay) this.deliver(ctx)
+    // …unless the checkpoint already captured this very message (a replay after the step that
+    // consumed it): the flow then only re-runs its pending steps.
+    if (cause && cp.inboundId !== currentCause()?.id) this.deliver(ctx)
     return true
   }
 

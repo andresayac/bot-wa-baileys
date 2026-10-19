@@ -83,3 +83,6 @@ export type {
   ReplayMask,
   TranscriptDiff,
 } from './transcripts/replay.js'
+// Crash simulation for durability (BotConfig.durability) tests.
+export { crashable, CrashableProvider } from './crash.js'
+export type { CrashableBackend, JournalOp } from './crash.js'

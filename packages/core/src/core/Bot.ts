@@ -436,7 +436,7 @@ export class Bot extends EventEmitter {
     this.durable = createDurability(this.config.durability, {
       logger: this.logger.child({ module: 'durability' }),
       namespace: this.namespace,
-      store: this.store, runtime: this.runtime, hooks: this.hooks, messageLog: this.messageLog,
+      hooks: this.hooks, messageLog: this.messageLog,
       provider: this.provider, persistRaw: this.config.persistRaw === true,
       admits: (ids) => this.admitsSender(ids),
       handleInbound: (m) => this.handleInbound(m),

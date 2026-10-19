@@ -1042,9 +1042,10 @@ export interface FlowCheckpoint {
   state: Record<string, unknown>
   updatedAt: number
   /**
-   * Durability (`BotConfig.durability`): id of the inbound journal record whose message the
-   * checkpointed step consumed. A replay of that record after a crash is acknowledged without
-   * being dispatched again. Stores persist it opaquely with the rest of the checkpoint.
+   * Durability (`BotConfig.durability`): id of the inbound journal record whose effects this
+   * checkpoint captures (the message that entered the flow or that the step consumed). A replay
+   * of that record after a crash resumes the flow's pending steps without delivering the message
+   * to it again. Stores persist it opaquely with the rest of the checkpoint.
    */
   inboundId?: string
   /**

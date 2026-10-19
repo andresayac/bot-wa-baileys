@@ -4,9 +4,7 @@
  */
 
 import type { ChatId, InboundInteraction, InboundMessage, IProvider, UserId } from '../core/provider.js'
-import type { IStore } from '../store/IStore.js'
 import type { StoreNamespace } from '../store/NamespacedStore.js'
-import type { ConversationRuntime } from '../conversations/ConversationRuntime.js'
 import type { HookSystem } from '../hooks/HookSystem.js'
 import type { MessageLog } from '../core/ledger.js'
 import { DurableEngine } from './engine.js'
@@ -20,8 +18,6 @@ export type { DurabilityControl } from './engine.js'
 export interface DurabilityHost {
   logger: { debug(o: unknown, m?: string): void; warn(o: unknown, m?: string): void; error(o: unknown, m?: string): void }
   namespace: StoreNamespace
-  store: IStore
-  runtime: ConversationRuntime
   hooks: HookSystem
   messageLog: MessageLog
   provider: IProvider
@@ -50,12 +46,6 @@ export function createDurability(config: DurabilityConfig | undefined, host: Dur
         return host.handleInteraction(event.interaction)
       }
       return true
-    },
-    consumed: async (event, id) => {
-      const m = event.kind === 'message' ? event.message : event.kind === 'interaction' ? event.interaction : undefined
-      if (!m || typeof host.store.getCheckpoint !== 'function') return false
-      const cp = await host.store.getCheckpoint(host.runtime.keyFor({ from: m.from, sender: m.sender, isGroup: m.isGroup }))
-      return cp?.inboundId === id
     },
     transportSend: (chatId, content, options) => host.provider.send(chatId, content, options),
     beforeSend: (payload) => host.hooks.runBefore('send', payload as typeof payload & { abort(): void }),
