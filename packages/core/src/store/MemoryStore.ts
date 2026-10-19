@@ -20,6 +20,7 @@ import type {
   UserId,
 } from '../core/provider.js'
 import { MemoryUserDataTable } from './MemoryUserDataTable.js'
+import { parseTimerDuration } from '../utils/timers.js'
 
 /** Minimal logger surface — satisfied by pino and by a bare `console`. */
 export interface MemoryStoreLogger {
@@ -31,8 +32,8 @@ export interface MemoryStoreOptions {
   maxMessagesPerChat?: number
   /** Optional JSON file for persistence across restarts. */
   file?: string
-  /** Auto-save interval in ms. Set 0 to disable. Default 60_000. */
-  autoSaveInterval?: number
+  /** Auto-save interval: a duration (`'1m'`) or ms. Set 0 to disable. Default 60_000. */
+  autoSaveInterval?: string | number
   /** Optional logger for load/persist failures. Falls back to silence when omitted. */
   logger?: MemoryStoreLogger
 }
@@ -50,7 +51,12 @@ export class MemoryStore implements IStore {
   private persistQueue: Promise<void> = Promise.resolve()
   private persistSeq = 0
 
-  constructor(private opts: MemoryStoreOptions = {}) {}
+  /** `autoSaveInterval` in ms, parsed up front so a bad duration fails at construction. */
+  private readonly autoSaveMs: number
+
+  constructor(private opts: MemoryStoreOptions = {}) {
+    this.autoSaveMs = parseTimerDuration(opts.autoSaveInterval ?? 60_000, 'MemoryStore autoSaveInterval')
+  }
 
   /**
    * `true` when this store mirrors itself to a JSON `file`, so its data (including
@@ -74,7 +80,7 @@ export class MemoryStore implements IStore {
         this.opts.logger?.error?.({ err, file: this.opts.file }, 'MemoryStore failed to load file')
       }
     }
-    const interval = this.opts.autoSaveInterval ?? 60_000
+    const interval = this.autoSaveMs
     if (this.opts.file && interval > 0) {
       this.autoSaveTimer = setInterval(() => this.persist().catch(() => {}), interval)
     }

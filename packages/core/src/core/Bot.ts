@@ -76,8 +76,7 @@ import type { ConversationHandler } from '../conversations/handler.js'
 import { ChatIdleWatchers, type IdleHandler } from './idle.js'
 import { FlowBuilder, isCompiledFlow, type CompiledFlow } from '../flows/FlowBuilder.js'
 import { Scheduler } from '../scheduler/Scheduler.js'
-import { parseDuration } from '../utils/duration.js'
-import { randomId } from '../utils/timers.js'
+import { parseTimerDuration, randomId } from '../utils/timers.js'
 import { validateConfig } from '../utils/validateConfig.js'
 import { FlowRouteLog, isDurableStore, type FlowInventory } from '../flows/inventory.js'
 import { describeFlows, type DescribeOptions, type FlowGraph } from '../flows/describe.js'
@@ -150,6 +149,25 @@ export interface BotEvents {
 }
 
 export type BotEventArgs<K extends keyof BotEvents> = BotEvents[K] extends void ? [] : [BotEvents[K]]
+
+/** Options of {@link Bot.stop}. */
+export interface StopOptions {
+  /** Wait for in-flight sends to complete before stopping (default `false`). */
+  drain?: boolean
+  /** Max time to wait for the drain before forcing the stop: a duration (`'5s'`) or ms. Default `10000`. */
+  timeout?: string | number
+}
+
+/**
+ * Identifies one conversation: the chat, the participant and whether it is a group
+ * (group conversations are per participant by default). Every inbound
+ * {@link MessageContext} satisfies it, so `ctx` can be passed as-is.
+ */
+export interface ConversationTarget {
+  from: ChatId
+  sender: UserId
+  isGroup: boolean
+}
 
 export interface SubjectDataExport {
   namespace: Readonly<StoreNamespace>
@@ -316,7 +334,7 @@ export class Bot extends EventEmitter {
     const conv = this.config.conversation ?? {}
     this.runtime = new ConversationRuntime({
       controlsFactory: createControls,
-      defaultTimeoutMs: conv.timeout !== undefined ? parseDuration(conv.timeout) : undefined,
+      defaultTimeoutMs: conv.timeout !== undefined ? parseTimerDuration(conv.timeout, 'conversation.timeout') : undefined,
       timeoutMessage: conv.timeoutMessage,
       retriesMessage: conv.retriesMessage,
       errorMessage: conv.errorMessage,
@@ -492,13 +510,16 @@ export class Bot extends EventEmitter {
   /**
    * Stop the bot. By default aborts conversations and tears down immediately.
    * @param opts.drain - Wait for in-flight sends to complete before stopping (default false).
-   * @param opts.timeout - Max ms to wait for drain before forcing stop (default 10000).
+   * @param opts.timeout - Max time to wait for drain before forcing stop: a duration
+   *   (`'5s'`, same grammar as every other duration option) or ms (default 10000).
    */
-  stop(opts?: { drain?: boolean; timeout?: number }): Promise<void> {
+  stop(opts?: StopOptions): Promise<void> {
     return this.enqueueLifecycle(() => this.stopOnce(opts))
   }
 
-  private async stopOnce(opts?: { drain?: boolean; timeout?: number }): Promise<void> {
+  private async stopOnce(opts?: StopOptions): Promise<void> {
+    // Validate before tearing anything down, so a bad duration leaves the bot running.
+    const drainTimeout = parseTimerDuration(opts?.timeout ?? 10_000, 'stop() timeout')
     if (!this.isStarted) return
     this.acceptingInbound = false
     // Running broadcasts start no new send from here on; their in-flight sends are
@@ -506,7 +527,7 @@ export class Bot extends EventEmitter {
     this.lifecycleAbort.abort()
     this.scheduler.stop()
     if (opts?.drain && this.inflightSends.size > 0) {
-      const timeout = opts.timeout ?? 10_000
+      const timeout = drainTimeout
       let timer: ReturnType<typeof setTimeout> | undefined
       try {
         await Promise.race([
@@ -541,11 +562,13 @@ export class Bot extends EventEmitter {
   }
 
   /**
-   * Send normalized content to any chat. Runs the `before('send')`/`after('send')` hook
+   * Send normalized content to any chat (a plain string is sent as text, like
+   * {@link broadcast} and {@link sendTo}). Runs the `before('send')`/`after('send')` hook
    * pipeline; a `before('send')` hook may mutate `payload.content` or `abort()` to skip.
    */
-  async send(chatId: ChatId, content: OutboundContent, options?: SendOptions): Promise<SentMessage> {
-    const r = await this.dispatchSend(chatId, content, options)
+  async send(chatId: ChatId, content: string | OutboundContent, options?: SendOptions): Promise<SentMessage> {
+    const normalized: OutboundContent = typeof content === 'string' ? { kind: 'text', text: content } : content
+    const r = await this.dispatchSend(chatId, normalized, options)
     return { ref: r.ref, id: r.ref.id, chatId: r.ref.chatId, raw: r.raw, skipped: r.skipped }
   }
 
@@ -622,7 +645,7 @@ export class Bot extends EventEmitter {
     }
   }
 
-  /** Helper to send plain text to a chat. */
+  /** Send plain text to a chat. Same as `send(chatId, text)`. */
   async sendText(chatId: ChatId, text: string): Promise<SentMessage> {
     return this.send(chatId, { kind: 'text', text })
   }
@@ -796,11 +819,11 @@ export class Bot extends EventEmitter {
   /**
    * Send to a chat from outside the inbound pipeline — typically a human agent's
    * message during a handoff. Same path as {@link send} (`before`/`after('send')`
-   * hooks, outbound ledger) but also accepts a plain string as text. Works whether or
-   * not the chat is handed off and never resumes the bot by itself.
+   * hooks, outbound ledger); it is the same call as {@link send}, named for handoff
+   * code. Works whether or not the chat is handed off and never resumes the bot by itself.
    */
   sendTo(chatId: ChatId, content: string | OutboundContent, options?: SendOptions): Promise<SentMessage> {
-    return this.send(chatId, typeof content === 'string' ? { kind: 'text', text: content } : content, options)
+    return this.send(chatId, content, options)
   }
 
   /** JSON-serializable snapshot of {@link blacklist} + {@link whitelist} for host persistence. */
@@ -822,6 +845,10 @@ export class Bot extends EventEmitter {
    * DECLARATIVE API
    * ====================================================================== */
 
+  /**
+   * Route messages matching `trigger` (text, `RegExp`, function, type trigger such as
+   * `IMAGE`, `WELCOME`, or an array) to a handler or a flow. Returns an unsubscriber.
+   */
   when(trigger: Trigger, handler: MessageHandler | FlowBuilder | CompiledFlow): () => void {
     if (handler instanceof FlowBuilder) {
       const compiled = handler.compile()
@@ -891,6 +918,10 @@ export class Bot extends EventEmitter {
       .catch((error) => this.emitError({ error, ctx }))
   }
 
+  /**
+   * Register flows and/or plugins (an array is accepted). Chainable; to remove one later
+   * use the unsubscriber of {@link plug} or {@link unregisterFlow}.
+   */
   use(item: FlowBuilder | CompiledFlow | Plugin | Array<FlowBuilder | CompiledFlow | Plugin>): this {
     const items = Array.isArray(item) ? item : [item]
     for (const i of items) {
@@ -910,20 +941,31 @@ export class Bot extends EventEmitter {
     return this
   }
 
+  /** Same as `use(flow)`, typed for a single flow. */
   useFlow(flow: FlowBuilder | CompiledFlow): this { return this.use(flow) }
 
+  /** Register a `/name` command (wins over an active conversation). Returns an unsubscriber. */
   command(name: string, handler: CommandHandler): () => void {
     const unsub = this.dispatcher.command(name, (ctx, args) => handler(this.asMessage(ctx), args))
     this.disposables.add(unsub)
     return unsub
   }
 
+  /**
+   * Catch-all handler: receives the messages no command, conversation or matcher took.
+   * Not to be confused with `bot.on('message', …)`, the event that observes every
+   * inbound message. Returns an unsubscriber.
+   */
   onMessage(handler: MessageHandler): () => void {
     const unsub = this.dispatcher.catchAll((ctx) => handler(this.asMessage(ctx)))
     this.disposables.add(unsub)
     return unsub
   }
 
+  /**
+   * Handle every message of one {@link MessageType}. `onImage`, `onAudio`, … are
+   * shorthands for it. Returns an unsubscriber.
+   */
   onType(type: MessageType, handler: MessageHandler): () => void {
     const unsub = this.dispatcher.onType(type, (ctx) => handler(this.asMessage(ctx)))
     this.disposables.add(unsub)
@@ -999,7 +1041,11 @@ export class Bot extends EventEmitter {
   /** Snapshots of every live conversation (`key`, `state`, `waiting`, `queued`). */
   listConversations(): ConversationSnapshot[] { return this.flowRegistry.conversations() }
 
-  abortConversation(target: string | { from: string; sender: string; isGroup: boolean }): boolean {
+  /**
+   * Cancel the live conversation of `target` (a {@link ConversationTarget}, e.g. a `ctx`,
+   * or a raw runtime key from {@link listConversations}). Returns `false` when none is live.
+   */
+  abortConversation(target: string | ConversationTarget): boolean {
     if (typeof target !== 'string') return this.runtime.abort(this.runtime.keyFor(target))
     return this.runtime.abort(target)
   }
@@ -1034,7 +1080,7 @@ export class Bot extends EventEmitter {
    * groups): captured `c.state`, whether it waits for a reply. `undefined` when
    * none is active. Diagnostics only — e.g. `bot-wa dev`'s `:state` command.
    */
-  inspectConversation(target: { from: ChatId; sender: UserId; isGroup: boolean }): ConversationSnapshot | undefined {
+  inspectConversation(target: ConversationTarget): ConversationSnapshot | undefined {
     return this.runtime.inspect(this.runtime.keyFor(target))
   }
 
@@ -1054,18 +1100,22 @@ export class Bot extends EventEmitter {
    * HOOKS
    * ====================================================================== */
 
+  /** Register a `before` hook (higher `priority` runs first). Chainable. */
   before(event: HookEvent, handler: HookHandler, priority = 0): this {
     this.disposables.add(this.hooks.register(event, 'before', handler, priority))
     return this
   }
+  /** Register an `after` hook (higher `priority` runs first). Chainable. */
   after(event: HookEvent, handler: HookHandler, priority = 0): this {
     this.disposables.add(this.hooks.register(event, 'after', handler, priority))
     return this
   }
-  onError(event: HookEvent, handler: HookHandler): this {
-    this.disposables.add(this.hooks.register(event, 'error', handler, 0))
+  /** Register an `error`-phase hook. `priority` orders it like {@link before}/{@link after} (default 0). */
+  onError(event: HookEvent, handler: HookHandler, priority = 0): this {
+    this.disposables.add(this.hooks.register(event, 'error', handler, priority))
     return this
   }
+  /** Register a hook for any phase: the generic form of {@link before}/{@link after}/{@link onError}. */
   hook(event: HookEvent, phase: HookPhase, handler: HookHandler, priority = 0): this {
     this.disposables.add(this.hooks.register(event, phase, handler, priority))
     return this
@@ -1075,6 +1125,10 @@ export class Bot extends EventEmitter {
    * PLUGINS
    * ====================================================================== */
 
+  /**
+   * Install a plugin (optionally with `config`). Unlike {@link use}, returns an
+   * unsubscriber that removes everything the plugin registered.
+   */
   plug(plugin: Plugin, config?: Record<string, unknown>): () => void {
     const spec = typeof plugin === 'function' ? plugin(config) : plugin
     const disposables: Array<() => void> = []
@@ -1106,10 +1160,14 @@ export class Bot extends EventEmitter {
       disposables.push(this.hooks.register(event, 'after', handler, priority))
       return scopedBot
     }) as Bot['after']
-    scopedBot.onError = ((event: HookEvent, handler: HookHandler) => {
-      disposables.push(this.hooks.register(event, 'error', handler, 0))
+    scopedBot.onError = ((event: HookEvent, handler: HookHandler, priority = 0) => {
+      disposables.push(this.hooks.register(event, 'error', handler, priority))
       return scopedBot
     }) as Bot['onError']
+    scopedBot.hook = ((event: HookEvent, phase: HookPhase, handler: HookHandler, priority = 0) => {
+      disposables.push(this.hooks.register(event, phase, handler, priority))
+      return scopedBot
+    }) as Bot['hook']
 
     const ctx: PluginContext = {
       bot: scopedBot,
@@ -1195,8 +1253,11 @@ export class Bot extends EventEmitter {
    * SCHEDULER
    * ====================================================================== */
 
+  /** Run `fn` on a cron expression (e.g. `'0 9 * * *'`). */
   schedule(cron: string, fn: () => void | Promise<void>): ScheduledTask { return this.scheduler.cron(cron, fn) }
+  /** Run `fn` every `interval` (a duration such as `'10m'`, or ms). */
   every(interval: string | number, fn: () => void | Promise<void>): ScheduledTask { return this.scheduler.every(interval, fn) }
+  /** Run `fn` once after `duration` (a duration such as `'30s'`, or ms). */
   delay(duration: string | number, fn: () => void | Promise<void>): ScheduledTask { return this.scheduler.delay(duration, fn) }
 
   /* =========================================================================
@@ -1351,7 +1412,7 @@ export class Bot extends EventEmitter {
     return {
       registrations: this.runtime.listRegistrations(),
       routes: this.flowRoutes.list(),
-      defaultTimeoutMs: timeout !== undefined ? parseDuration(timeout) : undefined,
+      defaultTimeoutMs: timeout !== undefined ? parseTimerDuration(timeout, 'conversation.timeout') : undefined,
       durableStore: isDurableStore(this.store),
     }
   }

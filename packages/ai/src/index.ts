@@ -1,6 +1,7 @@
 import type { AIClient } from './AIClient.js'
 
 export { aiPlugin } from './plugin.js'
+export type { AIPluginConfig } from './plugin.js'
 export { AIClient, AITimeoutError } from './AIClient.js'
 export type { AIClientOptions, AIToolCallOptions } from './AIClient.js'
 export { ContextManager } from './ContextManager.js'
@@ -10,10 +11,18 @@ export { MockAIProvider } from './MockAIProvider.js'
 export type { MockOptions, MockTurn } from './MockAIProvider.js'
 export { resolveProvider } from './providers/resolve.js'
 export { AnthropicProvider } from './providers/anthropic.js'
+export type {
+  AnthropicLike, AnthropicRequestOptions, AnthropicMessage, AnthropicContentBlock, AnthropicUsage, AnthropicStreamEvent,
+} from './providers/anthropic.js'
 export { OpenAIProvider } from './providers/openai.js'
-export type { OpenAIProviderOptions } from './providers/openai.js'
+export type {
+  OpenAIProviderOptions, OpenAILike, OpenAIRequestOptions, OpenAIChatCompletion, OpenAIChoice, OpenAIStreamChunk,
+} from './providers/openai.js'
 export { OllamaProvider } from './providers/ollama.js'
 export { GeminiProvider } from './providers/gemini.js'
+export type {
+  GeminiLike, GeminiModelLike, GeminiRequestOptions, GeminiResponse, GeminiUsage, GeminiFunctionCall, GeminiPart,
+} from './providers/gemini.js'
 export { LazyProvider } from './providers/LazyProvider.js'
 export { PRESETS, isPreset } from './providers/presets.js'
 export type { Preset, PresetName } from './providers/presets.js'

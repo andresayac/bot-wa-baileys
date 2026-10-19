@@ -86,7 +86,9 @@ export type HookEvent =
   | 'presence'
   | 'reaction'
   | 'poll'
-  | string // allow plugins to declare custom events
+  // Custom plugin events are any other string; `string & {}` keeps editor autocomplete
+  // for the built-in names (a bare `| string` collapses the union to `string`).
+  | (string & {})
 
 export type HookPhase = 'before' | 'after' | 'error'
 
@@ -121,6 +123,11 @@ export interface PluginSpec<TConfig = Record<string, unknown>> {
   version: string
   description?: string
   requires?: string[]
+  /**
+   * Register the plugin's handlers, hooks and tools. Keep it synchronous: `bot.plug()`
+   * does not await it, so a rejected promise becomes an unhandled rejection. Do async
+   * setup lazily on first use instead. (`Promise<void>` stays in the type for compatibility.)
+   */
   install(ctx: PluginContext, config?: TConfig): void | Promise<void>
   uninstall?(ctx: PluginContext): void | Promise<void>
 }

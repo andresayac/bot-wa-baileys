@@ -29,7 +29,7 @@ import { RedisStore } from '@bot-wa/redis-store'
 const store = new RedisStore({
   url: process.env.REDIS_URL,      // default: redis://localhost:6379
   prefix: 'mybot',                 // default: 'botwa'
-  ttl: 7 * 24 * 60 * 60,           // optional: expire conversations/checkpoints after 7 days
+  sessionTtl: '7d',                // optional: expire conversations/checkpoints after 7 days
 })
 await store.start()                // connects the client (unless one was injected)
 
@@ -69,7 +69,8 @@ const store = new RedisStore({ client: fake })
 | `url`    | `string`          | `redis://localhost:6379`  | Redis connection URL. Ignored when `client` is provided. |
 | `prefix` | `string`          | `'botwa'`                 | Namespace prefix for every key. |
 | `client` | `RedisLikeClient` | —                         | Inject an existing client (required for tests). The store never connects/quits it. |
-| `ttl`    | `number`          | —                         | TTL in **seconds** for AI conversations and flow checkpoints (fractions allowed, applied with millisecond precision). Messages, chats, contacts and cursors never expire — delete them explicitly. A non-positive or non-finite value throws a `RangeError` from the constructor. |
+| `sessionTtl` | `string \| number` | —                   | TTL for AI conversations and flow checkpoints: a duration (`'24h'`, `'7d'`) or **milliseconds**, like every duration option of `@bot-wa/core`. Messages, chats, contacts and cursors never expire — delete them explicitly. An invalid duration or a non-positive value throws from the constructor. |
+| `ttl`    | `number`          | —                         | **Deprecated**, use `sessionTtl`. Same TTL in **seconds** (fractions allowed). Setting both throws a `RangeError`. |
 | `maxMessagesPerChat` | `number` | — (unbounded)       | Keep only the newest N messages per chat; `saveMessage` prunes older ZSET members **and** their item keys. Must be a non-negative integer (else `RangeError`). |
 | `logger` | `{ error? }`    | —                         | Receives the errors of a store-created client (connection drops, failed reconnects) and lifecycle errors (e.g. close failure). |
 
@@ -81,8 +82,8 @@ const store = new RedisStore({ client: fake })
 | `{prefix}:msg:item:{chatId}:{id}` | string (JSON) | `StoredMessage` | — |
 | `{prefix}:chat:{id}` | string (JSON) | `StoredChat` | — |
 | `{prefix}:contact:{id}` | string (JSON) | `StoredContact` | — |
-| `{prefix}:cp:{key}` | string (JSON) | `FlowCheckpoint` | `ttl` |
-| `{prefix}:conv:{key}` | string (JSON) | `AIMessage[]` | `ttl` |
+| `{prefix}:cp:{key}` | string (JSON) | `FlowCheckpoint` | `sessionTtl` |
+| `{prefix}:conv:{key}` | string (JSON) | `AIMessage[]` | `sessionTtl` |
 | `{prefix}:cursor:{key}` | string | delivery cursor (e.g. Telegram `update_id`) | — |
 | `{prefix}:lock:{key}` | string | lock token (`SET NX PX`) | lock `ttlMs` |
 

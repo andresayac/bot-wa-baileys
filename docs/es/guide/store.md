@@ -30,7 +30,7 @@ const bot = new Bot({
   // Opcional: persistir chats + estado de flujo a un archivo JSON
   storeConfig: {
     file: './store.json',
-    autoSaveInterval: 60_000, // ms (0 = desactivar)
+    autoSaveInterval: '1m', // duración o ms (0 = desactivar)
     maxMessagesPerChat: 1000,
   },
 })
@@ -123,9 +123,13 @@ import { RedisStore } from '@bot-wa/redis-store'
 
 const bot = new Bot({
   provider: new BaileysProvider({ session: 'mi-bot' }),
-  store: new RedisStore({ url: 'redis://localhost:6379' }),
+  store: new RedisStore({ url: 'redis://localhost:6379', sessionTtl: '7d' }),
 })
 ```
+
+`sessionTtl` (una duración como `'24h'`, o milisegundos, como el resto de opciones de
+duración) hace expirar el historial de IA y los checkpoints de flujos; los mensajes,
+chats y contactos nunca expiran. Sustituye a la opción obsoleta `ttl`, que iba en segundos.
 
 ## Tablas de datos de usuario
 

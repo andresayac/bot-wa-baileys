@@ -20,7 +20,7 @@ import {
 } from '../src/index.js'
 import type { InboundMessage, IStore, UserDataEntry } from '../src/index.js'
 import { createTestBot } from '../src/testing/createTestBot.js'
-import type { IncomingOpts, MockProvider } from '../src/testing/MockProvider.js'
+import type { MockIncomingOptions, MockProvider } from '../src/testing/MockProvider.js'
 
 const T0 = Date.UTC(2026, 0, 1, 12, 0, 0)
 
@@ -35,7 +35,7 @@ function dispatched(bot: Bot): Promise<void> {
   })
 }
 
-async function deliver(bot: Bot, provider: MockProvider, text: string, opts: IncomingOpts = {}): Promise<void> {
+async function deliver(bot: Bot, provider: MockProvider, text: string, opts: MockIncomingOptions = {}): Promise<void> {
   const done = dispatched(bot)
   provider.incoming(text, opts)
   await done

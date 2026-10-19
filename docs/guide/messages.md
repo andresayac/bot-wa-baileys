@@ -13,7 +13,7 @@ await ctx.say('How are you?')          // alias
 await ctx.answer('👍')                  // alias
 await ctx.text('plain text')            // alias
 await ctx.quote('replying to your message')     // quotes the inbound message
-await ctx.replyWithTyping('typing this out...') // shows "typing…" before sending
+await ctx.reply('typing this out...', { typing: true }) // shows "typing…" before sending
 ```
 
 ## Send photo
@@ -115,8 +115,8 @@ await ctx.reply('Here it is', { delay: '1.5s', typing: { maxMs: 1000 } })
 - A failing indicator never fails the send; it is cosmetic and best effort.
 - On providers without `capabilities.typing` there is no indicator **and no wait**. `delay` is honored everywhere.
 - A paced reply is dropped (it resolves `{ skipped: true }`) if the bot stops, the chat is handed off or the flow is aborted during the wait. `stop({ drain: true })` waits for paced replies.
-- `ctx.replyWithTyping(text, msPerChar?)` paces itself (40 ms per character by
-  default) and ignores `BotConfig.typing`.
+- `ctx.replyWithTyping(text, msPerChar?)` is **deprecated**: it paces itself (40 ms per
+  character by default) and ignores `BotConfig.typing`. Use `ctx.reply(text, { typing: true })`.
 
 Long or AI-generated answers can be streamed instead of sent in one go: see
 [Streaming](./streaming).

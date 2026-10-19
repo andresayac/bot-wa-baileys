@@ -54,6 +54,16 @@ Auditoría de las superficies nuevas (webhooks, `server`, `manager` REST, canale
 - **15 paquetes nuevos, todos `private` (Experimental)**: canales `evolution`, `wppconnect`, `twilio`, `gohighlevel`, `gupshup`, `email` y `tiktok`; `server` (ingress de webhooks); plugins `rag`, `voice`, `chatwoot`, `tickets`, `moderation` y `dialogflow`; tooling `eslint-plugin-bot-wa`. El monorepo pasa a **39 paquetes** (10 públicos, 24 experimentales, 5 prototipos). Cada uno trae su README.
 - **Docs (integración de ramas)**: guías nuevas en inglés y español de canales, ventana de 24 h de la Cloud API, `@bot-wa/server`, streaming, tool calling, memoria y RAG, voz, integraciones (Chatwoot, tickets, moderación, Dialogflow), golden transcripts, ESLint e i18n y formularios; el control plane documenta la API REST `/v1`. `FEATURES.md` marca como implementadas las propuestas #1–#37, #39 y #40.
 
+### Coherencia de la API pública (2026-10)
+Revisión de los 10 paquetes públicos, con hallazgos y decisiones en [`docs/api-review.md`](docs/api-review.md). Todos los cambios son compatibles (solo se añade o se amplía; lo que pierde queda `@deprecated`).
+- **Tipos que faltaban**, ya exportados: `@bot-wa/core` (`InboundListener`, `StopOptions`, `ConversationTarget`, `WaitMediaType`, `UserDataStore`, `PacerLogger`, `FormFieldBase`, `JsonValue`; `MockIncomingOptions` en `/testing`), `@bot-wa/ai` (`AIPluginConfig` y las interfaces `*Like` de los clientes Anthropic/OpenAI/Gemini), `@bot-wa/baileys` (`WAMediaUpload`, `DisconnectAction`; `ChatId`/`UserId` son ya los del core), `@bot-wa/meta` (`GraphClientConfig`), `@bot-wa/telegram` (`TelegramMessageEntity`, `TelegramPhotoSize`, `TelegramLocation`, `TelegramContact`, `TelegramPoll`) y `@bot-wa/redis-store` (`RedisMulti`).
+- **Una sola gramática de duraciones**: había dos `parseDuration` en el core (la pública aceptaba `'1d'`, `'1w'` y `'5 minutes'`; la interna de flujos, `ctx.reply({ delay })`, `broadcast`, `dedupe`… no). Ahora todas las opciones usan la misma. Las opciones que arman un temporizador (timeouts de flujo, espera, formulario y conversación, `MemoryStore.autoSaveInterval`, `bot.stop({ timeout })`) lanzan `RangeError` por encima de unos 24 días, el máximo que admite un temporizador de Node.
+- `bot.stop({ timeout })` y `MemoryStore({ autoSaveInterval })` aceptan también una duración (`'15s'`); `bot.send(chatId, 'texto')` acepta un string, como `sendTo` y `broadcast`; `bot.onError(event, handler, priority?)` acepta prioridad, como `before`/`after`.
+- **Corrección**: `bot.hook()` llamado desde un plugin no se registraba en el ámbito del plugin y sobrevivía a `unplug()`; `onError` dentro de un plugin ignoraba la prioridad.
+- `@bot-wa/redis-store`: nueva opción `sessionTtl` (duración o ms, como el resto del framework); `ttl` (en segundos) queda obsoleta.
+- Errores: `ConversationError` y `ProviderError` (y sus subclases) llevan su propio `name`; `AITimeoutError` extiende `TimeoutError` del core.
+- `ctx.replyWithTyping()` queda obsoleto en favor de `ctx.reply(texto, { typing: true })`.
+
 ### @bot-wa/core (2026-10)
 
 **Añadido**

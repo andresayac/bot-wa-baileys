@@ -58,6 +58,7 @@ import type {
   DisconnectReason,
   IProvider,
   InboundEvent,
+  InboundListener,
   OutboundContent,
   ProviderCapabilities,
   SendOptions,
@@ -269,7 +270,6 @@ export class ChaosDisconnectedError extends ProviderError {
  * PROVIDER DECORATOR
  * ========================================================================== */
 
-type Listener = (event: InboundEvent) => void | Promise<void>
 type Timer = ReturnType<typeof setTimeout>
 type EventKind = InboundEvent['kind']
 
@@ -421,7 +421,7 @@ export class ChaosProvider<P extends IProvider = IProvider> implements IProvider
   private readonly rngOutbound: () => number
   private readonly rngConnection: () => number
   private readonly rngIdentity: () => number
-  private readonly listeners = new Set<Listener>()
+  private readonly listeners = new Set<InboundListener>()
   private readonly scheduler = new OrderedScheduler()
   private readonly aliasCounters = new Map<UserId, number>()
   private buffer: InboundEvent[] = []
@@ -488,7 +488,7 @@ export class ChaosProvider<P extends IProvider = IProvider> implements IProvider
     await this.inner.stop()
   }
 
-  onEvent(listener: Listener): () => void {
+  onEvent(listener: InboundListener): () => void {
     this.listeners.add(listener)
     return () => { this.listeners.delete(listener) }
   }

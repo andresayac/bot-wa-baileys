@@ -256,6 +256,12 @@ export interface PollVote {
  * The discriminated union every provider emits through `onEvent`. Replaces the
  * ad-hoc string-keyed emitter (`rawMessage`, `messageUpdate`, `reaction`, ...).
  */
+/**
+ * Listener passed to {@link IProvider.onEvent}: receives every normalized inbound
+ * event. May be async; providers do not await it unless they document so.
+ */
+export type InboundListener<TRaw = unknown> = (event: InboundEvent<TRaw>) => void | Promise<void>
+
 export type InboundEvent<TRaw = unknown> =
   | { kind: 'message'; message: InboundMessage<TRaw> }
   | { kind: 'interaction'; interaction: InboundInteraction<TRaw> }
@@ -481,7 +487,13 @@ export interface ConnectionUpdate {
  * 8. TYPED OUTBOUND ERRORS  (core, zero deps)
  * ========================================================================== */
 
-export class ProviderError extends Error {}
+/** Base of the typed send errors; `name` is the concrete class name. */
+export class ProviderError extends Error {
+  constructor(message?: string) {
+    super(message)
+    this.name = new.target.name
+  }
+}
 
 /** A provider cannot honor an OutboundContent kind/field. */
 export class UnsupportedContentError extends ProviderError {
@@ -568,7 +580,7 @@ export interface IProvider<TRaw = unknown> {
   send(chatId: ChatId, content: OutboundContent, options?: SendOptions): Promise<SendResult<TRaw>>
 
   /** Subscribe to the normalized event stream. Returns an unsubscriber. */
-  onEvent(listener: (event: InboundEvent<TRaw>) => void | Promise<void>): () => void
+  onEvent(listener: InboundListener<TRaw>): () => void
 
   /**
    * Push ingress for webhook transports (Cloud API POST, Telegram/Discord
@@ -682,9 +694,13 @@ export interface MessageContext<TTools extends object = DefaultTools, TRaw = unk
 
   /* Reply helpers — every reply targets `this.from` (unchanged surface) */
   /* Text helpers accept {@link ReplyOptions}: `{ typing }` overrides `BotConfig.typing`, `{ delay }` pauses first. */
+  /** Send text to this chat. Same as {@link MessageContext.reply} (mirrors the flow DSL's `.say`). */
   say(text: string, opts?: ReplyOptions): Promise<SentMessage>
+  /** Send text to this chat (`ctx.from`). The canonical text reply; `say`, `answer` and `text` are aliases. */
   reply(text: string, opts?: ReplyOptions): Promise<SentMessage>
+  /** Alias of {@link MessageContext.reply}. */
   answer(text: string, opts?: ReplyOptions): Promise<SentMessage>
+  /** Alias of {@link MessageContext.reply}. */
   text(t: string, opts?: ReplyOptions): Promise<SentMessage>
   photo(source: MediaSource, caption?: string): Promise<SentMessage>
   video(source: MediaSource, caption?: string, opts?: { gifPlayback?: boolean; ptv?: boolean }): Promise<SentMessage>
@@ -716,6 +732,14 @@ export interface MessageContext<TTools extends object = DefaultTools, TRaw = unk
   edit(ref: MessageRef, content: string | OutboundContent, opts?: EditOptions): Promise<EditResult>
   /** How the current provider supports a messaging feature (`native` / `degraded` / `unsupported`). */
   supports(feature: MessagingFeature): MessagingSupport
+  /**
+   * Show "typing…" for about `msPerChar` ms per character (40 by default, capped at 5 s),
+   * then send `text`. Ignores `BotConfig.typing`.
+   *
+   * @deprecated Use `ctx.reply(text, { typing: true })` (or a {@link TypingConfig} object
+   * such as `{ typing: { charsPerSecond: 25, maxMs: 5000 } }`): it shares the bot-wide
+   * typing policy, refreshes the indicator and is dropped on stop/handoff like every paced reply.
+   */
   replyWithTyping(text: string, msPerChar?: number): Promise<SentMessage>
   /** Escape hatch for transport-native content (templates, components). */
   sendNative(provider: string, payload: unknown): Promise<SentMessage>

@@ -38,7 +38,7 @@ import type {
   UserDataEntry,
   UserId,
 } from '@bot-wa/core'
-import { messageKey } from '@bot-wa/core'
+import { messageKey, parseDuration } from '@bot-wa/core'
 import { RedisUserData } from './userData.js'
 import { escapeGlob } from './glob.js'
 import { MERGE_CAS_SCRIPT, RELEASE_LOCK_SCRIPT } from './scripts.js'
@@ -139,11 +139,22 @@ export interface RedisStoreOptions {
    */
   client?: RedisLikeClient | NativeRedisClient
   /**
-   * Optional TTL in SECONDS applied to ephemeral session-state keys (AI
-   * conversation history and flow checkpoints). Messages, chats, contacts
-   * and cursors are never expired — delete them explicitly. Must be a
+   * Optional TTL applied to ephemeral session-state keys (AI conversation
+   * history and flow checkpoints): a duration (`'24h'`, `'30m'`) or a number of
+   * MILLISECONDS — the same convention as every duration option of
+   * `@bot-wa/core`. Messages, chats, contacts and cursors are never expired —
+   * delete them explicitly. Must be positive; an invalid duration or a
+   * non-positive value throws from the constructor.
+   */
+  sessionTtl?: string | number
+  /**
+   * Optional TTL in SECONDS applied to ephemeral session-state keys. Must be a
    * positive finite number (fractions allowed, applied with millisecond
    * precision); anything else throws a `RangeError` from the constructor.
+   * Setting both `ttl` and `sessionTtl` throws a `RangeError`.
+   *
+   * @deprecated Use {@link RedisStoreOptions.sessionTtl} (a duration or ms, like
+   * the rest of the framework): `ttl: 3600` is `sessionTtl: '1h'`.
    */
   ttl?: number
   /**
@@ -185,7 +196,7 @@ export class RedisStore implements IStore {
   private readonly client: RedisLikeClient
   private readonly ownsClient: boolean
   private readonly prefix: string
-  /** `ttl` option converted to milliseconds (sent as PX: EX only takes whole seconds). */
+  /** `sessionTtl` / `ttl` option converted to milliseconds (sent as PX: EX only takes whole seconds). */
   private readonly ttlMs?: number
   private readonly maxMessagesPerChat?: number
   private readonly logger?: { error?: (...args: unknown[]) => void }
@@ -204,6 +215,16 @@ export class RedisStore implements IStore {
 
   constructor(opts: RedisStoreOptions = {}) {
     this.prefix = opts.prefix ?? 'botwa'
+    if (opts.sessionTtl != null && opts.ttl != null) {
+      throw new RangeError('RedisStore: set either sessionTtl or the deprecated ttl, not both')
+    }
+    if (opts.sessionTtl != null) {
+      const ms = parseDuration(opts.sessionTtl)
+      if (!(ms > 0) || !Number.isFinite(ms)) {
+        throw new RangeError(`RedisStore: sessionTtl must be a positive duration, got ${String(opts.sessionTtl)}`)
+      }
+      this.ttlMs = Math.max(1, Math.round(ms))
+    }
     if (opts.ttl != null) {
       // The server rejects a non-integer EX and any non-positive expiry, which
       // previously surfaced as an error on every checkpoint/conversation write.

@@ -25,6 +25,8 @@ export type {
   CommandHandler,
   SubjectDataExport,
   SubjectDeletionResult,
+  StopOptions,
+  ConversationTarget,
 } from './core/Bot.js'
 export { buildMessageContext } from './core/context.js'
 export { Dispatcher } from './core/Dispatcher.js'
@@ -37,9 +39,11 @@ export type {
 } from './core/Dispatcher.js'
 
 // Transport-agnostic contract + core vocabulary
+import type { BotConfig as BotConfigForAlias } from './core/types.js'
+/** @deprecated Use {@link BotConfig}: `Config` is an older alias of the same type. */
+export type Config = BotConfigForAlias
 export type {
   BotConfig,
-  BotConfig as Config,
   IProvider,
   ProviderCapabilities,
   ConnectionState,
@@ -118,7 +122,7 @@ export type {
   CheckpointStore,
 } from './conversations/ConversationRuntime.js'
 export { createControls } from './conversations/controls.js'
-export type { ConversationControls } from './conversations/controls.js'
+export type { ConversationControls, WaitMediaType } from './conversations/controls.js'
 export {
   ConversationError,
   ConversationTimeout,
@@ -248,7 +252,7 @@ export type { InboundDedupeOptions, InboundDeduperOptions, InboundDedupeKey } fr
 
 // ctx-user
 export { UserDataService, userOf, supportsUserData, DEFAULT_USER_NAMESPACE } from './user/UserDataService.js'
-export type { UserDataServiceOptions } from './user/UserDataService.js'
+export type { UserDataServiceOptions, UserDataStore } from './user/UserDataService.js'
 export { UserDataError } from './user/errors.js'
 export type { UserDataErrorCode } from './user/errors.js'
 export type { UserData, UserSetOptions } from './user/types.js'
@@ -273,6 +277,7 @@ export type {
   TranscriptTurn,
   TranscriptInbound,
   TranscriptOutbound,
+  JsonValue,
   FromMessagesOptions,
   TranscriptMessageSource,
   TranscriptStoreOwner,
@@ -330,6 +335,7 @@ export type {
   Pacer,
   PacerOptions,
   PaceGuard,
+  PacerLogger,
 } from './core/messaging.js'
 // bot-ops
 // bot.broadcast() engine, bot.trigger() types, bot.metrics() snapshot + Prometheus exporter,
@@ -359,7 +365,7 @@ export type {
   Translate,
   TranslateParams,
 } from './i18n/types.js'
-export type { ContextI18n } from './core/provider.js'
+export type { ContextI18n, InboundListener } from './core/provider.js'
 // manager
 // Dynamic flow registry: bot.registerFlow/unregisterFlow/replaceFlow/listFlows/triggerFlow.
 export type { FlowTriggerOptions, FlowTriggerTarget, RegisteredFlowInfo } from './core/flowRegistry.js'
@@ -382,7 +388,7 @@ export {
 export type { FieldCheck, FormFieldError, FormValidation } from './forms/validate.js'
 export type {
   FormDefinition, FormField, FormFieldType, FormOptions, FormValue, FormValues, FormReply,
-  FormMode, FormStepOptions, FormContent,
+  FormMode, FormStepOptions, FormContent, FormFieldBase,
   TextFormField, NumberFormField, EmailFormField, DateFormField, SelectFormField,
   MultiSelectFormField, OptInFormField,
 } from './forms/types.js'

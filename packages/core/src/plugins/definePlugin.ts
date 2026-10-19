@@ -48,12 +48,9 @@ export function definePlugin<TConfig = Record<string, unknown>>(
 }
 
 /** Sentinel check to differentiate plugins from flows in bot.use(). */
-export function isPlugin(x: any): x is Plugin {
+export function isPlugin(x: unknown): x is Plugin {
   if (typeof x === 'function' && x.length === 0) return false // arrow without args?
-  return (
-    x &&
-    typeof x === 'object' &&
-    typeof x.name === 'string' &&
-    typeof (x as any).install === 'function'
-  )
+  if (!x || typeof x !== 'object') return false
+  const candidate = x as { name?: unknown; install?: unknown }
+  return typeof candidate.name === 'string' && typeof candidate.install === 'function'
 }

@@ -32,7 +32,8 @@ export interface MockOutgoing {
   options?: SendOptions
 }
 
-export interface IncomingOpts {
+/** Options of {@link MockProvider.incoming} / {@link MockProvider.interaction}. */
+export interface MockIncomingOptions {
   from?: ChatId
   sender?: string
   isGroup?: boolean
@@ -199,7 +200,7 @@ export class MockProvider implements IProvider {
   }
 
   /** Simulate an incoming message. */
-  incoming(text: string, opts: IncomingOpts = {}): void {
+  incoming(text: string, opts: MockIncomingOptions = {}): void {
     const from = opts.from ?? 'user-1'
     const isGroup = opts.isGroup ?? false
     const senderId = opts.sender ?? from
@@ -223,7 +224,7 @@ export class MockProvider implements IProvider {
   }
 
   /** Simulate a UI interaction (button/slash/callback). */
-  interaction(data: string, opts: IncomingOpts = {}): void {
+  interaction(data: string, opts: MockIncomingOptions = {}): void {
     const from = opts.from ?? 'user-1'
     const isGroup = opts.isGroup ?? false
     const senderId = opts.sender ?? from
@@ -256,7 +257,7 @@ export class MockProvider implements IProvider {
   }
 }
 
-function senderInfoOf(id: string, opts: IncomingOpts): InboundMessage['senderInfo'] {
+function senderInfoOf(id: string, opts: MockIncomingOptions): InboundMessage['senderInfo'] {
   return {
     id,
     displayName: opts.pushName ?? 'Test User',

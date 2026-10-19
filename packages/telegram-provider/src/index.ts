@@ -16,4 +16,9 @@ export type {
   TelegramChat,
   TelegramUser,
   TelegramFile,
+  TelegramMessageEntity,
+  TelegramPhotoSize,
+  TelegramLocation,
+  TelegramContact,
+  TelegramPoll,
 } from './types.js'

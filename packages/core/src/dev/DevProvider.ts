@@ -15,6 +15,7 @@
 import type {
   ChatId,
   InboundEvent,
+  InboundListener,
   InboundMessage,
   MediaRef,
   MessageRef,
@@ -83,11 +84,10 @@ function isDevMediaToken(token: unknown): token is DevMediaToken {
   return typeof token === 'object' && token !== null && (token as { devMedia?: unknown }).devMedia instanceof Uint8Array
 }
 
-type Listener = (event: InboundEvent) => void | Promise<void>
 
 export class DevProvider extends MockProvider {
   private readonly outboundListeners = new Set<(message: DevOutbound) => void>()
-  private readonly devListeners = new Set<Listener>()
+  private readonly devListeners = new Set<InboundListener>()
   private devSeq = 0
 
   constructor() {
@@ -101,7 +101,7 @@ export class DevProvider extends MockProvider {
     return () => { this.outboundListeners.delete(listener) }
   }
 
-  override onEvent(listener: Listener): () => void {
+  override onEvent(listener: InboundListener): () => void {
     const off = super.onEvent(listener)
     this.devListeners.add(listener)
     return () => {

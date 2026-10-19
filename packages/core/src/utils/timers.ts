@@ -25,31 +25,9 @@ export function humanTypingDelay(text: string, msPerChar = 40): number {
   )
 }
 
-/** Parse common durations ("5s", "1m", "2h", "1d") or ms number → ms. */
-export function parseDuration(input: string | number): number {
-  if (typeof input === 'number') return input
-  const match = /^(\d+(?:\.\d+)?)\s*(ms|milli|millis|millisecond|milliseconds|s|sec|secs|second|seconds|m|min|mins|minute|minutes|h|hr|hrs|hour|hours|d|day|days|w|week|weeks)?$/.exec(input.trim())
-  if (!match) throw new Error(`Invalid duration: ${input}`)
-  const value = parseFloat(match[1])
-  const unitRaw = (match[2] ?? 'ms').toLowerCase()
-  // Normalize to short unit
-  const unit = unitRaw.startsWith('ms') || unitRaw.startsWith('milli') ? 'ms'
-    : unitRaw.startsWith('s') ? 's'
-    : unitRaw.startsWith('m') ? 'm'
-    : unitRaw.startsWith('h') ? 'h'
-    : unitRaw.startsWith('d') ? 'd'
-    : unitRaw.startsWith('w') ? 'w'
-    : 'ms'
-  const multipliers: Record<string, number> = {
-    ms: 1,
-    s: 1_000,
-    m: 60_000,
-    h: 3_600_000,
-    d: 86_400_000,
-    w: 604_800_000,
-  }
-  return Math.round(value * multipliers[unit])
-}
+/** Parse common durations ("5s", "1m", "2h", "1d") or ms number → ms. Same grammar as every duration option. */
+import { parseDuration } from './duration.js'
+export { parseDuration }
 
 /**
  * Longest delay a Node timer can hold: 2^31 − 1 ms (about 24.8 days). `setTimeout` with a
@@ -67,6 +45,24 @@ export function parseIdlePeriod(duration: string | number, api: string): number 
   const ms = parseDuration(duration)
   if (!Number.isFinite(ms) || ms <= 0) {
     throw new RangeError(`${api} needs a positive, finite duration — got ${JSON.stringify(duration)}`)
+  }
+  if (ms > MAX_TIMER_MS) {
+    throw new RangeError(`${api} supports at most ${MAX_TIMER_MS} ms (about 24 days) — got ${JSON.stringify(duration)}`)
+  }
+  return ms
+}
+
+/**
+ * Parse a duration that backs a Node timer (`setTimeout`/`setInterval`): a conversation or
+ * wait timeout, a flow timeout, an auto-save interval, a drain timeout. Accepts everything
+ * {@link parseDuration} does and requires a finite value between 0 and {@link MAX_TIMER_MS};
+ * throws `RangeError` otherwise, because a larger delay would fire after 1 ms instead of
+ * waiting (an unparsable string throws the parser's `Error`). Internal.
+ */
+export function parseTimerDuration(duration: string | number, api: string): number {
+  const ms = parseDuration(duration)
+  if (!Number.isFinite(ms) || ms < 0) {
+    throw new RangeError(`${api} needs a non-negative, finite duration — got ${JSON.stringify(duration)}`)
   }
   if (ms > MAX_TIMER_MS) {
     throw new RangeError(`${api} supports at most ${MAX_TIMER_MS} ms (about 24 days) — got ${JSON.stringify(duration)}`)

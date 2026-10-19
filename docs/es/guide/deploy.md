@@ -138,7 +138,7 @@ tar -xzf backup.tar.gz
 ```ts
 process.on('SIGINT', async () => {
   console.log('Apagando ordenadamente...')
-  await bot.stop({ drain: true, timeout: 15_000 }) // espera hasta 15s por envíos pendientes
+  await bot.stop({ drain: true, timeout: '15s' }) // espera hasta 15s por envíos pendientes (también acepta ms)
   process.exit(0)
 })
 
