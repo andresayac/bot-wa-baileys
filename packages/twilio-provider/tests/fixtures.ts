@@ -55,6 +55,24 @@ export const WA_REPLY = {
   OriginalRepliedMessageSender: 'whatsapp:+14155238886',
 }
 
+/** WhatsApp sandbox user identified by a business-scoped user id (BSUID) instead of a phone number. */
+export const WA_BSUID_TEXT = {
+  SmsMessageSid: 'SMaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+  NumMedia: '0',
+  ProfileName: 'Andrés',
+  SmsSid: 'SMaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+  WaId: 'CO.2132056440717202',
+  SmsStatus: 'received',
+  Body: 'hola',
+  To: 'whatsapp:+14155238886',
+  NumSegments: '1',
+  MessageType: 'text',
+  MessageSid: 'SMaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+  AccountSid: 'AC00000000000000000000000000000000',
+  From: 'whatsapp:CO.2132056440717202',
+  ApiVersion: '2010-04-01',
+}
+
 export const SMS_TEXT = {
   MessageSid: 'SM66666666666666666666666666666666',
   SmsSid: 'SM66666666666666666666666666666666',

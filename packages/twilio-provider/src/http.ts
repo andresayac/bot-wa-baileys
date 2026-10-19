@@ -101,6 +101,7 @@ export class BoundedMap<K, V> {
   private readonly map = new Map<K, V>()
   constructor(private readonly limit = 10_000) {}
   get(key: K): V | undefined { return this.map.get(key) }
+  delete(key: K): void { this.map.delete(key) }
   set(key: K, value: V): void {
     this.map.delete(key)
     this.map.set(key, value)

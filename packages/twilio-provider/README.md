@@ -56,7 +56,9 @@ app.listen(3000)
 
 Entrante: texto, media (`ctx.media` vía `downloadMedia`, con Basic auth solo hacia `api.twilio.com`), ubicación, respuestas citadas (`quoted`), quick replies (`ButtonPayload` → interacción `button`) y list pickers (`ListId` → `list`). Los status callbacks llegan como eventos `status` (`undelivered` → `failed` con `error.code`).
 
-`ctx.typing()` usa el indicador de escritura de WhatsApp (`/v3/Indicators/Typing.json`, que además marca el mensaje como leído); en SMS es no-op.
+`ctx.typing()` usa el indicador de escritura de WhatsApp (`POST /v3/Indicators/Typing.json` con `{ "channel": "WHATSAPP", "messageId": "SM…" }`, en beta pública; además marca el mensaje como leído y se borra al responder o a los 25 s). Solo se envía en chats de WhatsApp con un mensaje entrante (`SM…`/`MM…`) de las últimas 24 h; en SMS es no-op. Es *best-effort*: nunca rechaza. Si Twilio responde 4xx (p. ej. un remitente o cuenta sin soporte), se registra en `debug` y el chat deja de intentarlo durante 30 min; 429/5xx/errores de red solo se registran.
+
+Los usuarios de WhatsApp identificados por un ID de usuario de ámbito empresarial (BSUID, p. ej. `From=whatsapp:CO.2132056440717202`, `WaId=CO.2132056440717202`) funcionan igual que los de número: ese `From` es el `chatId`/`senderId` estable y se usa tal cual como `To` al responder.
 
 ## Errores
 

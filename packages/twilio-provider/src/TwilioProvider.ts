@@ -44,6 +44,13 @@ import type { TwilioErrorBody, TwilioMessageResource, TwilioProviderConfig, Twil
 /** Twilio's body limit for one message (SMS concatenation and WhatsApp alike). */
 export const TWILIO_MAX_BODY = 1600
 
+/** `messageId` format the typing indicator accepts (Twilio OpenAPI: `^(SM|MM)[0-9a-fA-F]{32}$`). */
+const TYPING_MESSAGE_SID = /^(SM|MM)[0-9a-fA-F]{32}$/
+/** Typing references a recent inbound: skip it past the WhatsApp 24h customer-service window. */
+const TYPING_WINDOW_MS = 24 * 60 * 60_000
+/** How long a chat stays without typing attempts after Twilio rejected one with a 4xx. */
+const TYPING_SUPPRESS_MS = 30 * 60_000
+
 export interface TwilioIngestRequest {
   /** The full URL Twilio requested (scheme, host, path and query) — what it signed. */
   url: string
@@ -67,8 +74,10 @@ export class TwilioProvider implements IProvider<TwilioWebhookParams> {
   private readonly listeners = new Set<(e: InboundEvent<TwilioWebhookParams>) => void | Promise<void>>()
   /** chatId → the business address that received the chat's last message (reply sender). */
   private readonly replyFrom = new BoundedMap<ChatId, string>()
-  /** chatId → SID of the chat's last inbound message (WhatsApp typing indicator). */
-  private readonly lastInbound = new BoundedMap<ChatId, string>()
+  /** chatId → SID + arrival time of the chat's last inbound message (WhatsApp typing indicator). */
+  private readonly lastInbound = new BoundedMap<ChatId, { sid: string; at: number }>()
+  /** chatId → until when typing is not attempted (Twilio rejected it with a 4xx). */
+  private readonly typingSuppressedUntil = new BoundedMap<ChatId, number>()
 
   constructor(config: TwilioProviderConfig) {
     if (!config.accountSid) throw new Error('TwilioProvider requires `accountSid`.')
@@ -194,7 +203,7 @@ export class TwilioProvider implements IProvider<TwilioWebhookParams> {
     const parsed = parseInbound(params)
     if (parsed.inbound) {
       if (parsed.inbound.to) this.replyFrom.set(parsed.inbound.chatId, parsed.inbound.to)
-      this.lastInbound.set(parsed.inbound.chatId, parsed.inbound.messageSid)
+      this.lastInbound.set(parsed.inbound.chatId, { sid: parsed.inbound.messageSid, at: Date.now() })
     }
     for (const event of parsed.events) this.fan(event)
     return 200
@@ -287,22 +296,47 @@ export class TwilioProvider implements IProvider<TwilioWebhookParams> {
   }
 
   /**
-   * WhatsApp typing indicator (Messaging v3 `Indicators/Typing`). Twilio needs
-   * the SID of the message being answered, so it applies to WhatsApp chats
-   * with a recent inbound message; otherwise (SMS, `paused`) it is a no-op.
-   * Side effect documented by Twilio: the referenced message is marked read.
+   * WhatsApp typing indicator — `POST /v3/Indicators/Typing.json` with exactly the
+   * documented JSON body `{ channel: "WHATSAPP", messageId }` (Public Beta; v3 rejects
+   * the lower-case `"whatsapp"` with a 400). `messageId` is the SID (`SM…`/`MM…`) of
+   * the chat's last inbound message, so it only applies to WhatsApp chats (phone or
+   * BSUID addresses alike) with an inbound inside the 24h window; SMS and `paused`
+   * are no-ops. Twilio marks the referenced message as read and clears the indicator
+   * on the next reply or after 25 s.
+   *
+   * Best-effort: it never rejects. A 4xx (e.g. the sender or account does not support
+   * it) is logged at debug and suppresses the chat for {@link TYPING_SUPPRESS_MS};
+   * 429 / 5xx / network failures are logged at debug and retried on the next call.
    */
   async typing(chatId: ChatId, state?: 'typing' | 'recording' | 'paused'): Promise<void> {
     if (state === 'paused' || channelOf(chatId) !== 'whatsapp') return
-    const messageId = this.lastInbound.get(chatId)
-    if (!messageId) return
+    const last = this.lastInbound.get(chatId)
+    if (!last || !TYPING_MESSAGE_SID.test(last.sid)) return
+    const now = Date.now()
+    if (now - last.at > TYPING_WINDOW_MS) return
+    const suppressedUntil = this.typingSuppressedUntil.get(chatId)
+    if (suppressedUntil !== undefined) {
+      if (now < suppressedUntil) return
+      this.typingSuppressedUntil.delete(chatId)
+    }
     const url = `${this.config.messagingBaseUrl.replace(/\/$/, '')}/v3/Indicators/Typing.json`
-    const res = await request(url, {
-      method: 'POST',
-      headers: { Authorization: this.authHeader(), 'Content-Type': 'application/json', Accept: 'application/json' },
-      body: JSON.stringify({ messageId, channel: 'whatsapp' }),
-    }, this.config.http)
-    if (!res.ok) throw toTwilioError(res.status, res.json as TwilioErrorBody, chatId, retryAfterMs(res.headers))
+    try {
+      const res = await request(url, {
+        method: 'POST',
+        headers: { Authorization: this.authHeader(), 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ channel: 'WHATSAPP', messageId: last.sid }),
+      }, this.config.http)
+      if (res.ok) return
+      const err = res.json as TwilioErrorBody
+      const permanent = res.status >= 400 && res.status < 500 && res.status !== 429
+      if (permanent) this.typingSuppressedUntil.set(chatId, now + TYPING_SUPPRESS_MS)
+      this.logger.debug(
+        { chatId, status: res.status, code: err.code, message: err.message, suppressedMs: permanent ? TYPING_SUPPRESS_MS : 0 },
+        'Twilio typing indicator rejected (ignored)',
+      )
+    } catch (error) {
+      this.logger.debug({ chatId, err: error instanceof Error ? error.message : String(error) }, 'Twilio typing indicator failed (ignored)')
+    }
   }
 
   /** Twilio quick replies need no acknowledgement — no-op. */

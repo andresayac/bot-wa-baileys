@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import { createHash } from 'node:crypto'
 import {
   OutsideSessionWindowError,
@@ -14,7 +14,7 @@ import { computeTwilioSignature, parseFormParams } from '../src/signature.js'
 import { TwilioApiError } from '../src/errors.js'
 import { fakeHttp, type FakeResponse, type Call } from './support.js'
 import {
-  form, SMS_TEXT, STATUS_DELIVERED, STATUS_UNDELIVERED, WA_BUTTON, WA_IMAGE, WA_LOCATION, WA_REPLY, WA_TEXT,
+  form, SMS_TEXT, STATUS_DELIVERED, STATUS_UNDELIVERED, WA_BSUID_TEXT, WA_BUTTON, WA_IMAGE, WA_LOCATION, WA_REPLY, WA_TEXT,
 } from './fixtures.js'
 
 const SID = 'AC00000000000000000000000000000000'
@@ -383,6 +383,8 @@ describe('TwilioProvider — typed errors', () => {
 })
 
 describe('TwilioProvider — media & typing', () => {
+  afterEach(() => { vi.useRealTimers() })
+
   it('downloads Twilio media with Basic auth only on the API origin', async () => {
     const bytes = Buffer.from('JPEGDATA')
     const { provider, calls } = make(() => ({ bytes }))
@@ -414,9 +416,112 @@ describe('TwilioProvider — media & typing', () => {
     await provider.typing('whatsapp:+573001112233', 'typing')
     expect(calls).toHaveLength(1)
     expect(calls[0]!.url).toBe('https://messaging.twilio.com/v3/Indicators/Typing.json')
-    expect(JSON.parse(calls[0]!.body)).toEqual({ messageId: WA_TEXT.MessageSid, channel: 'whatsapp' })
+    expect(calls[0]!.method).toBe('POST')
+    expect(calls[0]!.headers.get('content-type')).toBe('application/json')
+    expect(calls[0]!.headers.get('authorization')).toMatch(/^Basic /)
+    // Exactly the documented v3 body: `channel` is the upper-case enum "WHATSAPP" (no extra fields).
+    expect(JSON.parse(calls[0]!.body)).toEqual({ channel: 'WHATSAPP', messageId: WA_TEXT.MessageSid })
     await provider.typing('whatsapp:+573001112233', 'paused')
     await provider.typing('+15005550006')
     expect(calls).toHaveLength(1)
+  })
+
+  it('typing is never sent for SMS chats, even after an inbound SMS', async () => {
+    const { provider, calls } = make(() => ({ json: { success: true } }))
+    const { body, headers } = signed(SMS_TEXT)
+    provider.ingest(body, headers)
+    await provider.typing(SMS_TEXT.From, 'typing')
+    await provider.typing(SMS_TEXT.From, 'recording')
+    expect(calls).toHaveLength(0)
+  })
+
+  it('typing skips a message SID outside the documented SM/MM format', async () => {
+    const { provider, calls } = make(() => ({ json: { success: true } }))
+    const { body, headers } = signed({ ...WA_TEXT, MessageSid: 'SMshort', SmsMessageSid: 'SMshort', SmsSid: 'SMshort' })
+    provider.ingest(body, headers)
+    await provider.typing(WA_TEXT.From)
+    expect(calls).toHaveLength(0)
+  })
+
+  it('typing degrades silently on a 4xx and stops retrying that chat for a while', async () => {
+    let now = 1_000_000
+    vi.useFakeTimers({ toFake: ['Date'] })
+    const tick = (ms: number) => { now += ms; vi.setSystemTime(now) }
+    vi.setSystemTime(now)
+    const debug: unknown[] = []
+    const logger = { trace() {}, debug: (o: unknown) => { debug.push(o) }, info() {}, warn() {}, error() {}, fatal() {}, child() { return logger } }
+    const { provider, calls } = make(
+      () => ({ status: 400, json: { code: 20001, message: 'Request input may be invalid', status: 400 } }),
+      { logger },
+    )
+    const { body, headers } = signed(WA_TEXT)
+    provider.ingest(body, headers)
+    await expect(provider.typing(WA_TEXT.From)).resolves.toBeUndefined()
+    expect(calls).toHaveLength(1)
+    expect(debug).toContainEqual(expect.objectContaining({ chatId: WA_TEXT.From, status: 400 }))
+    // Suppressed for this chat: no request at all while the backoff lasts…
+    await provider.typing(WA_TEXT.From)
+    tick(60_000)
+    await provider.typing(WA_TEXT.From)
+    expect(calls).toHaveLength(1)
+    // …and retried once it expires.
+    tick(60 * 60_000)
+    await provider.typing(WA_TEXT.From)
+    expect(calls).toHaveLength(2)
+  })
+
+  it('typing never rejects on 5xx / 429 / network errors (best-effort)', async () => {
+    let status = 500
+    const { provider, calls } = make(() => ({ status, json: { message: 'boom' } }))
+    const { body, headers } = signed(WA_TEXT)
+    provider.ingest(body, headers)
+    await expect(provider.typing(WA_TEXT.From)).resolves.toBeUndefined()
+    status = 429
+    await expect(provider.typing(WA_TEXT.From)).resolves.toBeUndefined()
+    expect(calls).toHaveLength(2) // transient failures do not suppress the chat
+
+    const broken = new TwilioProvider({
+      accountSid: SID, authToken: TOKEN, webhookUrl: HOOK,
+      http: { fetch: (async () => { throw new Error('ECONNRESET') }) as typeof globalThis.fetch, resolver: async () => ['93.184.216.34'] },
+    })
+    const s = signed(WA_TEXT)
+    broken.ingest(s.body, s.headers)
+    await expect(broken.typing(WA_TEXT.From)).resolves.toBeUndefined()
+  })
+
+  it('typing skips an inbound older than the 24h customer-service window', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(1_000_000)
+    const { provider, calls } = make(() => ({ json: { success: true } }))
+    const { body, headers } = signed(WA_TEXT)
+    provider.ingest(body, headers)
+    vi.setSystemTime(1_000_000 + 24 * 60 * 60_000 + 1)
+    await provider.typing(WA_TEXT.From)
+    expect(calls).toHaveLength(0)
+  })
+})
+
+describe('TwilioProvider — BSUID (business-scoped user id) chats', () => {
+  it('keeps whatsapp:CO.xxx as a stable WhatsApp chat/sender id end-to-end', async () => {
+    const { provider, calls, events } = make((c) => c.url.includes('Indicators')
+      ? { json: { success: true } }
+      : { status: 201, json: { sid: 'SMout', status: 'queued' } })
+    const { body, headers } = signed(WA_BSUID_TEXT)
+    expect(provider.ingest(body, headers)).toBe(200)
+    const e = events.find((x) => x.kind === 'message')
+    expect(e?.kind === 'message' && e.message).toMatchObject({
+      chatId: 'whatsapp:CO.2132056440717202',
+      senderId: 'whatsapp:CO.2132056440717202',
+      chat: { kind: 'dm', platformData: { channel: 'whatsapp' } },
+      senderInfo: { platformData: { channel: 'whatsapp', waId: 'CO.2132056440717202' } },
+    })
+
+    await provider.typing('whatsapp:CO.2132056440717202')
+    expect(JSON.parse(calls[0]!.body)).toEqual({ channel: 'WHATSAPP', messageId: WA_BSUID_TEXT.MessageSid })
+
+    await provider.send('whatsapp:CO.2132056440717202', { kind: 'text', text: 'hola' })
+    const sent = parseFormParams(calls[1]!.body)
+    expect(sent['To']).toBe('whatsapp:CO.2132056440717202')
+    expect(sent['From']).toBe('whatsapp:+14155238886')
   })
 })
