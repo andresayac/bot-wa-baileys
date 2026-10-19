@@ -104,6 +104,20 @@ export function validateConfig<T extends Partial<BotConfig>>(config: T): T {
     throw new ConfigValidationError('rateLimit', 'object', config.rateLimit)
   }
 
+  if (config.telemetry !== undefined) {
+    const t = config.telemetry as unknown as Record<string, unknown> | null
+    const tracer = t?.tracer as Record<string, unknown> | undefined
+    if (typeof t !== 'object' || t === null || typeof tracer !== 'object' || tracer === null || typeof tracer.startSpan !== 'function') {
+      throw new ConfigValidationError('telemetry.tracer', 'a BotTracer (e.g. await createOtelTracer())', t?.tracer)
+    }
+    if (t.ids !== undefined && !['hash', 'raw', 'omit'].includes(t.ids as string)) {
+      throw new ConfigValidationError('telemetry.ids', "'hash' | 'raw' | 'omit'", t.ids)
+    }
+    if (t.idKey !== undefined && typeof t.idKey !== 'string' && !(t.idKey instanceof Uint8Array)) {
+      throw new ConfigValidationError('telemetry.idKey', 'string | Uint8Array', t.idKey)
+    }
+  }
+
   if (config.conversation) {
     assertStringOrNumber('conversation.timeout', config.conversation.timeout)
     assertType('conversation.timeoutMessage', config.conversation.timeoutMessage, 'string')

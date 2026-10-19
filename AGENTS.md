@@ -14,18 +14,18 @@ Capas (las dependencias van siempre hacia abajo, nunca al revés):
 | Infra compartida | `http` (cliente anti-SSRF), `graph-core` (helpers de Meta Graph), `wa-gateway-kit` (identidad LID/PN, REST y media compartidos por Evolution y WPPConnect), `server` (ingress de webhooks: body crudo, límites, health) |
 | Canales (13) | `baileys-provider`, `meta-provider`, `messenger-provider`, `instagram-provider`, `telegram-provider`, `discord-provider`, `evolution-provider`, `wppconnect-provider`, `twilio-provider`, `gohighlevel-provider`, `gupshup-provider`, `email-provider`, `tiktok-provider` |
 | Stores | `sqlite-store`, `redis-store`, `mongo-store`, `postgres-store`, `mysql-store` |
-| Plugins | `ai`, `rag`, `voice`, `nlu`, `dialogflow`, `chatwoot`, `tickets`, `moderation`, `manager`, `events` |
+| Plugins | `ai`, `rag`, `voice`, `nlu`, `dialogflow`, `chatwoot`, `tickets`, `moderation`, `manager`, `events`, `otel` (OpenTelemetry) |
 | Prototipos de producto | `inbox`, `crm`, `hub`, `campaigns`, `deployments` |
 | Tooling | `create-bot-wa` (CLI scaffolder), `eslint-plugin` (`eslint-plugin-bot-wa`) |
 | Ejemplos | `examples/bakery-ai` (asistente de pedidos con IA sobre Baileys o Twilio) |
 
 El nombre del directorio no siempre coincide con el del paquete (`packages/baileys-provider` → `@bot-wa/baileys`, `packages/meta-provider` → `@bot-wa/meta`, `packages/*-provider` → `@bot-wa/<canal>`, `packages/eslint-plugin` → `eslint-plugin-bot-wa`). Mira el `name` en su `package.json` antes de usar `--filter`.
 
-Solo 10 paquetes son **públicos**: `core`, `baileys`, `meta`, `telegram`, `sqlite-store`, `redis-store`, `ai`, `http`, `graph-core` y `create-bot-wa`. Los otros 30 (más el ejemplo) llevan `"private": true` y nunca se publican:
+Solo 10 paquetes son **públicos**: `core`, `baileys`, `meta`, `telegram`, `sqlite-store`, `redis-store`, `ai`, `http`, `graph-core` y `create-bot-wa`. Los otros 31 (más el ejemplo) llevan `"private": true` y nunca se publican:
 
 - Canales: `discord`, `messenger`, `instagram`, `evolution`, `wppconnect`, `twilio`, `gohighlevel`, `gupshup`, `email`, `tiktok`.
 - Stores: `mongo-store`, `postgres-store`, `mysql-store`.
-- Plugins e infra: `server`, `wa-gateway-kit`, `rag`, `voice`, `nlu`, `dialogflow`, `chatwoot`, `tickets`, `moderation`, `manager`, `events`.
+- Plugins e infra: `server`, `wa-gateway-kit`, `rag`, `voice`, `nlu`, `dialogflow`, `chatwoot`, `tickets`, `moderation`, `manager`, `events`, `otel`.
 - Tooling: `eslint-plugin-bot-wa`.
 - Prototipos: `inbox`, `crm`, `hub`, `campaigns`, `deployments`.
 - Ejemplo: `@bot-wa/example-bakery-ai`.
@@ -129,6 +129,11 @@ Son los errores que más caro han salido. Respétalos aunque un cambio "parezca"
 - **Scheduler durable** (`core/src/scheduler/durable.ts`, `ScheduleStore` en memoria/sqlite/redis/postgres/mysql/mongo, todos contra `test-utils/schedule-store-conformance.ts`; cron con `timeZone` IANA en `cronZone.ts`, solo `Intl`, con la política de cambio de hora de la guía): cada ocurrencia se reclama con fencing (al menos una vez; `run.occurrenceKey` para idempotencia). Solo se guarda el calendario: las tareas durables se registran al arrancar en todas las réplicas. El liderazgo (`scheduler.lease`) es un `SchedulerLease`: un `LeaseProvider` de bajo nivel o el `Coordinator`; con `coordination` el bot usa ese coordinador por defecto. No crees otro tipo de lease.
 - **Checkpoints compartidos:** `FlowCheckpoint` lleva campos de las dos opciones (`parked` para el relevo entre réplicas; `inboundId`/`cause` para el replay durable). Al reanudar, la respuesta de relevo y la reentrega durable son excluyentes, y la reproducción del mensaje que el checkpoint ya capturó no es una respuesta. Con coordinación, `answer` guarda la respuesta de la primera espera de un paso cortado, `handover` marca checkpoints efímeros y marcadores (`coordination.handover`), toda escritura o borrado de checkpoint pasa por el fencing del turno (`RuntimeConfig.fence`) y un registro durable se confirma solo después de la escritura que guarda su efecto. Cualquier cambio en `ConversationRuntime.resumeDormant`/`wrapCompiled` necesita los tests de `coordination`, `durability-*` y `wave-i-integration` y `handover-*`.
 - Las suites contra servidores reales de estas piezas (coordinación y schedules en Redis, durabilidad en Postgres/Redis, incluida la matriz de caídas) usan las mismas `BOTWA_TEST_*_URL`: córrelas en local si las tocas.
+
+### Trazas (opt-in)
+- `BotConfig.telemetry` (`core/src/telemetry/`): sin la clave `k.tracing` es `null` y **cada sitio instrumentado toma su camino original** (`if (!k.tracing) return original()`): ni ALS, ni `await`/`.then` extra, ni closures en el camino caliente. Con trazas, un wrapper devuelve la promesa original (el span se cierra en una rama lateral), así que el orden de microtareas no cambia. Un método que pasa a delegar en `xxxNow()` deja de ser `async` para no añadir ticks.
+- **Sin datos personales:** nunca pongas en un span cuerpos, captions, prompts, respuestas, argumentos/resultados de herramientas, `c.state` ni `Error.message` (solo con `errorMessages`). Los ids pasan por la política `ids` (`tracing.setIds()` / `idAttribute()`); los nombres de atributos viven en `TRACE_ATTR`. Las métricas derivadas de spans (`@bot-wa/otel`) solo copian atributos de baja cardinalidad.
+- Todo llamado al tracer del usuario pasa por `SafeSpan`/`Guard` (`telemetry/tracing.ts`): un tracer que lanza cae a un span no-op y nunca rompe el bot. Las conversaciones usan una caja mutable (`telemetry/context.ts`, mismo patrón que `durability/causation.ts`), re-apuntada en cada turno. Nada de trazas en `@bot-wa/core/internal`. `@bot-wa/ai` (público) solo instrumenta a través de `bot.tracing` del core; `@bot-wa/otel` es privado y carga `@opentelemetry/api` en diferido.
 
 ### Plugins
 - `Plugin.install()` debe ser **síncrono**. `Bot.plug()` no hace `await` de `install()`: un `install` que lanza de forma síncrona se revierte (lo registrado se deshace) y el error se relanza, pero si devuelve una promesa que rechaza, el rechazo va al evento `'error'` del bot (ya no tumba el proceso) **sin revertir nada**: el plugin queda enchufado a medio instalar. Si necesitas inicialización async, usa el patrón de `LazyProvider` en `@bot-wa/ai`: se resuelve en el primer uso y un `warmup()` no fatal reporta errores de configuración al arrancar.

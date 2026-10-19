@@ -93,3 +93,6 @@ export type {
 // Crash simulation for durability (BotConfig.durability) tests.
 export { crashable, CrashableProvider } from './crash.js'
 export type { CrashableBackend, JournalOp } from './crash.js'
+// Tracing (BotConfig.telemetry): an in-memory tracer to assert on the spans a bot produced.
+export { createRecordingTracer } from './recordingTracer.js'
+export type { RecordingTracer, RecordingTracerOptions, RecordedSpan } from './recordingTracer.js'

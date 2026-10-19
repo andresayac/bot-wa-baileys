@@ -23,6 +23,10 @@ export interface AnthropicMessage {
 export interface AnthropicStreamEvent {
   type?: string
   delta?: { type?: string; text?: string; stop_reason?: string | null }
+  /** `message_start`: the message being streamed (its `usage.input_tokens`). */
+  message?: { usage?: Partial<AnthropicUsage> }
+  /** `message_delta`: cumulative usage (`output_tokens`). */
+  usage?: Partial<AnthropicUsage>
 }
 export interface AnthropicRequestOptions {
   signal?: AbortSignal
@@ -156,10 +160,11 @@ export class AnthropicProvider implements AIProvider {
     if (!streamFn) {
       const r = await this.generate(input)
       if (r.text) yield r.text
-      input.onStreamEnd?.({ stopReason: r.stopReason })
+      input.onStreamEnd?.({ stopReason: r.stopReason, ...(r.usage ? { usage: r.usage } : {}) })
       return
     }
     let stopReason: string | undefined
+    let usage: { input: number; output: number } | undefined
     for (let attempt = 0; ; attempt++) {
       const { args, sent } = this.buildArgs(input)
       let yielded = false
@@ -169,8 +174,11 @@ export class AnthropicProvider implements AIProvider {
           if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta' && event.delta.text) {
             yielded = true
             yield event.delta.text
-          } else if (event.type === 'message_delta' && event.delta?.stop_reason) {
-            stopReason = event.delta.stop_reason
+          } else if (event.type === 'message_delta') {
+            if (event.delta?.stop_reason) stopReason = event.delta.stop_reason
+            if (typeof event.usage?.output_tokens === 'number') usage = { input: usage?.input ?? 0, output: event.usage.output_tokens }
+          } else if (event.type === 'message_start' && typeof event.message?.usage?.input_tokens === 'number') {
+            usage = { input: event.message.usage.input_tokens, output: usage?.output ?? 0 }
           }
         }
         break
@@ -179,7 +187,7 @@ export class AnthropicProvider implements AIProvider {
         if (attempt > 0 || yielded || !this.learn(err, args, sent)) throw err
       }
     }
-    input.onStreamEnd?.({ stopReason })
+    input.onStreamEnd?.({ stopReason, ...(usage ? { usage } : {}) })
   }
 }
 

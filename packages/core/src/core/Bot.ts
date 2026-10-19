@@ -83,6 +83,8 @@ import type { DurabilityControl } from '../durability/bind.js'
 import type { I18nConfig, LocaleMessages, TranslateParams } from '../i18n/types.js'
 import { composeBot } from './bot/compose.js'
 import { createLifecycleState, toOutbound, type BotKernel, type LifecycleState } from './bot/kernel.js'
+import { NOOP_TRACING } from '../telemetry/tracing.js'
+import type { BotTracing } from '../telemetry/types.js'
 import type { Lifecycle } from './bot/lifecycle.js'
 import type { OutboundPipeline } from './bot/outbound.js'
 import type { RouteRegistrar } from './bot/routes.js'
@@ -437,6 +439,20 @@ export class Bot extends EventEmitter {
 
   /** Zero every {@link metrics} counter (uptime is kept). */
   resetMetrics(): void { this.counters.reset() }
+
+  /**
+   * The bot's tracing (`BotConfig.telemetry`): start your own spans under the bot's, or
+   * check `enabled`. Plugins (`@bot-wa/ai`) use it to add their spans to the same trace.
+   * Without `telemetry` it is a disabled no-op ({@link BotTracing.enabled} `false`).
+   *
+   * @example
+   * ```ts
+   * bot.when('pedido', async (ctx) => {
+   *   await bot.tracing.trace('erp.lookup', {}, () => erp.find(ctx.body))
+   * })
+   * ```
+   */
+  get tracing(): BotTracing { return this.kernel.tracing ?? NOOP_TRACING }
 
   /* =========================================================================
    * HUMAN HANDOFF + ACCESS LISTS  (see gates/handoff.ts, gates/accessList.ts)

@@ -86,6 +86,21 @@ export interface CheckpointStore {
   listCheckpoints(): Promise<Array<[string, FlowCheckpoint]>>
 }
 
+/** Opaque trace state of one live conversation (see {@link ConversationTraceHooks}). */
+export interface ConversationTurnTrace { readonly conversation: true }
+
+/**
+ * Tracing seam of the runtime (`RuntimeConfig.tracing`): conversation turns as spans.
+ * The Bot injects its implementation when `BotConfig.telemetry` is set.
+ */
+export interface ConversationTraceHooks {
+  begin(info: { id: string; name: string }, reason: 'start' | 'goto' | 'dormant'): ConversationTurnTrace
+  run<T>(trace: ConversationTurnTrace, fn: () => T): T
+  resume(trace: ConversationTurnTrace, reason: 'reply' | 'timeout' | 'idle' | 'end'): void
+  park(trace: ConversationTurnTrace): void
+  end(trace: ConversationTurnTrace, outcome: string, goto?: string): void
+}
+
 export interface RuntimeConfig {
   defaultTimeoutMs?: number
   timeoutMessage?: string
@@ -130,6 +145,11 @@ export interface RuntimeConfig {
   answers?: AnswerCodec
   /** Multi-replica coordination: the conversation hand-over policy (`coordination.handover`). */
   handover?: RuntimeHandover
+  /**
+   * Tracing (`BotConfig.telemetry`): each stretch of a conversation between two waits is
+   * a `bot.conversation.turn` span (see telemetry/conversation.ts). Omitted: no span code runs.
+   */
+  tracing?: ConversationTraceHooks
 }
 
 /**
@@ -224,6 +244,10 @@ interface ActiveConversation extends ConversationHandle {
   stubbed?: boolean
   /** Initial `c.state` when plain JSON (`handover`): recorded in stubs/ephemeral checkpoints. */
   startState?: Record<string, unknown>
+  /** Tracing: the conversation's turn spans (see {@link RuntimeConfig.tracing}). */
+  trace?: ConversationTurnTrace
+  /** Tracing: the wait an idle turn was opened for (see {@link ConversationRuntime.runIdle}). */
+  idleTurn?: PendingWait
 }
 
 /** Marks a conversation function that keeps its own checkpoint (no hand-over stub needed). */
@@ -273,6 +297,8 @@ export class ConversationRuntime {
   private handoverAnswers = new Map<string, RuntimeMessage[]>()
   /** Durability: the cause of each buffered (not yet consumed) message. */
   private bufferedCauses = new WeakMap<RuntimeMessage, CauseRef>()
+  /** Tracing: keys whose next {@link run} resumes a dormant checkpoint (consumed synchronously). */
+  private tracedResumes = new Set<string>()
 
   constructor(private cfg: RuntimeConfig = {}) {}
 
@@ -523,12 +549,18 @@ export class ConversationRuntime {
     else if (handover && !replayOfCaptured) this.handoverAnswers.set(key, [ctx])
     // enter() is fire-and-forget (it only resolves when the resumed flow ends); a rejection
     // here (e.g. a bad goto target) would otherwise become an unhandled rejection → crash.
+    // TODO(tracing x hand-over): a checkpoint resumed on another replica starts a fresh trace
+    // ('dormant' turn). Carrying a span link (traceparent) in FlowCheckpoint needs a stored
+    // SpanContextRef from the parking turn plus a link on resume; documented as a limit in
+    // docs/guide/tracing.md (Multi-replica).
+    if (this.cfg.tracing) this.tracedResumes.add(key)
     void this.enter(resumed, ctx, { name: cp.flowId }).catch((e) => {
       this.cfg.onError?.(e, ctx)
       this.cfg.logger?.error?.('resume failed', e)
     })
     this.handoverAnswers.delete(key)   // consumed synchronously by run(); never left behind
     if (meta?.kind === 'ephemeral') this.reportHandover(key, cp.flowId, 'resumed')
+    if (this.cfg.tracing) this.tracedResumes.delete(key)
     // Durability: the waking message answers the re-run step (a handover already queued it as
     // the parked wait's answer) — unless the checkpoint already captured this very message (a
     // replay after the step that consumed it): the flow then only re-runs its pending steps.
@@ -788,13 +820,20 @@ export class ConversationRuntime {
     const startInfo: ConversationStartInfo = { id: randomId('conv'), name, key, ctx }
     entry.life = { info: startInfo, startedAt: Date.now(), ended: false }
     this.notifyLifecycle(() => this.cfg.onConversationStart?.(startInfo))
+    const tracing = this.cfg.tracing
+    if (tracing) {
+      const reason = latest ? 'goto' : this.tracedResumes.delete(key) ? 'dormant' : 'start'
+      entry.trace = tracing.begin({ id: startInfo.id, name }, reason)
+    }
 
     const controls = (this.cfg.controlsFactory ?? defaultControlsFactory)(this, entry, ctx)
 
     let goto: ConversationGoto | undefined
     let outcome: ConversationOutcome = 'completed'
     try {
-      const forked = forkCause(() => fn(controls as never, ctx))
+      const forked = entry.trace
+        ? tracing!.run(entry.trace, () => forkCause(() => fn(controls as never, ctx)))
+        : forkCause(() => fn(controls as never, ctx))
       entry.cause = forked.box
       await forked.result
     } catch (e) {
@@ -803,19 +842,19 @@ export class ConversationRuntime {
         outcome = 'cancelled'
       } else if (e instanceof ConversationEnded) {
         outcome = e.guarded ? 'guarded' : 'ended'
-        if (e.farewell) await this.safeReply(ctx, e.farewell)
+        if (e.farewell) await this.endReply(entry, ctx, e.farewell)
       } else if (e instanceof ConversationGoto) {
         if (e.guarded) outcome = 'guarded'
         goto = e
       } else if (e instanceof ConversationTimeout) {
         outcome = 'timedOut'
-        await this.safeReply(ctx, this.cfg.timeoutMessage ?? translateFor(entry.latest ?? ctx, CORE_MESSAGES.timeout))
+        await this.endReply(entry, ctx, this.cfg.timeoutMessage ?? translateFor(entry.latest ?? ctx, CORE_MESSAGES.timeout))
       } else if (e instanceof ConversationCancelled) {
         outcome = 'cancelled'
-        if (!e.silent && this.cfg.cancelledMessage) await this.safeReply(ctx, this.cfg.cancelledMessage)
+        if (!e.silent && this.cfg.cancelledMessage) await this.endReply(entry, ctx, this.cfg.cancelledMessage)
       } else if (e instanceof RetriesExceeded) {
         outcome = 'retriesExceeded'
-        await this.safeReply(ctx, this.cfg.retriesMessage ?? translateFor(entry.latest ?? ctx, CORE_MESSAGES.retries))
+        await this.endReply(entry, ctx, this.cfg.retriesMessage ?? translateFor(entry.latest ?? ctx, CORE_MESSAGES.retries))
       } else if (e instanceof LeaseLostError) {
         // Coordination fence: this replica lost the chat (a checkpoint write was refused);
         // another replica owns the conversation now — end silently, nothing can be sent anyway.
@@ -823,9 +862,12 @@ export class ConversationRuntime {
         this.cfg.logger?.debug?.('conversation stopped: chat turn lost', { key })
       } else {
         outcome = 'error'
-        this.cfg.onError?.(e, ctx)
-        this.cfg.logger?.error?.('conversation error', e)
-        await this.safeReply(ctx, this.cfg.errorMessage ?? translateFor(entry.latest ?? ctx, CORE_MESSAGES.error))
+        // Traced: reported from the conversation's own box, so the error lands on the turn that failed.
+        this.inBox(entry, () => {
+          this.cfg.onError?.(e, ctx)
+          this.cfg.logger?.error?.('conversation error', e)
+        })
+        await this.endReply(entry, ctx, this.cfg.errorMessage ?? translateFor(entry.latest ?? ctx, CORE_MESSAGES.error))
       }
     } finally {
       // A goto hands the key straight to its target: not settled until the target is.
@@ -836,7 +878,9 @@ export class ConversationRuntime {
     }
     if (goto && !entry.cancelled) {
       try {
-        await this.run(goto.target, ctx, {}, entry.latest)
+        // Traced: the target's first turn starts under the turn that ran the goto (not
+        // under the handler that entered this conversation, possibly long gone).
+        await this.inBox(entry, () => this.run(goto.target, ctx, {}, entry.latest))
       } finally {
         // The target could not start (closed, unknown name) or has ended.
         if (this.settleWaiters.size > 0) this.notifySettled(key)
@@ -851,6 +895,7 @@ export class ConversationRuntime {
     if (entry.observers) for (const o of [...entry.observers]) { try { o.inbound?.(ctx) } catch { /* observers must not break delivery */ } }
     if (entry.pending) {
       if (entry.pending.filter && !entry.pending.filter(ctx)) return false
+      if (entry.trace) this.cfg.tracing!.resume(entry.trace, 'reply')
       adoptCause(entry.cause)
       this.trackIdle(entry)
       entry.pending.resolve(ctx)
@@ -1014,10 +1059,15 @@ export class ConversationRuntime {
       }
       if (timeoutMs > 0) {
         pending.timer = setTimeout(() => {
-          this.runTimer(entry, () => { if (entry.pending === pending) pending.reject(new ConversationTimeout()) })
+          this.runTimer(entry, () => {
+            if (entry.pending !== pending) return
+            if (entry.trace) this.cfg.tracing!.resume(entry.trace, 'timeout')
+            pending.reject(new ConversationTimeout())
+          })
         }, timeoutMs)
       }
       entry.pending = pending
+      if (entry.trace) this.cfg.tracing!.park(entry.trace)
       const parking = { timeoutMs: opts.timeoutMs }
       const marked = this.markParked(entry, entry.waits === 1, undefined, parking) ?? this.writeStub(entry, parking.timeoutMs)
       this.settleAfter(idle, marked, () => 'settled')
@@ -1214,9 +1264,35 @@ export class ConversationRuntime {
   interrupt(handle: ConversationHandle, error: Error): boolean {
     const entry = handle as ActiveConversation
     if (this.active.get(entry.key) !== entry || entry.cancelled) return false
-    if (entry.pending) entry.pending.reject(error)
-    else entry.interrupted = error
+    if (entry.pending) {
+      // An idle callback already runs in its own turn (runIdle): the conversation unwinds in it.
+      if (entry.trace && entry.idleTurn !== entry.pending) this.cfg.tracing!.resume(entry.trace, 'idle')
+      entry.pending.reject(error)
+    } else entry.interrupted = error
     return true
+  }
+
+  /**
+   * Run out-of-band work of `handle`'s conversation (a `c.idle()` callback). Traced, it
+   * runs inside the conversation's box: while the conversation is parked on a wait it gets
+   * its own ROOT turn (`reason: idle`, linked to the first one), parked again afterwards
+   * unless the callback ended/redirected the conversation or a reply resumed it; while
+   * the conversation is busy, its work lands under the running turn. Untraced: `fn()`.
+   */
+  runIdle(handle: ConversationHandle, fn: () => Promise<void>): Promise<void> {
+    const entry = handle as ActiveConversation
+    const tracing = this.cfg.tracing
+    const trace = entry.trace
+    if (!tracing || !trace) return fn()
+    const pending = entry.pending
+    if (!pending || !this.isAlive(entry)) return tracing.run(trace, fn)
+    tracing.resume(trace, 'idle')
+    entry.idleTurn = pending
+    return tracing.run(trace, fn).finally(() => {
+      if (entry.idleTurn === pending) entry.idleTurn = undefined
+      // Still parked on the same wait (the callback only replied or re-prompted): park the idle turn.
+      if (entry.pending === pending && this.isAlive(entry)) tracing.park(trace)
+    })
   }
 
   /** Report an error raised outside a conversation's own flow (idle callbacks) via `onError`. */
@@ -1230,6 +1306,7 @@ export class ConversationRuntime {
     const life = entry.life
     if (!life || life.ended) return
     life.ended = true
+    if (entry.trace) this.cfg.tracing!.end(entry.trace, outcome, goto)
     const info: ConversationEndInfo = { ...life.info, outcome, durationMs: Date.now() - life.startedAt }
     if (goto !== undefined) info.goto = goto
     this.notifyLifecycle(() => this.cfg.onConversationEnd?.(info))
@@ -1287,6 +1364,20 @@ export class ConversationRuntime {
     if (!this.active.has(entry.key)) this.preserveOnAbort.delete(entry.key)
     this.notifyEnd(entry)
     if (settled && this.settleWaiters.size > 0) this.notifySettled(entry.key)
+  }
+
+  /**
+   * A built-in end-of-conversation reply (farewell, timeout, retries, error). Traced:
+   * sent from the conversation's own box, so it lands under its last turn. Not `async`:
+   * untraced, it returns {@link safeReply}'s own promise.
+   */
+  private endReply(entry: ActiveConversation, ctx: RuntimeMessage, text: string): Promise<void> {
+    return this.inBox(entry, () => this.safeReply(ctx, text))
+  }
+
+  /** Traced: run `fn` inside `entry`'s conversation box (its current turn); untraced: `fn()`. */
+  private inBox<T>(entry: ActiveConversation, fn: () => T): T {
+    return entry.trace ? this.cfg.tracing!.run(entry.trace, fn) : fn()
   }
 
   private async safeReply(ctx: RuntimeMessage, text: string): Promise<void> {

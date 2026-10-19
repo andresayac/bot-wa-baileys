@@ -6,7 +6,7 @@ Framework moderno y **agnóstico de transporte** para bots de mensajería: flows
 
 ## Paquetes
 
-El monorepo tiene **39 paquetes**: 10 **Alpha** (publicables), 24 **Experimentales** y 5 **Prototipos**. No todos están al mismo nivel de madurez, y la columna **Estado** lo dice sin rodeos:
+El monorepo tiene **40 paquetes**: 10 **Alpha** (publicables), 25 **Experimentales** y 5 **Prototipos**. No todos están al mismo nivel de madurez, y la columna **Estado** lo dice sin rodeos:
 
 - **Alpha**: forma parte de la primera alpha publicable. **Todavía no está en npm**; la primera publicación se está preparando.
 - **Experimental**: implementación real y con tests, pero el paquete es `private`. No se publica todavía y su API puede cambiar.
@@ -40,6 +40,7 @@ El monorepo tiene **39 paquetes**: 10 **Alpha** (publicables), 24 **Experimental
 | [`@bot-wa/ai`](packages/ai) | Alpha | IA: Anthropic/OpenAI/Ollama/Gemini + 9 presets OpenAI-compatible (DeepSeek/Qwen/GLM/Kimi/Groq/…), autorespuesta, tool calling con confirmación, memoria a largo plazo por usuario y RAG. Ver la [política de IA de WhatsApp](packages/ai/README.md#política-de-ia-de-whatsapp-desde-el-15-01-2026). |
 | [`@bot-wa/nlu`](packages/nlu) | Experimental | Intenciones/NLU local (define/match + `whenIntent`), sin servicios externos. |
 | [`@bot-wa/manager`](packages/manager) | Experimental | Orquestador multi-bot (registro, ciclo de vida) + API HTTP sin dependencias (control plane `/v1` con API keys). |
+| [`@bot-wa/otel`](packages/otel) | Experimental | OpenTelemetry: trazas del bot (entrada, dispatch, conversaciones, envíos, IA) y `bot.metrics()` como métricas OTel. `@opentelemetry/api` como peer opcional. |
 | [`@bot-wa/events`](packages/events) | Experimental | Envelopes versionados, journal idempotente, reintentos y DLQ para procesos asíncronos. |
 | [`@bot-wa/rag`](packages/rag) | Experimental | RAG para `@bot-wa/ai`: loaders, chunking, embeddings enchufables (OpenAI-compatible, Ollama, hashing local) e índice vectorial en memoria con persistencia JSON opcional. |
 | [`@bot-wa/voice`](packages/voice) | Experimental | Voz: transcripción de notas de voz (OpenAI-compatible, Deepgram) y respuestas habladas (OpenAI, ElevenLabs). |

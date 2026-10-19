@@ -486,3 +486,14 @@ export type {
 // the error a replayed message's media download rejects with when it cannot be rebuilt.
 export { MediaUnavailableError } from './core/mediaRefs.js'
 export type { SerializedMediaRef, MediaUnavailableReason } from './core/mediaRefs.js'
+
+// Telemetry
+// Tracing hooks (BotConfig.telemetry, bot.tracing): the minimal BotTracer contract an
+// integration implements (OpenTelemetry: @bot-wa/otel) and the attribute names.
+export { noopTracer, NOOP_TRACING, errorTypeOf } from './telemetry/tracing.js'
+export { TRACE_ATTR, SPAN_NAMES } from './telemetry/attributes.js'
+export type {
+  BotTracer, BotTracing, BotSpan, SpanOptions, SpanKind, SpanStatus, SpanLink, SpanContextRef, SpanException,
+  TraceAttributes, TraceAttributeValue, TelemetryConfig,
+} from './telemetry/types.js'
+export type { ConversationTraceHooks, ConversationTurnTrace } from './conversations/ConversationRuntime.js'

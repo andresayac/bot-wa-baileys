@@ -66,7 +66,7 @@ export class RouteRegistrar {
     // conversationMatcher: a projected event (a call) must never replace a conversation in progress.
     const unmatch = dispatcher.conversationMatcher(trigger, (ctx) => {
       void runtime.enter(target, ctx).catch((error) => events.error({ error, ctx: ctx as unknown as MessageContext }))
-    })
+    }, { flow: target })
     const unroute = this.k.flowRoutes.add(trigger, target)
     const unsub = this.k.flowRegistry.track(target, () => { unmatch(); unroute() })
     this.k.disposables.add(unsub)

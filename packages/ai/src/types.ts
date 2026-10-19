@@ -74,9 +74,10 @@ export interface GenerateInput {
   tools?: AIToolDefinition[]
   /**
    * Streaming only: called once when the provider stream ends normally, with the
-   * provider's stop reason when it reports one (e.g. `'refusal'`, `'end_turn'`).
+   * provider's stop reason when it reports one (e.g. `'refusal'`, `'end_turn'`) and the
+   * token usage when the provider streams it (Anthropic, Gemini).
    */
-  onStreamEnd?: (info: { stopReason?: string }) => void
+  onStreamEnd?: (info: { stopReason?: string; usage?: { input: number; output: number } }) => void
 }
 export interface GenerateResult {
   text: string

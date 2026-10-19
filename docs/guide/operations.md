@@ -125,3 +125,7 @@ The same journal can also be a bot's durability backend (`eventsDurability({ jou
 `@bot-wa/hub` validates plugin manifests, runtime compatibility and granted permissions before enabling a plugin. It does not execute or sandbox untrusted code by itself.
 
 `@bot-wa/deployments` tracks immutable versions and one active deployment per tenant/bot. Connect it to your deployment system for gradual rollout and physical rollback.
+
+## Tracing (OpenTelemetry)
+
+`bot.metrics()` counts; traces explain. With `BotConfig.telemetry` the bot emits a span tree per message (inbound → dispatch → handler / conversation turn → AI model and tool calls → send), with ids hashed by default and no message content. `@bot-wa/otel` sends those spans to OpenTelemetry (Jaeger, Grafana Tempo, any OTLP backend) and publishes `bot.metrics()` as OpenTelemetry metrics (`bot.plug(otelMetricsPlugin())`). Setup, span catalogue, personal-data policy and a Jaeger / Grafana Tempo example: [Tracing](./tracing).
