@@ -152,11 +152,20 @@ describe('createManagerApi', () => {
     expect(res.status).toBe(404)
   })
 
-  it('POST start on a failing bot returns 500 with the error message', async () => {
+  it('POST start on a failing bot returns 500 without leaking the error message', async () => {
     const res = await call(handler, 'POST', '/bots/bad/start')
     expect(res.status).toBe(500)
-    expect(res.body).toEqual({ error: 'boom' })
+    expect(res.body).toEqual({ error: 'start failed' })
+    expect(res.raw).not.toContain('boom')
     expect(manager.isRunning('bad')).toBe(false)
+  })
+
+  it('hands lifecycle failures to onError for the host to log', async () => {
+    const seen: Array<{ message: string; id: string; action: string }> = []
+    const h = createManagerApi(manager, { onError: (error, info) => seen.push({ message: (error as Error).message, ...info }) })
+    const res = await call(h, 'POST', '/bots/bad/start')
+    expect(res.status).toBe(500)
+    expect(seen).toEqual([{ message: 'boom', id: 'bad', action: 'start' }])
   })
 
   it('unknown routes return 404 JSON', async () => {

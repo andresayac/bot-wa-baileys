@@ -75,6 +75,8 @@ export async function secureFetch(input: string | URL, options: SecureFetchOptio
   const abortParent = () => controller.abort(parentSignal?.reason)
   parentSignal?.addEventListener('abort', abortParent, { once: true })
   let headers = init.headers
+  let method = (init.method ?? 'GET').toUpperCase()
+  let body = init.body
   const dispatchers: Agent[] = []
 
   try {
@@ -90,6 +92,8 @@ export async function secureFetch(input: string | URL, options: SecureFetchOptio
       try {
         response = await fetchImpl(url.href, {
           ...init,
+          method,
+          body,
           headers,
           redirect: 'manual',
           signal: controller.signal,
@@ -109,6 +113,13 @@ export async function secureFetch(input: string | URL, options: SecureFetchOptio
         // Never forward credentials to a different origin on redirect (native
         // fetch strips these automatically; our manual loop must too).
         if (url.origin !== previousOrigin) headers = stripSensitiveHeaders(headers)
+        if (rewritesToGet(response.status, method)) {
+          method = 'GET'
+          body = undefined
+          const next = new Headers(headers)
+          for (const name of ['content-type', 'content-length', 'content-encoding', 'content-language', 'content-location']) next.delete(name)
+          headers = next
+        }
         continue
       }
 
@@ -144,12 +155,21 @@ function pinnedDispatcher(addresses: readonly string[], allowPrivateHosts: boole
 }
 
 const SENSITIVE_HEADERS = ['authorization', 'cookie', 'proxy-authorization']
+/** Credential-looking custom headers (`apikey`, `x-api-key`, `xi-api-key`, `x-auth-token`, ...). */
+const SENSITIVE_HEADER_RE = /(?:api[-_]?key|token|secret|auth|signature|session|password)/i
 
 /** Drop credential headers (used when a redirect crosses to a different origin). */
 function stripSensitiveHeaders(headers: RequestInit['headers']): Headers {
   const next = new Headers(headers)
   for (const name of SENSITIVE_HEADERS) next.delete(name)
+  for (const name of [...next.keys()]) if (SENSITIVE_HEADER_RE.test(name)) next.delete(name)
   return next
+}
+
+/** Fetch-spec method rewrite: 303 (and 301/302 after a POST) continue as a body-less GET. */
+function rewritesToGet(status: number, method: string): boolean {
+  if (status === 303) return method !== 'GET' && method !== 'HEAD'
+  return (status === 301 || status === 302) && method === 'POST'
 }
 
 export async function fetchBuffer(input: string | URL, options: SecureFetchOptions = {}): Promise<Buffer> {
@@ -214,12 +234,49 @@ function isPrivateIpv4(address: string): boolean {
     (a === 198 && (b === 18 || b === 19))
 }
 
+/** Expand an IPv6 literal (`::`, embedded dotted IPv4) into its 8 hextets, or undefined. */
+function ipv6Hextets(address: string): number[] | undefined {
+  let text = address.split('%')[0]!
+  const dotted = /(\d+\.\d+\.\d+\.\d+)$/.exec(text)
+  if (dotted) {
+    if (isIP(dotted[1]!) !== 4) return undefined
+    const [a, b, c, d] = dotted[1]!.split('.').map(Number) as [number, number, number, number]
+    text = `${text.slice(0, -dotted[1]!.length)}${((a << 8) | b).toString(16)}:${((c << 8) | d).toString(16)}`
+  }
+  const halves = text.split('::')
+  if (halves.length > 2) return undefined
+  const parse = (part: string) => (part === '' ? [] : part.split(':').map((h) => Number.parseInt(h, 16)))
+  const head = parse(halves[0]!)
+  const tail = halves.length === 2 ? parse(halves[1]!) : []
+  const missing = 8 - head.length - tail.length
+  if (halves.length === 1 ? missing !== 0 : missing < 1) return undefined
+  const words = [...head, ...Array<number>(halves.length === 2 ? missing : 0).fill(0), ...tail]
+  return words.length === 8 && words.every((w) => Number.isInteger(w) && w >= 0 && w <= 0xffff) ? words : undefined
+}
+
+const ipv4Of = (hi: number, lo: number): string => `${hi >> 8}.${hi & 0xff}.${lo >> 8}.${lo & 0xff}`
+
 function isPrivateIpv6(address: string): boolean {
-  if (address === '::' || address === '::1') return true
-  if (address.startsWith('::ffff:')) return isPrivateIpv4(address.slice('::ffff:'.length))
-  const first = Number.parseInt(address.split(':')[0] || '0', 16)
-  // fc00::/7 unique-local, fe80::/10 link-local, ff00::/8 multicast.
-  return (first & 0xfe00) === 0xfc00 || (first & 0xffc0) === 0xfe80 || (first & 0xff00) === 0xff00
+  const w = ipv6Hextets(address)
+  // Unparseable: fail closed.
+  if (!w) return true
+  const zeroUntil = (n: number) => w.slice(0, n).every((x) => x === 0)
+  // ::/128 unspecified, ::1 loopback, ::/96 IPv4-compatible (deprecated, still routed by some stacks).
+  if (zeroUntil(6)) return w[6] === 0 ? w[7]! <= 1 || isPrivateIpv4(ipv4Of(w[6]!, w[7]!)) : isPrivateIpv4(ipv4Of(w[6]!, w[7]!))
+  // ::ffff:0:0/96 IPv4-mapped.
+  if (zeroUntil(5) && w[5] === 0xffff) return isPrivateIpv4(ipv4Of(w[6]!, w[7]!))
+  // 64:ff9b::/96 NAT64 well-known prefix and 64:ff9b:1::/48 local-use NAT64: judge the embedded IPv4.
+  if (w[0] === 0x64 && w[1] === 0xff9b && w.slice(2, 6).every((x) => x === 0)) return isPrivateIpv4(ipv4Of(w[6]!, w[7]!))
+  if (w[0] === 0x64 && w[1] === 0xff9b && w[2] === 1) return true
+  // 2002::/16 6to4: the IPv4 lives in hextets 1-2.
+  if (w[0] === 0x2002) return isPrivateIpv4(ipv4Of(w[1]!, w[2]!))
+  // 2001::/32 Teredo (tunnels to an obfuscated IPv4), 2001:db8::/32 documentation.
+  if (w[0] === 0x2001 && (w[1] === 0 || w[1] === 0xdb8)) return true
+  // 100::/64 discard-only.
+  if (w[0] === 0x100 && w[1] === 0 && w[2] === 0 && w[3] === 0) return true
+  const first = w[0]!
+  // fc00::/7 unique-local, fe80::/10 link-local, fec0::/10 site-local (deprecated), ff00::/8 multicast.
+  return (first & 0xfe00) === 0xfc00 || (first & 0xffc0) === 0xfe80 || (first & 0xffc0) === 0xfec0 || (first & 0xff00) === 0xff00
 }
 
 function isRedirect(status: number): boolean {

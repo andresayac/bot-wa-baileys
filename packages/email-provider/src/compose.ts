@@ -8,6 +8,7 @@
 
 import { UnsupportedContentError, type MediaSource, type OutboundContent } from '@bot-wa/core'
 import type { SmtpAttachment, SmtpMailOptions } from './types.js'
+import { looksLikeAddress } from './address.js'
 
 export interface ResolvedMedia {
   content: Buffer
@@ -48,6 +49,26 @@ export function sniffMime(buf: Buffer): string | undefined {
 
 const isAddressField = (v: unknown): v is string | string[] =>
   typeof v === 'string' || (Array.isArray(v) && v.every((x) => typeof x === 'string'))
+
+/** Collapse CR, LF, NUL and other C0 controls (header injection) into single spaces. */
+export function singleLine(value: string): string {
+  return value.replace(/[\u0000-\u0008\u000a-\u001f\u007f]+/g, ' ')
+}
+
+/**
+ * `cc`/`bcc` from a native payload: every entry must be one plain address
+ * (no display name, no list, no CR/LF), so a payload cannot smuggle extra
+ * headers or recipients.
+ */
+function nativeAddresses(field: 'cc' | 'bcc', value: string | string[]): string | string[] {
+  const list = Array.isArray(value) ? value : [value]
+  for (const entry of list) {
+    if (!looksLikeAddress(entry) || /[\u0000-\u001f\u007f]/.test(entry)) {
+      throw new UnsupportedContentError('native', `native email \`${field}\` entries must be plain addresses ("a@b.com")`)
+    }
+  }
+  return Array.isArray(value) ? list.map((a) => a.trim()) : value.trim()
+}
 
 /**
  * Validate `native` attachments: only in-memory content is accepted. nodemailer
@@ -172,8 +193,8 @@ export async function composeContent(content: OutboundContent, resolve: MediaRes
       if (typeof p.subject === 'string') overrides.subject = p.subject
       if (typeof p.text === 'string') overrides.text = p.text
       if (typeof p.html === 'string') overrides.html = p.html
-      if (isAddressField(p.cc)) overrides.cc = p.cc
-      if (isAddressField(p.bcc)) overrides.bcc = p.bcc
+      if (isAddressField(p.cc)) overrides.cc = nativeAddresses('cc', p.cc)
+      if (isAddressField(p.bcc)) overrides.bcc = nativeAddresses('bcc', p.bcc)
       if (p.headers !== undefined) overrides.headers = nativeHeaders(p.headers)
       return {
         text: overrides.text ?? '',

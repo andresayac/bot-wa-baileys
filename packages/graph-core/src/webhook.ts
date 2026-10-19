@@ -11,7 +11,7 @@
  *     Verify it (constant-time) to reject forged webhooks.
  */
 
-import { createHmac, timingSafeEqual } from 'node:crypto'
+import { createHash, createHmac, timingSafeEqual } from 'node:crypto'
 
 export interface ChallengeQuery {
   'hub.mode'?: string
@@ -24,10 +24,19 @@ export interface ChallengeQuery {
  * (HTTP 200) when valid, or `null` when the token doesn't match (host → 403).
  */
 export function verifyChallenge(query: ChallengeQuery, expectedVerifyToken: string): string | null {
-  if (query['hub.mode'] === 'subscribe' && query['hub.verify_token'] === expectedVerifyToken) {
-    return query['hub.challenge'] ?? null
-  }
-  return null
+  const presented = query['hub.verify_token']
+  const challenge = query['hub.challenge']
+  if (query['hub.mode'] !== 'subscribe' || typeof presented !== 'string' || typeof challenge !== 'string') return null
+  // An empty configured token would accept anyone who also sends an empty one.
+  if (!expectedVerifyToken || !constantTimeEqual(presented, expectedVerifyToken)) return null
+  return challenge
+}
+
+/** Constant-time compare through fixed-length digests (no length short-circuit). */
+function constantTimeEqual(a: string, b: string): boolean {
+  const da = createHash('sha256').update(a).digest()
+  const db = createHash('sha256').update(b).digest()
+  return timingSafeEqual(da, db)
 }
 
 /**
@@ -41,7 +50,8 @@ export function verifySignature(
   appSecret: string | undefined,
 ): boolean {
   if (!appSecret || !signatureHeader) return false
-  const expected = signatureHeader.replace(/^sha256=/, '')
+  const expected = signatureHeader.trim().replace(/^sha256=/i, '').toLowerCase()
+  if (!/^[0-9a-f]{64}$/.test(expected)) return false
   const digest = createHmac('sha256', appSecret)
     .update(typeof rawBody === 'string' ? rawBody : Buffer.from(rawBody))
     .digest('hex')

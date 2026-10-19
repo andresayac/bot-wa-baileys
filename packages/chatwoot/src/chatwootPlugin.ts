@@ -380,7 +380,8 @@ export function chatwootPlugin(config: ChatwootPluginConfig): ChatwootPlugin {
       for (const raw of attachments) {
         const a = obj(raw)
         const url = typeof a.data_url === 'string' ? a.data_url : undefined
-        if (!url) continue
+        // Only absolute http(s) URLs: some transports (Baileys) read any other `{ url }` from disk.
+        if (!url || !/^https?:\/\//i.test(url)) continue
         const caption = out.length === 0 && content ? content : undefined
         const media = { url }
         switch (a.file_type) {
@@ -388,7 +389,7 @@ export function chatwootPlugin(config: ChatwootPluginConfig): ChatwootPlugin {
           case 'video': out.push({ kind: 'video', media, ...(caption ? { caption } : {}) }); break
           case 'audio': out.push({ kind: 'audio', media }); break
           default: {
-            const filename = decodeURIComponent(new URL(url, 'https://x.invalid').pathname.split('/').pop() ?? '') || undefined
+            const filename = attachmentFilename(url)
             out.push({ kind: 'document', media, ...(filename ? { filename } : {}), ...(caption ? { caption } : {}) })
           }
         }
@@ -589,4 +590,13 @@ export function chatwootPlugin(config: ChatwootPluginConfig): ChatwootPlugin {
   }
 
   return Object.assign(spec, api)
+}
+
+/** Last URL path segment, percent-decoded when well-formed, with no path separators or controls. */
+function attachmentFilename(url: string): string | undefined {
+  let last: string
+  try { last = new URL(url).pathname.split('/').pop() ?? '' } catch { return undefined }
+  try { last = decodeURIComponent(last) } catch { /* keep the raw segment */ }
+  const name = last.replace(/[\x5c/\u0000-\u001f\u007f]+/g, '_').replace(/^\.+/, '')
+  return name || undefined
 }

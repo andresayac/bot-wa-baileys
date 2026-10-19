@@ -39,13 +39,21 @@ export function checkGraphSignature(
     return { ok: false, status: 400 }
   }
   const raw = body as string | Buffer
-  const sig = headers?.['x-hub-signature-256']
+  const sig = headerValue(headers, 'x-hub-signature-256')
   const sigStr = Array.isArray(sig) ? sig[0] : sig
   if (!verifySignature(raw, sigStr, appSecret)) {
     logger?.warn?.('webhook rejected: invalid X-Hub-Signature-256')
     return { ok: false, status: 403 }
   }
   return { ok: true }
+}
+
+/** Case-insensitive header read (hosts may hand over `X-Hub-Signature-256` as sent). */
+function headerValue(headers: Record<string, string | string[] | undefined> | undefined, name: string): string | string[] | undefined {
+  if (!headers) return undefined
+  if (headers[name] !== undefined) return headers[name]
+  for (const [key, value] of Object.entries(headers)) if (key.toLowerCase() === name) return value
+  return undefined
 }
 
 /** Parse a webhook body (raw string, Buffer, or already-parsed object) into T. */

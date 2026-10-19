@@ -97,6 +97,9 @@ importers:
       '@bot-wa/core':
         specifier: workspace:^
         version: link:../core
+      '@bot-wa/http':
+        specifier: workspace:^
+        version: link:../http
       '@cacheable/node-cache':
         specifier: ^1.5.0
         version: 1.7.4
@@ -561,6 +564,9 @@ importers:
       '@bot-wa/core':
         specifier: workspace:*
         version: link:../core
+      '@bot-wa/http':
+        specifier: workspace:*
+        version: link:../http
       pino:
         specifier: ^10.3.1
         version: 10.3.1

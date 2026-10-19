@@ -20,6 +20,16 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/). Versionado po
 - **`@bot-wa/telegram`**: modo webhook verifica el header `X-Telegram-Bot-Api-Secret-Token` (`webhookSecret`); rechaza updates forjados con 401.
 - **Graph (meta/messenger/instagram)**: aviso en construcción cuando falta `appSecret` (webhook sin verificar); guard del footgun de re-serialización (la firma debe computarse sobre los bytes crudos).
 
+### Seguridad (auditoría 2026-10)
+Auditoría de las superficies nuevas (webhooks, `server`, `manager` REST, canales nuevos, plugins). Resumen y riesgos residuales en `docs/es/guide/seguridad.md` / `docs/guide/security.md`.
+- **`@bot-wa/http`**: `isPrivateAddress` parsea IPv6 de verdad y bloquea las formas que embeben una IPv4 privada (`::ffff:7f00:1`, `::127.0.0.1`, NAT64 `64:ff9b::/96`, 6to4 `2002::/16`, Teredo, site-local, `100::/64`); antes un literal `https://[::ffff:7f00:1]/` llegaba a loopback. En redirecciones entre orígenes quita también las cabeceras con pinta de credencial (`apikey`, `x-api-key`, `xi-api-key`, `x-auth-token`…), y un `303` (o `301`/`302` tras un `POST`) continúa como `GET` sin cuerpo.
+- **`@bot-wa/graph-core`**: `verifyChallenge` compara el `hub.verify_token` en tiempo constante, rechaza un token configurado vacío y valores no string; `checkGraphSignature` busca `X-Hub-Signature-256` sin distinguir mayúsculas y `verifySignature` valida el formato hex.
+- **`@bot-wa/manager`**: `POST /v1/bots/{botId}/send` rechaza (400) URLs de media cuyo host es o resuelve a una dirección interna (SSRF: Baileys descarga `{ url }` por su cuenta); opciones `allowPrivateMediaHosts` y `mediaHostResolver`. Como esa comprobación solo ve el primer host, **`@bot-wa/baileys`** ya no deja que Baileys siga redirecciones a ciegas: descarga la media `{ url }` con `@bot-wa/http` (cada salto revalidado, 64 MiB / 60 s) y envía un Buffer; opción `remoteMedia` (`allowPrivateHosts: true` recupera el paso directo). La API heredada (`createManagerApi`) ya no devuelve el mensaje del error en los 500 (`"start failed"`) y lo entrega a `onError`; el token se compara sobre digests de longitud fija.
+- **`@bot-wa/email`**: asunto y nombres visibles (decodificados de RFC 2047) se reducen a una sola línea antes de llegar a cabeceras SMTP; `cc`/`bcc` de un payload `native` deben ser direcciones simples.
+- **`@bot-wa/gohighlevel`**: un webhook firmado sin `locationId` (o con otro) se ignora: HighLevel firma los webhooks de todas las apps con la misma clave.
+- **`@bot-wa/chatwoot`**: solo reenvía adjuntos con URL `http(s)` absoluta (Baileys lee de disco cualquier otro `{ url }`) y el nombre de archivo no puede llevar separadores de ruta; un `%` mal formado ya no pierde el mensaje.
+- **`@bot-wa/moderation`**: `findLinks` es lineal (antes O(n²) con un cuerpo lleno de enlaces de invitación).
+
 ### Robustez / correctness (2026-07-23)
 - **Baileys**: una reconexión cuyo `start()` falla (p. ej. blip de red en `fetchLatestBaileysVersion`) ahora reprograma con backoff en vez de morir para siempre; `send()` mapea errores a `ProviderError` tipados.
 - **`@bot-wa/ai`**: timeout por llamada (`timeoutMs`, default 60s) + `AbortSignal` cableado de verdad en OpenAI/Anthropic/Gemini — un proveedor colgado ya no bloquea la cola FIFO del chat.

@@ -14,7 +14,8 @@ import { readFile } from 'fs/promises'
 
 ffmpeg.setFfmpegPath(ffmpegInstaller.path)
 
-import type { MediaSource } from '@bot-wa/core'
+import { PayloadTooLargeError, UnsupportedContentError, type MediaSource, type OutboundContent } from '@bot-wa/core'
+import { fetchBuffer, SecureHttpError, type HostResolver } from '@bot-wa/http'
 
 export type WAMediaUpload =
   | Buffer
@@ -37,6 +38,72 @@ export function toMediaUpload(source: MediaSource): WAMediaUpload {
   if ((source as any).path) return readFileSync((source as any).path)
   if ((source as any).stream) return { stream: (source as any).stream }
   throw new Error(`Invalid MediaSource: ${typeof source}`)
+}
+
+/**
+ * How the provider fetches outbound `{ url }` / `https://…` media.
+ *
+ * Baileys downloads URL media with plain `fetch`, which follows redirects
+ * without checking where they land: a public URL that redirects to
+ * `http://169.254.169.254/…` would make the bot fetch (and send) internal data.
+ * By default the provider downloads remote media itself through
+ * `@bot-wa/http` (every redirect hop vetted, connection pinned to the vetted
+ * address, size and time capped) and hands Baileys a Buffer.
+ */
+export interface RemoteMediaConfig {
+  /**
+   * Accept media hosted on (or redirecting to) loopback, private or link-local
+   * addresses. `true` restores the legacy behavior: the URL is passed to
+   * Baileys untouched and streamed by it. Default `false`.
+   */
+  allowPrivateHosts?: boolean
+  /** Accept plain `http:` URLs (each hop is still vetted). Default `true`. */
+  allowHttp?: boolean
+  /** Largest media accepted, in bytes. Default 64 MiB. */
+  maxBytes?: number
+  /** Time allowed for the whole download. Default 60 s. */
+  timeoutMs?: number
+  /** Redirect hops allowed. Default 3. */
+  maxRedirects?: number
+  /** DNS resolver used to vet hosts (tests, egress gateways). */
+  resolver?: HostResolver
+  /** Custom fetch (tests, egress proxies). */
+  fetch?: typeof globalThis.fetch
+}
+
+export const REMOTE_MEDIA_MAX_BYTES = 64 * 1024 * 1024
+
+/**
+ * Download `{ url }` media through `@bot-wa/http` and return a Buffer, unless
+ * {@link RemoteMediaConfig.allowPrivateHosts} opts back into the pass-through.
+ * Rejects with {@link PayloadTooLargeError} over the size cap and
+ * {@link UnsupportedContentError} for an unsafe or failing URL.
+ */
+export async function resolveRemoteMedia(
+  upload: WAMediaUpload,
+  kind: OutboundContent['kind'],
+  config: RemoteMediaConfig = {},
+): Promise<WAMediaUpload> {
+  if (Buffer.isBuffer(upload) || !('url' in upload) || !/^https?:\/\//i.test(upload.url)) return upload
+  if (config.allowPrivateHosts === true) return upload
+  try {
+    return await fetchBuffer(upload.url, {
+      allowHttp: config.allowHttp !== false,
+      maxBytes: config.maxBytes ?? REMOTE_MEDIA_MAX_BYTES,
+      timeoutMs: config.timeoutMs ?? 60_000,
+      ...(config.maxRedirects !== undefined ? { maxRedirects: config.maxRedirects } : {}),
+      ...(config.resolver ? { resolver: config.resolver } : {}),
+      ...(config.fetch ? { fetch: config.fetch } : {}),
+    })
+  } catch (error) {
+    if (error instanceof SecureHttpError && error.code === 'RESPONSE_TOO_LARGE') {
+      throw new PayloadTooLargeError(`${kind} media exceeds ${config.maxBytes ?? REMOTE_MEDIA_MAX_BYTES} bytes`)
+    }
+    const reason = error instanceof SecureHttpError ? error.message : 'download failed'
+    const wrapped = new UnsupportedContentError(kind, `${kind} media URL rejected: ${reason}`)
+    ;(wrapped as { cause?: unknown }).cause = error
+    throw wrapped
+  }
 }
 
 /** Read a MediaSource fully into a Buffer (used by sticker/audio transcode). */

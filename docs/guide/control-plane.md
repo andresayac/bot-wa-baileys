@@ -262,6 +262,8 @@ mounted inside another server), or get `404`.
 | `defaultTenantId` | `'default'` (tenant of bots added without one) |
 | `openapi` | `{ title?, version?, servers? }` overrides for the document |
 | `allowInsecureMediaUrls` | `false`: `send` only accepts `https:` media URLs |
+| `allowPrivateMediaHosts` | `false`: `send` rejects media URLs whose host is or resolves to a loopback/private/link-local address (SSRF) |
+| `mediaHostResolver` | DNS resolver used to vet media hosts (tests, egress gateways). Default: the system resolver |
 
 ### Authentication and tenants
 
@@ -434,7 +436,9 @@ original compact API: `GET {prefix}/health`, `GET {prefix}/metrics`
 (Prometheus text), `GET {prefix}/bots`, `GET {prefix}/bots/:id`,
 `POST {prefix}/bots/:id/start` and `POST {prefix}/bots/:id/stop`. Without
 `auth` it is **unauthenticated** and logs a one-time warning; always set a
-token. Prefer `createRestApi` for new deployments.
+token. A failed start/stop answers `500 { "error": "start failed" }` (the
+error itself goes to `onError(error, { id, action })`, never to the client).
+Prefer `createRestApi` for new deployments.
 
 ## See also
 
