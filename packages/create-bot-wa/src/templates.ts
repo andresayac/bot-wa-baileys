@@ -9,7 +9,7 @@
 
 import { agentsMd } from './agentsMd.js'
 import { DOMAIN_TEMPLATES, DOMAIN_AGENT_NOTES } from './domainTemplates.js'
-import { ANTHROPIC_SDK_VERSION, CORE_VERSION, GITIGNORE, TRANSPORT_VERSION, botModule, packageJson, readme } from './shared.js'
+import { ANTHROPIC_SDK_VERSION, CORE_VERSION, GITIGNORE, botModule, botWaRange, packageJson, readme } from './shared.js'
 
 export type TemplateName =
   | 'baileys'
@@ -52,7 +52,7 @@ const baileys: ProjectTemplate = {
       path: 'package.json',
       contents: packageJson(name, {
         '@bot-wa/core': CORE_VERSION,
-        '@bot-wa/baileys': TRANSPORT_VERSION,
+        '@bot-wa/baileys': botWaRange('@bot-wa/baileys'),
       }),
     },
     {
@@ -96,7 +96,7 @@ const meta: ProjectTemplate = {
       path: 'package.json',
       contents: packageJson(name, {
         '@bot-wa/core': CORE_VERSION,
-        '@bot-wa/meta': TRANSPORT_VERSION,
+        '@bot-wa/meta': botWaRange('@bot-wa/meta'),
       }),
     },
     {
@@ -202,7 +202,7 @@ const telegram: ProjectTemplate = {
       path: 'package.json',
       contents: packageJson(name, {
         '@bot-wa/core': CORE_VERSION,
-        '@bot-wa/telegram': TRANSPORT_VERSION,
+        '@bot-wa/telegram': botWaRange('@bot-wa/telegram'),
       }),
     },
     {
@@ -250,8 +250,8 @@ const ai: ProjectTemplate = {
       path: 'package.json',
       contents: packageJson(name, {
         '@bot-wa/core': CORE_VERSION,
-        '@bot-wa/baileys': TRANSPORT_VERSION,
-        '@bot-wa/ai': TRANSPORT_VERSION,
+        '@bot-wa/baileys': botWaRange('@bot-wa/baileys'),
+        '@bot-wa/ai': botWaRange('@bot-wa/ai'),
         '@anthropic-ai/sdk': ANTHROPIC_SDK_VERSION,
       }),
     },

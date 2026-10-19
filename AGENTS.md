@@ -148,7 +148,7 @@ Son los errores que más caro han salido. Respétalos aunque un cambio "parezca"
 - Anota los cambios relevantes en la sección `[Unreleased]` de [`CHANGELOG.md`](CHANGELOG.md) (Keep a Changelog, versionado por paquete). Además, todo cambio visible de un paquete público lleva su changeset (`pnpm changeset`); los `CHANGELOG.md` de cada paquete los escribe `changeset version`, no se editan a mano.
 - El sitio no se publica en ningún hosting (sin GitHub Pages); se previsualiza con `pnpm docs:dev` y se sirve desde la raíz (`base: "/"`). Los enlaces a la referencia TypeDoc (`/api/...`) salen del SPA de VitePress: `docs/.vitepress/config.ts` ya les pone `target="_self"` y el prefijo `base` en el markdown y en el nav. Ese archivo también resuelve `vue` a través de `vitepress`, porque pnpm no lo expone en la raíz; no quites ese plugin salvo que `vue` pase a estar en las `devDependencies` raíz.
 - Las decisiones de diseño y los planes históricos están en `docs/superpowers/specs/` y `docs/superpowers/plans/`. La dirección del producto está en [`ROADMAP.md`](ROADMAP.md) (la seguridad es el primer gate).
-- Si cambias versiones de paquetes publicables, revisa las constantes de versión de `create-bot-wa/src/templates.ts`, que se estampan en los proyectos generados.
+- Las versiones `@bot-wa/*` que `create-bot-wa` estampa en los proyectos generados salen de `create-bot-wa/src/versions.ts`, que **se genera** (`packages/create-bot-wa/scripts/gen-versions.mjs`) desde el `package.json` de cada paquete público como `^<versión exacta>` (con prerelease, p. ej. `^2.0.0-alpha.2`, para que npm la resuelva). Lo regeneran `pnpm build` y `pnpm version-packages`; un test falla si queda desfasado. No lo edites a mano.
 
 ## Publicar una versión
 

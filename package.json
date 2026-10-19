@@ -16,10 +16,10 @@
     "docs:serve": "vitepress serve docs",
     "typecheck": "pnpm -r typecheck",
     "pack:smoke": "node scripts/pack-smoke.mjs",
-    "test:scripts": "node --test scripts/smoke/semver.test.mjs",
+    "test:scripts": "node --test scripts/smoke/semver.test.mjs scripts/smoke/readme-links.test.mjs",
     "bench:soak": "node --expose-gc scripts/soak/soak.mjs",
     "changeset": "changeset",
-    "version-packages": "changeset version",
+    "version-packages": "changeset version && pnpm --filter create-bot-wa run gen:versions",
     "release": "pnpm build && changeset publish"
   },
   "devDependencies": {

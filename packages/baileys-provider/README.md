@@ -39,7 +39,7 @@ bot.when('hola', (ctx) => ctx.reply('👋 ¡Hola!'))
 await bot.start()   // la primera vez imprime el QR en la terminal: escanéalo desde WhatsApp → Dispositivos vinculados
 ```
 
-La sesión queda guardada en `./sessions/mi-bot`; los siguientes arranques reconectan sin QR. Hay un ejemplo completo (comandos, flows, media, hooks, DI y scheduler) en [`examples/bot.ts`](examples/bot.ts) (`pnpm --filter @bot-wa/baileys example`).
+La sesión queda guardada en `./sessions/mi-bot`; los siguientes arranques reconectan sin QR. Hay un ejemplo completo (comandos, flows, media, hooks, DI y scheduler) en [`examples/bot.ts`](https://github.com/andresayac/bot-wa-baileys/blob/main/packages/baileys-provider/examples/bot.ts) (`pnpm --filter @bot-wa/baileys example`).
 
 ## Configuración
 

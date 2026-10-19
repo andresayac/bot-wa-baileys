@@ -141,7 +141,7 @@ git push --follow-tags
 
 ### Smoke test de empaquetado
 
-`pnpm pack:smoke` (`scripts/pack-smoke.mjs`) simula instalar desde npm **sin publicar**: compila, ejecuta `pnpm pack` en cada paquete público hacia un directorio temporal fuera del repo, revisa cada tarball (archivos de `main`/`types`/`exports`/`bin`, README y LICENSE; nada de `src`, tests, source maps, configs ni credenciales; salida de `lib/` sin fuente; `engines`; dependencias privadas o con `workspace:`; tamaños) y luego, en un proyecto npm limpio, instala los tarballs y comprueba que cada subpath de `exports` se importa, que un consumidor TypeScript compila con `moduleResolution` `nodenext` y `bundler`, que los SDKs opcionales de IA ausentes solo fallan al usarse, que los bins `bot-wa` y `create-bot-wa` funcionan y que cada plantilla de `create-bot-wa` resuelve sus versiones contra los tarballs, se instala y arranca en `bot-wa dev`. Necesita red para las dependencias de terceros y tarda unos minutos. Opciones: `--no-build`, `--no-scaffold-install` (más rápido), `--keep` (conserva el directorio temporal). Es un script local: no hay workflow de CI para él.
+`pnpm pack:smoke` (`scripts/pack-smoke.mjs`) simula instalar desde npm **sin publicar**: compila, ejecuta `pnpm pack` en cada paquete público hacia un directorio temporal fuera del repo, revisa cada tarball (archivos de `main`/`types`/`exports`/`bin`, README y LICENSE; nada de `src`, tests, source maps, configs ni credenciales; salida de `lib/` sin fuente; `engines`; dependencias privadas o con `workspace:`; tamaños) y luego, en un proyecto npm limpio, instala los tarballs y comprueba que cada subpath de `exports` se importa, que un consumidor TypeScript compila con `moduleResolution` `nodenext` y `bundler`, que los SDKs opcionales de IA ausentes solo fallan al usarse, que los bins `bot-wa` y `create-bot-wa` funcionan que ningún README publicado tiene enlaces relativos (se rompen en npmjs.com) y que cada plantilla de `create-bot-wa` resuelve sus versiones contra los tarballs y se instala **sin tocar sus rangos `@bot-wa/*`** (un registro npm local y temporal, `scripts/smoke/registry.mjs`, sirve los tarballs al scope `@bot-wa`, así que es npm quien resuelve los rangos, prereleases incluidas) y arranca en `bot-wa dev`. Necesita red para las dependencias de terceros y tarda unos minutos. Opciones: `--no-build`, `--no-scaffold-install` (más rápido), `--keep` (conserva el directorio temporal). Es un script local: no hay workflow de CI para él.
 
 ### Modo prerelease `alpha`
 
@@ -161,7 +161,7 @@ Antes de la primera publicación, el mantenedor debe crear o reclamar el scope *
 
 ### Promover un paquete privado
 
-Quita `"private": true` de su `package.json`, comprueba que tiene `publishConfig.access: "public"`, `repository.directory` y `files`, y añade un changeset. Ningún paquete público puede depender de uno privado (Changesets lo rechaza). Si cambias versiones de paquetes publicables, revisa también las constantes de versión de `create-bot-wa/src/templates.ts`.
+Quita `"private": true` de su `package.json`, comprueba que tiene `publishConfig.access: "public"`, `repository.directory` y `files`, y añade un changeset. Ningún paquete público puede depender de uno privado (Changesets lo rechaza). Las versiones que estampa `create-bot-wa` se regeneran solas desde los `package.json` (`create-bot-wa/src/versions.ts`, en `pnpm build` y `pnpm version-packages`).
 
 ## Documentación
 

@@ -13,7 +13,8 @@
  *     the repo (pnpm rewrites `workspace:` ranges to real versions).
  *  2. Inspect each tarball: required files (README, LICENSE, main/types/bin and
  *     every `exports` target), nothing that should not ship (src, tests, maps,
- *     configs, env/session files), no lib/ file without a source (stale build
+ *     configs, env/session files), no relative links in the README (they break
+ *     on npmjs.com), no lib/ file without a source (stale build
  *     output), manifest sanity (engines, type, no `workspace:` left, no
  *     dependency on a private workspace package, internal ranges satisfied by
  *     the packed versions) and size budgets.
@@ -25,19 +26,23 @@
  *     AI SDK peers absent → import works, a clear lazy error only on use; the
  *     `bot-wa` and `create-bot-wa` bins run.
  *  4. Scaffold every create-bot-wa template, check its @bot-wa ranges resolve
- *     to the packed versions, rewrite them to the tarballs, npm install,
- *     `node --check` every .js and boot it in `bot-wa dev` (non-interactive).
+ *     to the packed versions (npm prerelease rules), then `npm install` it with
+ *     its ranges UNTOUCHED: a throwaway local registry (scripts/smoke/registry.mjs,
+ *     routed with a scoped `@bot-wa:registry=`) serves the packed tarballs, so
+ *     npm itself must resolve every stamped range. `node --check` every .js and
+ *     boot it in `bot-wa dev` (non-interactive).
  *
  * Network: npm still downloads third-party dependencies (baileys, redis, ...).
  * Never publishes, never touches the npm registry with our packages.
  */
-import { spawnSync } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { createRequire } from 'node:module'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { gunzipSync } from 'node:zlib'
+import { relativeLinks } from './smoke/readme-links.mjs'
 import { satisfies } from './smoke/semver.mjs'
 
 /* -------------------------------------------------------------------------- */
@@ -154,6 +159,8 @@ const FORBIDDEN = [
 ]
 
 const failures = []
+/** Kills the local registry child, if one was started (also on early exits). */
+let stopRegistry = () => {}
 const fail = (scope, msg) => {
   failures.push(`${scope}: ${msg}`)
   console.log(`  FAIL ${scope}: ${msg}`)
@@ -323,7 +330,12 @@ for (const { dir, pkg: srcPkg } of publicPkgs) {
   packedVersions.set(name, pkg.version)
 
   // Required files.
-  if (![...entries.keys()].some((f) => /^readme(\.md)?$/i.test(f))) failFor(name, 'README missing')
+  const readme = [...entries.keys()].find((f) => /^readme(\.md)?$/i.test(f))
+  if (!readme) failFor(name, 'README missing')
+  else {
+    const rel = relativeLinks(entries.get(readme).toString('utf8'))
+    if (rel.length) failFor(name, `README has relative links (broken on npmjs.com): ${rel.join(', ')}`)
+  }
   if (![...entries.keys()].some((f) => /^licen[cs]e(\.md|\.txt)?$/i.test(f))) failFor(name, 'LICENSE missing')
   const need = new Set()
   if (pkg.main) need.add(norm(pkg.main))
@@ -535,7 +547,8 @@ process.exit(bad ? 1 : 0)
     .filter(Boolean)
   if (!templates.length) failFor('create-bot-wa', 'could not read the template list from --help')
   mkdirSync(SCAFFOLDS)
-  const overrides = Object.fromEntries([...tarballs].filter(([n]) => n !== 'create-bot-wa').map(([n, f]) => [n, `file:${f.replace(/\\/g, '/')}`]))
+  // Local registry for the @bot-wa scope: scaffolds install their stamped ranges as-is.
+  const registry = SCAFFOLD_INSTALL ? await startRegistry() : undefined
   for (const t of templates) {
     const dirName = `bot-${t}`
     const scope = `create-bot-wa[${t}]`
@@ -551,11 +564,8 @@ process.exit(bad ? 1 : 0)
         if (!tarballs.has(dep)) continue
         const v = packedVersions.get(dep)
         if (!satisfies(v, range)) failFor('create-bot-wa', `${t}: ${dep}@${range} does not resolve to packed ${v}`)
-        pj[field][dep] = overrides[dep]
       }
     }
-    pj.overrides = overrides
-    writeFileSync(join(proj, 'package.json'), JSON.stringify(pj, null, 2))
     const jsFiles = []
     const collect = (d) => {
       for (const e of readdirSync(d, { withFileTypes: true })) {
@@ -571,11 +581,19 @@ process.exit(bad ? 1 : 0)
       if (!c.ok) failFor('create-bot-wa', `${t}: node --check ${relative(proj, f)}\n${c.out}`)
     }
     let status = `${jsFiles.length} js checked`
-    if (SCAFFOLD_INSTALL) {
-      const inst = run('npm', ['install', '--no-audit', '--no-fund', '--loglevel=error'], { cwd: proj })
+    if (registry) {
+      // The scaffold's package.json is not touched: npm resolves its @bot-wa ranges
+      // against the packed versions served by the local registry.
+      writeFileSync(join(proj, '.npmrc'), `@bot-wa:registry=${registry.url}\n`)
+      const inst = run('npm', ['install', '--no-audit', '--no-fund', '--loglevel=error', '--prefer-online'], { cwd: proj })
       if (!inst.ok) {
         failFor('create-bot-wa', `${t}: npm install failed\n${inst.out.split('\n').slice(-15).join('\n')}`)
         continue
+      }
+      for (const dep of Object.keys(pj.dependencies ?? {})) {
+        if (!tarballs.has(dep)) continue
+        const got = readJson(join(proj, 'node_modules', ...dep.split('/'), 'package.json')).version
+        if (got !== packedVersions.get(dep)) failFor('create-bot-wa', `${t}: npm installed ${dep}@${got}, expected packed ${packedVersions.get(dep)}`)
       }
       const entry = pj.scripts?.dev?.match(/bot-wa dev (\S+)/)?.[1] ?? 'src/bot.js'
       const devBin = join(proj, 'node_modules', '@bot-wa', 'core', ...String(packedManifests.get('@bot-wa/core')?.bin?.['bot-wa'] ?? 'lib/dev/bin.js').split('/'))
@@ -586,13 +604,37 @@ process.exit(bad ? 1 : 0)
     console.log(`  ${scope}: ${status}`)
   }
   row('create-bot-wa').templates = templates.length
+  registry?.stop()
 }
 
 finish()
 
 /* -------------------------------------------------------------------------- */
 
+/** Start scripts/smoke/registry.mjs over the packed @bot-wa tarballs. */
+async function startRegistry() {
+  const list = [...tarballs]
+    .filter(([n]) => n.startsWith('@bot-wa/') && packedManifests.has(n))
+    .map(([n, file]) => ({ manifest: packedManifests.get(n), file }))
+  const listFile = join(tmpBase, 'registry.json')
+  writeFileSync(listFile, JSON.stringify(list))
+  const child = spawn(process.execPath, [join(ROOT, 'scripts', 'smoke', 'registry.mjs'), listFile], { stdio: ['ignore', 'pipe', 'inherit'] })
+  const port = await new Promise((res, rej) => {
+    let buf = ''
+    child.stdout.on('data', (d) => {
+      buf += d
+      const m = /LISTENING (\d+)/.exec(buf)
+      if (m) res(Number(m[1]))
+    })
+    child.once('exit', (code) => rej(new Error(`local registry exited (${code})`)))
+  })
+  console.log(`  local @bot-wa registry on 127.0.0.1:${port} (${list.length} packages)`)
+  stopRegistry = () => child.kill()
+  return { url: `http://127.0.0.1:${port}/`, stop: () => child.kill() }
+}
+
 function finish() {
+  stopRegistry()
   step('report')
   const kb = (n) => `${(n / 1024).toFixed(1)} kB`
   const rows = [['package', 'version', 'files', 'packed', 'unpacked', 'entry points', 'result']]

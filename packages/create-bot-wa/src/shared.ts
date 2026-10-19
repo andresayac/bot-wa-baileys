@@ -4,16 +4,21 @@
  * versions stamped into generated projects. Pure — no I/O.
  */
 
+import { BOTWA_VERSIONS } from './versions.js'
+import type { BotWaPackage } from './versions.js'
+
 /* Versions stamped into generated package.json files.
  *
- * These track the CURRENT published line. While core is on the alpha line, a
- * caret over a prerelease (`^2.0.0-alpha.1`) only matches other `2.0.0-*`
- * prereleases, NOT a future stable `2.0.0` — so re-stamp CORE_VERSION to
- * `^2.0.0` (drop the prerelease) as part of the stable release. Until the
- * `@bot-wa/*` packages are published to npm, generated projects install only
- * against a registry/local mirror that has them. */
-export const CORE_VERSION = '^2.0.0-alpha.1'
-export const TRANSPORT_VERSION = '^0.1.0'
+ * The `@bot-wa/*` ranges come from ./versions.ts, generated at build time from
+ * the current version of each public workspace package (a caret over the exact
+ * version, so a prerelease such as `^2.0.0-alpha.2` still resolves on npm). */
+export { BOTWA_VERSIONS }
+export type { BotWaPackage }
+
+/** The range stamped for a public `@bot-wa/*` package. */
+export const botWaRange = (name: BotWaPackage): string => BOTWA_VERSIONS[name]
+
+export const CORE_VERSION = botWaRange('@bot-wa/core')
 export const ANTHROPIC_SDK_VERSION = '^0.68.0'
 export const BETTER_SQLITE3_VERSION = '^11.7.0'
 

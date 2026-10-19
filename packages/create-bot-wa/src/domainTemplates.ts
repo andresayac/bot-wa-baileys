@@ -14,7 +14,7 @@ import {
   BETTER_SQLITE3_VERSION,
   CORE_VERSION,
   GITIGNORE,
-  TRANSPORT_VERSION,
+  botWaRange,
   baileysMain,
   botModule,
   packageJson,
@@ -29,7 +29,7 @@ function code(strings: TemplateStringsArray, ...values: string[]): string[] {
 }
 
 const BAILEYS_IMPORT = "import { BaileysProvider } from '@bot-wa/baileys'"
-const BAILEYS_DEPS = { '@bot-wa/core': CORE_VERSION, '@bot-wa/baileys': TRANSPORT_VERSION }
+const BAILEYS_DEPS = { '@bot-wa/core': CORE_VERSION, '@bot-wa/baileys': botWaRange('@bot-wa/baileys') }
 const BAILEYS_README = [
   'On first start a **QR code** is printed — scan it with WhatsApp → Linked devices.',
   'Auth is cached under `sessions/` so later starts connect automatically.',
@@ -694,9 +694,9 @@ const aiFull: ProjectTemplate = {
       path: 'package.json',
       contents: packageJson(name, {
         '@bot-wa/core': CORE_VERSION,
-        '@bot-wa/baileys': TRANSPORT_VERSION,
-        '@bot-wa/ai': TRANSPORT_VERSION,
-        '@bot-wa/sqlite-store': TRANSPORT_VERSION,
+        '@bot-wa/baileys': botWaRange('@bot-wa/baileys'),
+        '@bot-wa/ai': botWaRange('@bot-wa/ai'),
+        '@bot-wa/sqlite-store': botWaRange('@bot-wa/sqlite-store'),
         '@anthropic-ai/sdk': ANTHROPIC_SDK_VERSION,
         'better-sqlite3': BETTER_SQLITE3_VERSION,
       }),
