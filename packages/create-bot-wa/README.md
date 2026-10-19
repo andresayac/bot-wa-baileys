@@ -56,6 +56,14 @@ especially if you move the bot to the official Cloud API (`@bot-wa/meta`). See t
 [current terms](https://www.whatsapp.com/legal/business-solution-terms) and the
 [AI plugin guide](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/guide/ai.md).
 
+Both AI templates (`ai`, `ai-full`) answer in Spanish and pin the built-in texts to it
+(`i18n: { defaultLocale: 'es', locales: ['es'] }` in `new Bot(...)`), so the slash commands and the AI's
+confirmation prompts (`¿Confirmas?`, `Sí`/`No`) always match the persona, even for a client that reports
+another language. To serve more languages, list them there and translate `PERSONA`. The `ai-full` tools follow the
+[side-effecting tools best practices](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/guide/ai-tools.md):
+a `title` on every tool, product `labels`, `confirmLines` with code-computed totals, `dedupe` on create, and an
+`onToolEvent` audit log with metadata only.
+
 ## What gets generated
 
 ```
@@ -74,7 +82,8 @@ Then:
 cd my-bot
 npm install
 cp .env.example .env   # fill in your credentials
-npm start              # or: npm run dev (chat in the terminal: simulated provider, hot reload)
+npm run dev            # chat in the terminal: simulated provider, hot reload
+npm start              # connect the real channel
 ```
 
 ## CLI options
@@ -84,7 +93,7 @@ create-bot-wa <dir> [options]
 
   -t, --template <t>  baileys | meta | telegram | ai | games | support | store | restaurant | clinic | ai-full
                       (default: baileys when non-interactive)
-  --name <name>       package name (default: derived from the directory name)
+  --name <name>       package name, scoped names included (default: derived from the directory name)
   -y, --yes           skip prompts; use defaults for anything missing
   --overwrite         allow scaffolding into a non-empty directory
   --force             allow a directory inside the bot-wa monorepo itself

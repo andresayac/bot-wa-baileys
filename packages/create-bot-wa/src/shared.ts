@@ -22,6 +22,9 @@ export const CORE_VERSION = botWaRange('@bot-wa/core')
 export const ANTHROPIC_SDK_VERSION = '^0.68.0'
 export const BETTER_SQLITE3_VERSION = '^11.7.0'
 
+/** WhatsApp Business Solution terms (the 2026-01-15 "AI Providers" policy), linked from the AI templates. */
+export const AI_POLICY_URL = 'https://www.whatsapp.com/legal/business-solution-terms'
+
 export const GITIGNORE = ['node_modules/', 'sessions/', '.env', '*.qr.png', '*.db', '*.db-*', ''].join('\n')
 
 export function packageJson(name: string, deps: Record<string, string>): string {
@@ -165,4 +168,21 @@ export function baileysMain(defaultSession: string, readyLine: string, createArg
     "bot.on('ready', () => bot.logger.info('" + readyLine.replace(/\\/g, '\\\\').replace(/'/g, "\\'") + "'))",
     'await bot.start()',
   ]
+}
+
+/**
+ * `new Bot(...)` config literal of the AI templates: `fields` plus `i18n` pinned to
+ * Spanish, so the built-in texts (slash commands, the AI's "¿Confirmas?" prompt and
+ * its Sí/No buttons) always match the Spanish persona, even when a client reports
+ * another language (e.g. Telegram's `language_code`).
+ */
+export function aiBotConfig(fields: string): string {
+  return [
+    '{',
+    '    ' + fields + ',',
+    '    // Built-in texts (commands, AI confirmations, Sí/No) in Spanish, like the persona.',
+    '    // To serve more languages: list them here and translate PERSONA (see the i18n guide).',
+    "    i18n: { defaultLocale: 'es', locales: ['es'] },",
+    '  }',
+  ].join('\n')
 }

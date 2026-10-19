@@ -2,12 +2,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { execFileSync } from 'node:child_process'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 
 import { sanitizeName, scaffold } from '../src/scaffold.js'
 import { TEMPLATE_NAMES, TEMPLATES } from '../src/templates.js'
 // Plain-JS bin; typed through its JSDoc because tsconfig sets `allowJs`.
-import { main, parseArgs } from '../src/cli.js'
+import { cdArgument, main, parseArgs } from '../src/cli.js'
 
 /** Temp dirs created per test, removed after each test (hermetic). */
 const tempDirs: string[] = []
@@ -170,6 +170,9 @@ describe('scaffold — every template', () => {
     expect(bot).not.toContain('Eres un asistente amable y breve.')
     // The source points at the policy so whoever edits the persona sees it.
     expect(bot).toContain('WhatsApp Business Platform')
+    // The persona answers in Spanish and the built-in texts are pinned to match it.
+    expect(bot).toContain('Responde breve y en español.')
+    expect(bot).toContain("i18n: { defaultLocale: 'es', locales: ['es'] }")
 
     expect(await read(target, '.env.example')).toContain('BUSINESS_NAME=')
   })
@@ -210,6 +213,12 @@ describe('scaffold — naming', () => {
     expect(result.name).toBe('custom-name')
     const pkg = JSON.parse(await read(target, 'package.json'))
     expect(pkg.name).toBe('custom-name')
+  })
+
+  it('sanitizeName keeps a valid scoped name and caps the length', () => {
+    expect(sanitizeName('@Acme/Support Bot')).toBe('@acme/support-bot')
+    expect(sanitizeName('@acme/')).toBe('acme')
+    expect(sanitizeName('x'.repeat(300)).length).toBeLessThanOrEqual(214)
   })
 
   it('sanitizeName handles edge cases', () => {
@@ -290,6 +299,25 @@ describe('cli parseArgs', () => {
     expect(parseArgs(['--template=telegram', 'dir'])).toMatchObject({ template: 'telegram' })
     expect(parseArgs(['dir', '--name=pkg-name', '-y'])).toMatchObject({ name: 'pkg-name', yes: true })
     expect(parseArgs(['-h'])).toMatchObject({ help: true })
+  })
+
+  it('cdArgument prints a short relative path below cwd, else the absolute one', () => {
+    const cwd = resolve('/work')
+    expect(cdArgument(cwd, join(cwd, 'my-bot'))).toBe('my-bot')
+    expect(cdArgument(cwd, join(cwd, 'apps', 'bot'))).toBe('apps/bot')
+    expect(cdArgument(cwd, cwd)).toBe('.')
+    const outside = resolve('/elsewhere/deep/my-bot')
+    expect(cdArgument(cwd, outside)).toBe(outside)
+    expect(cdArgument(cwd, join(cwd, 'my bot'))).toBe('"my bot"')
+  })
+
+  it('rejects an option whose value is missing instead of silently ignoring it', () => {
+    // `--template` at the end used to leave the template undefined (→ default baileys).
+    expect(() => parseArgs(['dir', '--template'])).toThrow(/--template needs a value/)
+    expect(() => parseArgs(['dir', '--name'])).toThrow(/--name needs a value/)
+    // ...and the next flag is never swallowed as the value.
+    expect(() => parseArgs(['dir', '-t', '--yes'])).toThrow(/-t needs a value/)
+    expect(() => parseArgs(['dir', '--template='])).toThrow(/--template needs a value/)
   })
 
   it('rejects unknown options and stray positionals', () => {

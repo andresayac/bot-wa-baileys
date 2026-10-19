@@ -10,12 +10,14 @@
 
 import type { ProjectTemplate } from './templates.js'
 import {
+  AI_POLICY_URL,
   ANTHROPIC_SDK_VERSION,
   BETTER_SQLITE3_VERSION,
   CORE_VERSION,
   GITIGNORE,
   botWaRange,
   baileysMain,
+  aiBotConfig,
   botModule,
   packageJson,
   readme,
@@ -680,8 +682,6 @@ bot.conversation('cancelar-cita', async (c, ctx) => {
 
 /* ai-full ---------------------------------------------------------------- */
 
-const AI_POLICY_URL = 'https://www.whatsapp.com/legal/business-solution-terms'
-
 const aiFullDescription =
   'Full-stack bot: business-scoped AI (@bot-wa/ai) with order tools + keyword intents + SQLite store + scheduler + slash commands + human handoff.'
 
@@ -720,8 +720,9 @@ const PERSONA = [
   'Eres el asistente de atención al cliente de ' + BUSINESS + '.',
   'Solo respondes sobre sus productos, servicios, precios, pedidos, horarios y reservas.',
   'Si te piden algo ajeno al negocio, explica con amabilidad que solo puedes ayudar con temas de ' + BUSINESS + ' y ofrece hablar con una persona.',
-  'Responde breve y en el idioma del cliente. Si no sabes un dato, dilo; no lo inventes.',
+  'Responde breve y en español. Si no sabes un dato, dilo; no lo inventes.',
   'Para pedidos usa las herramientas: consulta ver_menu y usa solo sus claves de producto.',
+  'Nombra los productos por su nombre (por ejemplo "Pan de queso"), nunca por su clave.',
   'Para precios o totales usa cotizar_pedido: nunca calcules importes por tu cuenta.',
 ].join(' ')
 
@@ -734,9 +735,13 @@ const MENU = {
   cafe: { name: 'Café', price: 4000 },
 }
 const PRODUCTS = Object.keys(MENU)
+// Product names shown in the default confirmation prompt instead of the raw menu keys
+// (a fallback: the order tools below set confirmLines, which wins over labels).
+const LABELS = { producto: Object.fromEntries(PRODUCTS.map((key) => [key, MENU[key].name])) }
 const ITEMS = {
   type: 'array',
   minItems: 1,
+  maxItems: 20,
   items: {
     type: 'object',
     properties: {
@@ -768,7 +773,8 @@ const ordersOf = (tctx) => {
   return tctx.ctx.user.ns('pedidos')
 }
 const loadOrders = async (tctx) => (await ordersOf(tctx).get('list')) ?? []
-const findOrder = (orders, id) => orders.find((o) => o.id === id && o.estado !== 'cancelado')
+// Models and people write ids loosely ("p-1x2", " P-1X2 "): compare them normalized.
+const findOrder = (orders, id) => orders.find((o) => o.id === String(id).trim().toUpperCase() && o.estado !== 'cancelado')
 // An unknown id gets an explicit error, so the model never claims a change that did not happen.
 const noOrder = (id) => ({ error: 'No existe un pedido activo con id ' + id + '. Consulta mis_pedidos.' })
 
@@ -779,15 +785,18 @@ const noOrder = (id) => ({ error: 'No existe un pedido activo con id ' + id + '.
 // its update / cancel / list tools, so the model never has to pretend it changed an order.
 const TOOLS = {
   ver_menu: {
+    title: 'Ver menú',
     description: 'Lista los productos del menú: clave, nombre y precio.',
     handler: () => Object.entries(MENU).map(([clave, p]) => ({ clave, nombre: p.name, precio: p.price })),
   },
   cotizar_pedido: {
+    title: 'Cotizar pedido',
     description: 'Calcula precios, subtotales y total de una lista de productos sin registrar nada. Úsala siempre que el cliente pregunte cuánto cuesta algo.',
     schema: { type: 'object', properties: { items: ITEMS }, required: ['items'], additionalProperties: false },
     handler: ({ items }) => quote(items),
   },
   mis_pedidos: {
+    title: 'Mis pedidos',
     description: 'Lista los pedidos del cliente con su id, productos, total y estado.',
     handler: async (_args, tctx) => await loadOrders(tctx),
   },
@@ -796,6 +805,7 @@ const TOOLS = {
     description: 'Registra un pedido nuevo. items: lista de { producto, cantidad } con claves del menú.',
     schema: { type: 'object', properties: { items: ITEMS }, required: ['items'], additionalProperties: false },
     confirm: true,
+    labels: LABELS,
     confirmLines: ({ items }) => quoteLines(items),
     dedupe: 'args',
     handler: async ({ items }, tctx) => {
@@ -810,6 +820,7 @@ const TOOLS = {
     description: 'Reemplaza los productos de un pedido existente (por id) con la nueva lista completa.',
     schema: { type: 'object', properties: { id: ORDER_ID, items: ITEMS }, required: ['id', 'items'], additionalProperties: false },
     confirm: true,
+    labels: LABELS,
     confirmLines: ({ id, items }) => ['• Pedido: ' + id, ...quoteLines(items, 'Total nuevo')],
     handler: async ({ id, items }, tctx) => {
       const orders = await loadOrders(tctx)
@@ -825,6 +836,7 @@ const TOOLS = {
     description: 'Cancela un pedido existente por id.',
     schema: { type: 'object', properties: { id: ORDER_ID }, required: ['id'], additionalProperties: false },
     confirm: true,
+    confirmLines: ({ id }) => ['• Pedido: ' + id],
     handler: async ({ id }, tctx) => {
       const orders = await loadOrders(tctx)
       const order = findOrder(orders, id)
@@ -847,7 +859,7 @@ const INTENTS = {
         // `store` is undefined under `npm run dev` (the simulator passes only the provider),
         // so the bot falls back to the in-memory store there.
         params: 'provider, store',
-        config: "{ provider, store, handoff: { allowCommands: ['bot'] } }",
+        config: aiBotConfig("provider, store, handoff: { allowCommands: ['bot'] }"),
         setup: [
           ...code`
 // /start /help /reset /cancel /id /ping. Installed BEFORE aiPlugin: the AI is a catch-all.
@@ -860,6 +872,8 @@ bot.plug(
     persona: PERSONA,
     context: { maxMessages: 20 },
     tools: TOOLS,
+    // Audit trail of the tool loop: metadata only (tool arguments can carry personal data).
+    onToolEvent: (e) => bot.logger.info({ type: e.type, tool: e.tool, step: e.step, durationMs: e.durationMs, error: e.error }, 'ai tool'),
   }),
 )
 
