@@ -247,16 +247,16 @@ down.
 | `provider` | `'anthropic' \| 'openai' \| 'ollama' \| 'gemini' \| 'deepseek' \| 'qwen' \| 'glm' \| 'kimi' \| 'groq' \| 'openrouter' \| 'mistral' \| 'grok' \| 'together'` | `'anthropic'` | provider to resolve |
 | `model` | `string` | provider-dependent | model to use (required for openai/ollama) |
 | `apiKey` | `string` | env var fallback | API key (if omitted, each provider tries its conventional env var) |
-| `baseUrl` | `string` | preset-dependent | endpoint override (openai `baseURL` / ollama host) |
+| `baseUrl` | `string` | preset-dependent | endpoint override (openai/anthropic `baseURL` / ollama host) |
 | `persona` | `string` | — | system prompt |
-| `maxTokens` | `number` | `4096` (anthropic) / `1024` (openai, presets, gemini) | output token limit (not sent to ollama) |
+| `maxTokens` | `number` | `4096` (anthropic) / `1024` (openai, presets, gemini) | output token limit (ollama: only when set, as `options.num_predict`) |
 | `effort` | `'low' \| 'medium' \| 'high' \| 'xhigh' \| 'max'` | — | reasoning effort (Anthropic only) |
 | `timeoutMs` | `number` | `60000` | per-call timeout for non-streaming calls; on expiry the request is aborted and rejects, so a hung provider can't block the chat's queue (`0` disables it — not recommended) |
-| `context.maxMessages` | `number` | `20` | history window kept per chat |
+| `context.maxMessages` | `number` | `20` | history window kept per chat (always starts with a user turn; empty answers are not stored) |
 | `autoReply` | `boolean` | `true` | registers the catch-all autoresponder |
 | `resetCommand` | `boolean` | `true` | registers `/reset` |
-| `errorMessage` | `string` | `'⚠️ Ahora no puedo responder, intenta luego.'` | reply sent if the provider fails |
-| `refusalMessage` | `string` | `'No puedo ayudar con eso.'` | reply sent when the provider refuses (`stopReason === 'refusal'`) |
+| `errorMessage` | `string` | `'⚠️ Ahora no puedo responder, intenta luego.'` | reply sent if the provider fails or the model answers nothing |
+| `refusalMessage` | `string` | `'No puedo ayudar con eso.'` | reply sent when the provider refuses (`stopReason === 'refusal'`: Anthropic refusal, OpenAI `refusal`, Gemini safety block) |
 | `humanizeTyping` | `boolean` | `true` | sends "typing…" (`ctx.typing()`) while the answer is generated; the reply then skips the `BotConfig.typing` pacer, so the indicator shows once |
 | `tools` | `Record<string, AITool>` | — | functions the model may call (see [Tool calling](#tool-calling)) |
 | `maxSteps` | `number` | `5` | max model calls per turn in the tool loop |

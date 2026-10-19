@@ -30,6 +30,12 @@ Auditoría de las superficies nuevas (webhooks, `server`, `manager` REST, canale
 - **`@bot-wa/chatwoot`**: solo reenvía adjuntos con URL `http(s)` absoluta (Baileys lee de disco cualquier otro `{ url }`) y el nombre de archivo no puede llevar separadores de ruta; un `%` mal formado ya no pierde el mensaje.
 - **`@bot-wa/moderation`**: `findLinks` es lineal (antes O(n²) con un cuerpo lleno de enlaces de invitación).
 
+### Robustez `@bot-wa/ai` (2026-10)
+- El historial que reciben los proveedores siempre empieza por un turno del usuario y no tiene turnos vacíos: un `context.maxMessages` impar ya no hace que Anthropic/Gemini rechacen todas las llamadas siguientes, y una respuesta vacía del modelo ya no se guarda (antes dejaba el chat roto hasta `/reset`); el autoresponder contesta `errorMessage` en vez de un mensaje en blanco.
+- Rechazos uniformes como `stopReason: 'refusal'` (`refusalMessage`): `refusal` de OpenAI (también en streaming) y bloqueos de seguridad de Gemini, que antes lanzaban error. Gemini y Ollama llaman a `onStreamEnd` al terminar el stream.
+- Ollama: ya no se pierde la última línea NDJSON sin salto final, una línea `{"error"}` rechaza, los errores HTTP incluyen el mensaje del servidor y `maxTokens` se envía como `options.num_predict`. Pasarelas OpenAI-compatibles que responden 200 con `{ error }` rechazan con ese mensaje. `baseUrl` llega al SDK de Anthropic.
+- `LazyProvider` reintenta una resolución fallida; la validación JSON Schema de argumentos de tools mira solo claves propias; `formatMarkdown` html escapa `"` en los `href`; una extracción de memoria truncada por `maxTokens` da un error accionable.
+
 ### Robustez / correctness (2026-07-23)
 - **Baileys**: una reconexión cuyo `start()` falla (p. ej. blip de red en `fetchLatestBaileysVersion`) ahora reprograma con backoff en vez de morir para siempre; `send()` mapea errores a `ProviderError` tipados.
 - **`@bot-wa/ai`**: timeout por llamada (`timeoutMs`, default 60s) + `AbortSignal` cableado de verdad en OpenAI/Anthropic/Gemini — un proveedor colgado ya no bloquea la cola FIFO del chat.
