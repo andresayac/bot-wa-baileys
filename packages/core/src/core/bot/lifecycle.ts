@@ -2,8 +2,10 @@
  * Start / stop of one bot as an ordered list of steps, run one operation at a time.
  *
  * Start runs every step's `start()` in order; on failure the inbound gate closes and the
- * `rollback()` of every step already attempted runs in reverse order (rollback errors are
- * only logged), the connection state becomes `'closed'` and the error is rethrown.
+ * `rollback()` of every step already attempted runs in reverse order, preceded by the
+ * `rollback()` of never-reached steps that opted in with `alwaysRollback`. Each rollback is
+ * isolated: a throwing one is logged and the rest still run. The connection state becomes
+ * `'closed'` and the original start error is rethrown.
  *
  * Stop: inbound off + broadcasts cancelled → the `stop()` of `quiesce` steps (reverse
  * order) → optional drain of in-flight sends → paced sends closed and conversations
@@ -24,8 +26,17 @@ export interface LifecycleStopOptions {
 export interface LifecycleStep {
   readonly name: string
   start(): Promise<void>
-  /** Undo a started (or partly started) step when a LATER part of `start()` fails. Must not throw. */
+  /**
+   * Undo a started (or partly started) step when `start()` fails. Should not throw; if it
+   * does, the error is logged and the remaining rollbacks still run.
+   */
   rollback?(): Promise<void>
+  /**
+   * Also run `rollback()` on a failed start when this step's `start()` was never reached.
+   * Only for idempotent rollbacks that are safe without a prior start (e.g. stopping a
+   * scheduler); never for steps that release something they acquire (leases, fencing).
+   */
+  readonly alwaysRollback?: boolean
   /** Tear down on `stop()`. May throw: the first error is rethrown once every step stopped. */
   stop?(): Promise<void>
   /** Stopped before the drain (stops producing new work), instead of after it. */
@@ -73,6 +84,8 @@ export function defaultLifecycleSteps(k: BotKernel): LifecycleStep[] {
       rollback: async () => { k.scheduler.stop() },
       stop: async () => { k.scheduler.stop() },
       quiesce: true,
+      // Keeps the old unconditional scheduler.stop() on a failed start (idempotent).
+      alwaysRollback: true,
     },
   ]
 }
@@ -114,12 +127,14 @@ export class Lifecycle {
       this.k.events.emit('started')
     } catch (error) {
       state.acceptingInbound = false
-      // The last step first: `jobs` (scheduler.stop) is undone whenever it was reached.
       const undo = [...attempted].reverse()
-      // Steps that were never reached but still have to be quiesced (e.g. a scheduler
-      // that must never run while the bot failed to start) are rolled back as well.
-      for (const step of this.steps) if (step.quiesce && !attempted.includes(step)) undo.unshift(step)
-      for (const step of undo) if (step.rollback) await step.rollback()
+      // Never-reached steps that opted in (idempotent rollbacks, e.g. the scheduler) first.
+      for (const step of this.steps) if (step.alwaysRollback && !attempted.includes(step)) undo.unshift(step)
+      for (const step of undo) {
+        if (!step.rollback) continue
+        try { await step.rollback() }
+        catch (rollbackError) { this.k.logger.error({ err: rollbackError, step: step.name }, 'start rollback failed') }
+      }
       state.connState = 'closed'
       throw error
     }
