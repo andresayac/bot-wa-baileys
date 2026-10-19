@@ -2,7 +2,8 @@
  * Shared ScheduleStore conformance suite.
  *
  * One set of assertions run against EVERY ScheduleStore implementation (the core's
- * MemoryScheduleStore, which is the reference, plus SQLite and Redis) so the durable
+ * MemoryScheduleStore, which is the reference, plus SQLite, Redis, PostgreSQL, MySQL and
+ * MongoDB) so the durable
  * scheduler's contract stays uniform. Import it from a store's test and pass a factory
  * that yields a fresh, started store plus a teardown. Type-only imports keep this file
  * runtime-dependency-free (it only needs `vitest`, which the runner injects).
@@ -181,6 +182,91 @@ export function runScheduleStoreConformance(name: string, h: ScheduleStoreHarnes
       expect(ids).toEqual(['a', 'b', 'c'])
       const b = (await store.list()).find((r) => r.id === 'b')
       expect(b?.nextRunAt).toBeNull()
+    })
+
+    it('gives 20 concurrent registrations of a new id the same record, with token 0', async () => {
+      const recs = await Promise.all(
+        Array.from({ length: 20 }, () => store.register({ id: 'new', kind: 'interval', spec: '1000', nextRunAt: T0 + 1000 }, T0)),
+      )
+      for (const r of recs) expect(r).toMatchObject({ id: 'new', kind: 'interval', spec: '1000', nextRunAt: T0 + 1000, fencingToken: 0 })
+      expect((await store.list()).map((r) => r.id)).toEqual(['new'])
+    })
+
+    it('starts a fresh record when an id is registered again after delete (the token is kept)', async () => {
+      await store.register({ id: 'r', kind: 'interval', spec: '1000', nextRunAt: T0 }, T0)
+      const c1 = await store.claimDue('r', 'a', T0, 5000)
+      await store.complete('r', c1!.fencingToken, { nextRunAt: T0 + 1000, lastRunAt: T0, lastStatus: 'error' }, T0)
+      await store.claimDue('r', 'a', T0 + 1000, 5000) // leased when deleted
+      await store.delete('r')
+      const again = await store.register({ id: 'r', kind: 'interval', spec: '1000', nextRunAt: T0 + 9000 }, T0 + 2000)
+      expect(again).toMatchObject({ id: 'r', kind: 'interval', spec: '1000', nextRunAt: T0 + 9000, fencingToken: 2 })
+      expect(again.lastRunAt).toBeUndefined()
+      expect(again.lastStatus).toBeUndefined()
+      expect(again.leaseOwner).toBeUndefined()
+      expect(again.leaseUntil).toBeUndefined()
+      const stored = await store.get('r')
+      expect(stored?.lastRunAt).toBeUndefined()
+      expect(stored?.leaseOwner).toBeUndefined()
+      // Free to claim at once (no lease carried over).
+      expect((await store.claimDue('r', 'b', T0 + 9000, 1000))?.fencingToken).toBe(3)
+    })
+
+    it('keeps the lease and the token when the spec changes while leased', async () => {
+      await store.register({ id: 'l', kind: 'interval', spec: '1000', nextRunAt: T0 }, T0)
+      const c = await store.claimDue('l', 'a', T0, 5000)
+      const changed = await store.register({ id: 'l', kind: 'interval', spec: '2000', nextRunAt: T0 + 2000 }, T0 + 10)
+      expect(changed).toMatchObject({ spec: '2000', nextRunAt: T0 + 2000, fencingToken: 1, leaseOwner: 'a', leaseUntil: T0 + 5000 })
+      expect(await store.complete('l', c!.fencingToken, { nextRunAt: T0 + 4000 }, T0 + 20)).toBe(true)
+    })
+
+    it('treats nextRunAt === now and leaseUntil === now as claimable', async () => {
+      await store.register({ id: 'b', kind: 'interval', spec: '1000', nextRunAt: T0 }, T0)
+      expect(await store.claimDue('b', 'a', T0, 1000)).not.toBeNull()
+      const next = await store.claimDue('b', 'b', T0 + 1000, 1000)
+      expect(next?.fencingToken).toBe(2)
+      expect(next?.record.leaseOwner).toBe('b')
+    })
+
+    it('renews with the identical leaseUntil (a no-op write still succeeds)', async () => {
+      await store.register({ id: 'n', kind: 'interval', spec: '1000', nextRunAt: T0 }, T0)
+      const c = await store.claimDue('n', 'a', T0, 5000)
+      expect(await store.renew('n', c!.fencingToken, T0 + 5000)).toBe(true)
+      expect(await store.renew('n', c!.fencingToken, T0 + 5000)).toBe(true)
+    })
+
+    it('returns numbers for large epochs (year 2100)', async () => {
+      const Y2100 = 4_102_444_800_000
+      await store.register({ id: 'big', kind: 'interval', spec: '1000', nextRunAt: Y2100 }, Y2100 - 1)
+      const c = await store.claimDue('big', 'a', Y2100, 60_000)
+      expect(c?.record.leaseUntil).toBe(Y2100 + 60_000)
+      await store.complete('big', c!.fencingToken, { nextRunAt: Y2100 + 1000, lastRunAt: Y2100 + 1, lastStatus: 'ok' }, Y2100 + 2)
+      const rec = (await store.get('big'))!
+      for (const v of [rec.nextRunAt, rec.lastRunAt, rec.fencingToken, rec.updatedAt]) expect(typeof v).toBe('number')
+      expect(rec).toMatchObject({ nextRunAt: Y2100 + 1000, lastRunAt: Y2100 + 1, updatedAt: Y2100 + 2, fencingToken: 1 })
+      const listed = (await store.list()).find((r) => r.id === 'big')!
+      expect(typeof listed.nextRunAt).toBe('number')
+      expect(typeof listed.fencingToken).toBe('number')
+    })
+
+    it('keeps ids that differ only by case or a trailing space apart', async () => {
+      const ids = ['Task', 'task', 'task ', ' task']
+      for (const [i, id] of ids.entries()) await store.register({ id, kind: 'interval', spec: String(1000 + i), nextRunAt: T0 + i }, T0)
+      for (const [i, id] of ids.entries()) expect(await store.get(id)).toMatchObject({ id, spec: String(1000 + i), nextRunAt: T0 + i })
+      expect((await store.list()).map((r) => r.id).sort()).toEqual([...ids].sort())
+      expect((await store.claimDue('task ', 'a', T0 + 10, 1000))?.record.id).toBe('task ')
+      expect((await store.get('task'))?.leaseOwner).toBeUndefined()
+    })
+
+    it('round-trips a 500-byte id and a long time-zone spec', async () => {
+      const id = 'x'.repeat(250) + 'é'.repeat(125) // 250 + 250 bytes
+      const spec = `TZ=America/New_York ${'0,1,2,3,4,5,6,7,8,9,'.repeat(14)}10 9 * * *`
+      expect(new TextEncoder().encode(id).length).toBe(500)
+      expect(spec.length).toBeGreaterThan(300)
+      await store.register({ id, kind: 'cron', spec, nextRunAt: T0 }, T0)
+      expect(await store.get(id)).toMatchObject({ id, kind: 'cron', spec })
+      // Same spec: kept as is.
+      const again = await store.register({ id, kind: 'cron', spec, nextRunAt: T0 + 99 }, T0 + 1)
+      expect(again.nextRunAt).toBe(T0)
     })
 
     it('round-trips ids with separators and unicode', async () => {
