@@ -6,6 +6,7 @@ import {
   toGraphError,
   checkGraphSignature,
   parseGraphBody,
+  tryParseGraphBody,
 } from '../src/index.js'
 import {
   ProviderError,
@@ -168,5 +169,52 @@ describe('security audit hardening', () => {
     const hex = createHmac('sha256', 'k').update(raw).digest('hex')
     expect(verifySignature(raw, `sha256=${hex.toUpperCase()}`, 'k')).toBe(true)
     expect(verifySignature(raw, 'sha256=zz', 'k')).toBe(false)
+  })
+})
+
+describe('tryParseGraphBody / raw byte bodies', () => {
+  it('parses string, Buffer, Uint8Array and object bodies', () => {
+    expect(tryParseGraphBody('{"a":1}')).toEqual({ ok: true, body: { a: 1 } })
+    expect(tryParseGraphBody(Buffer.from('{"a":2}'))).toEqual({ ok: true, body: { a: 2 } })
+    expect(tryParseGraphBody(new Uint8Array(Buffer.from('{"a":3}')))).toEqual({ ok: true, body: { a: 3 } })
+    expect(tryParseGraphBody({ a: 4 })).toEqual({ ok: true, body: { a: 4 } })
+  })
+
+  it('reports 400 for malformed or non-object bodies instead of throwing', () => {
+    for (const bad of ['{nope', '', '[1,2]', '42', 'null', Buffer.from('<html>'), null, 7]) {
+      expect(tryParseGraphBody(bad)).toEqual({ ok: false, status: 400 })
+    }
+  })
+
+  it('checkGraphSignature verifies a Uint8Array raw body', () => {
+    const raw = new Uint8Array(Buffer.from('{"object":"page"}'))
+    const sig = `sha256=${createHmac('sha256', 'k').update(raw).digest('hex')}`
+    expect(checkGraphSignature(raw, { 'x-hub-signature-256': sig }, 'k')).toEqual({ ok: true })
+  })
+})
+
+describe('toGraphError — throughput and reachability codes', () => {
+  it.each([
+    [130429, 1_000],
+    [131056, 6_000],
+    [131048, 60_000],
+  ])('maps %i to RateLimitedError with a sensible default delay', (code, delay) => {
+    const e = toGraphError({ code, message: 'slow down' })
+    expect(e).toBeInstanceOf(RateLimitedError)
+    expect((e as RateLimitedError).retryAfterMs).toBe(delay)
+    expect((toGraphError({ code }, { retryAfterMs: 9 }) as RateLimitedError).retryAfterMs).toBe(9)
+  })
+
+  it('maps 131030 (test number allowed list) and 551 to RecipientUnreachableError', () => {
+    const e = toGraphError({ code: 131030, message: 'Recipient not in allowed list' }, { chatId: '573001' })
+    expect(e).toBeInstanceOf(RecipientUnreachableError)
+    expect(e.message).toMatch(/allowed list/)
+    expect(toGraphError({ code: 551, message: 'unavailable' }, { chatId: 'psid' })).toBeInstanceOf(RecipientUnreachableError)
+  })
+
+  it('maps Messenger 10/2018278 to OutsideSessionWindowError, other code-10 errors stay generic', () => {
+    expect(toGraphError({ code: 10, error_subcode: 2018278, message: 'outside window' }, { chatId: 'psid' })).toBeInstanceOf(OutsideSessionWindowError)
+    const other = toGraphError({ code: 10, message: 'permission' })
+    expect(other.constructor).toBe(ProviderError)
   })
 })

@@ -35,8 +35,7 @@ import type {
   UserId,
 } from '@bot-wa/core'
 import { ProviderError } from '@bot-wa/core'
-import { secureFetch } from '@bot-wa/http'
-import { header, rawText, request, retryAfterMs, safeEqual, type HeaderBag } from './http.js'
+import { fetchTyped, header, rawText, request, retryAfterMs, safeEqual, type HeaderBag } from './http.js'
 import { parseInbound } from './parseInbound.js'
 import { toOutbound } from './toOutbound.js'
 import { toGupshupError } from './errors.js'
@@ -199,7 +198,7 @@ export class GupshupProvider implements IProvider<GupshupCallback> {
     const token = ref.token as { url?: unknown } | string | undefined
     const url = typeof token === 'string' ? token : typeof token?.url === 'string' ? token.url : undefined
     if (!url) throw new ProviderError('downloadMedia requires the Gupshup media URL (MediaRef.token.url)')
-    const { response, body } = await secureFetch(url, { ...this.config.http, method: 'GET' })
+    const { response, body } = await fetchTyped(url, { ...this.config.http, method: 'GET' })
     if (!response.ok) throw new ProviderError(`Gupshup media download failed: HTTP ${response.status}`)
     return body
   }

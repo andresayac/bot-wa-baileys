@@ -5,12 +5,52 @@
  * emitted `chatId`/`senderId` are already stable (see {@link IdentityStore}).
  */
 
-import type { WAMessage, WAMessageKey } from '@whiskeysockets/baileys'
-import type { ChatInfo, ChatKind, InboundMessage, MediaRef, MessageType, SenderInfo } from '@bot-wa/core'
+import { normalizeMessageContent, toNumber, type WAMessage, type WAMessageKey, type proto } from '@whiskeysockets/baileys'
+import type { ChatInfo, ChatKind, InboundMessage, MediaRef, MessageType, QuotedRef, SenderInfo } from '@bot-wa/core'
 import { isPnUser, isLidUser, normalize } from './jid.js'
 import { canonicalKey, type IdentityStore } from './identity.js'
 
 const MEDIA_KINDS = new Set<MessageType>(['image', 'video', 'audio', 'voice', 'document', 'sticker'])
+
+type ContextInfo = proto.IContextInfo
+
+/**
+ * The reply/mention context of a message, wherever its content type keeps it
+ * (`extendedTextMessage`, `imageMessage`, `videoMessage`, `documentMessage`…).
+ * Wrapped content (disappearing mode, view once, document with caption) is
+ * unwrapped first.
+ */
+export function contextInfoOf(content: proto.IMessage | null | undefined): ContextInfo | undefined {
+  const m = normalizeMessageContent(content)
+  if (!m) return undefined
+  for (const part of Object.values(m)) {
+    if (part && typeof part === 'object' && 'contextInfo' in part) {
+      const ctx = (part as { contextInfo?: ContextInfo | null }).contextInfo
+      if (ctx) return ctx
+    }
+  }
+  return undefined
+}
+
+/** Plain text of a (quoted) message: its text, or the caption of its media. */
+function textOf(content: proto.IMessage | null | undefined): string {
+  const m = normalizeMessageContent(content)
+  if (!m) return ''
+  return (
+    m.conversation ??
+    m.extendedTextMessage?.text ??
+    m.imageMessage?.caption ??
+    m.videoMessage?.caption ??
+    m.documentMessage?.caption ??
+    ''
+  )
+}
+
+/** Epoch seconds from a `number | Long | null` protobuf timestamp (0 when absent). */
+function timestampOf(value: WAMessage['messageTimestamp']): number {
+  const n = Number(toNumber(value ?? 0))
+  return Number.isFinite(n) ? n : 0
+}
 
 export function toInbound(message: WAMessage, identity: IdentityStore): InboundMessage<WAMessage> {
   const key = (message.key ?? { remoteJid: '', fromMe: false }) as WAMessageKey
@@ -36,18 +76,25 @@ export function toInbound(message: WAMessage, identity: IdentityStore): InboundM
 
   let body = ''
   let type: MessageType = 'unknown'
-  const m = message.message ?? {}
+  // Unwrap disappearing-mode, view-once and document-with-caption envelopes.
+  const m: proto.IMessage = normalizeMessageContent(message.message) ?? {}
 
   if (m.conversation || m.extendedTextMessage?.text) {
     body = (m.conversation ?? m.extendedTextMessage?.text ?? '').toString()
     type = 'text'
   } else if (m.imageMessage) { type = 'image'; body = m.imageMessage.caption ?? '' }
   else if (m.videoMessage) { type = 'video'; body = m.videoMessage.caption ?? '' }
-  else if (m.audioMessage) { type = (m.audioMessage as { ptt?: boolean }).ptt ? 'voice' : 'audio' }
+  else if (m.audioMessage) { type = m.audioMessage.ptt ? 'voice' : 'audio' }
   else if (m.stickerMessage) { type = 'sticker' }
   else if (m.documentMessage) { type = 'document'; body = m.documentMessage.caption ?? '' }
-  else if (m.locationMessage) { type = 'location' }
-  else if (m.contactMessage) { type = 'contact' }
+  else if (m.locationMessage || m.liveLocationMessage) {
+    type = 'location'
+    body = m.locationMessage?.name ?? m.locationMessage?.address ?? ''
+  }
+  else if (m.contactMessage || m.contactsArrayMessage) {
+    type = 'contact'
+    body = m.contactMessage?.displayName ?? m.contactsArrayMessage?.displayName ?? ''
+  }
   else if (m.pollCreationMessage || m.pollCreationMessageV2 || m.pollCreationMessageV3) {
     // V3 is the single-select poll, V2 the community-announcement one.
     type = 'poll'
@@ -57,30 +104,37 @@ export function toInbound(message: WAMessage, identity: IdentityStore): InboundM
   // never routes them here; kept for direct callers of this low-level mapper.
   else if (m.pollUpdateMessage) { type = 'poll' }
   else if (m.buttonsResponseMessage) { type = 'buttons'; body = m.buttonsResponseMessage.selectedDisplayText ?? '' }
+  else if (m.templateButtonReplyMessage) { type = 'buttons'; body = m.templateButtonReplyMessage.selectedDisplayText ?? '' }
   else if (m.listResponseMessage) { type = 'list'; body = m.listResponseMessage.title ?? '' }
 
   let media: MediaRef | undefined
   if (MEDIA_KINDS.has(type)) {
-    const part = (m as Record<string, { mimetype?: string; fileName?: string; fileLength?: number }>)[`${type === 'voice' ? 'audio' : type}Message`]
-    media = { kind: type as MediaRef['kind'], mimetype: part?.mimetype, filename: part?.fileName, token: message }
+    const part = (m as Record<string, { mimetype?: string | null; fileName?: string | null } | null | undefined>)[`${type === 'voice' ? 'audio' : type}Message`]
+    media = { kind: type as MediaRef['kind'], mimetype: part?.mimetype ?? undefined, filename: part?.fileName ?? undefined, token: message }
   }
 
-  const qc = m.extendedTextMessage?.contextInfo
+  const qc = contextInfoOf(m)
   // Every user id below is canonical like `senderId`: a LID-addressed group
   // quotes and mentions LIDs, so a known LID (the bot's own included) maps to
   // its PN and matches selfId, and device suffixes are stripped.
   const canonicalUser = (jid: string) => identity.canonical(normalize(jid) || jid)
-  const quotedAuthor = qc?.participant as string | null | undefined
-  const quoted = qc?.quotedMessage
-    ? {
-        body:
-          ((qc.quotedMessage as { conversation?: string }).conversation) ??
-          ((qc.quotedMessage as { extendedTextMessage?: { text?: string } }).extendedTextMessage?.text) ??
-          '',
-        senderId: quotedAuthor ? canonicalUser(quotedAuthor) : undefined,
+  const quotedAuthor = qc?.participant ?? undefined
+  let quoted: QuotedRef | undefined
+  if (qc?.quotedMessage) {
+    quoted = {
+      body: textOf(qc.quotedMessage),
+      senderId: quotedAuthor ? canonicalUser(quotedAuthor) : undefined,
+    }
+    if (qc.stanzaId) {
+      // WAMessage-shaped, so `send(…, { quoted: quoted.ref })` threads the reply.
+      const native = {
+        key: { remoteJid: key.remoteJid, id: qc.stanzaId, fromMe: false, ...(quotedAuthor ? { participant: quotedAuthor } : {}) },
+        message: qc.quotedMessage,
       }
-    : undefined
-  const mentions = ((qc?.mentionedJid ?? []) as string[]).map(canonicalUser)
+      quoted.ref = { id: qc.stanzaId, chatId: from, native }
+    }
+  }
+  const mentions = (qc?.mentionedJid ?? []).map(canonicalUser)
 
   return {
     ref: { id: key.id ?? '', chatId: from, native: message },
@@ -95,7 +149,7 @@ export function toInbound(message: WAMessage, identity: IdentityStore): InboundM
     fromMe: !!key.fromMe,
     type,
     body,
-    timestamp: (message.messageTimestamp as number) ?? 0,
+    timestamp: timestampOf(message.messageTimestamp),
     mentions,
     quoted,
     media,

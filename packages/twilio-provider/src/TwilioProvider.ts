@@ -34,8 +34,7 @@ import type {
   UserId,
 } from '@bot-wa/core'
 import { PayloadTooLargeError, ProviderError } from '@bot-wa/core'
-import { secureFetch } from '@bot-wa/http'
-import { BoundedMap, header, rawText, request, retryAfterMs, type HeaderBag } from './http.js'
+import { BoundedMap, fetchTyped, header, rawText, request, retryAfterMs, type HeaderBag } from './http.js'
 import { channelOf, parseInbound } from './parseInbound.js'
 import { bodySha256, paramsFromObject, parseFormParams, verifyTwilioSignature, type TwilioParams } from './signature.js'
 import { toOutbound } from './toOutbound.js'
@@ -300,7 +299,7 @@ export class TwilioProvider implements IProvider<TwilioWebhookParams> {
     const sameOrigin = (() => {
       try { return new URL(url).origin === new URL(this.config.apiBaseUrl).origin } catch { return false }
     })()
-    const { response, body } = await secureFetch(url, {
+    const { response, body } = await fetchTyped(url, {
       ...this.config.http,
       method: 'GET',
       ...(sameOrigin ? { headers: { Authorization: this.authHeader() } } : {}),

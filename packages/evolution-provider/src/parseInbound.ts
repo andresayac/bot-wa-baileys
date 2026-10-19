@@ -42,8 +42,23 @@ function toMs(ts: EvolutionMessage['messageTimestamp']): number {
 const str = (v: unknown): string | undefined => (typeof v === 'string' && v !== '' ? v : undefined)
 const rec = (v: unknown): Record<string, unknown> | undefined => (isRecord(v) ? v : undefined)
 
+/** Envelopes Baileys wraps real content in (disappearing mode, view once, document with caption). */
+const WRAPPERS = ['ephemeralMessage', 'viewOnceMessage', 'viewOnceMessageV2', 'viewOnceMessageV2Extension', 'documentWithCaptionMessage']
+
+/** The content inside any wrapper envelopes (bounded depth, like Baileys' normalizeMessageContent). */
+export function unwrapMessage(message: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
+  let m = message
+  for (let depth = 0; m && depth < 5; depth++) {
+    const inner = WRAPPERS.map((w) => rec(rec(m![w])?.message)).find((x) => x !== undefined)
+    if (!inner) break
+    m = inner
+  }
+  return m
+}
+
 /** Plain text of a (possibly quoted) Baileys message object. */
-export function textOf(message: Record<string, unknown> | undefined): string {
+export function textOf(raw: Record<string, unknown> | undefined): string {
+  const message = unwrapMessage(raw)
   if (!message) return ''
   return (
     str(message.conversation) ??
@@ -62,8 +77,8 @@ interface Classified {
   contextInfo?: EvolutionContextInfo
 }
 
-function classify(m: Record<string, unknown>): Classified {
-  const docWithCaption = rec(rec(rec(m.documentWithCaptionMessage)?.message)?.documentMessage)
+function classify(raw: Record<string, unknown>): Classified {
+  const m = unwrapMessage(raw) ?? {}
   const ctxOf = (part: Record<string, unknown> | undefined): EvolutionContextInfo | undefined =>
     rec(part?.contextInfo) as EvolutionContextInfo | undefined
 
@@ -76,7 +91,7 @@ function classify(m: Record<string, unknown>): Classified {
   if (video) return { type: 'video', body: str(video.caption) ?? '', mediaPart: video, contextInfo: ctxOf(video) }
   const audio = rec(m.audioMessage)
   if (audio) return { type: audio.ptt ? 'voice' : 'audio', body: '', mediaPart: audio, contextInfo: ctxOf(audio) }
-  const doc = rec(m.documentMessage) ?? docWithCaption
+  const doc = rec(m.documentMessage)
   if (doc) return { type: 'document', body: str(doc.caption) ?? '', mediaPart: doc, contextInfo: ctxOf(doc) }
   const sticker = rec(m.stickerMessage)
   if (sticker) return { type: 'sticker', body: '', mediaPart: sticker, contextInfo: ctxOf(sticker) }
@@ -119,7 +134,7 @@ export function parseMessage(data: EvolutionMessage, ctx: ParseContext): Inbound
   const remote = normalizeJid(key.remoteJid)
   if (!remote || remote === 'status@broadcast') return []
   const m = rec(data.message) ?? {}
-  if (isSystemOnly(m)) return []
+  if (isSystemOnly(unwrapMessage(m) ?? m)) return []
 
   const group = isGroupJid(remote)
   const channel = remote.endsWith('@newsletter')

@@ -52,7 +52,7 @@ import {
   PollTracker, POLL_CACHE_MAX, decryptVote, fromStoredPoll, pollCreationOf, pollUpdateOf, recordVote, tally, toStoredPoll,
   type PollStore, type TrackedPoll,
 } from './polls.js'
-import { toInbound } from './toInbound.js'
+import { contextInfoOf, toInbound } from './toInbound.js'
 import { toCallEvent } from './toCallEvent.js'
 import { toOutbound } from './toOutbound.js'
 import type { RemoteMediaConfig } from './MediaProcessor.js'
@@ -125,6 +125,17 @@ export interface BaileysProviderConfig {
 const cacheKey = (k: WAMessageKey) => `${k.remoteJid}:${k.id}`
 
 /**
+ * The Baileys key of a message ref: the native `WAMessage` key when the ref came
+ * from this provider, otherwise one rebuilt from the ref (e.g. a ref read back
+ * from a store, whose `native` did not survive serialisation).
+ */
+function keyOfRef(ref: MessageRef, fromMe = false): WAMessageKey {
+  const native = ref.native as { key?: WAMessageKey } | undefined
+  if (native && typeof native === 'object' && native.key?.id) return native.key
+  return { remoteJid: ref.chatId, id: ref.id, fromMe }
+}
+
+/**
  * Map a raw error thrown by `sock.sendMessage` to a typed {@link ProviderError},
  * so callers can `catch (e instanceof RateLimitedError)` portably across
  * transports. Unknown errors are wrapped in a generic ProviderError (with the
@@ -171,6 +182,8 @@ export class BaileysProvider implements IProvider<WAMessage> {
   private authState: Awaited<ReturnType<typeof useMultiFileAuthState>> | null = null
   private version: [number, number, number] = [0, 0, 0]
   private reconnectPending = false
+  /** Timer of the scheduled reconnect, cleared by stop() so it never outlives the session. */
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private reconnectAttempts = 0
   private isShuttingDown = false
   private pairingCodeRequested = false
@@ -253,7 +266,7 @@ export class BaileysProvider implements IProvider<WAMessage> {
   }
 
   async stop(): Promise<void> {
-    this.reconnectPending = false
+    this.cancelReconnect()
     this.isShuttingDown = true
     this.rateLimiter.reset()
     if (this.sock) {
@@ -267,7 +280,7 @@ export class BaileysProvider implements IProvider<WAMessage> {
    * and removes its local auth state, so a new QR/pairing flow will be required.
    */
   async logoutAndDeleteSession(): Promise<void> {
-    this.reconnectPending = false
+    this.cancelReconnect()
     this.isShuttingDown = true
     this.rateLimiter.reset()
     if (this.sock) {
@@ -298,17 +311,32 @@ export class BaileysProvider implements IProvider<WAMessage> {
     }
   }
 
+  /**
+   * Download inbound media. `ref.token` is the original `WAMessage` (set by the
+   * inbound mapper); expired media is re-requested from the sender's phone.
+   */
   async downloadMedia(ref: MediaRef): Promise<Buffer | NodeJS.ReadableStream> {
-    const message = ref.token as WAMessage
-    return downloadMediaMessage(message, 'buffer', {}, {
-      logger: this.logger,
-      reuploadRequest: this.sock!.updateMediaMessage,
-    })
+    const message = ref.token as WAMessage | undefined
+    if (!message || typeof message !== 'object' || !message.message) {
+      throw new ProviderError('downloadMedia requires the original WAMessage (MediaRef.token from an inbound message)')
+    }
+    const sock = this.sock
+    if (!sock) throw new ProviderError('Provider not connected')
+    try {
+      return await downloadMediaMessage(message, 'buffer', {}, {
+        logger: this.logger,
+        reuploadRequest: sock.updateMediaMessage,
+      })
+    } catch (err) {
+      const wrapped = new ProviderError(`Baileys media download failed: ${err instanceof Error ? err.message : String(err)}`)
+      ;(wrapped as { cause?: unknown }).cause = err
+      throw wrapped
+    }
   }
 
   async markRead(refs: MessageRef[]): Promise<void> {
-    const keys = refs.map((r) => (r.native as WAMessage).key)
-    await this.sock?.readMessages(keys)
+    const keys = refs.map((r) => keyOfRef(r))
+    if (keys.length) await this.sock?.readMessages(keys)
   }
 
   async typing(chatId: ChatId, state: 'typing' | 'recording' | 'paused' = 'typing'): Promise<void> {
@@ -317,8 +345,9 @@ export class BaileysProvider implements IProvider<WAMessage> {
   }
 
   async deleteMessage(ref: MessageRef): Promise<void> {
-    const key = (ref.native as WAMessage).key
-    await this.sock?.sendMessage(ref.chatId, { delete: key })
+    if (!this.sock) throw new ProviderError('Provider not connected')
+    const key = keyOfRef(ref, true)
+    await this.sock.sendMessage(key.remoteJid ?? ref.chatId, { delete: key })
   }
 
   /* Identity resolution (internal) --------------------------------------- */
@@ -669,7 +698,7 @@ export class BaileysProvider implements IProvider<WAMessage> {
    * `quoted.senderId` and `mentions` canonicalise like the sender does.
    */
   private async seedQuotedIdentity(message: WAMessage): Promise<void> {
-    const ctx = message.message?.extendedTextMessage?.contextInfo
+    const ctx = contextInfoOf(message.message)
     if (!ctx) return
     // Bounded: a mention-everyone message can name hundreds of members.
     const jids = [ctx.participant, ...(ctx.mentionedJid ?? []).slice(0, MAX_MENTION_LOOKUPS)]
@@ -810,11 +839,19 @@ export class BaileysProvider implements IProvider<WAMessage> {
   private scheduleReconnect(delayMs: number): void {
     if (this.reconnectPending || this.isShuttingDown) return
     this.reconnectPending = true
-    setTimeout(() => {
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null
       this.reconnectPending = false
       if (this.isShuttingDown) return
       void this.start().catch((error) => this.onReconnectStartFailed(error))
     }, delayMs)
+  }
+
+  /** Drop a scheduled reconnect, so a later start() does not race a stale timer into a second socket. */
+  private cancelReconnect(): void {
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer)
+    this.reconnectTimer = null
+    this.reconnectPending = false
   }
 
   /**
