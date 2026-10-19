@@ -69,6 +69,13 @@ function fromRow(row: ScheduleRow): ScheduleRecord {
   return rec
 }
 
+/** A better-sqlite3 `Database` (structural: only what {@link SQLiteScheduleStore} calls). */
+export interface SQLiteDatabaseLike {
+  exec(sql: string): unknown
+  prepare(sql: string): unknown
+  transaction(fn: (...args: never[]) => unknown): unknown
+}
+
 export class SQLiteScheduleStore implements ScheduleStore {
   private readonly stmts: {
     get: BetterSqlite3.Statement
@@ -85,7 +92,15 @@ export class SQLiteScheduleStore implements ScheduleStore {
   private readonly completeTx: (id: string, token: number, patch: CompletePatch, now: number) => boolean
   private readonly deleteTx: (id: string) => void
 
-  constructor(private readonly db: BetterSqlite3.Database) {
+  private readonly db: BetterSqlite3.Database
+
+  /**
+   * @param database An open better-sqlite3 `Database`. Typed structurally so the emitted
+   *   declarations do not require `@types/better-sqlite3` in consumer projects.
+   */
+  constructor(database: SQLiteDatabaseLike) {
+    const db = database as unknown as BetterSqlite3.Database
+    this.db = db
     db.exec(SCHEDULES_SCHEMA)
     this.stmts = {
       get: db.prepare('SELECT * FROM schedules WHERE id = ?'),

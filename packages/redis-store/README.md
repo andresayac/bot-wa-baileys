@@ -112,7 +112,7 @@ const bot = new Bot({
 - **Watchdog.** Heartbeat, turns and leaderships are renewed every `leaseMs / 3`. A lease found gone aborts its `signal` (`'expired'`); with no successful renewal for 90% of `leaseMs`, every lease is given up locally (`'coordinator-down'`) before Redis can hand it to another replica.
 - Keys live under `{prefix}:co:`; a chat's counters expire `idleTtlMs` (default 1 day) after its last turn.
 - Limits: one Redis primary (standalone or Sentinel; a failover that loses the last writes can grant a lease twice). Redis Cluster is not supported.
-- Guide: [Running N replicas](../../docs/guide/replicas.md).
+- Guide: [Running N replicas](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/guide/replicas.md).
 
 ## Distributed lock
 
