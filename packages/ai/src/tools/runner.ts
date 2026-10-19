@@ -74,7 +74,7 @@ function errorMessage(err: unknown): string {
  * the localized `ai.tools.confirm` message in `ctx`'s language (Spanish without a context)
  * with the tool's `title` (or humanized name) and its `confirmLines(args)`, else the
  * arguments as short `• ` lines (values shown with the tool's `labels`) — never the model-facing description nor raw JSON. With `previous` (the tool already
- * ran in this chat) a localized `ai.tools.confirmRepeat` line goes first.
+ * ran in this chat with the same arguments) a localized `ai.tools.confirmRepeat` line goes first.
  *
  * With `opts.buttons` (the answer is collected with Yes/No buttons) the default
  * message is `ai.tools.confirmButtons` (no "(yes/no)" hint) — or the bot's own
@@ -194,7 +194,9 @@ export async function runToolLoop(opts: ToolLoopOptions): Promise<ToolLoopResult
     }
 
     if (tool.confirm) {
-      const previous = ledger?.last(call.name)
+      // Only a run with the SAME arguments is a repeat ("confirming will do it again"); a call
+      // with different arguments (e.g. changing 3 → 2 units) is a new action and is not flagged.
+      const previous = ledger?.find(call.name, v.data, Number.POSITIVE_INFINITY)
       const now = Date.now()
       const prompt = defaultConfirmPrompt(call.name, tool, v.data, opts.ctx, previous, now)
       const buttonsPrompt = defaultConfirmPrompt(call.name, tool, v.data, opts.ctx, previous, now, { buttons: true })

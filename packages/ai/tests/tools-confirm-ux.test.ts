@@ -7,7 +7,7 @@ import { ContextManager } from '../src/ContextManager.js'
 import { aiPlugin, type AIPluginConfig } from '../src/plugin.js'
 import { classifyConfirmation } from '../src/tools/confirm.js'
 import { defaultConfirmPrompt } from '../src/tools/runner.js'
-import { argLines, humanizeName } from '../src/tools/present.js'
+import { argLines, humanizeName, summarizeValue } from '../src/tools/present.js'
 import type { AITool, AIToolEvent, AIToolSet, SafeParseSchema, ToolConfirmRequest } from '../src/tools/types.js'
 import type { GenerateInput } from '../src/types.js'
 
@@ -285,6 +285,18 @@ describe('system prompt note for confirm tools', () => {
 })
 
 describe('repeated side effects', () => {
+  it('summarizes a result without unreadable "…" placeholders for nested lists', () => {
+    const order = {
+      orderId: 'B-1001',
+      status: 'pending',
+      lines: [{ product: 'croissant', name: 'Croissant', quantity: 3, subtotal: '$9.00' }, { product: 'bagel', name: 'Bagel', quantity: 1, subtotal: '$2.00' }],
+      total: '$11.00',
+    }
+    expect(summarizeValue(order)).toBe('Order id: B-1001, Status: pending, Total: $11.00')
+    // Lists of plain values are still shown.
+    expect(summarizeValue({ ids: ['a', 'b'], status: 'ok' })).toBe('Ids: a, b, Status: ok')
+  })
+
   it('a second call of an already-run confirm tool mentions the previous run, and the model is told about it', async () => {
     const ran: unknown[] = []
     const { chat, mock } = await bakeryBot(orderTool(ran))
@@ -310,6 +322,22 @@ describe('repeated side effects', () => {
     await chat.send('no')
     await chat.expectReply(/declined/)
     expect(ran).toHaveLength(1)
+  })
+
+  it('a call with DIFFERENT arguments is not warned as a repeat (e.g. changing 3 → 2 units)', async () => {
+    const ran: unknown[] = []
+    const requests: ToolConfirmRequest[] = []
+    const ai = new AIClient(bakeryModel(), new ContextManager(new MemoryStore()), { tools: orderTool(ran) })
+    const confirm = async (req: ToolConfirmRequest) => { requests.push(req); return 'approved' as const }
+    await ai.replyInChat('k', 'pide 3', { confirm })
+    await ai.replyInChat('k', 'pide 2', { confirm })
+    expect(ran).toHaveLength(2)
+    expect(requests[1]?.previous).toBeUndefined()
+    expect(requests[1]?.prompt).not.toMatch(/Ojo|otra vez/)
+    // The same arguments again: warned, with the previous run.
+    await ai.replyInChat('k', 'pide 3', { confirm })
+    expect(requests[2]?.previous?.args).toEqual({ items: [{ producto: 'torta_chocolate', cantidad: 3 }] })
+    expect(requests[2]?.prompt).toMatch(/^Ojo: ya hice «Crear pedido» hace un momento \(resultado: .*\)\. Si confirmas, se hará otra vez\./)
   })
 
   it('the confirmer receives `previous`; /reset forgets it', async () => {
@@ -356,11 +384,11 @@ describe('repeated side effects', () => {
     const dup = JSON.parse(second.replace(/^final: /, '')) as Record<string, unknown>
     expect(dup).toMatchObject({ executed: false, reason: 'duplicate', previous: { result: { pedido: 1, total: 25000 } } })
     expect(events.map((e) => e.type)).toContain('tool.duplicate')
-    // Different arguments are not a duplicate (and the prompt mentions the previous run).
+    // Different arguments are not a duplicate, nor a repeat: no "will be done again" warning.
     await ai.replyInChat('k', 'pide 4', { confirm })
     expect(ran).toHaveLength(2)
-    expect(requests[1]?.previous?.result).toEqual({ pedido: 1, total: 25000 })
-    expect(requests[1]?.prompt).toMatch(/^Ojo: ya hice «Crear pedido»/)
+    expect(requests[1]?.previous).toBeUndefined()
+    expect(requests[1]?.prompt).toBe('Voy a: Crear pedido\n• 4 × torta_chocolate\n¿Confirmas? (sí/no)')
     // Another chat is independent.
     await ai.replyInChat('other', 'pide 1', { confirm })
     expect(ran).toHaveLength(3)

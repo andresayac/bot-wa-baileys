@@ -187,7 +187,10 @@ export interface ToolConfirmRequest {
    * typed-answer hint). Set by the tool loop; a confirmer that shows buttons uses it.
    */
   buttonsPrompt?: string
-  /** Last successful run of the same tool in this chat, when there is one (it is mentioned in `prompt`). */
+  /**
+   * Last successful run of the same tool with the same (validated) arguments in this chat,
+   * when there is one (it is mentioned in `prompt`). A run with different arguments is not a repeat.
+   */
   previous?: AIToolExecution
 }
 

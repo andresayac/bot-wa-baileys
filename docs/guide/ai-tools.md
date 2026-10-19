@@ -293,10 +293,13 @@ the successful runs of `confirm: true` and `dedupe` tools per chat (in memory,
 for 30 minutes; `/reset` and `ctx.tools.ai.clearToolHistory(chatKey)` forget
 them) and uses them three ways:
 
-- **Confirmation notice**: when a `confirm: true` tool already ran in the chat,
-  the prompt starts with a localized line (`ai.tools.confirmRepeat`):
-  `Ojo: ya hice «Crear pedido» hace un momento (resultado: …). Si confirmas, se
-  hará otra vez.` The confirmer also receives it as `previous`.
+- **Confirmation notice**: when a `confirm: true` tool already ran in the chat
+  **with the same arguments**, the prompt starts with a localized line
+  (`ai.tools.confirmRepeat`): `Heads-up: I already did «Place order» a moment
+  ago (result: …). Confirming will do it again.` The confirmer also receives it
+  as `previous`. A call with different arguments (changing 3 → 2 units) is a
+  new action: no notice, no `previous`. The result summary leaves out fields
+  too nested to read (lists of objects).
 - **System prompt**: the next turns list the actions already run
   (`ai.tools.doneNote`), asking the model not to repeat them unless the user
   asks explicitly.

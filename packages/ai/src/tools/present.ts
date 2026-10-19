@@ -39,6 +39,11 @@ function present(v: unknown): boolean {
   return v !== undefined && v !== null && v !== ''
 }
 
+/** False for summaries with nothing to read (empty, or only `…` placeholders and separators). */
+function informative(text: string): boolean {
+  return /[^\s…,]/.test(text)
+}
+
 /** The human label of a scalar value under `key`, when the tool declares one. */
 function labelOf(v: string | number, key: string | undefined, labels: AIToolLabels | undefined): string | undefined {
   if (key === undefined || !labels || !Object.hasOwn(labels, key)) return undefined
@@ -67,7 +72,12 @@ function summarize(v: unknown, ctx: AITranslatable | undefined, depth: number, l
         : rest.map(([k, x]) => `${humanizeName(k)}: ${summarize(x, ctx, depth + 1, labels, k)}`).join(', ')
       return clip(what ? `${String(qty[1])} × ${what}` : String(qty[1]))
     }
-    return clip(entries.map(([k, x]) => `${humanizeName(k)}: ${summarize(x, ctx, depth + 1, labels, k)}`).join(', '))
+    // Fields too nested to show (a list of objects at this depth renders as `…, …`) are left out.
+    return clip(entries
+      .map(([k, x]) => [k, summarize(x, ctx, depth + 1, labels, k)] as const)
+      .filter(([, text]) => informative(text))
+      .map(([k, text]) => `${humanizeName(k)}: ${text}`)
+      .join(', '))
   }
   if (v === undefined || v === null) return ''
   return clip(String(v))

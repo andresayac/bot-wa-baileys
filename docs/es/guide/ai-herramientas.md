@@ -305,10 +305,12 @@ las herramientas `confirm: true` y `dedupe` (en memoria, 30 minutos; `/reset` y
 `ctx.tools.ai.clearToolHistory(chatKey)` las olvidan) y las usa de tres formas:
 
 - **Aviso en la confirmación**: si una herramienta `confirm: true` ya se
-  ejecutó en el chat, la pregunta empieza con una línea localizada
-  (`ai.tools.confirmRepeat`): `Ojo: ya hice «Crear pedido» hace un momento
-  (resultado: …). Si confirmas, se hará otra vez.` El confirmador la recibe
-  también como `previous`.
+  ejecutó en el chat **con los mismos argumentos**, la pregunta empieza con una
+  línea localizada (`ai.tools.confirmRepeat`): `Ojo: ya hice «Crear pedido» hace
+  un momento (resultado: …). Si confirmas, se hará otra vez.` El confirmador la
+  recibe también como `previous`. Una llamada con argumentos distintos (cambiar
+  3 → 2 unidades) es una acción nueva: sin aviso ni `previous`. El resumen del
+  resultado omite los campos demasiado anidados para leerse (listas de objetos).
 - **Prompt de sistema**: los turnos siguientes listan las acciones ya hechas
   (`ai.tools.doneNote`) y le piden al modelo no repetirlas salvo que el usuario
   lo pida explícitamente.
