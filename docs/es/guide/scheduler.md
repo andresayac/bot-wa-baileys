@@ -65,6 +65,43 @@ semana, están restringidos, un día vale si cumple **cualquiera** de los dos �
 soportados: `bot.schedule()` lanza un `TypeError` que nombra el campo inválido
 en lugar de crear una tarea que nunca se ejecuta.
 
+### Zonas horarias
+
+Por defecto los campos se leen en la zona horaria del proceso (el `TZ` del
+host). Pasa una zona IANA para leerlos en otra, por tarea o para todo el bot:
+
+```ts
+// Una tarea: 9:00 entre semana, hora de Bogotá, corra donde corra el servidor.
+bot.schedule('0 9 * * 1-5', { timeZone: 'America/Bogota' }, async () => { /* ... */ })
+
+// Las tareas durables la llevan junto a su id.
+bot.schedule('30 2 * * *', { id: 'informe-nocturno', timeZone: 'Europe/Madrid' }, async (run) => { /* ... */ })
+
+// Por defecto para todas las tareas cron del bot (gana la timeZone de la tarea; 'local' = zona del proceso).
+const bot = new Bot({ provider, scheduler: { timeZone: 'America/Mexico_City' } })
+```
+
+Las zonas se validan con `Intl` al crear la tarea (o el bot): un nombre
+desconocido lanza un `RangeError`. `every` y `delay` rechazan `timeZone`
+(solo aplica a los campos cron). `task.timeZone` indica qué zona usa una tarea.
+Una tarea sin zona no cambia en nada.
+
+Los cambios de horario de verano siguen una única política documentada. El
+campo de la hora es **comodín** cuando empieza por `*` (`*`, `*/2`), igual que
+en los campos de día:
+
+| Situación | Hora fija (`30 2 * * *`) | Hora comodín (`*/15 * * * *`, `0 * * * *`) |
+|---|---|---|
+| **Hueco**: la hora local no existe (se adelanta el reloj) | Corre una vez, desplazada hacia delante lo que dura el hueco (las 02:30 pasan a las 03:30), como RFC 5545 y el `'compatible'` de Temporal. Si la hora desplazada coincide con otro hueco de la tarea, corre una sola vez. | Los huecos dentro del salto se omiten; el calendario sigue en la primera hora de pared que existe. |
+| **Solape**: la hora local ocurre dos veces (se atrasa el reloj) | Corre una vez, en la primera ocurrencia. | Corre en las dos pasadas (son instantes distintos, con `occurrenceKey` distintas). |
+| Cambio a medianoche (p. ej. `America/Santiago`) | `0 0 * * *` corre a la 01:00 de ese día; el día del mes y el de la semana siguen siendo los del calendario. | Igual que arriba. |
+
+Las horas de ejecución siempre son estrictamente crecientes y todas las réplicas
+calculan las mismas, así que las tareas durables coinciden en sus huecos, en las
+ejecuciones perdidas y en el catch-up a través de un cambio de hora. Con zona,
+la búsqueda mira hasta cuatro años hacia delante (así `0 0 29 2 *` funciona);
+sin zona, un año.
+
 ## delay — una vez después de X tiempo
 
 ```ts
@@ -141,6 +178,7 @@ El handler recibe un `ScheduledRun`:
 | `missed` | `'skip'` | Qué hacer con las ejecuciones perdidas mientras no corría ningún scheduler (ver abajo). |
 | `maxCatchUp` | `10` | Máximo de huecos perdidos que ejecuta `'catch-up'`. |
 | `leaseMs` | `'60s'` | Cuánto dura el lease de una ejecución reclamada; se renueva cada tercio mientras corre el handler. |
+| `timeZone` | `scheduler.timeZone`, si no la zona del proceso | Solo tareas cron: zona IANA de los campos (ver [Zonas horarias](#zonas-horarias)). Forma parte de la especificación guardada (`TZ=<zona> <cron>`), así que añadirla o cambiarla vuelve a planificar la tarea. |
 
 ### Ejecuciones perdidas
 
@@ -174,7 +212,8 @@ registrar el id no la ejecuta otra vez) hasta que `cancel()` o
 `bot.forgetTask(id)` la borra.
 
 Los intervalos no derivan: el siguiente hueco es el anterior más el intervalo,
-no "ahora" más el intervalo. El cron sigue en hora local.
+no "ahora" más el intervalo. El cron usa la zona del proceso salvo que la tarea
+o `scheduler.timeZone` fijen una (ver [Zonas horarias](#zonas-horarias)).
 
 ### Registrar tareas
 
@@ -209,15 +248,42 @@ se conserva y nunca se ejecuta.
 
 | Opción | Por defecto | Significado |
 |---|---|---|
-| `store` | en memoria | Dónde se guardan los calendarios. `SQLiteStore#schedules()` (tabla `schedules`, misma conexión) o `RedisStore#schedules()` (`{prefix}:sched:{id}`, mismo cliente). Sin él las tareas durables funcionan pero no sobreviven a un reinicio, y se avisa una vez en el log. |
+| `store` | en memoria | Dónde se guardan los calendarios: el `schedules()` de tu store (ver la tabla de abajo). Sin él las tareas durables funcionan pero no sobreviven a un reinicio, y se avisa una vez en el log. |
 | `lease` | ninguno | Liderazgo opcional, que ahorra viajes al store con muchas réplicas: la réplica que tiene `scheduler:leader` reclama a tiempo y las demás solo reclaman una ejecución que lleva `leaderTtlMs` vencida (una tarea que solo ellas registran, p. ej. durante un despliegue gradual, o un líder caído), así que esa tarea corre hasta `leaderTtlMs` tarde. Un `LeaseProvider` con fencing (`RedisStore#leases()`, `MemoryLeaseProvider`) o un `Coordinator` multi-réplica (`store.coordinator()`); con `BotConfig.coordination` usa ese coordinador por defecto. La corrección nunca depende de él. |
 | `owner` | aleatorio | Id de dueño de lease de este proceso. |
 | `tickMs` | `'1s'` | Periodo de sondeo: recoge una ejecución cuyo ejecutor cayó (cuando vence su lease) y reintenta tras errores del store. |
 | `leaderTtlMs` | `'30s'` | TTL del lease de líder. Con un `Coordinator` (que renueva su liderazgo él mismo) es solo la gracia del seguidor; por defecto, el `leaseMs` del coordinador. |
+| `timeZone` | zona del proceso | Zona IANA por defecto de todas las tareas cron del bot, normales o durables (ver [Zonas horarias](#zonas-horarias)). Por sí sola no arranca nada. |
+
+Cada paquete de store trae su store de calendarios, que comparte la conexión y
+el prefijo del store:
+
+| Store | `store.schedules()` | Almacenamiento |
+|---|---|---|
+| `@bot-wa/sqlite-store` | `SQLiteScheduleStore` | Tabla `schedules` (más `schedule_fences`); cada llamada es una transacción `BEGIN IMMEDIATE`. |
+| `@bot-wa/redis-store` | `RedisScheduleStore` | `{prefix}:sched:{id}`, scripts de compare-and-set. |
+| `@bot-wa/postgres-store` | `PostgresScheduleStore` | Tabla `{tablePrefix}schedules`; cada llamada es una sentencia atómica (los reclamos son `UPDATE … RETURNING`). |
+| `@bot-wa/mysql-store` | `MysqlScheduleStore` | Tabla `{tablePrefix}schedules` (ids VARBINARY, hasta 1024 bytes); los reclamos hacen `SELECT … FOR UPDATE` en una transacción corta. |
+| `@bot-wa/mongo-store` | `MongoScheduleStore` | Colección `{collectionPrefix}schedules`; comandos de un solo documento (`findOneAndUpdate`), así que sirve un `mongod` standalone. |
+
+```ts
+import { PostgresStore } from '@bot-wa/postgres-store'
+
+const store = new PostgresStore({ connectionString: process.env.DATABASE_URL })
+const bot = new Bot({ provider, store, scheduler: { store: store.schedules() } })
+```
+
+El bot arranca su store antes que el scheduler, y el scheduler crea la tabla
+(`CREATE TABLE IF NOT EXISTS`, idempotente). Si usas un store solo para los
+calendarios, haz antes `await store.start()`. Los stores SQL y Mongo borran de
+forma lógica: un id olvidado conserva su fila con `deleted` activo para que su
+token de fencing nunca retroceda. Purga a mano los tombstones antiguos solo
+cuando ningún ejecutor pueda seguir teniendo su token (por ejemplo
+`DELETE FROM schedules WHERE deleted AND updated_at < <hace un día>`).
 
 Sirve cualquier objeto que implemente `ScheduleStore` (exportado desde
-`@bot-wa/core`, con `MemoryScheduleStore` como referencia). Los backends de
-Postgres, MySQL y Mongo aún no existen.
+`@bot-wa/core`, con `MemoryScheduleStore` como referencia y la suite compartida
+`test-utils/schedule-store-conformance.ts` para comprobarlo).
 
 ### Garantías y límites
 
@@ -242,6 +308,11 @@ Postgres, MySQL y Mongo aún no existen.
 - `stop()` pausa: las filas se conservan. `task.cancel()` borra la fila.
 - Los plazos de los leases usan el reloj de cada réplica: mantén los relojes
   sincronizados (NTP) y `leaseMs` muy por encima del desfase esperado.
+- Las zonas horarias salen de los datos ICU de cada build de Node. Si las
+  réplicas tienen tzdata distinta (o un gobierno cambia sus reglas de horario de
+  verano), gana el `nextRunAt` guardado: las réplicas siguen la fila y solo el
+  siguiente cálculo usa las reglas nuevas. Una zona que el Node de una réplica no
+  conoce hace fallar su registro al arrancar, de forma visible.
 - `bot.onIdle()` sigue en memoria a propósito: los temporizadores de inactividad
   por chat se reconstruyen con el tráfico entrante.
 

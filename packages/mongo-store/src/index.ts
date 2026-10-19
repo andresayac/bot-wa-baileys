@@ -7,3 +7,5 @@ export type {
   MongoLikeCursor,
   NativeMongoClient,
 } from './MongoStore.js'
+export { MongoScheduleStore } from './schedules.js'
+export type { MongoScheduleStoreOptions, MongoScheduleCollectionLike, ScheduleDoc } from './schedules.js'

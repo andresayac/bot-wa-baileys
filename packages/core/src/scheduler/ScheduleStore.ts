@@ -20,7 +20,10 @@ export type ScheduleKind = 'cron' | 'interval' | 'once'
 export interface ScheduleRecord {
   id: string
   kind: ScheduleKind
-  /** Cron expression, interval in ms, or one-shot delay in ms (as a string). */
+  /**
+   * Cron expression, interval in ms, or one-shot delay in ms (as a string). A cron task
+   * with a time zone stores `TZ=<zone> <cron>` (an opaque string for the store).
+   */
   spec: string
   /** Epoch ms of the next occurrence; `null` once a one-shot task has run (a tombstone). */
   nextRunAt: number | null
@@ -91,7 +94,8 @@ export interface SchedulerOptions {
   /**
    * Where durable tasks persist their state. Default: an in-memory store, which keeps
    * the in-process semantics (nothing survives a restart; a warning is logged once).
-   * Use `SQLiteStore#schedules()` or `RedisStore#schedules()` (or any implementation).
+   * Use the `schedules()` of `SQLiteStore`, `RedisStore`, `PostgresStore`, `MysqlStore`
+   * or `MongoStore` (or any implementation).
    */
   store?: ScheduleStore
   /**
@@ -124,6 +128,14 @@ export interface SchedulerOptions {
   leaderTtlMs?: string | number
   /** Clock used for durable tasks (epoch ms). For tests; default `Date.now`. */
   now?: () => number
+  /**
+   * Default IANA zone (`'America/Bogota'`, `'Europe/Madrid'`, `'UTC'`, or `'local'`) the
+   * cron fields of this scheduler's cron tasks are read in, plain and durable alike; a
+   * task's own `timeZone` overrides it. Default: the process zone (today's behaviour).
+   * Validated at construction (`RangeError` for an unknown zone). See
+   * `CronTaskOptions.timeZone` for the daylight-saving rules.
+   */
+  timeZone?: string
 }
 
 const clone = (r: ScheduleRecord): ScheduleRecord => ({ ...r })

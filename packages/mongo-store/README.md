@@ -97,6 +97,23 @@ const store = new MongoStore({ client: fake })
 - Binary data inside `raw` / checkpoint state (`Buffer`, `Uint8Array`) reads back as a Node `Buffer`, not the driver's `Binary` class.
 - Every document is limited to MongoDB's **16 MB** BSON cap — a single message, checkpoint or AI conversation history larger than that is rejected by the write (the previous value is kept). Field names may contain `.` and `$` but not NUL (`\0`).
 
+## Durable scheduler
+
+`store.schedules()` returns a `MongoScheduleStore` on the same client, database and `collectionPrefix` (collection `{collectionPrefix}schedules`), for `bot.schedule/every/delay(spec, { id }, fn)` durable tasks shared by any number of replicas:
+
+```ts
+const store = new MongoStore({ url: process.env.MONGO_URL, dbName: 'mybot' })
+const bot = new Bot({ provider, store, scheduler: { store: store.schedules() } })
+bot.schedule('0 9 * * 1-5', { id: 'daily-report', timeZone: 'America/Mexico_City' }, async (run) => { /* … */ })
+```
+
+- Every operation is **one atomic single-document command** (`insertOne`, `findOneAndUpdate`, `updateOne`), so no transactions are needed and a standalone `mongod` works. A claim is a conditional `findOneAndUpdate` with `$inc` on the fencing token: concurrent claimers get exactly one winner.
+- Only `_id` lookups are used, so no index is created. A standalone `new MongoScheduleStore({ collection })` takes any driver `Collection` and never closes its client.
+- `delete()` (`task.cancel()`, `bot.forgetTask(id)`) is a soft delete: the document stays with `deleted: true` so the id's fencing token never goes backwards. Purge old tombstones by hand only when no runner can still hold their token, e.g. `deleteMany({ deleted: true, updatedAt: { $lt: <epoch ms a day ago> } })`.
+- A token past int32 is promoted to a 64-bit integer by the server and read back as a `number`. Leases use the caller's clock (`now`): keep replicas in sync (NTP).
+- `tests/schedules.integration.test.ts` runs the shared `ScheduleStore` conformance suite, concurrent claims from two clients, the int32 promotion and a two-bot end-to-end run against a real server (same `BOTWA_TEST_MONGO_URL`).
+
+
 ## Integration tests
 
 The default `pnpm test` is hermetic: the unit tests use the in-memory fake and `tests/integration.test.ts` is **skipped**. To run it against a real MongoDB (the shared `IStore` conformance suite plus index creation, persistence across restarts, trimming, merges, unicode, large values and concurrent writes), set `BOTWA_TEST_MONGO_URL`:

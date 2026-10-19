@@ -126,6 +126,24 @@ ALTER TABLE `{p}cursors` MODIFY `key` VARBINARY(1024) NOT NULL;
 - `purgeExpiredUserData` deletes `purgeBatchSize` rows per statement (`DELETE … ORDER BY expires_at LIMIT ?`) until nothing expired is left, so a large backlog never holds InnoDB locks for one long delete.
 - **Message keys.** `messageKey(ref)` (from `@bot-wa/core`) is `{chatId}:{id}` with `%` and `:` percent-escaped in each part (`%25`, `%3A`), so ids that contain `:` — Twilio's `whatsapp:+1…` chat ids — never collide (`('a:b', 'c')` and `('a', 'b:c')` used to share the key `a:b:c`). Ids without `:` or `%` keep exactly the key earlier versions wrote. Rows written by an earlier version under the old unescaped key are still read and deleted (a fallback that only runs for ids containing `:` or `%`, and only returns or deletes a row whose stored `ref` is that very message, since a legacy key can be another message's new key), and re-saving such a message moves it to the new key — no manual migration. One theoretical edge remains: an id that literally contains `%3A` and was stored by an earlier version can be overwritten by a new message whose id has `:` in the same place.
 
+## Durable scheduler
+
+`store.schedules()` returns a `MysqlScheduleStore` on the same pool and `tablePrefix` (table `{tablePrefix}schedules`), for `bot.schedule/every/delay(spec, { id }, fn)` durable tasks shared by any number of replicas:
+
+```ts
+const store = new MysqlStore({ uri: process.env.MYSQL_URL })
+const bot = new Bot({ provider, store, scheduler: { store: store.schedules() } })
+bot.schedule('0 9 * * 1-5', { id: 'daily-report', timeZone: 'Europe/Madrid' }, async (run) => { /* … */ })
+```
+
+- Ids, specs and lease owners are `VARBINARY` (byte-exact, like the store's keys): ids up to 1024 bytes, specs up to 2048, owners up to 512. Longer values fail fast with a `RangeError` instead of looping in the engine's retries.
+- A claim runs `START TRANSACTION; SELECT … FOR UPDATE; UPDATE; COMMIT` on a dedicated connection (an equality lock on the primary key, so claimers queue), retries a deadlock victim (errno 1213) up to 3 times and always releases the connection. `renew`/`complete` are single conditional updates fenced by the token; `renew` is correct with or without the `FOUND_ROWS` client flag.
+- The scheduler calls its `start()`, which creates the table (`CREATE TABLE IF NOT EXISTS`, InnoDB, utf8mb4). The bot starts the store first; if you use the store only for schedules, `await store.start()` yourself. A standalone `new MysqlScheduleStore({ pool, tablePrefix })` borrows any pool and never closes it.
+- `delete()` (`task.cancel()`, `bot.forgetTask(id)`) is a soft delete: the row stays with `deleted = 1` so the id's fencing token never goes backwards. Purge old tombstones by hand only when no runner can still hold their token, e.g. `DELETE FROM schedules WHERE deleted = 1 AND updated_at < <epoch ms a day ago>`.
+- Leases use the caller's clock (`now`): keep replicas in sync (NTP).
+- `tests/schedules.integration.test.ts` runs the shared `ScheduleStore` conformance suite (also without `FOUND_ROWS`), 20 claimers on two 2-connection pools, a concurrent schema race and a two-bot end-to-end run against a real server (same `BOTWA_TEST_MYSQL_URL`).
+
+
 ## Tests de integración
 
 Los tests unitarios (`tests/mysql-store.test.ts`, `tests/conformance.test.ts`) usan un `FakePool` en memoria que reconoce las sentencias del store, así que nunca ejecutan SQL real. `tests/integration.test.ts` sí lo hace: corre la suite compartida de conformidad de `IStore` y casos propios de MySQL (esquema e índice idempotentes, persistencia tras `stop()`/`start()` con un cliente nuevo, recorte con `maxMessagesPerChat`, `deleteChat` purgando el log, merge superficial, unicode/emoji y JSON grandes, orden/límite de `getMessagesByChat`, `saveMessage` concurrentes, `upsertChat`/`upsertContact` parciales y concurrentes desde varios clientes (merge atómico sin pérdida de campos) e ids que solo difieren en mayúsculas/acentos) contra un servidor de verdad.

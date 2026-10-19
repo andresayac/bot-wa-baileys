@@ -165,6 +165,8 @@ export { sleep, parseDuration, humanTypingDelay, withTimeout, TimeoutError, rand
 export { Scheduler } from './scheduler/Scheduler.js'
 // Scheduler: durable tasks (persistent schedule store + fenced leases)
 export type { DurableTaskOptions, DurableTaskHandler, ScheduledRun, MissedRunPolicy } from './core/types.js'
+// Scheduler: cron in an IANA time zone (plain tasks; durable tasks take DurableTaskOptions.timeZone)
+export type { CronTaskOptions } from './core/types.js'
 export { MemoryScheduleStore, isScheduleClaimable, applyScheduleComplete } from './scheduler/ScheduleStore.js'
 export type {
   ScheduleStore,

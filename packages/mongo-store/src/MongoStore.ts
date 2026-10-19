@@ -48,6 +48,7 @@ import type {
   UserId,
 } from '@bot-wa/core'
 import { legacyMessageKey, messageKey } from '@bot-wa/core'
+import { MongoScheduleStore } from './schedules.js'
 import { MongoUserData, type UserDataDoc } from './userData.js'
 
 /** The native mongodb v6 client type (accepted through {@link MongoStoreOptions.client}). */
@@ -221,6 +222,7 @@ export class MongoStore implements IStore {
   private readonly client: MongoLikeClient
   private readonly ownsClient: boolean
   private readonly dbName: string
+  private readonly collectionPrefix: string
   private readonly maxMessagesPerChat?: number
   private readonly logger?: { error?: (...args: unknown[]) => void }
   private started = false
@@ -251,6 +253,7 @@ export class MongoStore implements IStore {
     this.client = client as unknown as MongoLikeClient
 
     const p = opts.collectionPrefix ?? ''
+    this.collectionPrefix = p
     const db = this.client.db(this.dbName)
     this.messages = db.collection<MessageDoc>(`${p}messages`)
     this.chats = db.collection<ChatDoc>(`${p}chats`)
@@ -438,6 +441,21 @@ export class MongoStore implements IStore {
   /** Delete every expired user-data document (all users) in batches of `purgeBatchSize`; resolves with the count. */
   async purgeExpiredUserData(now: number = Date.now()): Promise<number> {
     return this.userData.purge(now)
+  }
+
+  /* Durable scheduler ------------------------------------------------------ */
+
+  private scheduleStore?: MongoScheduleStore
+
+  /**
+   * The durable scheduler's store on this store's client and database (collection
+   * `{collectionPrefix}schedules`): `new Bot({ store, scheduler: { store: store.schedules() } })`.
+   * Always the same instance.
+   */
+  schedules(): MongoScheduleStore {
+    return (this.scheduleStore ??= new MongoScheduleStore({
+      collection: this.client.db(this.dbName).collection(`${this.collectionPrefix}schedules`),
+    }))
   }
 
   /* Lifecycle -------------------------------------------------------------- */

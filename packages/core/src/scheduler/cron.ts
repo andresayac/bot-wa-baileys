@@ -10,7 +10,9 @@
  * (For full cron support, swap to a real parser like `cron-parser`.)
  * ========================================================================== */
 
-const CRON_FIELDS = ['minute', 'hour', 'day-of-month', 'month', 'weekday'] as const
+import { nextRunInZone } from './cronZone.js'
+
+const CRON_FIELDS =['minute', 'hour', 'day-of-month', 'month', 'weekday'] as const
 const CRON_FIELD = /^(\*|\d+(-\d+)?)(\/\d+)?(,(\*|\d+(-\d+)?)(\/\d+)?)*$/
 
 /** Throw an actionable `TypeError` for an expression the minimal parser cannot run. */
@@ -33,8 +35,15 @@ export function assertCron(expr: string): void {
 /**
  * The first minute strictly after `from` (default: now) that matches `expr`, or `null`
  * when nothing matches within a year. Pure for a given `from` (cron fields are local time).
+ *
+ * With `timeZone` (an IANA name such as `'America/Bogota'`) the fields are read as wall
+ * time in that zone, with the daylight-saving rules of the scheduler guide (a fixed-hour
+ * slot in a skipped hour is shifted forward; in a repeated hour it runs once, at the first
+ * occurrence; wildcard-hour slots follow the real clock), and the horizon is four years.
+ * No zone, or `'local'`, keeps the host-local evaluation. An unknown zone throws a `RangeError`.
  */
-export function cronNextRun(expr: string, from: Date = new Date()): Date | null {
+export function cronNextRun(expr: string, from: Date = new Date(), timeZone?: string): Date | null {
+  if (timeZone !== undefined && timeZone !== 'local') return nextRunInZone(expr, from, timeZone)
   const parts = expr.trim().split(/\s+/)
   if (parts.length !== 5) return null
   const [m, h, dom, mon, dow] = parts
@@ -61,12 +70,12 @@ export function cronNextRun(expr: string, from: Date = new Date()): Date | null 
 }
 
 /** Weekday field: `0` and `7` both mean Sunday (standard cron). */
-function matchesWeekday(day: number, expr: string): boolean {
+export function matchesWeekday(day: number, expr: string): boolean {
   return matchesField(day, expr, 0) || (day === 0 && matchesField(7, expr, 0))
 }
 
 /** Does `actual` match one cron field? `min` is the field's lowest value (where a `*` step starts). */
-function matchesField(actual: number, expr: string, min: number): boolean {
+export function matchesField(actual: number, expr: string, min: number): boolean {
   if (expr === '*') return true
   // ranges & lists
   for (const part of expr.split(',')) {
