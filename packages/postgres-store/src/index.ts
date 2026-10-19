@@ -7,3 +7,5 @@ export type {
 } from './PostgresStore.js'
 export { PostgresDurability, PostgresDurableKv } from './durability.js'
 export type { PostgresDurabilityOptions } from './durability.js'
+export { PostgresScheduleStore } from './schedules.js'
+export type { PostgresScheduleStoreOptions, PostgresQueryable } from './schedules.js'

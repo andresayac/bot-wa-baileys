@@ -48,6 +48,7 @@ import type {
 } from '@bot-wa/core'
 import { legacyMessageKey, messageKey } from '@bot-wa/core'
 import { PostgresUserData } from './userData.js'
+import { PostgresScheduleStore } from './schedules.js'
 import { jsonbSafeString, toJsonb } from './jsonb.js'
 
 /**
@@ -488,6 +489,24 @@ export class PostgresStore implements IStore {
   /** Delete every expired user-data row (all users) in batches of `purgeBatchSize`; resolves with the count. */
   async purgeExpiredUserData(now: number = Date.now()): Promise<number> {
     return this.userData.purge(now)
+  }
+
+  /* Durable scheduler ------------------------------------------------------------ */
+
+  private scheduleStore?: PostgresScheduleStore
+
+  /**
+   * The durable scheduler's store on this store's pool and `tablePrefix` (table
+   * `{prefix}schedules`, created by its own `start()`, which the scheduler calls):
+   * `new Bot({ store, scheduler: { store: store.schedules() } })`. Always the same
+   * instance. Its calls fail with the "not started" error until this store is started
+   * (the bot starts its store before the scheduler).
+   */
+  schedules(): PostgresScheduleStore {
+    return (this.scheduleStore ??= new PostgresScheduleStore({
+      pool: { query: (text, values) => this.query(text, values) as Promise<PostgresQueryResult> },
+      tablePrefix: this.prefix || undefined,
+    }))
   }
 
   /* Lifecycle ------------------------------------------------------------------- */
