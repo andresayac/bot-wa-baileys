@@ -113,10 +113,17 @@ describe('RedisCoordinator (fake Redis)', () => {
       let abortedAt = 0
       turn.signal.addEventListener('abort', () => { abortedAt = performance.now() })
       down = true
-      // Run the clock up to (not including) the moment the server-side lease, granted at
-      // or after grantedAt, could expire: everything must have been given up by then.
-      await vi.advanceTimersByTimeAsync(leaseMs - 1)
+      // A failed renewal alone does not give up: the local deadline is 90% of a lease after
+      // the last confirmed renewal (here, the grant itself).
+      const giveUpAfter = leaseMs * 0.9
+      await vi.advanceTimersByTimeAsync(giveUpAfter - 1)
+      expect(turn.signal.aborted).toBe(false)
+      expect(lead!.signal.aborted).toBe(false)
+      // ...and it is reached before the server-side lease, granted at or after grantedAt,
+      // could expire (the clock stops one ms short of that).
+      await vi.advanceTimersByTimeAsync(leaseMs - giveUpAfter)
       expect(turn.signal.aborted).toBe(true)
+      expect(abortedAt - grantedAt).toBeGreaterThanOrEqual(giveUpAfter)
       expect(abortedAt - grantedAt).toBeLessThan(leaseMs)
       expect(turn.signal.reason).toMatchObject({ reason: 'coordinator-down' })
       expect(lead!.signal.aborted).toBe(true)
