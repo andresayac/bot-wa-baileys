@@ -46,6 +46,13 @@ export interface DiscordProviderConfig {
   apiVersion?: string
   /** Safe-download policy for Discord CDN URLs. */
   mediaDownload?: Omit<SecureFetchOptions, 'fetch'>
+  /**
+   * Durable inbox (`BotConfig.durability`): hosts whose attachment URLs are journaled so a
+   * replayed message can download its media again. A name also allows its subdomains.
+   * Default: the Discord CDNs (`DISCORD_MEDIA_HOSTS`). Plain `http:` URLs are only accepted
+   * with `mediaDownload.allowHttp`.
+   */
+  mediaRefHosts?: string[]
   /** Injectable websocket factory — tests pass a fake; production uses `ws`. */
   socketFactory?: SocketFactory
   /** Base delay between gateway reconnects (ms, exponential backoff on top). Default 500. */

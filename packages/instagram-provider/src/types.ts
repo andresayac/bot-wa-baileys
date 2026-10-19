@@ -25,6 +25,13 @@ export interface InstagramProviderConfig {
   graphUrl?: string
   /** Safe-download policy for inbound media. HTTPS/public hosts are enforced by default. */
   mediaDownload?: Omit<SecureFetchOptions, 'fetch'>
+  /**
+   * Durable inbox (`BotConfig.durability`): hosts whose attachment URLs are journaled so a
+   * replayed message can download its media again. A name also allows its subdomains.
+   * Default: the Meta attachment CDNs (`META_MEDIA_HOSTS` of `@bot-wa/graph-core`). Plain
+   * `http:` URLs are only accepted with `mediaDownload.allowHttp`.
+   */
+  mediaRefHosts?: string[]
   /** The bot's own IG user id (IGSID). Optional. */
   selfId?: string
   debug?: boolean

@@ -28,8 +28,10 @@ import type {
   SendOptions,
   SendResult,
   UserId,
+  SerializedMediaRef,
 } from '@bot-wa/core'
 import { ProviderError, UnsupportedContentError } from '@bot-wa/core'
+import { isAllowedHostUrl } from '@bot-wa/http'
 import type { DiscordProviderConfig } from './types.js'
 import { DEFAULT_INTENTS } from './types.js'
 import { GatewaySocket, defaultSocketFactory } from './gateway.js'
@@ -39,6 +41,9 @@ import { toOutbound, type DiscordFile } from './toOutbound.js'
 
 /** Default `reactionMemory`: messages whose own-reaction emoji is remembered. */
 const DEFAULT_REACTION_MEMORY = 1000
+
+/** Hosts (and their subdomains) that serve Discord attachments (`cdn.discordapp.com`, `media.discordapp.net`). */
+export const DISCORD_MEDIA_HOSTS: readonly string[] = Object.freeze(['discordapp.com', 'discordapp.net'])
 
 const MEDIA_KINDS = ['image', 'video', 'audio', 'voice', 'document', 'sticker'] as const
 
@@ -105,6 +110,10 @@ export class DiscordProvider implements IProvider<unknown> {
       throw new Error(`DiscordProvider: reactionMemory must be a non-negative integer (got ${String(memory)})`)
     }
     this.reactionMemory = memory
+    if (config.mediaRefHosts !== undefined &&
+      (!Array.isArray(config.mediaRefHosts) || config.mediaRefHosts.some((h) => typeof h !== 'string' || h.trim() === ''))) {
+      throw new TypeError('DiscordProvider: mediaRefHosts must be an array of host names')
+    }
     this.config = {
       intents: DEFAULT_INTENTS,
       gatewayUrl: 'wss://gateway.discord.gg',
@@ -304,6 +313,30 @@ export class DiscordProvider implements IProvider<unknown> {
       throw new ProviderError('downloadMedia requires a Discord CDN url (MediaRef.token)')
     }
     return (await this.rest.download(url)).buffer
+  }
+
+  /**
+   * Durable inbox: the attachment CDN URL (`{ url }`), only on a Discord CDN host (or
+   * `mediaRefHosts`). No credentials are stored. Discord signs attachment URLs and they expire
+   * (about 24 h): a replay after that fails with the usual download error.
+   */
+  serializeMediaRef(ref: MediaRef): SerializedMediaRef | undefined {
+    return typeof ref.token === 'string' && this.mediaUrlAllowed(ref.token) ? { v: 1, data: { url: ref.token } } : undefined
+  }
+
+  /** Rebuild a journaled attachment URL. @throws {ProviderError} on an invalid, foreign or unknown-version value. */
+  rehydrateMediaRef(stored: SerializedMediaRef, ref: Omit<MediaRef, 'token'>): MediaRef {
+    const data = stored?.data as { url?: unknown } | null | undefined
+    const url = stored?.v === 1 && data !== null && typeof data === 'object' && !Array.isArray(data) ? data.url : undefined
+    if (typeof url !== 'string' || !this.mediaUrlAllowed(url)) throw new ProviderError('Invalid Discord media reference')
+    return { ...ref, token: url }
+  }
+
+  private mediaUrlAllowed(url: string): boolean {
+    return isAllowedHostUrl(url, {
+      hosts: this.config.mediaRefHosts ?? DISCORD_MEDIA_HOSTS,
+      allowHttp: this.config.mediaDownload?.allowHttp === true,
+    })
   }
 
   /* Capability-gated actions -------------------------------------------------- */

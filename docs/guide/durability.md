@@ -39,10 +39,10 @@ before, in memory and in a single process.
 | Backend | Package | Survives a crash | Several replicas |
 | --- | --- | --- | --- |
 | `MemoryDurability` (the default with `durability: {}`) | `@bot-wa/core` | No (retries, backoff and DLQ only) | No |
-| `FileDurability.open(path)` | `@bot-wa/core` | Yes | No (a lock file refuses a second live process) |
+| `FileDurability.open(path)` | `@bot-wa/core` | Yes | No (a lock file refuses a second live process, and a second open in the same process until `close()`) |
 | `PostgresDurability({ pool \| connectionString, tablePrefix })` | `@bot-wa/postgres-store` | Yes | Yes, with sticky per-chat routing (see [Several replicas](#several-replicas)) |
 | `RedisDurability({ client \| url, prefix })` | `@bot-wa/redis-store` | Yes (with Redis persistence on) | Yes, with sticky per-chat routing (see [Several replicas](#several-replicas)) |
-| `eventsDurability({ journal })` | `@bot-wa/events/durability` (private, monorepo only) | With a `FileEventJournal` opened with `{ lock: true }` | No (see [below](#an-bot-wa-events-journal)) |
+| `eventsDurability({ journal })` | `@bot-wa/events/durability` (private, monorepo only) | With a `FileEventJournal` opened with `{ lock: true }` or a `SharedFileEventJournal` | With a `SharedFileEventJournal` (processes on one host; see [below](#an-bot-wa-events-journal)) |
 
 PostgreSQL creates one table, `{tablePrefix}durable`, idempotently on start.
 Redis uses keys under `{prefix}:{durable:inbox:<scope>}` and `{prefix}:{durable:outbox:<scope>}`.
@@ -93,8 +93,28 @@ const bot = new Bot({ provider, durability: { journal: eventsDurability({ journa
   keep the retention short, or pass a database-backed `outbox`; or use
   `FileDurability` or a database backend instead.
 - For several replicas you need a shared `LeasedEventJournal` with atomic, fenced
-  operations, plus a shared `outbox` (`eventsDurability({ journal, outbox: kv })`, with
-  the `DurableKv` of a Postgres or Redis backend). No such journal ships yet.
+  operations. `SharedFileEventJournal` is one: several processes open the same file, and
+  every write runs under a cross-process mutex (`<file>.mutex`) against the current file,
+  so claims are exclusive and fencing tokens hold across processes. The outbox lives in
+  the same file and is shared too:
+
+  ```ts
+  import { SharedFileEventJournal } from '@bot-wa/events'
+
+  const journal = await SharedFileEventJournal.open('./data/events.json')
+  const bot = new Bot({ provider, durability: { journal: eventsDurability({ journal }) } })
+  ```
+
+  It is meant for a few processes on one host (or a filesystem with atomic rename and
+  exclusive create; not NFS): every write rereads and rewrites the whole file. A mutex
+  left by a dead process is broken at once, and one held longer than `staleLockMs`
+  (default 30 s) is treated as abandoned; nothing is ever killed. The file format is the
+  `FileEventJournal` one, but never open a file with both at the same time (the shared
+  journal refuses a file a live locked `FileEventJournal` holds, also when that journal
+  opens it later: every shared operation then rejects instead of losing records). The same-chat rule of
+  [Several replicas](#several-replicas) applies. For heavy traffic, use another
+  `LeasedEventJournal` with a shared `outbox` (`eventsDurability({ journal, outbox: kv })`,
+  with the `DurableKv` of a Postgres or Redis backend), or those backends directly.
 
 ## What is guaranteed
 
@@ -238,6 +258,8 @@ would for a live message.
 | `@bot-wa/meta` (Cloud API) | The media id | Meta keeps inbound media for about 30 days. |
 | `@bot-wa/telegram` | The `file_id` | It only works with the same bot token. |
 | `@bot-wa/twilio` | The media URL | Only `https` URLs on the API origin or a `twilio.com` host are accepted back. |
+| `@bot-wa/messenger`, `@bot-wa/instagram` | The attachment URL | Only URLs on the Meta CDNs (`fbcdn.net`, `fbsbx.com`, `cdninstagram.com`; `mediaRefHosts` replaces the list) are journaled and accepted back. The URLs are signed and expire, so a late replay fails to download. |
+| `@bot-wa/discord` | The attachment URL | Only URLs on the Discord CDNs (`discordapp.com`, `discordapp.net`; `mediaRefHosts` replaces the list). Discord attachment URLs expire after about 24 hours. |
 | Other providers | The token as it is (as before) | Their tokens are already plain ids or URLs. |
 
 No credentials are journaled: tokens and keys are added again at download time. The

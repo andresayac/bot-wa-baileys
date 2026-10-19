@@ -25,7 +25,7 @@
 
 import {
   KvOutbox, MemoryKv, StaleLeaseError,
-  type ClaimOptions, type DurabilityBackend, type DurableKv, type InboxAppend, type InboxJournal, type InboxRecord,
+  type ClaimOptions, type DurabilityBackend, type DurableKv, type DurableKvEntry, type DurableKvIndex, type DurableTable, type InboxAppend, type InboxJournal, type InboxRecord,
   type InboxState, type JsonValue, type LeaseOptions, type MemoryKvSnapshot, type OutboxJournal,
 } from '@bot-wa/core'
 import {
@@ -39,8 +39,9 @@ export interface EventsDurabilityOptions {
   journal: LeasedEventJournal
   /**
    * Outbox storage. Default: a key-value store kept as a sidecar of `journal` (requires
-   * `journal.sidecar`, which the memory and file journals have). Pass a shared `DurableKv`
-   * (e.g. a Postgres or Redis one) when the journal is shared by several processes.
+   * `journal.sidecar`, which the memory and file journals have, or `readSidecar`/`updateSidecar`,
+   * which the multi-process `SharedFileEventJournal` has). Pass a shared `DurableKv` (e.g. a
+   * Postgres or Redis one) for another journal shared by several processes.
    */
   outbox?: DurableKv
   /** Envelope context written on the bot's records. Default: `'botwa'` placeholders. */
@@ -78,7 +79,52 @@ class SidecarKv extends MemoryKv {
 /** One sidecar KV per journal, shared by every adapter (bot) and scope over it. */
 const sidecarKvs = new WeakMap<LeasedEventJournal, SidecarKv>()
 
-function sidecarKv(journal: LeasedEventJournal): SidecarKv {
+/**
+ * The outbox KV of a multi-process journal (`readSidecar` / `updateSidecar`, e.g. a
+ * `SharedFileEventJournal`): every operation works on the side state of the CURRENT snapshot,
+ * and every write is atomic with the journal's other writes, so all processes share one outbox.
+ */
+class SharedSidecarKv implements DurableKv {
+  constructor(
+    private readonly journal: Required<Pick<LeasedEventJournal, 'readSidecar' | 'updateSidecar'>>,
+    private readonly name: string,
+  ) {}
+
+  private static kv(data: unknown): MemoryKv {
+    const kv = new MemoryKv()
+    if (data !== undefined) kv.restore(data as MemoryKvSnapshot)
+    return kv
+  }
+
+  private change<T>(fn: (kv: MemoryKv) => Promise<T>, wrote: (result: T) => boolean): Promise<T> {
+    return this.journal.updateSidecar(this.name, async (data) => {
+      const kv = SharedSidecarKv.kv(data)
+      const result = await fn(kv)
+      return wrote(result) ? { data: kv.snapshot(), result } : { result }
+    })
+  }
+
+  async get(table: DurableTable, id: string): Promise<DurableKvEntry | undefined> {
+    return SharedSidecarKv.kv(await this.journal.readSidecar(this.name)).get(table, id)
+  }
+  insert(table: DurableTable, id: string, value: string, index: DurableKvIndex): Promise<string | undefined> {
+    return this.change((kv) => kv.insert(table, id, value, index), (v) => v !== undefined)
+  }
+  replace(table: DurableTable, id: string, version: string, value: string, index: DurableKvIndex): Promise<string | undefined> {
+    return this.change((kv) => kv.replace(table, id, version, value, index), (v) => v !== undefined)
+  }
+  remove(table: DurableTable, id: string, version: string): Promise<boolean> {
+    return this.change((kv) => kv.remove(table, id, version), (ok) => ok)
+  }
+  async range(table: DurableTable, index: keyof DurableKvIndex, max: number, limit: number): Promise<string[]> {
+    return SharedSidecarKv.kv(await this.journal.readSidecar(this.name)).range(table, index, max, limit)
+  }
+}
+
+function sidecarKv(journal: LeasedEventJournal): DurableKv {
+  if (typeof journal.sidecar !== 'function' && typeof journal.readSidecar === 'function' && typeof journal.updateSidecar === 'function') {
+    return new SharedSidecarKv(journal as Required<Pick<LeasedEventJournal, 'readSidecar' | 'updateSidecar'>>, OUTBOX_SIDECAR)
+  }
   let kv = sidecarKvs.get(journal)
   if (kv) return kv
   if (typeof journal.sidecar !== 'function') {
