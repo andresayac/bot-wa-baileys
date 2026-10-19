@@ -133,3 +133,17 @@ describe('GraphClient — network failures', () => {
     await expect(p.send('573001', { kind: 'text', text: 'x' })).rejects.toBeInstanceOf(ProviderError)
   })
 })
+
+describe('CloudAPIProvider send errors carry the content kind', () => {
+  it('131051 reports the kind that was sent (not the generic fallback)', async () => {
+    mockFetch(() => ({ status: 400, body: { error: { code: 131051, message: 'Unsupported message type' } } }))
+    const err = await new CloudAPIProvider(baseCfg).send('573001', { kind: 'location', lat: 1, lng: 2 }).catch((e: unknown) => e)
+    expect(err).toMatchObject({ name: 'UnsupportedContentError', kind: 'location' })
+  })
+
+  it('131062 reports the kind that was sent', async () => {
+    mockFetch(() => ({ status: 400, body: { error: { code: 131062, message: 'BSUID not supported' } } }))
+    const err = await new CloudAPIProvider(baseCfg).send('US.1349', { kind: 'text', text: 'hi' }).catch((e: unknown) => e)
+    expect(err).toMatchObject({ name: 'UnsupportedContentError', kind: 'text' })
+  })
+})

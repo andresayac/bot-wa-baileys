@@ -33,17 +33,25 @@ import type {
   UserId,
 } from '@bot-wa/core'
 import { ProviderError, UnsupportedContentError } from '@bot-wa/core'
-import { toGraphError, verifyChallenge, checkGraphSignature, parseGraphBody, type GraphError, type ChallengeQuery } from '@bot-wa/graph-core'
+import {
+  toGraphError,
+  readGraphResponse,
+  verifyChallenge,
+  checkGraphSignature,
+  tryParseGraphBody,
+  type GraphError,
+  type ChallengeQuery,
+} from '@bot-wa/graph-core'
 import { secureFetch } from '@bot-wa/http'
-import type { GraphErrorBody, MessengerProviderConfig, MessengerSendResponse } from './types.js'
+import type { MessengerProviderConfig, MessengerSendResponse } from './types.js'
 import { toOutboundMessages } from './toOutbound.js'
 import { parseInbound, type PageWebhookBody } from './parseInbound.js'
 
 /**
- * Translate a Graph error into a typed provider error via the shared
- * {@link toGraphError} mapping (which also covers the Messenger Platform
- * window/recipient codes). `chatId` (the PSID the call targeted) is carried on
- * window/unreachable errors.
+ * Translate a Graph error into a typed provider error. Thin wrapper over the
+ * shared {@link toGraphError} of `@bot-wa/graph-core`, the single source of the
+ * Messenger Platform window/recipient codes. `chatId` (the PSID the call
+ * targeted) is carried on window/unreachable errors.
  */
 export function toProviderError(err: GraphError, retryAfterMs?: number, chatId: ChatId = ''): ProviderError {
   return toGraphError(err, { retryAfterMs, chatId })
@@ -122,13 +130,18 @@ export class MessengerProvider implements IProvider<unknown> {
    * Feed an inbound webhook POST. When `appSecret` is configured, the body is
    * verified against `X-Hub-Signature-256` first (forged bodies → 403).
    * Normalized events are emitted via onEvent. Pass the RAW body so the
-   * signature computes over exactly what Meta signed.
+   * signature computes over exactly what Meta signed. A body that is not a
+   * JSON object answers 400 instead of throwing.
    */
   ingest(body: unknown, headers?: Record<string, string | string[] | undefined>): number {
     const sig = checkGraphSignature(body, headers, this.config.appSecret, this.logger)
     if (!sig.ok) return sig.status
-    const parsed = parseGraphBody<PageWebhookBody>(body)
-    for (const event of parseInbound(parsed, this.config.selfId)) this.fan(event)
+    const parsed = tryParseGraphBody<PageWebhookBody>(body)
+    if (!parsed.ok) {
+      this.logger.warn('webhook rejected: body is not a JSON object')
+      return parsed.status
+    }
+    for (const event of parseInbound(parsed.body, this.config.selfId)) this.fan(event)
     return 200
   }
 
@@ -139,18 +152,17 @@ export class MessengerProvider implements IProvider<unknown> {
   }
 
   /** POST to /{page-id}/messages — the single Send API endpoint for everything. */
-  private async postMessages(payload: Record<string, unknown>, chatId: ChatId = ''): Promise<MessengerSendResponse> {
+  private async postMessages(
+    payload: Record<string, unknown>,
+    chatId: ChatId = '',
+    contentKind?: OutboundContent['kind'],
+  ): Promise<MessengerSendResponse> {
     const res = await fetch(this.url('messages'), {
       method: 'POST',
       headers: { Authorization: `Bearer ${this.config.accessToken}`, 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     })
-    const body = (await res.json().catch(() => ({}))) as MessengerSendResponse & GraphErrorBody
-    if (!res.ok || body.error) {
-      const retryAfter = Number(res.headers.get('Retry-After')) || undefined
-      throw toProviderError(body.error ?? { message: `HTTP ${res.status}` }, retryAfter ? retryAfter * 1000 : undefined, chatId)
-    }
-    return body
+    return readGraphResponse<MessengerSendResponse>(res, { chatId, contentKind })
   }
 
   /**
@@ -185,7 +197,7 @@ export class MessengerProvider implements IProvider<unknown> {
     // Usually one message; a long card is split so no text is cut (see toOutboundMessages).
     let body: MessengerSendResponse = {}
     for (const message of toOutboundMessages(content, mediaUrl)) {
-      body = await this.postMessages({ recipient: { id: chatId }, messaging_type: 'RESPONSE', message }, chatId)
+      body = await this.postMessages({ recipient: { id: chatId }, messaging_type: 'RESPONSE', message }, chatId, content.kind)
     }
     return { ref: { id: body.message_id ?? '', chatId }, raw: body }
   }

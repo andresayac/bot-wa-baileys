@@ -355,7 +355,7 @@ export class CloudAPIProvider implements IProvider<unknown> {
     }
     // A BSUID target is pinned so its receipts/replies keep this chat id.
     this.identity.noteOutbound(chatId)
-    const res = await this.graph.sendMessage(chatId, message)
+    const res = await this.graph.sendMessage(chatId, message, content.kind)
     return { ref: { id: res.id ?? '', chatId }, raw: res }
   }
 
