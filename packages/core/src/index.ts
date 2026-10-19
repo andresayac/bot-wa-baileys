@@ -163,6 +163,21 @@ export { sleep, parseDuration, humanTypingDelay, withTimeout, TimeoutError, rand
 
 // Scheduler
 export { Scheduler } from './scheduler/Scheduler.js'
+// Scheduler: durable tasks (persistent schedule store + fenced leases)
+export type { DurableTaskOptions, DurableTaskHandler, ScheduledRun, MissedRunPolicy } from './core/types.js'
+export { MemoryScheduleStore, isScheduleClaimable, applyScheduleComplete } from './scheduler/ScheduleStore.js'
+export type {
+  ScheduleStore,
+  ScheduleRecord,
+  ScheduleKind,
+  ClaimResult,
+  CompletePatch,
+  SchedulerOptions,
+} from './scheduler/ScheduleStore.js'
+export { cronNextRun } from './scheduler/cron.js'
+// Coordination: minimal fenced lease contract (to be unified with the multi-replica Coordinator)
+export { MemoryLeaseProvider } from './coordination/lease.js'
+export type { LeaseProvider, LeaseGrant } from './coordination/lease.js'
 
 // Engine internals (buildMessageContext, createPacer, runBroadcast, MetricsCollector, …) live
 // under the "./internal" subpath (import from '@bot-wa/core/internal'). The main entry still

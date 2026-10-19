@@ -22,6 +22,7 @@ import { HANDOFF_INDEX_KEY, HandoffRegistry, type HandoffEvent, type HandoffOpti
 import { I18n } from '../../i18n/I18n.js'
 import type { ConversationEndedEvent, MetricsCollector } from '../../ops/metrics.js'
 import type { Scheduler } from '../../scheduler/Scheduler.js'
+import { createBotScheduler } from '../../scheduler/botScheduler.js'
 import { UserDataService } from '../../user/UserDataService.js'
 import { KeyedQueue } from '../../utils/keyedQueue.js'
 import { parseTimerDuration } from '../../utils/timers.js'
@@ -153,6 +154,8 @@ export function composeBot(host: ComposeHost, inputConfig: BotConfig, fields: Co
   }
   k.store = store
   k.namespace = namespace
+  // Durable scheduler tasks (opt-in): only replaced when `BotConfig.scheduler` is set.
+  if (config.scheduler) k.scheduler = createBotScheduler(config.scheduler, namespace)
   const persistence = new Persistence(store, k.chatWrites)
   k.messageLog = new MessageLog({
     store,

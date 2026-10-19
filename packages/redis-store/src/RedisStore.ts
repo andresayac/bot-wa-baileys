@@ -46,6 +46,8 @@ import {
   ACQUIRE_FENCED_LOCK_SCRIPT, DELETE_CHAT_SCRIPT, DROP_MESSAGE_SCRIPT, MERGE_CAS_SCRIPT, RELEASE_LOCK_SCRIPT, RENEW_LOCK_SCRIPT,
 } from './scripts.js'
 import { RedisCoordinator, type RedisCoordinatorOptions } from './RedisCoordinator.js'
+import { RedisScheduleStore } from './schedules.js'
+import { RedisLeaseProvider } from './lease.js'
 
 /**
  * Compare-and-set attempts per upsert. Each failed attempt means another
@@ -623,6 +625,26 @@ export class RedisStore implements IStore {
   }
 
   /* Distributed lock (building block for your own jobs) --------------------- */
+
+  private scheduleStore?: RedisScheduleStore
+  private leaseProvider?: RedisLeaseProvider
+
+  /**
+   * The durable scheduler's store on this client and prefix (`{prefix}:sched:{id}`):
+   * `new Bot({ store, scheduler: { store: store.schedules() } })`. Always the same instance.
+   */
+  schedules(): RedisScheduleStore {
+    return (this.scheduleStore ??= new RedisScheduleStore({ client: this.client, prefix: this.prefix }))
+  }
+
+  /**
+   * A fenced {@link RedisLeaseProvider} on this client and prefix (`{prefix}:lease:{key}`),
+   * e.g. for `BotConfig.scheduler.lease`. Unlike {@link acquireLock}, its grants carry a
+   * monotonic fencing token. Always the same instance.
+   */
+  leases(): RedisLeaseProvider {
+    return (this.leaseProvider ??= new RedisLeaseProvider({ client: this.client, prefix: this.prefix }))
+  }
 
   /**
    * Try to acquire a distributed lock at `{prefix}:lock:{key}`.

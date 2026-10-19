@@ -1,12 +1,18 @@
 /**
  * Scheduler — cron-style + interval + one-shot tasks.
  *
- * Uses tiny in-process timing; not designed to survive restarts (yet).
+ * Plain tasks (`cron/every/delay(spec, fn)`) use tiny in-process timing and do not
+ * survive restarts. Tasks registered with {@link DurableTaskOptions} (a stable `id`) are
+ * durable: their schedule lives in a {@link ScheduleStore} (see {@link SchedulerOptions}),
+ * survives restarts with a missed-run policy, and each occurrence runs on one replica.
  */
 
 import type { Logger } from 'pino'
-import type { ScheduledTask } from '../core/types.js'
+import type { DurableTaskHandler, DurableTaskOptions, ScheduledTask } from '../core/types.js'
+import { DurableScheduler, type DurableSchedulerOptions } from './durable.js'
+import type { ScheduleKind, SchedulerOptions } from './ScheduleStore.js'
 import { parseDuration, randomId } from '../utils/timers.js'
+import { assertCron, cronNextRun } from './cron.js'
 
 interface InternalTask extends ScheduledTask {
   handler: () => void | Promise<void>
@@ -21,35 +27,88 @@ export class Scheduler {
   private tasks = new Map<string, InternalTask>()
   private logger?: Logger
   private isRunning = false
+  private readonly durable: DurableScheduler
 
-  start(logger?: Logger): void {
-    if (this.isRunning) return
+  /** `opts` only affect durable tasks; `new Scheduler()` keeps the in-memory behaviour. */
+  constructor(opts: SchedulerOptions = {}) {
+    this.durable = new DurableScheduler(opts as DurableSchedulerOptions)
+  }
+
+  /**
+   * Start (or resume) every task. Plain tasks are armed synchronously. Returns a promise
+   * only when durable tasks (or an explicit `store`) have to be restored: it rejects if
+   * the schedule store fails, and must then be followed by {@link stop}.
+   */
+  start(logger?: Logger): Promise<void> | undefined {
+    if (this.isRunning) return undefined
     this.logger = logger
     this.isRunning = true
     for (const task of this.tasks.values()) this.schedule(task)
+    return this.durable.hasWork ? this.durable.start(logger) : undefined
   }
 
-  stop(): void {
+  /**
+   * Pause every task (definitions and stored schedules are kept). Returns a promise only
+   * when a leader lease (`SchedulerOptions.lease`) is being released; it never rejects.
+   */
+  stop(): Promise<void> | undefined {
     this.isRunning = false
     for (const t of this.tasks.values()) {
       if (t.timer) clearTimeout(t.timer)
       t.timer = undefined
     }
+    return this.durable.stop()
   }
 
   /** Add a cron-style task. */
-  cron(cronExpr: string, fn: () => void | Promise<void>): ScheduledTask {
-    return this.add(cronExpr, undefined, undefined, fn)
+  cron(cronExpr: string, fn: () => void | Promise<void>): ScheduledTask
+  /** Add a durable cron-style task (see {@link DurableTaskOptions}). */
+  cron(cronExpr: string, opts: DurableTaskOptions, fn: DurableTaskHandler): ScheduledTask
+  cron(cronExpr: string, a: (() => void | Promise<void>) | DurableTaskOptions, b?: DurableTaskHandler): ScheduledTask {
+    if (typeof a !== 'function') return this.addDurable('cron', cronExpr, a, b as DurableTaskHandler)
+    return this.add(cronExpr, undefined, undefined, a)
   }
 
   /** Add an interval task ("5 minutes", "1 hour", or ms). */
-  every(interval: string | number, fn: () => void | Promise<void>): ScheduledTask {
-    return this.add(undefined, interval, undefined, fn)
+  every(interval: string | number, fn: () => void | Promise<void>): ScheduledTask
+  /** Add a durable interval task: slots are `previous slot + interval`, so they do not drift. */
+  every(interval: string | number, opts: DurableTaskOptions, fn: DurableTaskHandler): ScheduledTask
+  every(interval: string | number, a: (() => void | Promise<void>) | DurableTaskOptions, b?: DurableTaskHandler): ScheduledTask {
+    if (typeof a !== 'function') return this.addDurable('interval', interval, a, b as DurableTaskHandler)
+    return this.add(undefined, interval, undefined, a)
   }
 
   /** Add a one-shot delayed task. */
-  delay(duration: string | number, fn: () => void | Promise<void>): ScheduledTask {
-    return this.add(undefined, undefined, duration, fn)
+  delay(duration: string | number, fn: () => void | Promise<void>): ScheduledTask
+  /**
+   * Add a durable one-shot task: its run time is fixed when the id is first stored, so a
+   * restart does not push it back (as long as the code registers the id again at boot).
+   * After it runs, its row stays as a tombstone (registering the id again does not run it
+   * again) until {@link forget} or `cancel()` removes it.
+   */
+  delay(duration: string | number, opts: DurableTaskOptions, fn: DurableTaskHandler): ScheduledTask
+  delay(duration: string | number, a: (() => void | Promise<void>) | DurableTaskOptions, b?: DurableTaskHandler): ScheduledTask {
+    if (typeof a !== 'function') return this.addDurable('once', duration, a, b as DurableTaskHandler)
+    return this.add(undefined, undefined, duration, a)
+  }
+
+  /**
+   * Register a durable task. On a running scheduler whose durable engine was not started
+   * (nothing durable existed at start), the first durable task starts it: store failures
+   * are then logged and retried by its poll, since there is no `start()` to reject.
+   */
+  private addDurable(kind: ScheduleKind, spec: string | number, opts: DurableTaskOptions, fn: DurableTaskHandler): ScheduledTask {
+    const task = this.durable.add(kind, spec, opts, fn)
+    if (this.isRunning && !this.durable.isRunning) void this.durable.start(this.logger, { tolerant: true })
+    return task
+  }
+
+  /**
+   * Delete the stored schedule of a durable task id: an orphan (stored but no longer
+   * registered in code), or a registered task, which is cancelled as well.
+   */
+  forget(id: string): Promise<void> {
+    return this.durable.forget(id)
   }
 
   private add(
@@ -141,94 +200,5 @@ export class Scheduler {
   }
 }
 
-/* =============================================================================
- * MINIMAL CRON PARSER — five fields: minute hour day-of-month month weekday.
- * Each field takes '*', a number, a range (1-5), a step (`*` + `/15`, 1-30/5, 5/15) or a
- * comma list of those; weekday 0 and 7 are Sunday. A `*` step counts from the field's
- * minimum (`*` + `/2` in day-of-month = 1, 3, 5…; `*` + `/3` in month = Jan, Apr, Jul, Oct).
- * Day rule of standard (Vixie) cron: when BOTH day-of-month and weekday are restricted,
- * a day matches if EITHER does (`0 9 13 * 5` = every 13th and every Friday); when one
- * of them starts with `*` (including a `*` step), both must match. Names (mon, jan)
- * and macros (@daily) are rejected when the task is created.
- * (For full cron support, swap to a real parser like `cron-parser`.)
- * ========================================================================== */
-
 /** Longest delay `setTimeout` honours (2^31-1 ms); longer ones fire after 1 ms. */
 const MAX_TIMER_MS = 2 ** 31 - 1
-
-const CRON_FIELDS = ['minute', 'hour', 'day-of-month', 'month', 'weekday'] as const
-const CRON_FIELD = /^(\*|\d+(-\d+)?)(\/\d+)?(,(\*|\d+(-\d+)?)(\/\d+)?)*$/
-
-/** Throw an actionable `TypeError` for an expression the minimal parser cannot run. */
-function assertCron(expr: string): void {
-  const parts = typeof expr === 'string' ? expr.trim().split(/\s+/) : []
-  if (parts.length !== 5) {
-    throw new TypeError(
-      `Invalid cron expression "${String(expr)}": expected 5 fields (minute hour day-of-month month weekday), e.g. '0 9 * * 1-5'`,
-    )
-  }
-  parts.forEach((part, i) => {
-    if (!CRON_FIELD.test(part)) {
-      throw new TypeError(
-        `Invalid cron expression "${expr}": the ${CRON_FIELDS[i]} field "${part}" must use numbers, '*', ranges (1-5), steps (*/15) or lists (1,15)`,
-      )
-    }
-  })
-}
-
-function cronNextRun(expr: string): Date | null {
-  const parts = expr.trim().split(/\s+/)
-  if (parts.length !== 5) return null
-  const [m, h, dom, mon, dow] = parts
-
-  // Start from next minute
-  const next = new Date()
-  next.setSeconds(0, 0)
-  next.setMinutes(next.getMinutes() + 1)
-
-  // Standard cron: a day field starting with '*' (even a step such as '*/2') is "unrestricted".
-  const orDays = !dom.startsWith('*') && !dow.startsWith('*')
-
-  // Search far enough to cover monthly and annual expressions.
-  for (let i = 0; i < 366 * 24 * 60; i++) {
-    const candidate = new Date(next.getTime() + i * 60_000)
-    if (!matchesField(candidate.getMinutes(), m, 0) ||
-        !matchesField(candidate.getHours(), h, 0) ||
-        !matchesField(candidate.getMonth() + 1, mon, 1)) continue
-    const domOk = matchesField(candidate.getDate(), dom, 1)
-    const dowOk = matchesWeekday(candidate.getDay(), dow)
-    if (orDays ? domOk || dowOk : domOk && dowOk) return candidate
-  }
-  return null
-}
-
-/** Weekday field: `0` and `7` both mean Sunday (standard cron). */
-function matchesWeekday(day: number, expr: string): boolean {
-  return matchesField(day, expr, 0) || (day === 0 && matchesField(7, expr, 0))
-}
-
-/** Does `actual` match one cron field? `min` is the field's lowest value (where a `*` step starts). */
-function matchesField(actual: number, expr: string, min: number): boolean {
-  if (expr === '*') return true
-  // ranges & lists
-  for (const part of expr.split(',')) {
-    const [range, stepText] = part.split('/')
-    const step = stepText === undefined ? 1 : parseInt(stepText, 10)
-    if (!Number.isInteger(step) || step <= 0) continue
-    let lo: number
-    let hi: number
-    if (range === '*') {
-      lo = min
-      hi = Number.POSITIVE_INFINITY
-    } else if (range.includes('-')) {
-      ;[lo, hi] = range.split('-').map((n) => parseInt(n, 10))
-    } else {
-      lo = parseInt(range, 10)
-      // `5/15` (start/step without a range) runs from 5 to the end of the field.
-      hi = stepText === undefined ? lo : Number.POSITIVE_INFINITY
-    }
-    if (Number.isNaN(lo) || Number.isNaN(hi)) continue
-    if (actual >= lo && actual <= hi && (actual - lo) % step === 0) return true
-  }
-  return false
-}

@@ -86,9 +86,14 @@ export function defaultLifecycleSteps(k: BotKernel): LifecycleStep[] {
     },
     {
       name: 'jobs',
-      start: async () => { k.scheduler.start(k.logger.child({ module: 'scheduler' })) },
-      rollback: async () => { k.scheduler.stop() },
-      stop: async () => { k.scheduler.stop() },
+      start: async () => {
+        const restoring = k.scheduler.start(k.logger.child({ module: 'scheduler' }))
+        if (restoring) await restoring   // only with durable tasks: restores their schedules
+      },
+      // stop() returns a promise only with a scheduler lease (never rejects): it is released
+      // before the store (and the coordinator) close.
+      rollback: async () => { await k.scheduler.stop() },
+      stop: async () => { await k.scheduler.stop() },
       quiesce: true,
       // Keeps the old unconditional scheduler.stop() on a failed start (idempotent).
       alwaysRollback: true,

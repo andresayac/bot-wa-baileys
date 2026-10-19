@@ -87,6 +87,8 @@ const store = new RedisStore({ client: fake })
 | `{prefix}:conv:{key}` | string (JSON) | `AIMessage[]` | `sessionTtl` |
 | `{prefix}:cursor:{key}` | string | delivery cursor (e.g. Telegram `update_id`) | — |
 | `{prefix}:lock:{key}` | string | lock token (`SET NX PX`) | lock `ttlMs` |
+| `{prefix}:sched:{id}` | string (JSON) | durable scheduler task (`ScheduleRecord`, see `schedules()`); a deleted task leaves a small `{ deleted, fencingToken }` marker so its tokens never go backwards | — |
+| `{prefix}:lease:{key}` | string (JSON) | fenced lease (owner, deadline, token; see `leases()`) | — |
 
 `getMessagesByChat(chatId, limit)` reads the latest `limit` entries from the ZSET (`ZRANGE … BYSCORE REV LIMIT`) and fetches the JSON items, returning them oldest→newest — same windowing semantics as `@bot-wa/sqlite-store`.
 
@@ -146,6 +148,20 @@ try {
 
 - `acquireLock(key, ttlMs = 30_000)` → opaque token on success, `null` when already held. The `PX` deadline guarantees a crashed holder never wedges the fleet. `ttlMs` must be a positive finite number (fractions are rounded up); anything else rejects with a `RangeError`.
 - `releaseLock(key, token)` → `true` only if the token still owns the lock. Release is an atomic Lua compare-and-delete, so a slow holder can never delete a newer owner's lock.
+
+## Durable scheduler tasks
+
+`store.schedules()` is a `ScheduleStore` for durable `bot.schedule/every/delay` tasks (tasks registered with an `id`; see the scheduler guide), and `store.leases()` a fenced `LeaseProvider` for scheduler leadership. Both share the store's client and prefix.
+
+```ts
+const store = new RedisStore({ url: process.env.REDIS_URL })
+const bot = new Bot({ provider, store, scheduler: { store: store.schedules(), lease: store.leases() } })
+bot.every('15m', { id: 'sync-crm', missed: 'run-once' }, async (run) => { /* run.occurrenceKey */ })
+```
+
+Every mutation is a compare-and-set on the task's JSON key (the same script as the upserts), so of N replicas claiming one occurrence exactly one wins, with a fencing token that only grows. Lease deadlines use the replicas' clocks: keep them in sync (NTP). `RedisScheduleStore` and `RedisLeaseProvider` can also be built on any client: `new RedisScheduleStore({ client, prefix })`.
+
+Unlike `acquireLock`, `leases()` grants carry a monotonic fencing token, and `acquire` by the current holder extends the lease.
 
 ## Notes
 

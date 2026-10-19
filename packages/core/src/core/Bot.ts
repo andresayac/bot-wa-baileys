@@ -44,6 +44,8 @@ import type {
   OutboundContent,
   Plugin,
   ScheduledTask,
+  DurableTaskHandler,
+  DurableTaskOptions,
   SendOptions,
   SentMessage,
   Trigger,
@@ -283,6 +285,8 @@ export class Bot extends EventEmitter {
     this.externalSends = k.externalSends
     this.i18n = k.i18n
     this.flowRegistry = k.flowRegistry
+    // `BotConfig.scheduler` builds a durable scheduler in compose (late-bound by `idle`).
+    this.scheduler = k.scheduler
   }
 
   /* =========================================================================
@@ -826,11 +830,39 @@ export class Bot extends EventEmitter {
    * ====================================================================== */
 
   /** Run `fn` on a cron expression (e.g. `'0 9 * * *'`). */
-  schedule(cron: string, fn: () => void | Promise<void>): ScheduledTask { return this.scheduler.cron(cron, fn) }
+  schedule(cron: string, fn: () => void | Promise<void>): ScheduledTask
+  /**
+   * Durable cron task: its schedule is stored under `opts.id` (see `BotConfig.scheduler`),
+   * survives restarts with the `opts.missed` policy, and each occurrence runs on one replica.
+   */
+  schedule(cron: string, opts: DurableTaskOptions, fn: DurableTaskHandler): ScheduledTask
+  schedule(cron: string, a: (() => void | Promise<void>) | DurableTaskOptions, b?: DurableTaskHandler): ScheduledTask {
+    return typeof a === 'function' ? this.scheduler.cron(cron, a) : this.scheduler.cron(cron, a, b as DurableTaskHandler)
+  }
   /** Run `fn` every `interval` (a duration such as `'10m'`, or ms). */
-  every(interval: string | number, fn: () => void | Promise<void>): ScheduledTask { return this.scheduler.every(interval, fn) }
+  every(interval: string | number, fn: () => void | Promise<void>): ScheduledTask
+  /** Durable interval task (see the durable {@link schedule} overload); slots do not drift. */
+  every(interval: string | number, opts: DurableTaskOptions, fn: DurableTaskHandler): ScheduledTask
+  every(interval: string | number, a: (() => void | Promise<void>) | DurableTaskOptions, b?: DurableTaskHandler): ScheduledTask {
+    return typeof a === 'function' ? this.scheduler.every(interval, a) : this.scheduler.every(interval, a, b as DurableTaskHandler)
+  }
   /** Run `fn` once after `duration` (a duration such as `'30s'`, or ms). */
-  delay(duration: string | number, fn: () => void | Promise<void>): ScheduledTask { return this.scheduler.delay(duration, fn) }
+  delay(duration: string | number, fn: () => void | Promise<void>): ScheduledTask
+  /**
+   * Durable one-shot task: its run time is fixed when `opts.id` is first stored, so a
+   * restart does not push it back, provided the code registers the id again at boot (only
+   * the schedule is stored, not the handler). See the durable {@link schedule} overload.
+   */
+  delay(duration: string | number, opts: DurableTaskOptions, fn: DurableTaskHandler): ScheduledTask
+  delay(duration: string | number, a: (() => void | Promise<void>) | DurableTaskOptions, b?: DurableTaskHandler): ScheduledTask {
+    return typeof a === 'function' ? this.scheduler.delay(duration, a) : this.scheduler.delay(duration, a, b as DurableTaskHandler)
+  }
+  /**
+   * Delete the stored schedule of a durable task `id` (the bot's store namespace is
+   * applied, as on registration): an orphan logged at start (stored, no longer registered
+   * in code), a one-shot tombstone, or a registered task, which is cancelled as well.
+   */
+  forgetTask(id: string): Promise<void> { return this.scheduler.forget(id) }
 
   /* =========================================================================
    * IDLE (per-chat inactivity)

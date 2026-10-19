@@ -29,6 +29,7 @@ import type {
 } from '@bot-wa/core'
 import { legacyMessageKey, messageKey } from '@bot-wa/core'
 import { SqliteUserData } from './userData.js'
+import { SQLiteScheduleStore } from './schedules.js'
 
 export interface SQLiteStoreOptions {
   /** Path to the SQLite database file. Default: './bot.db' */
@@ -382,6 +383,17 @@ export class SQLiteStore implements IStore {
   }
 
   /* Lifecycle ------------------------------------------------------------- */
+
+  private scheduleStore?: SQLiteScheduleStore
+
+  /**
+   * The durable scheduler's store on this database (table `schedules`), sharing this
+   * store's connection: `new Bot({ store, scheduler: { store: store.schedules() } })`.
+   * Always the same instance.
+   */
+  schedules(): SQLiteScheduleStore {
+    return (this.scheduleStore ??= new SQLiteScheduleStore(this.db))
+  }
 
   async start(): Promise<void> {}
   async stop(): Promise<void> {

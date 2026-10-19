@@ -19,6 +19,7 @@ import type { EditOptions, EditResult, MessagingFeature, MessagingSupport, Reply
 import type { I18nConfig, LangSource, TranslateParams } from '../i18n/types.js'
 import type { StreamOptions, StreamResult, StreamSource } from '../streaming/types.js'
 import type { FormContent, FormDefinition } from '../forms/types.js'
+import type { SchedulerOptions } from '../scheduler/ScheduleStore.js'
 
 /* ============================================================================
  * 1. IDENTITY PRIMITIVES  (opaque — no shape grammar)
@@ -1262,4 +1263,13 @@ export interface BotConfig {
    * always. See {@link CoordinationConfig} and the "Running N replicas" guide.
    */
   coordination?: CoordinationConfig
+
+  /* ---- scheduler: durable tasks (opt-in) ---------------------------------- */
+  /**
+   * Where durable tasks (`bot.schedule/every/delay(spec, { id }, fn)`) keep their state,
+   * and how replicas share them. Without it, durable tasks use an in-memory store (they
+   * do not survive a restart) and plain tasks behave exactly as before. See
+   * {@link SchedulerOptions}.
+   */
+  scheduler?: SchedulerOptions
 }
