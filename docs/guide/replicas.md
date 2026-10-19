@@ -136,8 +136,9 @@ replica.
   leader-only job with `coordinator.tryLead(name)` or the fenced lock below.
 - **A conversation step longer than `settleMs` is cut short** (see above):
   raise `settleMs` for long `.do()` work or delays.
-- **Redis**: one primary (standalone or Sentinel). A failover that loses the
-  last writes can grant a lease twice. Redis Cluster is not supported.
+- **Redis**: a failover that loses the last writes can grant a lease twice
+  (standalone with Sentinel, or Redis Cluster). Redis Cluster needs the
+  `'cluster'` key layout: see [Redis Cluster](./redis-cluster.md).
 
 ## Choosing `leaseMs`
 

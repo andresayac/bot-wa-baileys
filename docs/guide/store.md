@@ -137,6 +137,8 @@ const bot = new Bot({
 option) expires AI conversation history and flow checkpoints; messages, chats and
 contacts never expire. It replaces the deprecated `ttl` option, which took seconds.
 
+On a Redis Cluster, pass a cluster client (or `cluster` options): see [Redis Cluster](./redis-cluster.md).
+
 ## User data tables
 
 [`ctx.user`](./user-data) profiles are stored next to the rest of the bot

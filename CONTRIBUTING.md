@@ -50,6 +50,16 @@ pnpm --filter "./packages/*-store" test   # MySQL tarda unos segundos en aceptar
 docker rm -f botwa-it-postgres botwa-it-mysql botwa-it-mongo botwa-it-redis
 ```
 
+`redis-store` también trae suites contra un **Redis Cluster** real (`tests/cluster.integration.test.ts` y `tests/cluster-migrate.integration.test.ts`; la segunda usa además `BOTWA_TEST_REDIS_URL`). Los puertos 47100-47105 quedan lejos de los anteriores; el bus del cluster (57100-57105) no sale del contenedor:
+
+```bash
+docker run -d --name botwa-it-redis-cluster -e IP=0.0.0.0 -e INITIAL_PORT=47100 -e MASTERS=3 -e SLAVES_PER_MASTER=1 -p 127.0.0.1:47100-47105:47100-47105 grokzen/redis-cluster:7.0.10
+export BOTWA_TEST_REDIS_CLUSTER_URL=redis://127.0.0.1:47100
+export BOTWA_TEST_REDIS_CLUSTER_CHAOS=1   # opcional: failover y migración de un slot bajo carga
+pnpm --filter @bot-wa/redis-store test
+docker rm -f botwa-it-redis-cluster
+```
+
 En PowerShell, las variables se definen con `$env:BOTWA_TEST_POSTGRES_URL = 'postgres://postgres:postgres@127.0.0.1:55432/botwa'` (y así con las demás). Puedes definir solo las que te interesen: el resto de suites se salta.
 
 ### Email (`@bot-wa/email`) contra GreenMail
