@@ -152,6 +152,34 @@ describe('aiPlugin formats replies for the channel (capabilities.textFormat)', (
     await forced.chat.expectReply('*Torta* de _chocolate_\n• uno\nmenú (https://x.co/m)')
   })
 
+  it('a per-chat format (provider textFormatFor) wins over capabilities.textFormat', async () => {
+    // Twilio-like: WhatsApp chats get WhatsApp markup, SMS chats are plain.
+    const textFormatFor = (chatId: string) => (chatId.startsWith('whatsapp:') ? 'whatsapp' as const : 'plain' as const)
+    const { bot, provider } = await createTestBot({}, { provider: { textFormat: 'markdown', textFormatFor } })
+    bot.plug(aiPlugin({ __provider: new MockAIProvider({ reply: md }), humanizeTyping: false }))
+    const replyTo = async (from: string): Promise<string> => {
+      provider.incoming('hola', { from })
+      for (let i = 0; i < 100; i++) {
+        const out = provider.outbox.find((m) => m.chatId === from)
+        if (out?.content.kind === 'text') return out.content.text
+        await new Promise((r) => setTimeout(r, 5))
+      }
+      throw new Error(`no reply to ${from}`)
+    }
+    expect(await replyTo('whatsapp:+15550001')).toBe('*Torta* de _chocolate_\n• uno\nmenú (https://x.co/m)')
+    expect(await replyTo('+15550002')).toBe('Torta de chocolate\n• uno\nmenú (https://x.co/m)')
+  })
+
+  it('streamed replies use the per-chat format too', async () => {
+    const { bot, provider } = await createTestBot({}, { provider: { textFormatFor: () => 'whatsapp' } })
+    bot.plug(aiPlugin({ __provider: new MockAIProvider({ reply: md }), humanizeTyping: false, stream: true }))
+    provider.incoming('hola', { from: 'whatsapp:+15550001' })
+    await new Promise((r) => setTimeout(r, 50))
+    const sent = provider.outbox.map((m) => (m.content.kind === 'text' ? m.content.text : '')).join('\n')
+    expect(sent).toContain('*Torta* de _chocolate_')
+    expect(sent).not.toContain('**')
+  })
+
   it('streamed replies are formatted too', async () => {
     const { chat } = await botWith('whatsapp', { stream: true })
     await chat.send('hola')

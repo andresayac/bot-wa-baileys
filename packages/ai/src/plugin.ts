@@ -109,8 +109,9 @@ export function aiPlugin(config: AIPluginConfig = {}): PluginSpec<AIPluginConfig
         bot.onMessage(async (mctx: MessageContext) => {
           if (mctx.type !== 'text' || !mctx.body) return
           const key = chatKeyOf(mctx)
-          // Markdown from the model → the channel's own markup (or none), per provider capabilities.
-          const textFormat = resolveTextFormat(cfg.format, mctx.capabilities?.textFormat)
+          // Markdown from the model → this chat's own markup (or none): `ctx.textFormat` is the
+          // provider's per-chat format (Twilio WhatsApp vs SMS), else `capabilities.textFormat`.
+          const textFormat = resolveTextFormat(cfg.format, mctx.textFormat ?? mctx.capabilities?.textFormat)
           const shown = (text: string): string => (textFormat ? formatMarkdown(text, textFormat) : text)
           // Tool turns (loop + confirmations) are not streamed: they take the one-shot path below.
           if (streamCfg && !client.hasTools && typeof mctx.stream === 'function') {
@@ -228,7 +229,7 @@ export function aiPlugin(config: AIPluginConfig = {}): PluginSpec<AIPluginConfig
   })
 }
 
-/** `format` option + the provider's `capabilities.textFormat` → the dialect to convert to, or undefined (send as is). */
+/** `format` option + the chat's text format (`ctx.textFormat`) → the dialect to convert to, or undefined (send as is). */
 function resolveTextFormat(option: AIConfig['format'], capability: TextFormat | undefined): TextFormat | undefined {
   if (option === false) return undefined
   if (option === undefined || option === 'auto') return capability

@@ -261,7 +261,7 @@ configurado en vez de tumbar el bot.
 | `memory` | `boolean \| AIMemoryConfig` | — | memoria a largo plazo por usuario (ver [Memoria](#memoria-a-largo-plazo-por-usuario)) |
 | `rag` | `AIRetriever \| AIRagConfig` | — | RAG: pasajes de tus documentos con citas (ver [RAG](#rag-respuestas-con-tus-documentos)) |
 | `stream` | `boolean \| AIStreamConfig` | apagado | transmite el autoresponder con `ctx.stream()` (ver [Streaming](#streaming)) |
-| `format` | `'auto' \| TextFormat \| false` | `'auto'` | convierte el Markdown del modelo al formato del canal según `capabilities.textFormat` (`*negrita*` en WhatsApp, sin marcas en Telegram/Messenger/Instagram, intacto en Discord); `false` lo envía tal cual. El historial guarda el texto original. `formatMarkdown()` / `formatMarkdownStream()` se exportan |
+| `format` | `'auto' \| TextFormat \| false` | `'auto'` | convierte el Markdown del modelo al formato del chat, `ctx.textFormat` (el `textFormatFor(chatId)` del provider, p. ej. WhatsApp o SMS en Twilio; si no, `capabilities.textFormat`): `*negrita*` en WhatsApp, sin marcas en SMS/Telegram/Messenger/Instagram, intacto en Discord; `false` lo envía tal cual. El historial guarda el texto original. `formatMarkdown()` / `formatMarkdownStream()` se exportan |
 
 ## Tool calling
 

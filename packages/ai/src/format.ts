@@ -5,8 +5,8 @@
  * but most chat channels do not render it: WhatsApp has its own markup
  * (`*bold*`, `_italic_`, `~strike~`), Telegram (sent without `parse_mode`),
  * Messenger and Instagram show the markers literally. {@link formatMarkdown}
- * converts a reply to the dialect a provider declares in
- * `capabilities.textFormat`; {@link formatMarkdownStream} does the same for a
+ * converts a reply to the dialect of the chat (`ctx.textFormat`: the
+ * provider's per-chat `textFormatFor`, else its `capabilities.textFormat`); {@link formatMarkdownStream} does the same for a
  * streamed reply, emitting each piece as soon as its markers are complete.
  */
 import type { TextFormat } from '@bot-wa/core'
@@ -92,7 +92,7 @@ function blockLine(line: string, format: Exclude<TextFormat, 'markdown'>, starts
 }
 
 /**
- * Convert Markdown to the dialect of a channel (`capabilities.textFormat`):
+ * Convert Markdown to the dialect of a channel (`ctx.textFormat`):
  * `'whatsapp'` (`*bold*`, `_italic_`, `~strike~`, `•` bullets, headings in
  * bold, links as `text (url)`), `'plain'` (markers stripped), `'html'` (a small
  * escaped subset: `<b> <i> <s> <code> <pre> <a>`) or `'markdown'` (unchanged).

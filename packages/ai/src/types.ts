@@ -134,10 +134,12 @@ export interface AIConfig {
   stream?: boolean | AIStreamConfig
   /**
    * Convert the model's Markdown (`**bold**`, `# heading`, `[link](url)`, `- item`)
-   * before sending the autoreply: `'auto'` (default) follows the provider's
-   * `capabilities.textFormat` (`*bold*` on WhatsApp, markers stripped on
-   * Telegram/Messenger/Instagram, untouched on Discord and on providers that do
-   * not declare it); a {@link TextFormat} forces one; `false` sends the text as is.
+   * before sending the autoreply: `'auto'` (default) follows the chat's format,
+   * `ctx.textFormat` — the provider's per-chat `textFormatFor(chatId)` (Twilio:
+   * WhatsApp vs SMS chats), else its `capabilities.textFormat` (`*bold*` on
+   * WhatsApp, markers stripped on SMS/Telegram/Messenger/Instagram, untouched on
+   * Discord and on providers that declare neither); a {@link TextFormat} forces
+   * one; `false` sends the text as is.
    * The stored history keeps the model's original text.
    */
   format?: 'auto' | TextFormat | false
