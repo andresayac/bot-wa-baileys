@@ -95,6 +95,23 @@ An index on `(chat_id, timestamp)` backs `getMessagesByChat`. All writes are par
 - `purgeExpiredUserData` deletes `purgeBatchSize` rows per statement (picked by primary key through the expiry index) until nothing expired is left, so a large backlog never runs as one long transaction.
 - **Message keys.** `messageKey(ref)` (from `@bot-wa/core`) is `{chatId}:{id}` with `%` and `:` percent-escaped in each part (`%25`, `%3A`), so ids that contain `:` — Twilio's `whatsapp:+1…` chat ids — never collide (`('a:b', 'c')` and `('a', 'b:c')` used to share the key `a:b:c`). Ids without `:` or `%` keep exactly the key earlier versions wrote. Rows written by an earlier version under the old unescaped key are still read and deleted (a fallback that only runs for ids containing `:` or `%`, and only returns or deletes a row whose stored `ref` is that very message, since a legacy key can be another message's new key), and re-saving such a message moves it to the new key — no manual migration. One theoretical edge remains: an id that literally contains `%3A` and was stored by an earlier version can be overwritten by a new message whose id has `:` in the same place.
 
+## Durable scheduler
+
+`store.schedules()` returns a `PostgresScheduleStore` on the same pool and `tablePrefix` (table `{tablePrefix}schedules`), for `bot.schedule/every/delay(spec, { id }, fn)` durable tasks shared by any number of replicas:
+
+```ts
+const store = new PostgresStore({ connectionString: process.env.DATABASE_URL })
+const bot = new Bot({ provider, store, scheduler: { store: store.schedules() } })
+bot.schedule('0 9 * * 1-5', { id: 'daily-report', timeZone: 'America/Bogota' }, async (run) => { /* … */ })
+```
+
+- Every operation is **one atomic statement** (`INSERT … ON CONFLICT`, `UPDATE … RETURNING`), so it only needs `pool.query()`: a claim's row lock plus READ COMMITTED's re-check give exactly one winner per occurrence.
+- The scheduler calls its `start()`, which creates the table (`CREATE TABLE IF NOT EXISTS`, catalog races retried). The bot starts the store first; if you use the store only for schedules, `await store.start()` yourself. A standalone `new PostgresScheduleStore({ pool, tablePrefix })` borrows any pool and never ends it.
+- `delete()` (`task.cancel()`, `bot.forgetTask(id)`) is a soft delete: the row stays with `deleted = TRUE` so the id's fencing token never goes backwards. Purge old tombstones by hand only when no runner can still hold their token, e.g. `DELETE FROM schedules WHERE deleted AND updated_at < <epoch ms a day ago>`.
+- Leases use the caller's clock (`now`): keep replicas in sync (NTP). BIGINT columns come back as numbers.
+- `tests/schedules.integration.test.ts` runs the shared `ScheduleStore` conformance suite, concurrent claims from two pools, a concurrent schema race and a two-bot end-to-end run against a real server (same `BOTWA_TEST_POSTGRES_URL`).
+
+
 ## Integration tests
 
 Unit tests run against the in-memory `FakePool`, which pattern-matches the statements the store issues, so they cannot prove that PostgreSQL accepts them. `tests/integration.test.ts` runs the shared `IStore` conformance suite plus store-specific checks (idempotent schema, persistence across `stop()`/`start()`, `maxMessagesPerChat` trimming, `deleteChat` purging the log, atomic shallow merge, unicode and multi-MB JSON, ordering/limit, concurrent writes) against a **real** server.
