@@ -5,7 +5,7 @@
 
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import type { InboundEvent, InboundInteraction } from '@bot-wa/core'
-import { ProviderError } from '@bot-wa/core'
+import { ProviderError, RecipientUnreachableError, UnsupportedContentError } from '@bot-wa/core'
 import { DiscordProvider } from '../src/DiscordProvider.js'
 import { fakeSocketFactory, wait } from './_fakeSocket.js'
 
@@ -258,5 +258,48 @@ describe('DiscordProvider — misc', () => {
     expect(sockets).toHaveLength(2)
     sockets[1].serverSend({ op: 10, d: { heartbeat_interval: 60_000 } })
     expect(sockets[1].sent.some((s) => s.op === 6)).toBe(true)
+  })
+})
+
+describe('DiscordProvider — hardening', () => {
+  it('emits ready again after a successful RESUME (RESUMED dispatch)', async () => {
+    mockFetch()
+    const p = provider()
+    const states: string[] = []
+    p.onEvent((e) => { if (e.kind === 'connection') states.push(e.update.state) })
+    await boot(p)
+    socketsOf(p)[0].serverSend({ op: 0, t: 'READY', s: 1, d: { session_id: 'S' } })
+    socketsOf(p)[0].close(4000)
+    await wait(40)
+    states.length = 0
+    const s1 = socketsOf(p)[1]
+    s1.serverSend({ op: 10, d: { heartbeat_interval: 60_000 } })
+    s1.serverSend({ op: 0, t: 'RESUMED', s: 2, d: null })
+    expect(states[states.length - 1]).toBe('ready')
+  })
+
+  it('maps 404 Unknown Channel (10003) and 50007 to RecipientUnreachableError', async () => {
+    const p = provider()
+    mockFetch(() => ({ status: 404, body: { message: 'Unknown Channel', code: 10003 } }))
+    const e1 = await p.send('C404', { kind: 'text', text: 'x' }).catch((e: unknown) => e)
+    expect(e1).toBeInstanceOf(RecipientUnreachableError)
+    expect((e1 as RecipientUnreachableError).chatId).toBe('C404')
+    mockFetch(() => ({ status: 400, body: { message: 'Cannot send messages to this user', code: 50007 } }))
+    await expect(p.send('C1', { kind: 'text', text: 'x' })).rejects.toBeInstanceOf(RecipientUnreachableError)
+  })
+
+  it('an empty reaction emoji is rejected with UnsupportedContentError (no API call)', async () => {
+    const calls = mockFetch()
+    const p = provider()
+    await expect(p.send('C1', { kind: 'reaction', emoji: '', target: { id: 'M1', chatId: 'C1' } })).rejects.toBeInstanceOf(UnsupportedContentError)
+    expect(calls).toHaveLength(0)
+  })
+
+  it('editMessage keeps the filename of a document', async () => {
+    const calls = mockFetch(() => ({ body: { id: 'M1' } }))
+    const p = provider()
+    await p.editMessage({ id: 'M1', chatId: 'C1' }, { kind: 'document', media: Buffer.from('x'), filename: 'factura.pdf' })
+    const form = calls[0].init!.body as FormData
+    expect((form.get('files[0]') as File).name).toBe('factura.pdf')
   })
 })

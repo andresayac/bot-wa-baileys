@@ -270,6 +270,8 @@ describe('GoHighLevelProvider — outbound', () => {
     expect(other).toBeInstanceOf(ProviderError)
     expect((other as GoHighLevelApiError).status).toBe(401)
     expect((other as Error).message).toContain('Invalid JWT')
+    // Auth failures say what to check.
+    expect((other as Error).message).toMatch(/accessToken/)
   })
 })
 

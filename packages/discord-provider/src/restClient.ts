@@ -23,6 +23,13 @@ export interface DiscordRestClientConfig {
   mediaDownload?: Omit<SecureFetchOptions, 'fetch'>
 }
 
+/**
+ * JSON error codes meaning the target cannot be reached: Unknown Channel
+ * (10003), Unknown User (10013), Missing Access (50001), Cannot send messages
+ * to this user (50007).
+ */
+const UNREACHABLE_CODES = new Set([10_003, 10_013, 50_001, 50_007])
+
 /** Translate a Discord REST error into a typed provider error. */
 export function toProviderError(chatId: ChatId, status: number, body: DiscordApiErrorBody): ProviderError {
   const msg = body.message ?? 'Discord API error'
@@ -31,7 +38,9 @@ export function toProviderError(chatId: ChatId, status: number, body: DiscordApi
     const ms = body.retry_after ? Math.ceil(body.retry_after * 1000) : 1_000
     return new RateLimitedError(ms, detail)
   }
-  if (status === 403) return new RecipientUnreachableError(chatId, detail)
+  if (status === 403 || (body.code !== undefined && UNREACHABLE_CODES.has(body.code))) {
+    return new RecipientUnreachableError(chatId, detail)
+  }
   if (status === 413 || body.code === 40_003) return new PayloadTooLargeError(detail)
   return new ProviderError(detail)
 }

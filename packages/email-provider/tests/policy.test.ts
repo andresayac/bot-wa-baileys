@@ -128,3 +128,17 @@ describe('toEmailProviderError', () => {
     expect(toEmailProviderError('boom', 'c1')).toBeInstanceOf(ProviderError)
   })
 })
+
+describe('toEmailProviderError — 552 disambiguation', () => {
+  it('552 5.2.2 (mailbox full) is RecipientUnreachableError, not PayloadTooLargeError', () => {
+    const full = toEmailProviderError(Object.assign(new Error('552 5.2.2 Mailbox full'), { responseCode: 552, response: '552 5.2.2 Mailbox full' }), 'c9')
+    expect(full).toBeInstanceOf(RecipientUnreachableError)
+    expect(full).not.toBeInstanceOf(PayloadTooLargeError)
+    expect((full as RecipientUnreachableError).chatId).toBe('c9')
+  })
+
+  it('552 5.3.4 (message too big) stays PayloadTooLargeError', () => {
+    const big = toEmailProviderError(Object.assign(new Error('552 5.3.4 too big'), { responseCode: 552, response: '552 5.3.4 Message size exceeds fixed limit' }), 'c9')
+    expect(big).toBeInstanceOf(PayloadTooLargeError)
+  })
+})

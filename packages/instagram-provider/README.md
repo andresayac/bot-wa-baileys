@@ -65,7 +65,7 @@ app.listen(3000)
 | Listas | ⚠️ degradadas a texto numerado (IG no tiene listas) |
 | Reacciones **recibidas** (IG DM reactions) | ✅ (`kind: 'reaction'`) |
 | Typing (`ctx.typing`) y confirmaciones de lectura (`mark_seen`) | ✅ (sender_action) |
-| Tarjeta (`card`) | ✅ como texto |
+| Tarjeta (`card`) | ✅ como texto (sus botones, como quick replies) |
 | Enviar reacciones / encuestas / ubicación / contacto / sticker / plantillas | ❌ (`UnsupportedContentError`) |
 | Grupos, presencia, editar/borrar mensajes | ❌ (no existe en la API) |
 
@@ -77,4 +77,5 @@ app.listen(3000)
 
 - **Media solo por URL:** adjuntá archivos subidos a un hosting público y pasá la URL (`ctx.photo('https://…/foto.jpg')`). Un `Buffer`, path o stream lanza `UnsupportedContentError`.
 - `ctx.buttons` se envía como quick replies: chips táctiles bajo el mensaje; el tap llega como interacción con `data` = el `id` del botón.
-- Fuera de la ventana de mensajes, Meta puede requerir que el usuario haya interactuado primero (política de la plataforma IG); los errores de Graph se traducen a los errores tipados de `@bot-wa/core` (`RateLimitedError` en códigos 4/613).
+- Fuera de la ventana de mensajes, Meta puede requerir que el usuario haya interactuado primero (política de la plataforma IG); los errores de Graph se traducen a los errores tipados de `@bot-wa/core` (`RateLimitedError` en códigos 4/613; `OutsideSessionWindowError` fuera de la ventana, subcódigo 2534022; `RecipientUnreachableError` si el usuario no existe o no está disponible, código 551 o subcódigos 2018001/2534014).
+- Un mensaje que el usuario anula (`is_deleted`) no se emite como mensaje nuevo.

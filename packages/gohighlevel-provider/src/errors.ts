@@ -27,5 +27,11 @@ export function toGhlError(status: number, body: GhlErrorBody, chatId: string, r
   if (status === 404 || ((status === 400 || status === 422) && UNREACHABLE_HINT.test(detail))) {
     return new RecipientUnreachableError(chatId, message)
   }
+  if (status === 401 || status === 403) {
+    return new GoHighLevelApiError(
+      `${message} — check \`accessToken\` (expired/revoked token?) and that it has the conversations/message.write scope for this location`,
+      status,
+    )
+  }
   return new GoHighLevelApiError(message, status)
 }

@@ -421,3 +421,64 @@ describe('TelegramProvider inline-mode and ephemeral refs', () => {
     expect(calls).toHaveLength(0)
   })
 })
+
+describe('TelegramProvider — hardening', () => {
+  it('emits ready again after stop() → start() (restart)', async () => {
+    mockFetch((call) => {
+      if (call.url.endsWith('/getMe')) return { body: { ok: true, result: { id: 9 } } }
+      if (call.url.includes('/getUpdates')) return { body: { ok: true, result: [] } }
+      return { body: { ok: true, result: {} } }
+    })
+    const p = new TelegramProvider({ token: 'TOK', pollTimeout: 1, pollIdleMs: 5 })
+    const states: string[] = []
+    p.onEvent((e) => { if (e.kind === 'connection') states.push(e.update.state) })
+    await p.start()
+    await waitFor(() => states.includes('ready'))
+    await p.stop()
+    states.length = 0
+    await p.start()
+    await waitFor(() => states.includes('ready'))
+    await p.stop()
+  })
+
+  it('stops polling with sessionInvalid when the token is revoked mid-run (401)', async () => {
+    const calls = mockFetch((call) => {
+      if (call.url.endsWith('/getMe')) return { body: { ok: true, result: { id: 9 } } }
+      if (call.url.includes('/getUpdates')) return { status: 401, body: { ok: false, error_code: 401, description: 'Unauthorized' } }
+      return { body: { ok: true, result: {} } }
+    })
+    const p = new TelegramProvider({ token: 'TOK', errorBackoffMs: 5, pollIdleMs: 5 })
+    const reasons: Array<string | undefined> = []
+    p.onEvent((e) => { if (e.kind === 'connection' && e.update.state === 'closed') reasons.push(e.update.reason) })
+    await p.start()
+    await waitFor(() => reasons.includes('sessionInvalid'))
+    const n = calls.filter((c) => c.url.includes('/getUpdates')).length
+    await new Promise((r) => setTimeout(r, 40))
+    expect(calls.filter((c) => c.url.includes('/getUpdates')).length).toBe(n)
+    await p.stop()
+  })
+
+  it('maps 400 "chat not found" to RecipientUnreachableError (with the chat id)', async () => {
+    mockFetch(() => ({ status: 400, body: { ok: false, error_code: 400, description: 'Bad Request: chat not found' } }))
+    const p = new TelegramProvider(baseCfg)
+    const err = await p.send('123', { kind: 'text', text: 'x' }).catch((e: unknown) => e)
+    expect(err).toBeInstanceOf(RecipientUnreachableError)
+    expect((err as RecipientUnreachableError).chatId).toBe('123')
+  })
+
+  it('maps 413 and "file is too big" to PayloadTooLargeError', async () => {
+    mockFetch(() => ({ status: 413, body: { ok: false, error_code: 413, description: 'Request Entity Too Large' } }))
+    const p = new TelegramProvider(baseCfg)
+    await expect(p.send('1', { kind: 'document', media: Buffer.from('x') })).rejects.toBeInstanceOf(PayloadTooLargeError)
+    mockFetch(() => ({ status: 400, body: { ok: false, error_code: 400, description: 'Bad Request: file is too big' } }))
+    await expect(p.downloadMedia({ kind: 'document', token: 'F' })).rejects.toBeInstanceOf(PayloadTooLargeError)
+  })
+
+  it('a non-JSON error page (e.g. a 502 from a proxy) still rejects with a typed ProviderError', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 502, headers: { get: () => null }, json: async () => { throw new SyntaxError('html') } })))
+    const p = new TelegramProvider(baseCfg)
+    const err = await p.send('1', { kind: 'text', text: 'x' }).catch((e: unknown) => e)
+    expect(err).toBeInstanceOf(ProviderError)
+    expect((err as Error).message).toMatch(/502/)
+  })
+})

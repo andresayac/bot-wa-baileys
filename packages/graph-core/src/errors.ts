@@ -33,11 +33,32 @@ export interface GraphErrorOptions {
   contentKind?: OutboundContent['kind']
 }
 
+/**
+ * Messenger Platform (Messenger + Instagram DM) send failures, keyed by subcode:
+ *  - outside the messaging window: code 10 with subcode 2018278 (Messenger) or
+ *    2534022 (Instagram) -> {@link OutsideSessionWindowError};
+ *  - recipient gone / unknown: code 551 ("This person isn't available right
+ *    now"), subcodes 1545041, 2018001 and 2534014 ("No matching user found")
+ *    -> {@link RecipientUnreachableError}.
+ */
+const WINDOW_SUBCODES = new Set([2018278, 2534022])
+const UNREACHABLE_SUBCODES = new Set([1545041, 2018001, 2534014])
+
 /** Translate a Graph error into the core's typed provider error. */
 export function toGraphError(err: GraphError, opts: GraphErrorOptions = {}): ProviderError {
   const code = err.code
+  const subcode = err.error_subcode
   const msg = err.message ?? 'Graph API error'
   const chatId = opts.chatId ?? ''
+  // Subcodes are more specific than codes (the window error is a plain code 10),
+  // so they are checked first.
+  if (subcode !== undefined) {
+    const tag = `${code ?? '?'}/${subcode}`
+    if (WINDOW_SUBCODES.has(subcode)) {
+      return new OutsideSessionWindowError(chatId, `${msg} (${tag}) — the user must write first (24h window) or use a message tag.`)
+    }
+    if (UNREACHABLE_SUBCODES.has(subcode)) return new RecipientUnreachableError(chatId, `${msg} (${tag})`)
+  }
   switch (code) {
     case 131047: // re-engagement: outside the 24h free-form window (WhatsApp)
       return new OutsideSessionWindowError(chatId, `${msg} (131047) — send a template (kind template).`)
@@ -48,13 +69,10 @@ export function toGraphError(err: GraphError, opts: GraphErrorOptions = {}): Pro
         chatId,
         `${msg} (131030) — add the recipient to the allowed list of your test number, or send from a production number.`,
       )
-    case 551:    // this person isn't available right now (Messenger / Instagram)
-      return new RecipientUnreachableError(chatId, `${msg} (551)`)
-    case 10:     // permission denied; subcode 2018278 = outside the messaging window (Messenger / Instagram)
-      if (err.error_subcode === 2018278) {
-        return new OutsideSessionWindowError(chatId, `${msg} (10/2018278) — the 24h messaging window is closed; use a message tag.`)
-      }
-      return new ProviderError(`${msg} (code 10)`)
+    case 551:    // Messenger Platform: "This person isn't available right now"
+      return new RecipientUnreachableError(chatId, `${msg} (551${subcode ? `/${subcode}` : ''})`)
+    // Code 10 (permission denied) is only a window error with a window subcode,
+    // handled above; a bare code 10 falls through to the generic error.
     case 131051: // unsupported message type
       return new UnsupportedContentError(opts.contentKind ?? 'native', `${msg} (131051)`)
     case 131062: // BSUID recipient not supported for this message (WhatsApp): only the

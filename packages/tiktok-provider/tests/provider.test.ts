@@ -407,3 +407,17 @@ describe('TikTokProvider — actions', () => {
     await expect(provider.downloadMedia({ kind: 'image', token: 42 })).rejects.toBeInstanceOf(ProviderError)
   })
 })
+
+describe('TikTokProvider — stream image sources', () => {
+  it('uploads a stream image source like a Buffer (collects the chunks)', async () => {
+    const { Readable } = await import('node:stream')
+    const { provider, calls } = harness((call) =>
+      call.url.endsWith('/media/upload/') ? ok({ media_id: 'MID-S' }) : ok({ message: { message_id: 'img-s' } }))
+    const res = await provider.send('dm:c', { kind: 'image', media: { stream: Readable.from([Buffer.from([1, 2]), Buffer.from([3])]) } })
+    expect(res.ref.id).toBe('img-s')
+    const form = calls[0]!.init.body as FormData
+    const file = form.get('file') as Blob
+    expect(Buffer.from(await file.arrayBuffer())).toEqual(Buffer.from([1, 2, 3]))
+    expect(calls[1]!.json).toMatchObject({ message_type: 'IMAGE' })
+  })
+})

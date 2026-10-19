@@ -5,7 +5,7 @@
  */
 
 export { MessengerProvider, toProviderError } from './MessengerProvider.js'
-export { toOutbound } from './toOutbound.js'
+export { toOutbound, toOutboundMessages } from './toOutbound.js'
 export { parseInbound } from './parseInbound.js'
 export type { PageWebhookBody, MessagingEvent, MessengerMessage, MessengerAttachment } from './parseInbound.js'
 export { verifyChallenge, verifySignature } from '@bot-wa/graph-core'

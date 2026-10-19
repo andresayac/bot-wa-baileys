@@ -1,12 +1,11 @@
 /**
- * Small transport helpers shared by the provider: header lookup, raw-body
- * handling, constant-time comparison, the numbered-text fallback for buttons /
- * lists, and the REST call wrapper over `secureFetch` (@bot-wa/http).
+ * Small transport helpers shared by the provider: header lookup, the
+ * numbered-text fallback for buttons / lists, and the REST call wrapper over
+ * `secureFetch` (@bot-wa/http).
  */
 
-import { timingSafeEqual } from 'node:crypto'
 import { secureFetch, type SecureFetchOptions } from '@bot-wa/http'
-import type { Button, ListSection } from '@bot-wa/core'
+import type { ListSection } from '@bot-wa/core'
 
 export type HeaderBag = Record<string, string | string[] | undefined>
 
@@ -27,22 +26,6 @@ export function header(headers: HeaderBag | undefined, name: string): string | u
   return undefined
 }
 
-/** Raw request bytes as a UTF-8 string, or undefined when the body was already parsed. */
-export function rawText(body: unknown): string | undefined {
-  if (typeof body === 'string') return body
-  if (Buffer.isBuffer(body)) return body.toString('utf8')
-  if (body instanceof Uint8Array) return Buffer.from(body).toString('utf8')
-  return undefined
-}
-
-/** Constant-time string equality (length leaks, content does not). */
-export function safeEqual(a: string, b: string): boolean {
-  const left = Buffer.from(a, 'utf8')
-  const right = Buffer.from(b, 'utf8')
-  if (left.length !== right.length) return false
-  return timingSafeEqual(left, right)
-}
-
 /** Render buttons / list rows as a numbered text menu (transport has no native widget). */
 export function numberedText(text: string, items: ReadonlyArray<{ title: string }>, footer?: string): string {
   const lines = items.map((item, index) => `${index + 1}. ${item.title}`)
@@ -51,10 +34,6 @@ export function numberedText(text: string, items: ReadonlyArray<{ title: string 
 
 export function listRows(sections: ListSection[]): Array<{ id: string; title: string; description?: string }> {
   return sections.flatMap((section) => section.rows)
-}
-
-export function buttonRows(buttons: Button[]): Array<{ id: string; title: string }> {
-  return buttons.map((b) => ({ id: b.id, title: b.title }))
 }
 
 export interface HttpResult {

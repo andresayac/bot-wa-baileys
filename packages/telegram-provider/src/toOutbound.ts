@@ -38,8 +38,28 @@ export interface TelegramOutbound {
   mediaField?: string
 }
 
-/** Telegram caps inline-keyboard button text and callback_data at 64. */
+/** Inline-keyboard button text is kept to 64 characters. */
 const BTN_TEXT = 64
+/** The Bot API caps `callback_data` at 64 BYTES (UTF-8), not characters. */
+const CALLBACK_DATA_BYTES = 64
+
+/**
+ * Truncate `s` to at most `maxBytes` UTF-8 bytes without splitting a code
+ * point (a cut surrogate pair or multi-byte sequence would be rejected by the
+ * Bot API as BUTTON_DATA_INVALID).
+ */
+function truncateUtf8(s: string, maxBytes: number): string {
+  if (Buffer.byteLength(s, 'utf8') <= maxBytes) return s
+  let out = ''
+  let bytes = 0
+  for (const ch of s) {
+    const n = Buffer.byteLength(ch, 'utf8')
+    if (bytes + n > maxBytes) break
+    out += ch
+    bytes += n
+  }
+  return out
+}
 
 function mediaParam(field: string, media: ResolvedTelegramMedia | undefined, kind: OutboundContent['kind']): Pick<TelegramOutbound, 'params' | 'mediaField'> {
   if (media?.value) return { params: { [field]: media.value } }
@@ -51,7 +71,7 @@ function buttonRow(b: { id: string; title: string; url?: string }): Record<strin
   const text = b.title.slice(0, BTN_TEXT)
   return b.url
     ? { text, url: b.url }
-    : { text, callback_data: (b.id || b.title).slice(0, BTN_TEXT) }
+    : { text, callback_data: truncateUtf8(b.id || b.title, CALLBACK_DATA_BYTES) }
 }
 
 function inlineKeyboard(buttons: Array<{ id: string; title: string; url?: string }>): Record<string, unknown> {
@@ -99,6 +119,14 @@ export function toOutbound(content: OutboundContent, media?: ResolvedTelegramMed
     }
 
     case 'location':
+      // A named place with an address is a venue; a bare pin stays a location
+      // (sendVenue requires both title and address).
+      if (content.name && content.address) {
+        return {
+          method: 'sendVenue',
+          params: { latitude: content.lat, longitude: content.lng, title: content.name, address: content.address },
+        }
+      }
       return { method: 'sendLocation', params: { latitude: content.lat, longitude: content.lng } }
 
     case 'contact':

@@ -36,15 +36,17 @@ import { ProviderError, UnsupportedContentError } from '@bot-wa/core'
 import { toGraphError, verifyChallenge, checkGraphSignature, parseGraphBody, type GraphError, type ChallengeQuery } from '@bot-wa/graph-core'
 import { secureFetch } from '@bot-wa/http'
 import type { GraphErrorBody, MessengerProviderConfig, MessengerSendResponse } from './types.js'
-import { toOutbound } from './toOutbound.js'
+import { toOutboundMessages } from './toOutbound.js'
 import { parseInbound, type PageWebhookBody } from './parseInbound.js'
 
 /**
- * Translate a Graph error into a typed provider error. Thin wrapper over the
- * shared {@link toGraphError} — now maps the full Graph code set, not just 4/613.
+ * Translate a Graph error into a typed provider error via the shared
+ * {@link toGraphError} mapping (which also covers the Messenger Platform
+ * window/recipient codes). `chatId` (the PSID the call targeted) is carried on
+ * window/unreachable errors.
  */
-export function toProviderError(err: GraphError, retryAfterMs?: number): ProviderError {
-  return toGraphError(err, { retryAfterMs })
+export function toProviderError(err: GraphError, retryAfterMs?: number, chatId: ChatId = ''): ProviderError {
+  return toGraphError(err, { retryAfterMs, chatId })
 }
 
 export class MessengerProvider implements IProvider<unknown> {
@@ -146,7 +148,7 @@ export class MessengerProvider implements IProvider<unknown> {
     const body = (await res.json().catch(() => ({}))) as MessengerSendResponse & GraphErrorBody
     if (!res.ok || body.error) {
       const retryAfter = Number(res.headers.get('Retry-After')) || undefined
-      throw toProviderError(body.error ?? { message: `HTTP ${res.status}` }, retryAfter ? retryAfter * 1000 : undefined)
+      throw toProviderError(body.error ?? { message: `HTTP ${res.status}` }, retryAfter ? retryAfter * 1000 : undefined, chatId)
     }
     return body
   }
@@ -158,7 +160,7 @@ export class MessengerProvider implements IProvider<unknown> {
    */
   private resolveMediaUrl(source: MediaSource, kind: OutboundContent['kind']): string {
     if (typeof source === 'string') {
-      if (source.startsWith('http')) return source
+      if (/^https?:\/\//i.test(source)) return source
     } else if ('url' in source) {
       return source.url
     } else if ('native' in source) {
@@ -180,8 +182,11 @@ export class MessengerProvider implements IProvider<unknown> {
     }
     const needsMedia = (['image', 'video', 'audio', 'voice', 'document', 'sticker'] as const).includes(content.kind as never)
     const mediaUrl = needsMedia ? this.resolveMediaUrl((content as { media: MediaSource }).media, content.kind) : undefined
-    const message = toOutbound(content, mediaUrl)
-    const body = await this.postMessages({ recipient: { id: chatId }, messaging_type: 'RESPONSE', message }, chatId)
+    // Usually one message; a long card is split so no text is cut (see toOutboundMessages).
+    let body: MessengerSendResponse = {}
+    for (const message of toOutboundMessages(content, mediaUrl)) {
+      body = await this.postMessages({ recipient: { id: chatId }, messaging_type: 'RESPONSE', message }, chatId)
+    }
     return { ref: { id: body.message_id ?? '', chatId }, raw: body }
   }
 

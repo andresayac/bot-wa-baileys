@@ -79,8 +79,8 @@ INVALID_SESSION no resumible, y parada definitiva en códigos fatales
 | Feature | Discord |
 |---|---|
 | Texto, imagen, video, audio, voz, documento, sticker (multipart `files[0]` + `payload_json`) | ✅ |
-| **Botones** (`components` action row, hasta 5; botones URL style 5) | ✅ nativo |
-| **Listas** → select menu (type 3) | ✅ nativo |
+| **Botones** (`components`: filas de 5, hasta 25 botones; botones URL style 5) | ✅ nativo |
+| **Listas** → select menu (type 3); la interacción trae el id de la fila elegida en `data` | ✅ nativo |
 | Card → embed (`title`/`description`/`image`) | ✅ |
 | **Encuestas** (poll 24h) | ✅ |
 | Reacciones (PUT `.../reactions/{emoji}/@me`) | ✅ |
@@ -95,8 +95,12 @@ INVALID_SESSION no resumible, y parada definitiva en códigos fatales
 
 Los fallos REST (HTTP ≥ 400) se mapean a los errores de `@bot-wa/core`:
 `429` → `RateLimitedError` (con `retryAfterMs` desde `retry_after`), `403` →
-`RecipientUnreachableError`, `413`/código 40003 → `PayloadTooLargeError`,
-resto → `ProviderError` con el `message` de Discord.
+`RecipientUnreachableError` (también los códigos 10003 *Unknown Channel*,
+10013 *Unknown User*, 50001 *Missing Access* y 50007 *Cannot send messages to
+this user*), `413`/código 40003 → `PayloadTooLargeError`, resto →
+`ProviderError` con el `message` de Discord. Una reacción con emoji vacío se
+rechaza con `UnsupportedContentError` (Discord no puede quitar una reacción
+sin saber cuál).
 
 ## Identidad
 
