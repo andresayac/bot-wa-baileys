@@ -39,7 +39,8 @@ alguno:
 const crm = definePlugin({ name: 'crm', version: '1.0.0', requires: ['inbox'], install(ctx) { /* … */ } })
 
 bot.plug(crm)            // Error: Plugin "crm" requires plugin(s) "inbox", which is not plugged…
-bot.plug(inbox).plug(crm) // ok: primero la dependencia
+bot.plug(inbox)          // ok: primero la dependencia...
+bot.plug(crm)            // ...y después el plugin que la requiere
 ```
 
 La comprobación solo ocurre al enchufar: desenchufar `inbox` después no

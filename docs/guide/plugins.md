@@ -39,7 +39,8 @@ plugged:
 const crm = definePlugin({ name: 'crm', version: '1.0.0', requires: ['inbox'], install(ctx) { /* … */ } })
 
 bot.plug(crm)            // Error: Plugin "crm" requires plugin(s) "inbox", which is not plugged…
-bot.plug(inbox).plug(crm) // ok: plug the dependency first
+bot.plug(inbox)          // ok: plug the dependency first...
+bot.plug(crm)            // ...then the plugin that requires it
 ```
 
 The check runs at plug time only: unplugging `inbox` later does not unplug
