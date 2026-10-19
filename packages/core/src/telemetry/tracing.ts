@@ -37,7 +37,7 @@ class NoopSpan implements BotSpan {
 /** The shared no-op span. */
 export const NOOP_SPAN: BotSpan = Object.freeze(new NoopSpan())
 
-/** A tracer that records nothing (every span is {@link NOOP_SPAN}). */
+/** A tracer that records nothing (every span is a shared, frozen no-op span). */
 export const noopTracer: BotTracer = Object.freeze({ startSpan: (): BotSpan => NOOP_SPAN })
 
 /** `bot.tracing` of a bot without `BotConfig.telemetry`: disabled, every call a no-op. */

@@ -125,6 +125,8 @@ export type {
   ConversationHandle,
   CheckpointStore,
 } from './conversations/ConversationRuntime.js'
+// Referenced by RuntimeConfig.answers / RuntimeConfig.handover (multi-replica hand-over).
+export type { AnswerCodec, RuntimeHandover, RuntimeHandoverFallback } from './conversations/handover.js'
 export {
   /** @deprecated Import from '@bot-wa/core/internal' (engine internal; removed from the main entry in v3). */
   createControls,
