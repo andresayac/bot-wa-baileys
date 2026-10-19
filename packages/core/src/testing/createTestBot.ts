@@ -2,7 +2,7 @@
  * createTestBot — spin up a {@link Bot} wired to a {@link MockProvider} for tests.
  *
  * No sockets, no filesystem. The returned `chat` drives a single conversation and
- * asserts on the outbox (text + captions).
+ * asserts on the outbox (text, captions and the text of buttons/lists).
  *
  * @example
  * ```ts
@@ -51,14 +51,14 @@ export interface TestChat {
   send(text: string, opts?: { type?: string }): Promise<void>
   /** Resolve with the first reply matching `matcher` (already sent or arriving before the timeout). */
   expectReply(matcher: string | RegExp, timeoutMs?: number): Promise<string>
-  /** Snapshot of all text/caption replies sent to this chat so far. */
+  /** Snapshot of all text/caption replies sent to this chat so far (buttons and lists: their text). */
   replies(): string[]
 }
 
-/** Extract the human-readable text/caption from an outbound content descriptor. */
+/** Extract the human-readable text/caption from an outbound content descriptor (the body of buttons and lists too). */
 function textOf(m: MockOutgoing): string {
   const c = m.content
-  if (c.kind === 'text') return c.text
+  if (c.kind === 'text' || c.kind === 'buttons' || c.kind === 'list') return c.text
   if ('caption' in c && typeof c.caption === 'string') return c.caption
   return ''
 }

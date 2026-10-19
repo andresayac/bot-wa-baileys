@@ -59,6 +59,11 @@ export interface MockProviderOptions {
   /** `capabilities.textFormat` to simulate (e.g. `'whatsapp'`). Default: unset. */
   textFormat?: TextFormat
   /**
+   * Native buttons to simulate (`capabilities.buttons` and the `'buttons'` content
+   * kind). `false` simulates a channel without them (Baileys, SMS…). Default `true`.
+   */
+  buttons?: boolean
+  /**
    * Per-chat text format to simulate (`IProvider.textFormatFor`), e.g. a provider that
    * serves WhatsApp and SMS chats. Default: unset (the mock has no `textFormatFor`).
    */
@@ -109,6 +114,8 @@ export class MockProvider implements IProvider {
   drafts: MockDraft[] = []
   /** Messages deleted through {@link deleteMessage} (enabled by `streaming` not `'none'` or `supports.delete`). */
   deleted: MessageRef[] = []
+  /** Interaction acks recorded by {@link acknowledgeInteraction}, in order. */
+  acks: Array<{ interactionId: string; opts?: { text?: string; defer?: boolean } }> = []
   /** Per-chat text format — present only when {@link MockProviderOptions.textFormatFor} is given. */
   declare textFormatFor?: (chatId: ChatId) => TextFormat | undefined
 
@@ -116,9 +123,11 @@ export class MockProvider implements IProvider {
     const streaming = options.streaming ?? 'none'
     const supports = options.supports ?? {}
     const edit = supports.edit ?? streaming !== 'none'
+    const buttons = options.buttons ?? true
+    const kinds: Array<OutboundContent['kind']> = ['text', 'image', 'video', 'audio', 'voice', 'document', 'sticker', 'location', 'contact', 'poll', 'buttons', 'list', 'reaction']
     this.capabilities = {
-      contentKinds: ['text', 'image', 'video', 'audio', 'voice', 'document', 'sticker', 'location', 'contact', 'poll', 'buttons', 'list', 'reaction'],
-      buttons: true, lists: true, polls: true, reactions: true, edit,
+      contentKinds: buttons ? kinds : kinds.filter((k) => k !== 'buttons'),
+      buttons, lists: true, polls: true, reactions: true, edit,
       typing: true, presence: true, readReceipts: true, groups: true, templates: false,
       interactionsRequireAck: false, pushIngress: false,
       streaming,
@@ -136,6 +145,11 @@ export class MockProvider implements IProvider {
   async editMessage(ref: MessageRef, content: OutboundContent): Promise<SendResult> {
     this.edits.push({ ref, content })
     return { ref }
+  }
+
+  /** Records the ack in {@link acks} (button/callback interactions). */
+  async acknowledgeInteraction(interactionId: string, opts?: { text?: string; defer?: boolean }): Promise<void> {
+    this.acks.push(opts === undefined ? { interactionId } : { interactionId, opts })
   }
 
   /** Records the ref in {@link deleted}. Hidden (`undefined`) unless enabled — see {@link MockProviderOptions.supports}. */

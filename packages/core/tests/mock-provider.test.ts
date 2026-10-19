@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { MockProvider } from '../src/testing/MockProvider.js'
+import { createTestBot } from '../src/testing/createTestBot.js'
 import type { DraftOptions, InboundEvent, MessageRef, OutboundContent, SendResult } from '../src/core/provider.js'
 
 describe('MockProvider (v2)', () => {
@@ -114,5 +115,31 @@ describe('MockProvider optional seams (editMessage / deleteMessage / sendDraft)'
   it('textFormat simulates capabilities.textFormat (unset by default)', () => {
     expect(new MockProvider().capabilities.textFormat).toBeUndefined()
     expect(new MockProvider({ textFormat: 'whatsapp' }).capabilities.textFormat).toBe('whatsapp')
+  })
+  it('buttons: false simulates a channel without native buttons (on by default)', () => {
+    const on = new MockProvider().capabilities
+    expect(on.buttons).toBe(true)
+    expect(on.contentKinds).toContain('buttons')
+    const off = new MockProvider({ buttons: false }).capabilities
+    expect(off.buttons).toBe(false)
+    expect(off.contentKinds).not.toContain('buttons')
+  })
+
+  it('acknowledgeInteraction records each ack in `acks`', async () => {
+    const p = new MockProvider()
+    await p.acknowledgeInteraction('it-1')
+    await p.acknowledgeInteraction('it-2', { text: 'ok' })
+    expect(p.acks).toEqual([{ interactionId: 'it-1' }, { interactionId: 'it-2', opts: { text: 'ok' } }])
+  })
+})
+
+describe('createTestBot', () => {
+  it('chat.replies()/expectReply see the text of buttons and list messages', async () => {
+    const { bot, chat } = await createTestBot()
+    bot.when('menu', async (ctx) => { await ctx.buttons('Elige', [{ id: 'a', title: 'A' }]) })
+    await chat.send('menu')
+    await chat.expectReply('Elige')
+    expect(chat.replies()).toEqual(['Elige'])
+    await bot.stop()
   })
 })
