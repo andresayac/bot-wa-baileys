@@ -70,6 +70,8 @@ export async function secureFetch(input: string | URL, options: SecureFetchOptio
   if (!Number.isSafeInteger(maxRedirects) || maxRedirects < 0) throw new SecureHttpError('maxRedirects must be a non-negative integer', 'INVALID_URL')
 
   let url = parseUrl(input)
+  // An `abort` listener never fires for a signal that is already aborted.
+  parentSignal?.throwIfAborted()
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(new SecureHttpError(`request timed out after ${timeoutMs}ms`, 'TIMEOUT')), timeoutMs)
   const abortParent = () => controller.abort(parentSignal?.reason)
@@ -105,9 +107,12 @@ export async function secureFetch(input: string | URL, options: SecureFetchOptio
       }
 
       if (isRedirect(response.status)) {
-        if (redirects >= maxRedirects) throw new SecureHttpError('too many redirects', 'TOO_MANY_REDIRECTS')
         const location = response.headers.get('location')
         if (!location) return { url, response, body: await readBody(response, maxBytes) }
+        // A followed redirect's body is never read: release it now, or its
+        // connection stays busy (a server that never ends it would stall us).
+        await response.body?.cancel().catch(() => {})
+        if (redirects >= maxRedirects) throw new SecureHttpError('too many redirects', 'TOO_MANY_REDIRECTS')
         const previousOrigin = url.origin
         url = parseUrl(location, url)
         // Never forward credentials to a different origin on redirect (native
@@ -128,7 +133,9 @@ export async function secureFetch(input: string | URL, options: SecureFetchOptio
   } finally {
     clearTimeout(timeout)
     parentSignal?.removeEventListener('abort', abortParent)
-    for (const dispatcher of dispatchers) await dispatcher.close().catch(() => {})
+    // Every body was read or cancelled above, so nothing useful is left on these
+    // connections: destroy (close() would wait on any stalled response).
+    for (const dispatcher of dispatchers) await dispatcher.destroy().catch(() => {})
   }
 }
 
