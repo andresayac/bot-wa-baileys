@@ -288,6 +288,19 @@ export class FakePool implements PoolLike {
     if (s === `DELETE FROM \`${ud}\` WHERE expires_at IS NOT NULL AND expires_at <= ?`) {
       return remove((r) => r.expires_at != null && Number(r.expires_at) <= Number(p[0]))
     }
+    if (s === `DELETE FROM \`${ud}\` WHERE expires_at IS NOT NULL AND expires_at <= ? ORDER BY expires_at LIMIT ?`) {
+      // mysql2 interpolates the LIMIT placeholder: MySQL only parses a non-negative integer there.
+      if (!Number.isSafeInteger(p[1]) || Number(p[1]) < 0) {
+        throw Object.assign(new Error('ER_PARSE_ERROR: You have an error in your SQL syntax (LIMIT)'), { errno: 1064 })
+      }
+      const doomed = new Set(
+        [...this.table(ud).values()]
+          .filter((r) => r.expires_at != null && Number(r.expires_at) <= Number(p[0]))
+          .sort((a, b) => Number(a.expires_at) - Number(b.expires_at))
+          .slice(0, Number(p[1])),
+      )
+      return remove((r) => doomed.has(r))
+    }
     return undefined
   }
 
@@ -378,6 +391,21 @@ export class FakePool implements PoolLike {
         .slice(0, Number(p[1]))
         .map((r) => ({ msg: this.jsonOut(String(r.msg)) }))
       return [rows, []]
+    }
+    if (s === `SELECT msg FROM \`${messages}\` WHERE id = ? AND chat_id = ?`) {
+      const row = this.table(messages).get(key(p[0]))
+      return [row && row.chat_id === key(p[1]) ? [{ msg: this.jsonOut(String(row.msg)) }] : [], []]
+    }
+    if (s === `DELETE FROM \`${messages}\` WHERE chat_id = ? AND id IN (?, ?)`) {
+      let n = 0
+      for (const id of new Set([key(p[1]), key(p[2])])) {
+        const row = this.table(messages).get(id)
+        if (row && row.chat_id === key(p[0])) {
+          this.table(messages).delete(id)
+          n++
+        }
+      }
+      return header(n)
     }
     if (s === `DELETE FROM \`${messages}\` WHERE id = ?`) {
       return header(this.table(messages).delete(key(p[0])) ? 1 : 0)

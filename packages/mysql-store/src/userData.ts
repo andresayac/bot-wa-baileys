@@ -59,8 +59,15 @@ function affectedRows(result: MysqlQueryResult): number {
   return typeof header?.affectedRows === 'number' ? header.affectedRows : 0
 }
 
+/** Default rows per DELETE of {@link MysqlUserData.purge}. */
+export const DEFAULT_PURGE_BATCH_SIZE = 1000
+
 export class MysqlUserData {
-  constructor(private readonly query: Query, private readonly table: string) {}
+  constructor(
+    private readonly query: Query,
+    private readonly table: string,
+    private readonly batchSize = DEFAULT_PURGE_BATCH_SIZE,
+  ) {}
 
   /** Idempotent schema (part of MysqlStore.start). */
   async migrate(): Promise<void> {
@@ -110,9 +117,23 @@ export class MysqlUserData {
     return rows.map(toEntry)
   }
 
+  /**
+   * Delete expired rows `batchSize` at a time (`DELETE ... ORDER BY expires_at
+   * LIMIT ?`, walking the expiry index) until a batch comes back short. Each
+   * statement is a short transaction, so a huge backlog never holds InnoDB row
+   * and gap locks — nor grows the undo log — for one long delete.
+   */
   async purge(now: number): Promise<number> {
-    return affectedRows(
-      await this.query(`DELETE FROM \`${this.table}\` WHERE expires_at IS NOT NULL AND expires_at <= ?`, [now]),
-    )
+    let total = 0
+    for (;;) {
+      const removed = affectedRows(
+        await this.query(
+          `DELETE FROM \`${this.table}\` WHERE expires_at IS NOT NULL AND expires_at <= ? ORDER BY expires_at LIMIT ?`,
+          [now, this.batchSize],
+        ),
+      )
+      total += removed
+      if (removed < this.batchSize) return total
+    }
   }
 }

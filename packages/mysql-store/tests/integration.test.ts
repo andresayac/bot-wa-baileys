@@ -25,7 +25,7 @@ import { randomBytes } from 'node:crypto'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { createPool } from 'mysql2/promise'
 import type { Pool, RowDataPacket } from 'mysql2/promise'
-import type { AIMessage, FlowCheckpoint, StoredChat, StoredContact, StoredMessage } from '@bot-wa/core'
+import { legacyMessageKey, type AIMessage, type FlowCheckpoint, type StoredChat, type StoredContact, type StoredMessage } from '@bot-wa/core'
 import { MysqlStore } from '../src/MysqlStore.js'
 import type { MysqlQueryResult, MysqlStoreOptions, PoolLike } from '../src/MysqlStore.js'
 import { runStoreConformance } from '../../../test-utils/store-conformance.js'
@@ -104,8 +104,15 @@ describe.skipIf(!enabled)('MysqlStore — real MySQL integration', () => {
 
   runStoreConformance('MysqlStore (real MySQL)', {
     async make() {
-      const { store, teardown } = await makeStore()
-      return { store, teardown }
+      const { store, prefix, teardown } = await makeStore()
+      // A message row exactly as older versions wrote it (unescaped key).
+      const seedLegacyMessage = async (m: StoredMessage): Promise<void> => {
+        await admin.query(
+          `INSERT INTO \`${prefix}messages\` (id, chat_id, timestamp, msg) VALUES (?, ?, ?, ?)`,
+          [legacyMessageKey(m.ref), m.chatId, m.timestamp, JSON.stringify(m)],
+        )
+      }
+      return { store, teardown, seedLegacyMessage }
     },
   })
 
@@ -117,6 +124,22 @@ describe.skipIf(!enabled)('MysqlStore — real MySQL integration', () => {
   })
 
   describe('user data (ctx.user)', () => {
+    it('purges expired rows in batches of purgeBatchSize on the server', async () => {
+      const { store, teardown } = await makeStore({ purgeBatchSize: 2 })
+      try {
+        const now = Date.now()
+        for (let i = 0; i < 5; i++) {
+          await store.setUserData({ userId: `u${i}`, namespace: 'g', key: 'old', value: i, expiresAt: now - i, updatedAt: now })
+        }
+        await store.setUserData({ userId: 'u0', namespace: 'g', key: 'live', value: 1, expiresAt: now + 60_000, updatedAt: now })
+        expect(await store.purgeExpiredUserData(now)).toBe(5)
+        expect((await store.listUserData('u0')).map((e) => e.key)).toEqual(['live'])
+        expect(await store.purgeExpiredUserData(now)).toBe(0)
+      } finally {
+        await teardown()
+      }
+    })
+
     it('user_data keys are byte-exact VARBINARY on InnoDB, like the other tables', async () => {
       const { prefix, teardown } = await makeStore()
       try {
