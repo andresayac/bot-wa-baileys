@@ -1,0 +1,5 @@
+---
+"@bot-wa/core": minor
+---
+
+Durable message processing, opt-in through `BotConfig.durability`. Without the key nothing changes. Inbound messages and interactions are journaled in an inbox before dispatch and acknowledged once their conversation steps settle; after a crash they are replayed on the next `start()`. Every send goes through an outbox under an idempotency key (`SendOptions.idempotencyKey`, or derived from the inbound message being handled), so a replay never re-sends a reply that already went out. Retries use backoff and honour `RateLimitedError`; there is a dead-letter queue, `SendDeferredError` once `outbox.inlineMaxMs` runs out, leases with fencing tokens (`StaleLeaseError`) and an `onAmbiguous` policy. New API: `bot.durability`, `bot.enqueue()`, and the `'durability:dead'` / `'durability:ambiguous'` events. Two backends ship in core, `MemoryDurability` (default) and `FileDurability`; store packages implement the `DurableKv` seam through `KvDurability`. `FlowCheckpoint` gains the optional `inboundId` and `cause` fields. `@bot-wa/core/testing` adds `crashable()` and `CrashableProvider`.

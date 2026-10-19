@@ -5,6 +5,8 @@ This page covers two things: the runtime metrics every `Bot` exposes (part of
 CRM, campaigns...). To send one message to many chats or start a flow from a
 job, see [Broadcasts](./messages#broadcasts) and
 [Starting a flow programmatically](./messages#starting-a-flow-programmatically).
+To survive crashes without losing or duplicating messages (durable inbox/outbox,
+retries, dead-letter queue), see [Durable message processing](./durability).
 
 ## Runtime metrics
 

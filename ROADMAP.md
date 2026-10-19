@@ -465,7 +465,7 @@ Duración orientativa: 2–3 semanas.
 Entregables:
 
 - Event envelope.
-- Inbox/outbox y deduplicación.
+- Inbox/outbox y deduplicación. *(Parcial: inbox/outbox durables opt-in en el core, `BotConfig.durability`, con backends en memoria, archivo, PostgreSQL y Redis.)*
 - Message ledger completo.
 - Namespaces multi-tenant.
 - Máquina de estados y drenaje.

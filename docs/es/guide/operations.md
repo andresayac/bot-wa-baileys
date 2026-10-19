@@ -5,6 +5,8 @@ Esta página cubre dos cosas: las métricas de runtime que expone todo `Bot`
 eventos, inbox, CRM, campañas...). Para enviar un mensaje a muchos chats o
 iniciar un flujo desde un job, ve [Difusiones](./mensajes#difusiones-broadcast)
 e [Iniciar un flujo desde código](./mensajes#iniciar-un-flujo-desde-codigo).
+Para sobrevivir a caídas sin perder ni duplicar mensajes (inbox/outbox durables,
+reintentos, cola de muertos), ve [Procesamiento durable](./durabilidad).
 
 ## Métricas de runtime
 

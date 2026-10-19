@@ -48,7 +48,11 @@ flowchart TD
 2. **Dedupe de entrada**: un mensaje o interacción re-entregado (mismo
    `chatId` + id, por reintentos de webhook o por la resincronización
    offline de Baileys) se descarta. Activado por defecto; ver
-   [Dedupe de entrada](#dedupe-de-entrada).
+   [Dedupe de entrada](#dedupe-de-entrada). Con el
+   [procesamiento durable](./durabilidad) activado (opt-in), después el
+   mensaje se anota en el inbox antes de que corra nada más, se confirma
+   cuando sus pasos de conversación se asentaron y se reprocesa desde el
+   paso 1 tras una caída.
 3. **Persistencia**: se guardan el chat, el contacto y el mensaje en el store.
 4. **Filtro `groupMode`**: un mensaje de grupo que el bot debe ignorar se
    detiene aquí (sí se persiste).
