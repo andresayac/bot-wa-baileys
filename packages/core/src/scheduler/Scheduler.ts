@@ -47,13 +47,17 @@ export class Scheduler {
     return this.durable.hasWork ? this.durable.start(logger) : undefined
   }
 
-  stop(): void {
+  /**
+   * Pause every task (definitions and stored schedules are kept). Returns a promise only
+   * when a leader lease (`SchedulerOptions.lease`) is being released; it never rejects.
+   */
+  stop(): Promise<void> | undefined {
     this.isRunning = false
     for (const t of this.tasks.values()) {
       if (t.timer) clearTimeout(t.timer)
       t.timer = undefined
     }
-    this.durable.stop()
+    return this.durable.stop()
   }
 
   /** Add a cron-style task. */

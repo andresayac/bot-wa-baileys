@@ -474,6 +474,29 @@ describe('Bot: durable scheduler wiring', () => {
     expect(store.stop).toHaveBeenCalledOnce()
   })
 
+  it('stop() releases the scheduler leader lease before the store closes', async () => {
+    useClock()
+    const order: string[] = []
+    const lease = new MemoryLeaseProvider()
+    const release = lease.release.bind(lease)
+    lease.release = async (...args) => {
+      await new Promise((r) => setTimeout(r, 50))
+      order.push('lease released')
+      return release(...args)
+    }
+    const store = new MemoryStore()
+    const stopStore = store.stop.bind(store)
+    store.stop = async () => { order.push('store stopped'); return stopStore() }
+    const bot = new Bot({ provider: new MockProvider(), store, scheduler: { store: new MemoryScheduleStore(), lease } })
+    bot.every('1s', { id: 'led' }, () => {})
+    await bot.start()
+    await vi.advanceTimersByTimeAsync(1 * SEC)
+    const stopping = bot.stop()
+    await vi.advanceTimersByTimeAsync(50)
+    await stopping
+    expect(order).toEqual(['lease released', 'store stopped'])
+  })
+
   it('without durable tasks, bot.schedule/every/delay keep the in-memory behaviour', async () => {
     useClock()
     const bot = new Bot({ provider: new MockProvider() })

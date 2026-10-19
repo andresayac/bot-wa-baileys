@@ -521,7 +521,8 @@ export class Bot extends EventEmitter {
     // Running broadcasts start no new send from here on; their in-flight sends are
     // in `inflightSends`, so `drain` still waits for them.
     this.lifecycleAbort.abort()
-    this.scheduler.stop()
+    const releasing = this.scheduler.stop()
+    if (releasing) await releasing   // only with a scheduler lease: released before the store closes
     if (opts?.drain && this.inflightSends.size > 0) {
       const timeout = drainTimeout
       let timer: ReturnType<typeof setTimeout> | undefined

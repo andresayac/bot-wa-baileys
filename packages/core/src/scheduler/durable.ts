@@ -215,8 +215,12 @@ export class DurableScheduler {
     this.poll = setInterval(() => this.tick(), this.tickMs)
   }
 
-  /** Pause: timers stop, running handlers see `signal` abort; stored rows are kept. */
-  stop(): void {
+  /**
+   * Pause: timers stop, running handlers see `signal` abort; stored rows are kept. Returns
+   * a promise (that never rejects) only when the leader lease has to be released, so the
+   * caller can wait for it before closing the lease backend's connection.
+   */
+  stop(): Promise<void> | undefined {
     this.running = false
     this.epoch++
     if (this.poll) clearInterval(this.poll)
@@ -229,10 +233,9 @@ export class DurableScheduler {
     }
     const leader = this.leader
     this.leader = undefined
-    if (leader && this.lease) {
-      this.lease.release(this.leaderKey, this.owner, leader.token)
-        .catch((err: unknown) => this.logger?.warn?.({ err }, 'scheduler: releasing the leader lease failed'))
-    }
+    if (!leader || !this.lease) return undefined
+    return this.lease.release(this.leaderKey, this.owner, leader.token)
+      .catch((err: unknown) => { this.logger?.warn?.({ err }, 'scheduler: releasing the leader lease failed') })
   }
 
   /** Delete a stored schedule (an orphan, or a registered task, which is cancelled too). */
