@@ -2,7 +2,9 @@
  * SQLiteStore — unit tests (v2 IStore).
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { existsSync, mkdtempSync, rmSync, unlinkSync } from 'fs'
+import { mkdtempSync, rmSync } from 'fs'
+import { createRequire } from 'node:module'
+import type BetterSqlite3 from 'better-sqlite3'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { SQLiteStore } from '../src/SQLiteStore.js'
@@ -57,8 +59,7 @@ describe('SQLiteStore', () => {
   })
 
   it('maxMessagesPerChat prunes the oldest messages beyond the cap', async () => {
-    const CAP_DB = './test-sqlite-cap.db'
-    for (const s of ['', '-wal', '-shm']) if (existsSync(CAP_DB + s)) unlinkSync(CAP_DB + s)
+    const CAP_DB = join(dir, 'cap.db')
     const capped = new SQLiteStore({ file: CAP_DB, maxMessagesPerChat: 3 })
     await capped.start()
     for (let i = 0; i < 6; i++) await capped.saveMessage(msg('c@s.whatsapp.net', `m${i}`, `msg ${i}`, 1000 + i))
@@ -68,7 +69,6 @@ describe('SQLiteStore', () => {
     await capped.saveMessage(msg('other@s.whatsapp.net', 'o1', 'keep', 1))
     expect(await capped.getMessagesByChat('other@s.whatsapp.net')).toHaveLength(1)
     await capped.stop()
-    for (const s of ['', '-wal', '-shm']) if (existsSync(CAP_DB + s)) unlinkSync(CAP_DB + s)
   })
 
   it('deleteChat purges the chat\'s message log (consistent with MemoryStore)', async () => {
@@ -118,5 +118,61 @@ describe('SQLiteStore', () => {
     await store.saveMessage(msg('u@s.whatsapp.net', 'del1', 'bye', 1))
     await store.deleteMessage({ id: 'del1', chatId: 'u@s.whatsapp.net' })
     expect(await store.getMessage({ id: 'del1', chatId: 'u@s.whatsapp.net' })).toBeUndefined()
+  })
+
+  it('rejects an invalid maxMessagesPerChat up front', () => {
+    for (const bad of [-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(() => new SQLiteStore({ file: join(dir, 'bad.db'), maxMessagesPerChat: bad })).toThrow(RangeError)
+    }
+  })
+
+  it('maxMessagesPerChat: 0 keeps no history at all', async () => {
+    const none = new SQLiteStore({ file: join(dir, 'none.db'), maxMessagesPerChat: 0 })
+    await none.start()
+    await none.saveMessage(msg('c@x', 'm1', 'x', 1))
+    expect(await none.getMessagesByChat('c@x')).toEqual([])
+    await none.stop()
+  })
+
+  it('upgrades a database written by an older version (no user_data table) in place', async () => {
+    const legacyFile = join(dir, 'legacy.db')
+    const Database = createRequire(import.meta.url)('better-sqlite3') as typeof BetterSqlite3
+    const legacy = new Database(legacyFile)
+    legacy.exec(`
+      CREATE TABLE messages (id TEXT PRIMARY KEY, chat_id TEXT NOT NULL, sender_id TEXT, timestamp INTEGER NOT NULL,
+        type TEXT NOT NULL, body TEXT, from_me INTEGER, msg_json TEXT NOT NULL);
+      CREATE TABLE chats (id TEXT PRIMARY KEY, chat_json TEXT NOT NULL);
+      CREATE TABLE contacts (id TEXT PRIMARY KEY, contact_json TEXT NOT NULL);
+      CREATE TABLE checkpoints (key TEXT PRIMARY KEY, checkpoint_json TEXT NOT NULL);
+      CREATE TABLE conversations (key TEXT PRIMARY KEY, messages_json TEXT NOT NULL);
+      CREATE TABLE cursors (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+    `)
+    const old = msg('c@x', 'm1', 'from v0', 1)
+    legacy.prepare('INSERT INTO messages VALUES (?,?,?,?,?,?,?,?)').run('c@x:m1', 'c@x', 'c@x', 1, 'text', 'from v0', 0, JSON.stringify(old))
+    legacy.prepare('INSERT INTO chats VALUES (?, ?)').run('c@x', JSON.stringify({ id: 'c@x', name: 'Old' }))
+    legacy.close()
+
+    const upgraded = new SQLiteStore({ file: legacyFile })
+    await upgraded.start()
+    expect(await upgraded.getMessagesByChat('c@x')).toEqual([old])
+    await upgraded.upsertChat({ id: 'c@x', kind: 'group' })
+    expect(await upgraded.getChat('c@x')).toEqual({ id: 'c@x', name: 'Old', kind: 'group' })
+    await upgraded.setUserData({ userId: 'u', namespace: 'default', key: 'k', value: 1, updatedAt: 1 })
+    expect((await upgraded.getUserData('u', 'default', 'k'))?.value).toBe(1)
+    await upgraded.stop()
+  })
+
+  it('merges partial upserts made through two connections to the same file', async () => {
+    const other = new SQLiteStore({ file: TEST_DB })
+    await other.start()
+    await Promise.all([
+      store.upsertChat({ id: 'shared@x', name: 'Shared' }),
+      other.upsertChat({ id: 'shared@x', kind: 'group' }),
+      store.upsertContact({ id: 'u', name: 'Ana' }),
+      other.upsertContact({ id: 'u', username: 'ana' }),
+    ])
+    expect(await store.getChat('shared@x')).toEqual({ id: 'shared@x', name: 'Shared', kind: 'group' })
+    expect(await other.getContact('u')).toEqual({ id: 'u', name: 'Ana', username: 'ana' })
+    await other.stop()
   })
 })

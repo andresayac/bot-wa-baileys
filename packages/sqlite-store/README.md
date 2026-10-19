@@ -45,7 +45,7 @@ With a durable store, `flow(...).persistent()` checkpoints survive a restart: th
 | -------------------- | ------------- | ------------ | ----------- |
 | `file`               | `string`      | `'./bot.db'` | Path to the SQLite database file. The directory must exist. |
 | `wal`                | `boolean`     | `true`       | Enable WAL journal mode. |
-| `maxMessagesPerChat` | `number`      | — (unbounded) | Keep only the newest N messages per chat; older rows are pruned on each `saveMessage`. |
+| `maxMessagesPerChat` | `number`      | — (unbounded) | Keep only the newest N messages per chat; older rows are pruned on each `saveMessage`. Must be a non-negative integer (else `RangeError`). |
 | `logger`             | `{ error? }`  | —            | Receives lifecycle errors (e.g. close failure). |
 
 ## Table layout
@@ -61,9 +61,11 @@ With a durable store, `flow(...).persistent()` checkpoints survive a restart: th
 
 ## Semantics
 
-- `upsertChat` / `upsertContact` **shallow-merge** over the existing record, so a partial upsert never wipes fields set earlier.
+- `upsertChat` / `upsertContact` **shallow-merge** over the existing record, so a partial upsert never wipes fields set earlier. The read and the write run in one `IMMEDIATE` transaction, so concurrent upserts of the same record (from this process or another one sharing the file) never drop each other's fields.
 - `deleteChat(chatId)` removes the chat **and** purges its message log in one transaction (consistent with `MemoryStore`).
-- `saveMessage` is an upsert keyed by `messageKey(ref)`; re-saving a message replaces it.
+- `saveMessage` is an upsert keyed by `messageKey(ref)`; re-saving a message replaces it. A message without `ref.id` or `chatId` is ignored, like in `MemoryStore`.
+- `getMessagesByChat(chatId, limit)`: a `limit` of `0` or less returns nothing, a fraction rounds up and `Infinity` returns the whole log.
+- Statements are prepared once per store, not on every call.
 
 ## Docker
 

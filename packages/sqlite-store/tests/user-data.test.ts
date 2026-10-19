@@ -4,11 +4,14 @@
  * the user-data conformance suite (tests/conformance.test.ts).
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { existsSync, unlinkSync } from 'fs'
+import { existsSync, mkdtempSync, unlinkSync } from 'fs'
+import { tmpdir } from 'os'
+import { join } from 'path'
 import Database from 'better-sqlite3'
 import { SQLiteStore } from '../src/SQLiteStore.js'
 
-const FILE = './test-sqlite-user-data.db'
+// Under the OS temp dir, not the package folder (no stray files when a run is interrupted).
+const FILE = join(mkdtempSync(join(tmpdir(), 'botwa-sqlite-ud-')), 'user-data.db')
 const clean = () => { for (const s of ['', '-wal', '-shm']) if (existsSync(FILE + s)) unlinkSync(FILE + s) }
 const count = (sql: string): number => {
   const db = new Database(FILE, { readonly: true })
