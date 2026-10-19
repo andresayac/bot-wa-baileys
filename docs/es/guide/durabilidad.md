@@ -43,6 +43,7 @@ código que antes, en memoria y en un solo proceso.
 | `FileDurability.open(ruta)` | `@bot-wa/core` | Sí | No (un archivo de lock rechaza un segundo proceso vivo) |
 | `PostgresDurability({ pool \| connectionString, tablePrefix })` | `@bot-wa/postgres-store` | Sí | Sí, con enrutado fijo por chat (ver *Varias réplicas*) |
 | `RedisDurability({ client \| url, prefix })` | `@bot-wa/redis-store` | Sí (con la persistencia de Redis activada) | Sí, con enrutado fijo por chat (ver *Varias réplicas*) |
+| `eventsDurability({ journal })` | `@bot-wa/events/durability` (privado, solo en el monorepo) | Con un `FileEventJournal` abierto con `{ lock: true }` | No (ver *Un journal de `@bot-wa/events`*) |
 
 PostgreSQL crea una tabla, `{tablePrefix}durable`, de forma idempotente al
 arrancar. Redis usa claves bajo `{prefix}:{durable:inbox:<scope>}` y
@@ -62,6 +63,42 @@ ordenados) y envolviéndola en `KvDurability`.
 El bot arranca y detiene el backend por su cuenta. Usa también un **store**
 persistente: los checkpoints de un flow `.persistent()` viven en el store y el
 reproceso depende de ellos.
+
+### Un journal de `@bot-wa/events`
+
+Una app que ya lleva un journal de `@bot-wa/events` puede usarlo como backend, sin
+otro store:
+
+```ts
+import { FileEventJournal } from '@bot-wa/events'
+import { eventsDurability } from '@bot-wa/events/durability'
+
+const journal = await FileEventJournal.open('./data/events.json', { lock: true })
+const bot = new Bot({ provider, durability: { journal: eventsDurability({ journal }) } })
+// después de bot.stop(): await journal.close()
+```
+
+- Los registros de la inbox son `EventRecord`s de ese journal, en el canal
+  `'botwa:durable'`, con `eventType` `'botwa.inbound.message'` o
+  `'botwa.inbound.interaction'`. El `list()` y el `replay()` del journal los ven, y el
+  barrido del bot recoge un `replay`. Un `EventWorker` nunca los toma: un `claim` sin
+  canal solo toma registros sin canal.
+- El outbox es el del core, guardado como *sidecar* del journal: el mismo archivo y el
+  mismo snapshot atómico que la inbox.
+- Un `FileEventJournal` debe abrirse con `{ lock: true }`. El archivo de lock con el pid
+  impide que un segundo proceso lo abra, y un segundo `open()` del mismo archivo en el
+  mismo proceso se rechaza hasta que se cierra el primero.
+- Coste: un `FileEventJournal` reescribe el archivo **entero** en cada escritura, y aquí
+  ese archivo guarda los eventos de la app, los registros de entrada del bot (durante la
+  retención, 7 días por defecto) y el outbox. Cada mensaje entrante y cada envío cuestan
+  unas pocas reescrituras (las escrituras concurrentes comparten una, y los heartbeats de
+  lease solo se escriben con el siguiente cambio). Para algo más que poco tráfico, da al
+  bot un archivo de journal propio, acorta la retención o pasa un `outbox` respaldado por
+  una base de datos; o usa `FileDurability` o un backend de base de datos.
+- Para varias réplicas hace falta un `LeasedEventJournal` compartido, con operaciones
+  atómicas y con fencing, y un `outbox` compartido
+  (`eventsDurability({ journal, outbox: kv })`, con el `DurableKv` de un backend de
+  Postgres o Redis). Todavía no se incluye ningún journal así.
 
 ## Qué se garantiza
 
@@ -189,12 +226,64 @@ d.metrics()  // { inboundJournaled, inboundDuplicates, inboundReplayed, inboundD
   Buffers en base64. Un contenido de más de `outbox.maxPayloadBytes` (1 MiB por
   defecto), o uno que no se puede codificar (un stream), se salta el outbox con un
   aviso. Para archivos grandes, usa media por URL o por ruta.
-- **Media en un reproceso.** El journal nunca guarda `raw`, así que un mensaje
-  reprocesado no siempre puede volver a descargar su media (Baileys necesita el
-  mensaje original). Los handlers que dependen de la media deben tolerar que
-  `ctx.media` no esté disponible en un reproceso.
+- **Media en un reproceso.** Ver *Media en un reproceso* más abajo.
 - **Ediciones, borradores e indicadores de escritura** no se anotan. Las ediciones
   son idempotentes, y los borradores y los indicadores son pasajeros.
+
+## Media en un reproceso
+
+El journal no guarda la media de un mensaje, solo una referencia a ella. Los bytes se
+descargan bajo demanda con `loadMediaOf(ctx)`. En algunos canales esa referencia es un
+objeto vivo: Baileys guarda el mensaje original de WhatsApp. Por eso la inbox le pide al
+provider una referencia serializable y versionada (`IProvider.serializeMediaRef`) y
+anota esa. Un mensaje puede reprocesarse tras una caída, como reintento en segundo
+plano o por un `replayInbound` de un operador. En todos los casos el provider
+reconstruye la referencia (`IProvider.rehydrateMediaRef`) antes de que corra el handler,
+y la media se descarga igual que con un mensaje en vivo.
+
+| Provider | Qué se anota | Notas |
+| --- | --- | --- |
+| `@bot-wa/baileys` | El contenido de la media (url del CDN, ruta directa, clave y hashes, sin miniatura, pie de foto ni contexto citado) y la clave del mensaje | Si la media caducó en el CDN, se pide de nuevo al teléfono del remitente al descargarla, como con la media en vivo. La media de visualización única **no** se anota salvo con `durableMedia: { viewOnce: true }`. |
+| `@bot-wa/meta` (Cloud API) | El id de la media | Meta guarda la media entrante unos 30 días. |
+| `@bot-wa/telegram` | El `file_id` | Solo sirve con el mismo token del bot. |
+| `@bot-wa/twilio` | La URL de la media | Al leerla solo se aceptan URLs `https` del origen de la API o de un host `twilio.com`. |
+| Otros providers | El token tal cual (como antes) | Sus tokens ya son ids o URLs. |
+
+No se anota ninguna credencial: los tokens y las claves se añaden de nuevo al
+descargar. La referencia guardada se valida al leerla. Un mensaje reprocesado cuya
+media no se puede reconstruir **se procesa igual**; solo falla su descarga.
+`loadMediaOf(ctx, { throwOnError: true })` rechaza entonces con
+`MediaUnavailableError` (un `ProviderError`), y su `reason` es uno de estos:
+
+- `'not-durable'`: el provider no serializó la referencia (por ejemplo, visualización única).
+- `'provider-mismatch'`: otro provider escribió el registro.
+- `'rehydrate-failed'`: el valor guardado no es válido, es de una versión desconocida o fue manipulado.
+
+Sin `throwOnError`, `loadMediaOf` resuelve `undefined`, igual que con cualquier descarga
+fallida.
+
+```ts
+bot.when(IMAGE, async (ctx) => {
+  try {
+    const media = await loadMediaOf(ctx, { throwOnError: true })
+    // …
+  } catch (error) {
+    if (error instanceof MediaUnavailableError) return ctx.reply('Envíame la imagen de nuevo, por favor.')
+    throw error
+  }
+})
+```
+
+La referencia da acceso a la media, igual que el cuerpo del mensaje que se guarda a su
+lado, así que protege el journal como proteges el store. Con
+`durability.inbox.mediaRefs: false` los tokens de media se anotan como antes; un
+mensaje reprocesado puede entonces no poder descargar su media. Los registros escritos
+antes de esta función se reprocesan como antes.
+
+Un provider añade los dos métodos opcionales de `IProvider`.
+`serializeMediaRef(ref)` es síncrono y devuelve `{ v, data }` (JSON) o `undefined`.
+`rehydrateMediaRef(stored, ref)` valida `stored`, lanza un `ProviderError` si no es
+válido y no necesita el transporte conectado.
 
 ## Varias réplicas
 

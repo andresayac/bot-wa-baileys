@@ -32,6 +32,7 @@ import type {
   ProviderCapabilities,
   SendOptions,
   SendResult,
+  SerializedMediaRef,
   UserId,
 } from '@bot-wa/core'
 import { ProviderError, UnsupportedContentError, assertFormDefinition, type FormDefinition } from '@bot-wa/core'
@@ -46,6 +47,8 @@ import { UsageTracker, pricingOf } from './pricing.js'
 import { verifyChallenge, checkGraphSignature, tryParseGraphBody, type ChallengeQuery } from '@bot-wa/graph-core'
 
 /** Content kinds that carry a `media` source. */
+/** A Cloud API media id (numeric in practice); anything else read back from a journal is rejected. */
+const META_MEDIA_ID = /^[A-Za-z0-9_-]{1,128}$/
 const MEDIA_KINDS: ReadonlySet<OutboundContent['kind']> = new Set(['image', 'video', 'audio', 'voice', 'document', 'sticker'])
 
 const EXT_MIME: Record<string, string> = {
@@ -406,6 +409,22 @@ export class CloudAPIProvider implements IProvider<unknown> {
     if (!id) throw new ProviderError('downloadMedia requires a media id (MediaRef.token)')
     const { buffer } = await this.graph.downloadMedia(id)
     return buffer
+  }
+
+  /**
+   * Durable inbox: the Cloud API media id. Meta keeps inbound media for about 30 days; a replay
+   * after that fails with the usual download error. No credentials are stored.
+   */
+  serializeMediaRef(ref: MediaRef): SerializedMediaRef | undefined {
+    return typeof ref.token === 'string' && META_MEDIA_ID.test(ref.token) ? { v: 1, data: ref.token } : undefined
+  }
+
+  /** Rebuild a journaled media id. @throws {ProviderError} on an invalid or unknown-version value. */
+  rehydrateMediaRef(stored: SerializedMediaRef, ref: Omit<MediaRef, 'token'>): MediaRef {
+    if (stored?.v !== 1 || typeof stored.data !== 'string' || !META_MEDIA_ID.test(stored.data)) {
+      throw new ProviderError('Invalid Cloud API media reference')
+    }
+    return { ...ref, token: stored.data }
   }
 
   async markRead(refs: MessageRef[]): Promise<void> {

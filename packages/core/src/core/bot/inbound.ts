@@ -8,6 +8,7 @@
 import type { StoredMessage } from '../../store/IStore.js'
 import type { DispatchContext } from '../Dispatcher.js'
 import { callToInbound, RecentIds } from '../calls.js'
+import { guardDownload } from '../mediaRefs.js'
 import { receiveTimestamp } from '../ledger.js'
 import type { CallEvent, ChatId, HookEvent, InboundEvent, InboundInteraction, InboundMessage, UserId } from '../types.js'
 import type { ContextFactory } from './contextFactory.js'
@@ -178,7 +179,7 @@ export class InboundPipeline {
     const ctx = this.contextFor(inbound, {
       markRead: async (ref) => { assertCoordinated(this.k); await provider.markRead?.([ref]) },
       deleteMessage: async (ref) => { assertCoordinated(this.k); await provider.deleteMessage?.(ref) },
-      downloadMedia: provider.downloadMedia ? (ref) => provider.downloadMedia!(ref) : undefined,
+      downloadMedia: guardDownload(provider.downloadMedia ? (ref) => provider.downloadMedia!(ref) : undefined),
       acknowledgeInteraction: provider.acknowledgeInteraction
         ? (id, text) => provider.acknowledgeInteraction!(id, { text })
         : undefined,

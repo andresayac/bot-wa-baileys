@@ -9,6 +9,7 @@ import type { HookSystem } from '../hooks/HookSystem.js'
 import type { MessageLog } from '../core/ledger.js'
 import { DurableEngine } from './engine.js'
 import { SendDeferredError } from './errors.js'
+import { providerMediaCodec } from './media.js'
 import type { DurabilityConfig } from './types.js'
 
 export { DurableEngine }
@@ -34,9 +35,11 @@ export interface DurabilityHost {
 /** `null` when `config` is `undefined` (durability off). @throws {ConfigValidationError} */
 export function createDurability(config: DurabilityConfig | undefined, host: DurabilityHost): DurableEngine | null {
   if (config === undefined) return null
+  const mediaRefs = typeof config === 'object' && config !== null ? config.inbox?.mediaRefs !== false : true
   return new DurableEngine(config, {
     logger: host.logger,
     namespace: host.namespace,
+    media: providerMediaCodec(host.provider, mediaRefs),
     replay: async (event) => {
       // Same gates as a live event; a sender blocked meanwhile is acknowledged and dropped.
       if (event.kind === 'message') {

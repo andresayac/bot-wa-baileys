@@ -406,6 +406,8 @@ export class ChaosProvider<P extends IProvider = IProvider> implements IProvider
 
   ingest?: IProvider['ingest']
   downloadMedia?: IProvider['downloadMedia']
+  serializeMediaRef?: IProvider['serializeMediaRef']
+  rehydrateMediaRef?: IProvider['rehydrateMediaRef']
   getMessage?: IProvider['getMessage']
   markRead?: IProvider['markRead']
   typing?: IProvider['typing']
@@ -451,6 +453,8 @@ export class ChaosProvider<P extends IProvider = IProvider> implements IProvider
 
     if (inner.ingest) this.ingest = inner.ingest.bind(inner)
     if (inner.downloadMedia) this.downloadMedia = inner.downloadMedia.bind(inner)
+    if (inner.serializeMediaRef) this.serializeMediaRef = inner.serializeMediaRef.bind(inner)
+    if (inner.rehydrateMediaRef) this.rehydrateMediaRef = inner.rehydrateMediaRef.bind(inner)
     if (inner.getMessage) this.getMessage = inner.getMessage.bind(inner)
     if (inner.markRead) this.markRead = inner.markRead.bind(inner)
     if (inner.typing) this.typing = inner.typing.bind(inner)

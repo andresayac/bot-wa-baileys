@@ -57,6 +57,7 @@ interface BaileysProviderConfig {
   ignoreBroadcasts?: boolean    // por defecto true (status@broadcast se ignora siempre)
   ignoreNewsletters?: boolean   // por defecto true
   pollStore?: PollStore         // persistencia de encuestas para leer votos tras un reinicio (ver Encuestas y votos)
+  durableMedia?: { viewOnce?: boolean } // con durability: anotar también la media de visualización única (por defecto no)
   debug?: boolean               // nivel 'debug' en el logger por defecto (si no, 'error')
   logger?: Logger               // logger compatible con pino
 }

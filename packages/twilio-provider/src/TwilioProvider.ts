@@ -30,6 +30,7 @@ import type {
   ProviderCapabilities,
   SendOptions,
   SendResult,
+  SerializedMediaRef,
   TextFormat,
   UserId,
 } from '@bot-wa/core'
@@ -286,6 +287,40 @@ export class TwilioProvider implements IProvider<TwilioWebhookParams> {
   }
 
   /* Capability-gated actions ---------------------------------------------- */
+
+  /**
+   * Durable inbox: the media URL (`{ url }`). Credentials are never stored: Basic auth is added
+   * at download time, and only for the API origin.
+   */
+  serializeMediaRef(ref: MediaRef): SerializedMediaRef | undefined {
+    const token = ref.token as { url?: unknown } | string | undefined
+    const url = typeof token === 'string' ? token : typeof token?.url === 'string' ? token.url : undefined
+    return url !== undefined && this.isTwilioMediaUrl(url) ? { v: 1, data: { url } } : undefined
+  }
+
+  /**
+   * Rebuild a journaled media URL. Only an `https:` URL on the API origin or a `*.twilio.com`
+   * host is accepted (defense in depth on top of secureFetch).
+   * @throws {ProviderError} on an invalid, foreign or unknown-version value.
+   */
+  rehydrateMediaRef(stored: SerializedMediaRef, ref: Omit<MediaRef, 'token'>): MediaRef {
+    const data = stored?.data as { url?: unknown } | null | undefined
+    const url = stored?.v === 1 && data && typeof data === 'object' && !Array.isArray(data) ? data.url : undefined
+    if (typeof url !== 'string' || !this.isTwilioMediaUrl(url)) throw new ProviderError('Invalid Twilio media reference')
+    return { ...ref, token: { url } }
+  }
+
+  private isTwilioMediaUrl(url: string): boolean {
+    if (url.length > 2048) return false
+    let u: URL
+    try { u = new URL(url) } catch { return false }
+    if (u.protocol !== 'https:' || u.username || u.password) return false
+    let api: URL | undefined
+    try { api = new URL(this.config.apiBaseUrl) } catch { api = undefined }
+    if (api && u.origin === api.origin) return true
+    const host = u.hostname.toLowerCase()
+    return host === 'twilio.com' || host.endsWith('.twilio.com')
+  }
 
   /**
    * Download inbound media (`MediaUrl{N}`). Basic auth is sent only to the

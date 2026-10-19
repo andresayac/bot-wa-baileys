@@ -479,3 +479,8 @@ export type {
   OutboxJournal, OutboxRecord, OutboxState, OutboxPut, OutboxError, ClaimedSend,
   ClaimOptions, LeaseOptions,
 } from './durability/types.js'
+
+// Durable media references (durability.inbox.mediaRefs): the provider hooks' value type and
+// the error a replayed message's media download rejects with when it cannot be rebuilt.
+export { MediaUnavailableError } from './core/mediaRefs.js'
+export type { SerializedMediaRef, MediaUnavailableReason } from './core/mediaRefs.js'

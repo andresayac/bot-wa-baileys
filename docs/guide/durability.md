@@ -42,6 +42,7 @@ before, in memory and in a single process.
 | `FileDurability.open(path)` | `@bot-wa/core` | Yes | No (a lock file refuses a second live process) |
 | `PostgresDurability({ pool \| connectionString, tablePrefix })` | `@bot-wa/postgres-store` | Yes | Yes, with sticky per-chat routing (see [Several replicas](#several-replicas)) |
 | `RedisDurability({ client \| url, prefix })` | `@bot-wa/redis-store` | Yes (with Redis persistence on) | Yes, with sticky per-chat routing (see [Several replicas](#several-replicas)) |
+| `eventsDurability({ journal })` | `@bot-wa/events/durability` (private, monorepo only) | With a `FileEventJournal` opened with `{ lock: true }` | No (see [below](#an-bot-wa-events-journal)) |
 
 PostgreSQL creates one table, `{tablePrefix}durable`, idempotently on start.
 Redis uses keys under `{prefix}:{durable:inbox:<scope>}` and `{prefix}:{durable:outbox:<scope>}`.
@@ -59,6 +60,41 @@ two sorted indexes) and wrapping it in `KvDurability`.
 
 The bot starts and stops the backend itself. Use a persistent **store** too: a
 `.persistent()` flow's checkpoints live in the store, and replay relies on them.
+
+### An `@bot-wa/events` journal
+
+An app that already keeps an `@bot-wa/events` journal can use it as the backend, with
+no other store:
+
+```ts
+import { FileEventJournal } from '@bot-wa/events'
+import { eventsDurability } from '@bot-wa/events/durability'
+
+const journal = await FileEventJournal.open('./data/events.json', { lock: true })
+const bot = new Bot({ provider, durability: { journal: eventsDurability({ journal }) } })
+// after bot.stop(): await journal.close()
+```
+
+- The inbox records are `EventRecord`s of that journal, on the channel
+  `'botwa:durable'`, with `eventType` `'botwa.inbound.message'` or
+  `'botwa.inbound.interaction'`. The journal's `list()` and `replay()` see them, and a
+  `replay` is picked up by the bot's sweeper. An `EventWorker` never claims them: a
+  claim without a channel only takes records without one.
+- The outbox is the core outbox kept as a *sidecar* of the journal: the same file and
+  the same atomic snapshot as the inbox.
+- A `FileEventJournal` must be opened with `{ lock: true }`. The pid lock file stops a
+  second process from opening it, and a second `open()` of the same file in the same
+  process is refused until the first journal is closed.
+- Cost: a `FileEventJournal` rewrites its **whole** file on every write, and here that
+  file holds the app's own events, the bot's inbound records (kept for the retention
+  window, 7 days by default) and the outbox. Each inbound message and each send cause a
+  few rewrites (concurrent writes share one, and lease heartbeats only write with the
+  next change). For more than light traffic, give the bot a journal file of its own,
+  keep the retention short, or pass a database-backed `outbox`; or use
+  `FileDurability` or a database backend instead.
+- For several replicas you need a shared `LeasedEventJournal` with atomic, fenced
+  operations, plus a shared `outbox` (`eventsDurability({ journal, outbox: kv })`, with
+  the `DurableKv` of a Postgres or Redis backend). No such journal ships yet.
 
 ## What is guaranteed
 
@@ -181,11 +217,63 @@ d.metrics()  // { inboundJournaled, inboundDuplicates, inboundReplayed, inboundD
   base64-encoded. A payload over `outbox.maxPayloadBytes` (default 1 MiB), or one
   that cannot be encoded (a stream), bypasses the outbox with a warning. Prefer URL
   or path media for large files.
-- **Replayed media.** The journal never stores `raw`, so a replayed message cannot
-  always download its media again (Baileys needs the original message). Handlers
-  that depend on media should cope with `ctx.media` being unavailable on a replay.
+- **Replayed media.** See [Media on replay](#media-on-replay).
 - **Edits, drafts and typing indicators** are not journaled. Edits are idempotent,
   and drafts and indicators are transient.
+
+## Media on replay
+
+The journal does not store a message's media, only a reference to it. The bytes are
+downloaded lazily with `loadMediaOf(ctx)`. On some channels that reference is a live
+object: Baileys keeps the original WhatsApp message. So the inbox asks the provider for
+a serializable, versioned reference (`IProvider.serializeMediaRef`) and journals that
+instead. A message can be replayed after a crash, as a background retry, or by an
+operator's `replayInbound`. In each case the provider rebuilds the reference
+(`IProvider.rehydrateMediaRef`) before the handler runs, so the media downloads as it
+would for a live message.
+
+| Provider | What is journaled | Notes |
+| --- | --- | --- |
+| `@bot-wa/baileys` | The media content (CDN url, direct path, media key and hashes, without thumbnail, caption or quoted context) and the message key | Expired CDN media is re-requested from the sender's phone on download, as for live media. View-once media is **not** journaled unless you set `durableMedia: { viewOnce: true }`. |
+| `@bot-wa/meta` (Cloud API) | The media id | Meta keeps inbound media for about 30 days. |
+| `@bot-wa/telegram` | The `file_id` | It only works with the same bot token. |
+| `@bot-wa/twilio` | The media URL | Only `https` URLs on the API origin or a `twilio.com` host are accepted back. |
+| Other providers | The token as it is (as before) | Their tokens are already plain ids or URLs. |
+
+No credentials are journaled: tokens and keys are added again at download time. The
+stored reference is validated when it is read back. A replayed message whose media
+cannot be rebuilt **still runs**; only its download fails.
+`loadMediaOf(ctx, { throwOnError: true })` then rejects with `MediaUnavailableError` (a
+`ProviderError`), and its `reason` is one of these:
+
+- `'not-durable'`: the provider did not serialize the reference (view-once, for example).
+- `'provider-mismatch'`: another provider wrote the record.
+- `'rehydrate-failed'`: the stored value is invalid, from an unknown version, or tampered with.
+
+Without `throwOnError`, `loadMediaOf` resolves `undefined`, as it does for any failed
+download.
+
+```ts
+bot.when(IMAGE, async (ctx) => {
+  try {
+    const media = await loadMediaOf(ctx, { throwOnError: true })
+    // …
+  } catch (error) {
+    if (error instanceof MediaUnavailableError) return ctx.reply('Please send the image again.')
+    throw error
+  }
+})
+```
+
+The reference grants access to the media, like the message body stored next to it, so
+protect the journal as you protect the store. Set `durability.inbox.mediaRefs: false`
+to journal media tokens as before; a replayed message may then be unable to download
+its media. Records written before this feature replay as they did before.
+
+A provider adds the two optional `IProvider` methods. `serializeMediaRef(ref)` is
+synchronous and returns `{ v, data }` (JSON) or `undefined`. `rehydrateMediaRef(stored,
+ref)` validates `stored`, throws a `ProviderError` when it is not valid, and does not
+need the transport to be connected.
 
 ## Several replicas
 

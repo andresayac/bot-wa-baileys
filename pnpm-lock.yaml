@@ -371,6 +371,9 @@ importers:
 
   packages/events:
     devDependencies:
+      '@bot-wa/core':
+        specifier: workspace:*
+        version: link:../core
       '@types/node':
         specifier: ^26.1.1
         version: 26.1.1
