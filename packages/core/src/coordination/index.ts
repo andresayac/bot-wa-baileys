@@ -13,6 +13,11 @@ export type {
   CoordinatorEvents,
   AcquireTurnOptions,
   CoordinationConfig,
+  ConversationHandoverConfig,
+  ConversationHandoverEvent,
+  HandoverFallback,
+  HandoverContext,
+  InterruptedConversation,
 } from './types.js'
 export { MemoryCoordinator, MemoryCoordinationHub } from './MemoryCoordinator.js'
 export type { MemoryCoordinatorOptions } from './MemoryCoordinator.js'

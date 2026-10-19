@@ -156,6 +156,15 @@ export class BotCoordination {
     if (!this.isProviderLeader()) throw new ProviderNotLeaderError(this.deps.provider.id)
   }
 
+  /**
+   * Checkpoint fence: throws {@link LeaseLostError} when this replica's turn on `key` is known
+   * lost (or the turn it holds is no longer valid), so a replica that lost the chat never
+   * writes or clears the checkpoint of the replica that took it. Unknown keys pass.
+   */
+  assertTurn(key: string): void {
+    this.gate.assertHeld(key)
+  }
+
   private async campaign(stop: AbortSignal): Promise<void> {
     const { provider, emit, reportError, logger } = this.deps
     const name = `provider:${provider.id}`

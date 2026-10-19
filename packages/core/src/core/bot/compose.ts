@@ -37,6 +37,7 @@ import { ExternalSendClock, createPacer, normalizeTypingConfig } from '../messag
 import type { BotConfig, ChatId, MessageContext, Trigger } from '../types.js'
 import { WelcomeTracker } from '../welcome.js'
 import { createContextFactory, type ContextFactory } from './contextFactory.js'
+import { createHandoverBridge, runtimeHandover } from './handover.js'
 import { createEventSink, dispatcherEmit, type EventHost } from './events.js'
 import { InboundPipeline } from './inbound.js'
 import { asMessage, assertCoordinated, DisposableList, type BotKernel, type LifecycleState } from './kernel.js'
@@ -171,9 +172,17 @@ export function composeBot(host: ComposeHost, inputConfig: BotConfig, fields: Co
   if (config.i18n !== undefined) k.i18n.configure(config.i18n)
 
   const conv = config.conversation ?? {}
+  const conversationTimeoutMs = conv.timeout !== undefined ? parseTimerDuration(conv.timeout, 'conversation.timeout') : undefined
+  // Built below; late-bound by the closures that need it (durability replays, hand-over answers).
+  let inbound!: InboundPipeline
+  // Multi-replica: conversation hand-over between replicas (answers of cut-short steps, coordination.handover).
+  const handover = config.coordination ? createHandoverBridge(k, config.coordination.handover, () => inbound) : undefined
+  const handoverPolicy = config.coordination
+    ? runtimeHandover(config.coordination.handover, conversationTimeoutMs, (event) => { k.events.emit('coordination:handover', event) })
+    : undefined
   k.runtime = new ConversationRuntime({
     controlsFactory: createControls,
-    defaultTimeoutMs: conv.timeout !== undefined ? parseTimerDuration(conv.timeout, 'conversation.timeout') : undefined,
+    defaultTimeoutMs: conversationTimeoutMs,
     timeoutMessage: conv.timeoutMessage,
     retriesMessage: conv.retriesMessage,
     errorMessage: conv.errorMessage,
@@ -201,6 +210,10 @@ export function composeBot(host: ComposeHost, inputConfig: BotConfig, fields: Co
           timerGate: (_key: string, ctx: RuntimeMessage, fire: () => unknown) => {
             void k.dispatcher.runExclusive(ctx, async () => { await fire() }).catch(() => {})
           },
+          // A replica that lost the chat never writes the checkpoint of the one that took it.
+          fence: (key: string) => { k.coordination?.assertTurn(key) },
+          answers: handover!.answers,
+          ...(handoverPolicy ? { handover: handoverPolicy } : {}),
         }
       : {}),
   })
@@ -290,7 +303,6 @@ export function composeBot(host: ComposeHost, inputConfig: BotConfig, fields: Co
   // Durable inbox/outbox (opt-in). Replays go through the inbound pipeline (built below:
   // the closures only read it at call time) and background sends through the transport,
   // fenced like any send when coordination is on.
-  let inbound!: InboundPipeline
   k.durable = createDurability(config.durability, {
     logger: logger.child({ module: 'durability' }),
     namespace,
@@ -315,7 +327,8 @@ export function composeBot(host: ComposeHost, inputConfig: BotConfig, fields: Co
 
   const kernel: BotKernel = k
   const outbound = new OutboundPipeline(kernel)
-  const contextFor = createContextFactory(kernel, outbound, (chatId, opts) => host.handoff(chatId, opts))
+  const baseContextFor = createContextFactory(kernel, outbound, (chatId, opts) => host.handoff(chatId, opts))
+  const contextFor = handover ? handover.track(baseContextFor) : baseContextFor
   inbound = new InboundPipeline(kernel, contextFor, persistence)
   // Subscribed after the `ready` listener: the `ready` promise resolves before 'ready' handlers run.
   kernel.disposables.add(inbound.attach())

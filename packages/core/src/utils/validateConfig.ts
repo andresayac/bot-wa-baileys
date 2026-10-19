@@ -83,6 +83,21 @@ export function validateConfig<T extends Partial<BotConfig>>(config: T): T {
     if (c.providerSession !== undefined && !['leader', 'shared', 'auto'].includes(c.providerSession as string)) {
       throw new ConfigValidationError('coordination.providerSession', "'leader' | 'shared' | 'auto'", c.providerSession)
     }
+    if (c.handover !== undefined) {
+      const h = c.handover as Record<string, unknown> | null
+      if (typeof h !== 'object' || h === null) throw new ConfigValidationError('coordination.handover', 'object', c.handover)
+      if (h.flows !== undefined && h.flows !== 'forward' && h.flows !== 'drop') {
+        throw new ConfigValidationError('coordination.handover.flows', "'forward' | 'drop'", h.flows)
+      }
+      if (h.fallback !== undefined && typeof h.fallback !== 'function' && !['notify', 'restart', 'drop'].includes(h.fallback as string)) {
+        throw new ConfigValidationError('coordination.handover.fallback', "'notify' | 'restart' | 'drop' | function", h.fallback)
+      }
+      assertType('coordination.handover.notifyMessage', h.notifyMessage, 'string')
+      assertStringOrNumber('coordination.handover.ttl', h.ttl)
+      if (h.maxAnswerBytes !== undefined && (typeof h.maxAnswerBytes !== 'number' || !(h.maxAnswerBytes >= 0))) {
+        throw new ConfigValidationError('coordination.handover.maxAnswerBytes', 'number >= 0', h.maxAnswerBytes)
+      }
+    }
   }
 
   if (config.rateLimit !== undefined && (typeof config.rateLimit !== 'object' || config.rateLimit === null)) {

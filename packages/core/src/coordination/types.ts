@@ -184,4 +184,92 @@ export interface CoordinationConfig {
    *   else `'shared'`.
    */
   providerSession?: 'leader' | 'shared' | 'auto'
+  /**
+   * What happens to a chat's live conversation when another replica takes the chat (the
+   * replica holding it crashed, was stopped for a deploy, or lost its turn). Default
+   * `{ flows: 'drop', fallback: 'drop' }`: only `.persistent()` flows continue there.
+   */
+  handover?: ConversationHandoverConfig
+}
+
+/** `coordination.handover`: conversation hand-over between replicas. */
+export interface ConversationHandoverConfig {
+  /**
+   * DSL flows WITHOUT `.persistent()`: `'forward'` keeps a TTL-bound ("ephemeral")
+   * checkpoint of them, one write per step, so the replica that takes the chat — or this
+   * one after a rolling restart within the TTL — continues the flow. Needs plain-JSON
+   * `c.state`; a flow whose state is not plain JSON is handled by {@link fallback}.
+   * `'drop'` (default): they live in memory only.
+   */
+  flows?: 'forward' | 'drop'
+  /**
+   * Conversations that cannot be forwarded (async `bot.conversation` functions, flows not
+   * forwarded, a forwarded flow whose definition changed on the new replica):
+   * - `'notify'`: the replica that takes the chat tells the user the conversation was
+   *   interrupted (it consumes the waking message);
+   * - `'restart'`: it re-enters the conversation by name, from the beginning, with its
+   *   initial state (side effects before its first wait run again); falls back to `'notify'`
+   *   when the name is not registered there;
+   * - `'drop'` (default): today's behaviour — the waking message routes normally;
+   * - a function: a custom migration; resolve `true` when it consumed the waking message.
+   *
+   * Costs two store writes per such conversation (a stub when it first waits, its clear at the end).
+   */
+  fallback?: 'notify' | 'restart' | 'drop' | HandoverFallback
+  /** `'notify'` text. Default: the localized built-in `CORE_MESSAGES.conversationInterrupted`. */
+  notifyMessage?: string
+  /**
+   * How long an ephemeral checkpoint stays resumable after its last write (stubs: twice
+   * that), as a duration (`'10m'`) or ms. Default: `conversation.timeout`, else `'5m'`. Set
+   * it above your longest wait timeout.
+   */
+  ttl?: string | number
+  /**
+   * Durability off: the largest encoded answer (bytes) embedded in a checkpoint so a step cut
+   * short mid-way can be continued with it (with durability the journal holds it instead).
+   * Default `16_384`; `0` never embeds one.
+   */
+  maxAnswerBytes?: number
+}
+
+/**
+ * A custom {@link ConversationHandoverConfig.fallback}: `ctx` is the waking message's context
+ * (a `MessageContext` in a Bot). Resolve `true` when it consumed the message.
+ */
+export type HandoverFallback = (info: InterruptedConversation, ctx: HandoverContext) => boolean | Promise<boolean>
+
+/** The minimal context a {@link HandoverFallback} receives (in a Bot it is the full `MessageContext`). */
+export interface HandoverContext {
+  from: string
+  sender: string
+  body: string
+  type: string
+  isGroup: boolean
+  reply(text: string): Promise<unknown>
+}
+
+/** A conversation the replica that took the chat could not continue (see {@link HandoverFallback}). */
+export interface InterruptedConversation {
+  /** Conversation (or flow) name. */
+  name: string
+  /** Conversation key (chat id, or `chatId:senderId` per group participant). */
+  key: string
+  /** `'unforwardable'`: it kept no checkpoint; `'changed'`: a forwarded flow changed on this replica. */
+  reason: 'unforwardable' | 'changed'
+  /** When it started on the previous replica (epoch ms), when known. */
+  startedAt?: number
+  /** Its initial `c.state`, when that was plain JSON. */
+  startState?: Record<string, unknown>
+}
+
+/** Payload of the `'coordination:handover'` bot event. */
+export interface ConversationHandoverEvent {
+  key: string
+  name: string
+  /**
+   * `'resumed'` a forwarded flow continued; `'notified'` / `'restarted'` / `'migrated'` the
+   * fallback ran; `'dropped'` nothing was done (the message routed normally); `'expired'`
+   * the entry outlived its TTL; `'changed'` a forwarded flow changed and was dropped.
+   */
+  outcome: 'resumed' | 'notified' | 'restarted' | 'migrated' | 'dropped' | 'expired' | 'changed'
 }
