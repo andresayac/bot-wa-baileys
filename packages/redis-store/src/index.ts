@@ -6,3 +6,5 @@ export type {
   NativeRedisClient,
   RedisMulti,
 } from './RedisStore.js'
+export { RedisDurability, RedisDurableKv } from './durability.js'
+export type { RedisDurabilityOptions } from './durability.js'
