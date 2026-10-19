@@ -531,6 +531,7 @@ bot.on('ai.tool', (e: AIToolEvent) => {
 | `tool.timeout` | El handler superó su timeout (`error`, `durationMs`). |
 | `tool.invalid_args` | Los argumentos no pasaron la validación (`error`). |
 | `tool.unknown` | El modelo pidió una herramienta que no existe. |
+| `tool.truncated` | El modelo se cortó por el tope de tokens de salida (`max_tokens` / `length`) mientras escribía la llamada: sus argumentos pueden estar incompletos, así que **no** se ejecutó (ni se pidió confirmación) y se le avisó al modelo. El plugin además registra un aviso: sube `maxTokens`. |
 | `loop.max_steps` | El bucle se detuvo en `maxSteps`. |
 
 Cada evento lleva `at` (ms epoch), `step` (empieza en 1) y, cuando aplica,
@@ -569,6 +570,7 @@ r.text            // final answer
 r.steps           // model calls made
 r.toolResults     // every tool result, in order
 r.maxStepsReached // true when the loop stopped at maxSteps
+r.truncatedToolCalls // calls not run because the reply was cut off by the token cap
 ```
 
 `runToolLoop()` es el mismo bucle sin `AIClient`: le pasas las herramientas,

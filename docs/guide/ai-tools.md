@@ -511,6 +511,7 @@ bot.on('ai.tool', (e: AIToolEvent) => {
 | `tool.timeout` | The handler exceeded its timeout (`error`, `durationMs`). |
 | `tool.invalid_args` | The arguments failed validation (`error`). |
 | `tool.unknown` | The model asked for a tool that does not exist. |
+| `tool.truncated` | The model was cut off by the output-token cap (`max_tokens` / `length`) while writing the call: its arguments may be incomplete, so it was **not** run (nor confirmed) and the model was told so. The plugin also logs a warning: raise `maxTokens`. |
 | `loop.max_steps` | The loop stopped at `maxSteps`. |
 
 Each event carries `at` (ms epoch), `step` (1-based), and when relevant `tool`,
@@ -548,6 +549,7 @@ r.text            // final answer
 r.steps           // model calls made
 r.toolResults     // every tool result, in order
 r.maxStepsReached // true when the loop stopped at maxSteps
+r.truncatedToolCalls // calls not run because the reply was cut off by the token cap
 ```
 
 `runToolLoop()` is the same loop without an `AIClient`: you pass the tools, a

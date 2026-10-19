@@ -249,8 +249,9 @@ down.
 | `apiKey` | `string` | env var fallback | API key (if omitted, each provider tries its conventional env var) |
 | `baseUrl` | `string` | preset-dependent | endpoint override (openai/anthropic `baseURL` / ollama host) |
 | `persona` | `string` | — | system prompt |
-| `maxTokens` | `number` | `4096` (anthropic) / `1024` (openai, presets, gemini) | output token limit (ollama: only when set, as `options.num_predict`; memory extraction's 300 default does not apply there) |
-| `effort` | `'low' \| 'medium' \| 'high' \| 'xhigh' \| 'max'` | — | reasoning effort (Anthropic only) |
+| `maxTokens` | `number` | `4096` (anthropic) / `1024` (openai, presets, gemini) | output token limit (ollama: only when set, as `options.num_predict`; memory extraction's 1024 default does not apply there). It includes thinking tokens on reasoning models |
+| `effort` | `'low' \| 'medium' \| 'high' \| 'xhigh' \| 'max'` | — | reasoning effort (Anthropic only; not sent to models that reject it, such as Claude Haiku 4.5 / Sonnet 4.5) |
+| `thinking` | `'auto' \| 'adaptive' \| 'off' \| { budgetTokens }` | `'auto'` | Anthropic extended thinking, see [Thinking (Anthropic)](#thinking-anthropic) |
 | `timeoutMs` | `number` | `60000` | per-call timeout for non-streaming calls; on expiry the request is aborted and rejects, so a hung provider can't block the chat's queue (`0` disables it — not recommended) |
 | `context.maxMessages` | `number` | `20` | history window kept per chat (always starts with a user turn; empty answers are not stored) |
 | `autoReply` | `boolean` | `true` | registers the catch-all autoresponder |
@@ -268,6 +269,32 @@ down.
 | `memory` | `boolean \| AIMemoryConfig` | — | long-term per-user memory (see [Memory and RAG](#memory-and-rag)) |
 | `rag` | `AIRetriever \| AIRagConfig` | — | answers grounded in your documents (see [Memory and RAG](#memory-and-rag)) |
 | `stream` | `boolean \| AIStreamConfig` | off | stream the autoreply with `ctx.stream()` (see [Streaming](#streaming)) |
+
+## Thinking (Anthropic)
+
+Claude models think before answering. `@bot-wa/ai` picks the right request
+for the model you configure (`thinking: 'auto'`, the default):
+
+| Model | What is sent |
+|---|---|
+| Claude Opus / Sonnet 4.6 and later, Haiku 5 and later, Fable, Mythos, unknown ids | `thinking: { type: 'adaptive' }` (+ `effort` when set) |
+| Claude Haiku 4.5, Sonnet 4.5, Opus 4.5 and older | no `thinking` (and no `effort`, except on Opus 4.5) |
+
+```ts
+aiPlugin({ provider: 'anthropic', model: 'claude-haiku-4-5', thinking: { budgetTokens: 2048 } })
+```
+
+- `'adaptive'` always sends adaptive thinking; `'off'` never sends the
+  parameter (models that always think, such as Claude Opus 5.5, keep doing so:
+  lower `effort` instead).
+- `{ budgetTokens }` enables budgeted thinking (`budget_tokens`, minimum 1024)
+  on older models; on models that only take adaptive thinking it falls back to
+  adaptive. When `maxTokens` would leave no room for the answer it becomes
+  `budgetTokens + maxTokens`.
+- If the API still rejects the request with a 400 that names `thinking` (or
+  `effort`), the call is retried once without that parameter and the model is
+  remembered, so the next calls skip it. `anthropicModelSupport(model)` exposes
+  the rules.
 
 ## Tool calling
 

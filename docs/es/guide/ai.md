@@ -252,8 +252,9 @@ el `errorMessage` configurado en vez de tumbar el bot.
 | `apiKey` | `string` | fallback a env var | API key (si se omite, cada proveedor intenta su variable de entorno convencional) |
 | `baseUrl` | `string` | según preset | override de endpoint (`baseURL` de openai/anthropic / host de ollama) |
 | `persona` | `string` | — | system prompt |
-| `maxTokens` | `number` | `4096` (anthropic) / `1024` (openai, presets, gemini) | límite de tokens de salida (en ollama solo si lo fijas, como `options.num_predict`; el tope de 300 de la extracción de memoria no se aplica ahí) |
-| `effort` | `'low' \| 'medium' \| 'high' \| 'xhigh' \| 'max'` | — | esfuerzo de razonamiento (solo Anthropic) |
+| `maxTokens` | `number` | `4096` (anthropic) / `1024` (openai, presets, gemini) | límite de tokens de salida (en ollama solo si lo fijas, como `options.num_predict`; el tope de 1024 de la extracción de memoria no se aplica ahí). En modelos de razonamiento incluye los tokens de pensamiento |
+| `effort` | `'low' \| 'medium' \| 'high' \| 'xhigh' \| 'max'` | — | esfuerzo de razonamiento (solo Anthropic; no se envía a modelos que lo rechazan, como Claude Haiku 4.5 / Sonnet 4.5) |
+| `thinking` | `'auto' \| 'adaptive' \| 'off' \| { budgetTokens }` | `'auto'` | pensamiento extendido de Anthropic, ver [Pensamiento (Anthropic)](#pensamiento-anthropic) |
 | `timeoutMs` | `number` | `60000` | timeout por llamada no-streaming; al vencer aborta la petición y rechaza, para que un proveedor colgado no bloquee la cola del chat (`0` lo desactiva, no recomendado) |
 | `context.maxMessages` | `number` | `20` | ventana de historial guardada por chat (siempre empieza por un turno del usuario; las respuestas vacías no se guardan) |
 | `autoReply` | `boolean` | `true` | registra el autoresponder catch-all |
@@ -271,6 +272,32 @@ el `errorMessage` configurado en vez de tumbar el bot.
 | `memory` | `boolean \| AIMemoryConfig` | — | memoria a largo plazo por usuario (ver [Memoria y RAG](#memoria-y-rag)) |
 | `rag` | `AIRetriever \| AIRagConfig` | — | respuestas basadas en tus documentos (ver [Memoria y RAG](#memoria-y-rag)) |
 | `stream` | `boolean \| AIStreamConfig` | apagado | transmite el autoresponder con `ctx.stream()` (ver [Streaming](#streaming)) |
+
+## Pensamiento (Anthropic)
+
+Los modelos Claude piensan antes de responder. `@bot-wa/ai` elige la petición
+adecuada para el modelo que configures (`thinking: 'auto'`, el valor por defecto):
+
+| Modelo | Qué se envía |
+|---|---|
+| Claude Opus / Sonnet 4.6 o posteriores, Haiku 5 o posteriores, Fable, Mythos, ids desconocidos | `thinking: { type: 'adaptive' }` (+ `effort` si lo fijas) |
+| Claude Haiku 4.5, Sonnet 4.5, Opus 4.5 y anteriores | sin `thinking` (y sin `effort`, salvo en Opus 4.5) |
+
+```ts
+aiPlugin({ provider: 'anthropic', model: 'claude-haiku-4-5', thinking: { budgetTokens: 2048 } })
+```
+
+- `'adaptive'` envía siempre pensamiento adaptativo; `'off'` no envía nunca el
+  parámetro (los modelos que siempre piensan, como Claude Opus 5.5, lo siguen
+  haciendo: baja `effort` en su lugar).
+- `{ budgetTokens }` activa el pensamiento con presupuesto (`budget_tokens`,
+  mínimo 1024) en modelos antiguos; en los que solo aceptan pensamiento
+  adaptativo se usa el adaptativo. Si `maxTokens` no deja sitio para la
+  respuesta, pasa a ser `budgetTokens + maxTokens`.
+- Si aun así la API rechaza la petición con un 400 que menciona `thinking` (o
+  `effort`), la llamada se reintenta una vez sin ese parámetro y el modelo
+  queda recordado, así que las siguientes llamadas ya no lo envían.
+  `anthropicModelSupport(model)` expone las reglas.
 
 ## Herramientas
 

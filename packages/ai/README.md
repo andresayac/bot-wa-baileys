@@ -243,8 +243,9 @@ configurado en vez de tumbar el bot.
 | `apiKey` | `string` | env del preset | API key; en presets cae a su env convencional (p.ej. `DEEPSEEK_API_KEY`) |
 | `baseUrl` | `string` | endpoint del preset | override de endpoint (`baseURL` de openai/presets/anthropic / host de ollama) |
 | `persona` | `string` | — | system prompt |
-| `maxTokens` | `number` | `4096` (anthropic) / `1024` (openai) | límite de tokens de salida (en ollama solo si lo fijas, como `options.num_predict`; el tope de 300 de la extracción de memoria no se aplica ahí) |
-| `effort` | `'low' \| 'medium' \| 'high' \| 'xhigh' \| 'max'` | — | esfuerzo de razonamiento (solo lo usa Anthropic) |
+| `maxTokens` | `number` | `4096` (anthropic) / `1024` (openai) | límite de tokens de salida (en ollama solo si lo fijas, como `options.num_predict`; el tope de 1024 de la extracción de memoria no se aplica ahí). En modelos de razonamiento incluye los tokens de pensamiento |
+| `effort` | `'low' \| 'medium' \| 'high' \| 'xhigh' \| 'max'` | — | esfuerzo de razonamiento (solo lo usa Anthropic; no se envía a modelos que lo rechazan, como Claude Haiku 4.5) |
+| `thinking` | `'auto' \| 'adaptive' \| 'off' \| { budgetTokens }` | `'auto'` | pensamiento de Anthropic: `'auto'` usa el adaptativo solo en modelos que lo soportan (Opus/Sonnet 4.6+, Haiku 5+); en `claude-haiku-4-5` y anteriores no lo envía. `{ budgetTokens }` = pensamiento con presupuesto en modelos antiguos. Un 400 que menciona `thinking`/`effort` se reintenta una vez sin el parámetro |
 | `timeoutMs` | `number` | `60000` | timeout por llamada no-streaming; al vencer aborta la petición y rechaza, para que un proveedor colgado no bloquee la cola del chat (`0` lo desactiva, no recomendado) |
 | `context.maxMessages` | `number` | `20` | ventana de historial guardada por chat (siempre empieza por un turno del usuario; las respuestas vacías no se guardan) |
 | `autoReply` | `boolean` | `true` | registra el autoresponder catch-all |
@@ -369,8 +370,9 @@ bot.plug(aiPlugin({
   `confirm: true` se deniegan.
 - **Auditoría**: `bot.on('ai.tool', (e) => ...)` u `onToolEvent` reciben
   `tool.call`, `tool.confirm.*` (también `tool.confirm.replied`), `tool.duplicate`,
-  `tool.result`, `tool.error`, `tool.timeout`, `tool.invalid_args`, `tool.unknown`
-  y `loop.max_steps`, con `step`,
+  `tool.result`, `tool.error`, `tool.timeout`, `tool.invalid_args`, `tool.unknown`,
+  `tool.truncated` (llamada cortada por el tope de tokens: no se ejecuta, se avisa al modelo
+  y el plugin registra un aviso) y `loop.max_steps`, con `step`,
   `callId`, `chatKey` y `durationMs`. Los eventos incluyen `args`: trátalos
   como datos personales. El logger solo registra metadatos.
 - El historial persistido sigue siendo texto plano usuario/asistente; los
@@ -536,7 +538,7 @@ bot.plug(aiPlugin({
   model: 'gpt-5-mini',
   rag: {
     retriever: createRag({ documents: ['./docs/faq.md', './docs/productos.pdf'], embeddings: 'openai', chunkSize: 1000, topK: 3 }),
-    appendSources: true, // añade "Fuentes: faq.md › Envíos" a la respuesta
+    appendSources: true, // añade "Fuentes: [1] faq.md › Envíos" (conserva el [n] citado)
   },
 }))
 ```
