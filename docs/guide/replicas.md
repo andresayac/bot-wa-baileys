@@ -135,7 +135,7 @@ const bot = new Bot({
     handover: {
       flows: 'forward',      // checkpoint flows without .persistent() too (TTL-bound)
       fallback: 'notify',    // the rest: tell the user it was interrupted
-      ttl: '10m',            // keep above your longest wait timeout
+      ttl: '10m',            // keep at or above conversation.timeout
     },
   },
 })
@@ -144,13 +144,17 @@ bot.on('coordination:handover', ({ key, name, outcome }) => log.info({ key, name
 
 - **`flows: 'forward'`** writes a checkpoint per step for flows without
   `.persistent()` too, marked ephemeral: it expires `ttl` after its last write
-  (default `conversation.timeout`, else 5 minutes) and carries a fingerprint
+  (default `conversation.timeout`, else 5 minutes; while the flow waits, never
+  before that wait's own timeout, refreshed at every wait) and carries a fingerprint
   of the flow, so a replica running a changed flow (rolling deploy) does not
   resume it at the wrong step; that case goes to `fallback` with
   `reason: 'changed'`. `c.state` must be plain JSON: a flow whose state holds
   a class instance, a function or a `Date` is not forwarded and goes to
   `fallback`. After a graceful `bot.stop()` the checkpoint is kept, so the
   replica that takes over (or this one, restarted within the TTL) continues.
+  Upgrade every replica before turning `forward` on (and turn it off before
+  rolling back): a replica that does not forward still resumes an ephemeral
+  checkpoint and clears it, but an older version ignores its expiry.
 - **`fallback`** applies to what cannot be serialized (an async function's
   stack and closures). The conversation keeps a small stub in the store while
   it waits (two writes per conversation: one when it first waits, one to
@@ -177,11 +181,13 @@ with it; the hooks do not run again.
 
 **Acknowledgements follow the checkpoint.** With `durability`, an inbound
 record is acknowledged only after the checkpoint write that holds its effect
-landed (the parked marker, the recorded answer). If that write failed, a
-suspended step releases the record instead, so it is replayed and taken as
-the answer. Checkpoint writes are fenced like sends: a replica that lost the
-chat's turn never overwrites or clears the checkpoint of the replica that
-took it.
+landed (the parked marker, the recorded answer). If that write failed, or
+the suspended step had consumed an answer no checkpoint holds (a later
+question of the step, an answer too large to embed), it releases the record
+instead, so it is replayed. Checkpoint writes are fenced like sends: a
+replica whose turn is known lost does not write the checkpoint. A suspended
+step that keeps running anyway never writes or clears it afterwards either,
+even once the same replica took the chat again.
 
 Limits:
 

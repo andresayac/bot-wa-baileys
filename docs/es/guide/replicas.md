@@ -140,7 +140,7 @@ const bot = new Bot({
     handover: {
       flows: 'forward',      // guarda también los flujos sin .persistent() (con TTL)
       fallback: 'notify',    // el resto: avisa al usuario de que se interrumpió
-      ttl: '10m',            // por encima de tu timeout de espera más largo
+      ttl: '10m',            // igual o mayor que conversation.timeout
     },
   },
 })
@@ -149,14 +149,18 @@ bot.on('coordination:handover', ({ key, name, outcome }) => log.info({ key, name
 
 - **`flows: 'forward'`** escribe un checkpoint por paso también para los
   flujos sin `.persistent()`, marcado como efímero: caduca `ttl` después de su
-  última escritura (por defecto `conversation.timeout`, si no 5 minutos) y
-  lleva una huella del flujo, para que una réplica con el flujo cambiado
+  última escritura (por defecto `conversation.timeout`, si no 5 minutos;
+  mientras el flujo espera, nunca antes del timeout de esa espera, y se
+  renueva en cada espera) y lleva una huella del flujo, para que una réplica con el flujo cambiado
   (despliegue gradual) no lo retome en el paso equivocado; ese caso va a
   `fallback` con `reason: 'changed'`. `c.state` tiene que ser JSON plano: un
   flujo cuyo estado guarda una instancia de clase, una función o un `Date` no
   se reenvía y va a `fallback`. Tras un `bot.stop()` ordenado el checkpoint se
   conserva, así que la réplica que toma el relevo (o esta misma, reiniciada
-  dentro del TTL) sigue.
+  dentro del TTL) sigue. Actualiza todas las réplicas antes de activar
+  `forward` (y desactívalo antes de volver atrás): una réplica que no reenvía
+  igualmente retoma un checkpoint efímero y lo borra, pero una versión anterior
+  ignora su caducidad.
 - **`fallback`** se aplica a lo que no se puede serializar (la pila y los
   closures de una función asíncrona). La conversación deja un pequeño
   marcador en el store mientras espera (dos escrituras por conversación: una
@@ -186,10 +190,13 @@ mensaje si cabe en `maxAnswerBytes` (por defecto 16 KiB). Lo que los hooks
 **Los acuses siguen al checkpoint.** Con `durability`, un registro de entrada
 se confirma solo después de que aterrice la escritura del checkpoint que
 guarda su efecto (la marca de espera, la respuesta guardada). Si esa
-escritura falló, un paso suspendido libera el registro, que se reprocesa y se
-toma como la respuesta. Las escrituras de checkpoints tienen fencing como los
-envíos: una réplica que perdió el turno del chat nunca pisa ni borra el
-checkpoint de la réplica que lo tomó.
+escritura falló, o el paso suspendido había consumido una respuesta que ningún
+checkpoint guarda (una pregunta posterior del paso, una respuesta demasiado
+grande para incrustarla), libera el registro, que se reprocesa. Las escrituras
+de checkpoints tienen fencing como los envíos: una réplica que sabe que perdió
+el turno no escribe el checkpoint. Un paso suspendido que sigue ejecutándose
+tampoco lo escribe ni lo borra después, aunque la misma réplica haya vuelto a
+tomar el chat.
 
 Límites:
 

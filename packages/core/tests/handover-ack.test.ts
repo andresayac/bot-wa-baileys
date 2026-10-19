@@ -208,6 +208,38 @@ describe('a step cut short after its first wait consumed the answer', () => {
     await vi.waitFor(() => expect(texts(b.provider)).toEqual(['email?', 'done Ana (transcript) ana@x.co']))
   })
 
+  it('a step cut short after a LATER wait consumed its answer releases that record (the checkpoint does not hold it)', async () => {
+    const s = shared()
+    let slow = true
+    const make = (id: string, settleMs?: number) => {
+      const r = replica(s, id, settleMs !== undefined ? { settleMs } : {})
+      r.bot.use(flow('two').persistent()
+        .say('hi')
+        .do(async (_ctx, c) => {
+          c.state.a = await c.ask('q1?')
+          c.state.b = await c.ask('q2?')
+          if (slow && id === 'a') { slow = false; await sleep(400) }
+        })
+        .say((_ctx, c) => `done ${String(c.state.a)} ${String(c.state.b)}`))
+      return r
+    }
+    const a = make('a', 40)
+    const b = make('b')
+    await a.bot.start(); await b.bot.start()
+    a.provider.incoming('two', { from: 'c1' })
+    await vi.waitFor(() => expect(texts(a.provider)).toEqual(['hi', 'q1?']))
+    a.provider.incoming('x', { from: 'c1' })
+    await vi.waitFor(() => expect(texts(a.provider)).toEqual(['hi', 'q1?', 'q2?']))
+    a.provider.incoming('y', { from: 'c1' })
+    // Suspended mid-step: the answer of q2 is in no checkpoint, so its record is released
+    // (redelivered) instead of being acknowledged as handed over.
+    await vi.waitFor(async () => {
+      const rec = (await a.bot.durability!.inbox.list()).find((r) => JSON.stringify(r.payload).includes('"body":"y"'))
+      // Released once, then claimed again (a release does not count as an attempt).
+      expect(rec).toMatchObject({ state: 'done', fencingToken: 2 })
+    }, { timeout: 5_000 })
+  })
+
   it('a later wait of a multi-wait step drops the recorded answer: the step restarts, as before', async () => {
     const s = shared()
     const make = (id: string) => {

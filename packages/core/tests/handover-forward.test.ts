@@ -167,6 +167,74 @@ describe("flows: 'forward' — non-persistent flows continue on the replica that
     await c.bot.start()
     await vi.waitFor(async () => expect(await s.store.listCheckpoints()).toEqual([]))
   })
+
+  it('a resumed ephemeral checkpoint is cleared by a replica that does not forward (mixed config)', async () => {
+    const s = shared()
+    const a = signup(replica(s, 'a', { flows: 'forward' }))
+    const b = signup(replica(s, 'b'))
+    await a.bot.start(); await b.bot.start()
+    a.provider.incoming('signup', { from: 'c1' })
+    await vi.waitFor(() => expect(texts(a.provider)).toEqual(['hi', 'name?']))
+    await vi.waitFor(async () => expect(await s.store.checkpointOf('c1')).toMatchObject({ parked: true }))
+    a.coordinator.crash()
+    b.provider.incoming('Ana', { from: 'c1' })
+    await vi.waitFor(() => expect(texts(b.provider)).toEqual(['email?']))
+    b.provider.incoming('ana@x.co', { from: 'c1' })
+    await vi.waitFor(() => expect(texts(b.provider)).toEqual(['email?', 'done Ana ana@x.co']))
+    await vi.waitFor(async () => expect(await s.store.checkpointOf('c1')).toBeUndefined())
+    // A replica that takes the chat later does not resume the finished flow.
+    const c = signup(replica(s, 'c', { flows: 'forward' }))
+    await c.bot.start()
+    c.provider.incoming('hola', { from: 'c1' })
+    await vi.waitFor(() => expect(c.fallthrough).toEqual(['hola']))
+    expect(texts(c.provider)).toEqual([])
+  })
+
+  it('a parked wait with a timeout longer than the TTL keeps its ephemeral checkpoint resumable', async () => {
+    const s = shared()
+    const a = signup(replica(s, 'a', { flows: 'forward', ttl: 50 }), (f) => f.timeout('10s'))
+    const b = signup(replica(s, 'b', { flows: 'forward', ttl: 50 }), (f) => f.timeout('10s'))
+    await a.bot.start(); await b.bot.start()
+    a.provider.incoming('signup', { from: 'c1' })
+    await vi.waitFor(() => expect(texts(a.provider)).toEqual(['hi', 'name?']))
+    await vi.waitFor(async () => expect(await s.store.checkpointOf('c1')).toMatchObject({ parked: true }))
+    await sleep(100)                                   // past the TTL, well within the wait's timeout
+    a.coordinator.crash()
+    b.provider.incoming('Ana', { from: 'c1' })
+    await vi.waitFor(() => expect(texts(b.provider)).toEqual(['email?']))
+    expect(b.fallthrough).toEqual([])
+    expect(b.events).toEqual([{ key: 'c1', name: 'signup', outcome: 'resumed' }])
+  })
+
+  it('every wait of a validation-retry loop refreshes the expiry of its ephemeral checkpoint', async () => {
+    const s = shared()
+    const make = (id: string) => {
+      const r = replica(s, id, { flows: 'forward', ttl: 80 })
+      r.bot.use(flow('signup').timeout(300)
+        .say('hi')
+        .ask('name?', 'name', { retries: Infinity, validate: async (body: string) => (body === 'Ana' ? true : 'again?') })
+        .ask('email?', 'email'))
+      return r
+    }
+    const a = make('a')
+    const b = make('b')
+    await a.bot.start(); await b.bot.start()
+    a.provider.incoming('signup', { from: 'c1' })
+    await vi.waitFor(() => expect(texts(a.provider)).toEqual(['hi', 'name?']))
+    let retries = 0
+    for (const wrong of ['w', 'x', 'y', 'z']) {
+      await sleep(100)
+      a.provider.incoming(wrong, { from: 'c1' })
+      retries++
+      await vi.waitFor(() => expect(texts(a.provider).filter((t) => t === 'again?')).toHaveLength(retries))
+    }
+    await sleep(20)                                    // the step's first write is older than its wait timeout
+    a.coordinator.crash()
+    b.provider.incoming('Ana', { from: 'c1' })
+    // The step restarts on B (its later waits keep no answer), but the flow is not lost.
+    await vi.waitFor(() => expect(b.events).toEqual([{ key: 'c1', name: 'signup', outcome: 'resumed' }]))
+    expect(b.fallthrough).toEqual([])
+  })
 })
 
 describe('fallback for conversations that cannot be forwarded (async bot.conversation)', () => {

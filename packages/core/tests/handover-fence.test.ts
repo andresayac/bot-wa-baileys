@@ -56,4 +56,37 @@ describe('fenced checkpoint writes', () => {
     b.provider.incoming('ana@x.co', { from: 'c1' })
     await vi.waitFor(() => expect(texts(b.provider)).toEqual(['email?', 'done Ana ana@x.co']))
   })
+
+  it('a step that outlives its suspension cannot overwrite nor clear the checkpoint once the SAME replica took the chat again', async () => {
+    // providerSession 'leader' (Baileys): every message lands on the same replica, so the
+    // turn is re-acquired by the replica whose zombie step is still running.
+    const store = new GatedCheckpointStore()
+    const provider = new MockProvider()
+    const coordinator = new MemoryCoordinator({ hub: new MemoryCoordinationHub(), replicaId: 'a' })
+    const bot = new Bot({ provider, store, logger: silent(), coordination: { coordinator, settleMs: 40 } })
+    bots.push(bot)
+    let frozen = true
+    bot.use(flow('order').persistent()
+      .ask('name?', 'name')
+      // Outlives settleMs AND the 5 s the suspension waits for it to unwind.
+      .do(async () => { if (frozen) { frozen = false; await sleep(5_600) } })
+      .ask('email?', 'email')
+      .say((_ctx, c) => `done ${String(c.state.name)} ${String(c.state.email)}`))
+    await bot.start()
+    provider.incoming('order', { from: 'c1' })
+    await vi.waitFor(() => expect(texts(provider)).toEqual(['name?']))
+    provider.incoming('Ana', { from: 'c1' })
+    await sleep(5_200)                                 // suspended; the unwind wait gave up on it
+    provider.incoming('wake', { from: 'c1' })          // same replica re-acquires the turn and resumes
+    await vi.waitFor(() => expect(texts(provider)).toEqual(['name?', 'email?']))
+    await vi.waitFor(async () => expect(await store.checkpointOf('c1')).toMatchObject({ step: 2, parked: true }))
+    const writes = store.writes.length
+    const clears = store.clears.length
+    await sleep(600)                                   // the zombie step finishes now
+    expect(await store.checkpointOf('c1')).toMatchObject({ step: 2, parked: true })
+    expect(store.writes.length).toBe(writes)
+    expect(store.clears.length).toBe(clears)
+    provider.incoming('ana@x.co', { from: 'c1' })
+    await vi.waitFor(() => expect(texts(provider)).toEqual(['name?', 'email?', 'done Ana ana@x.co']))
+  }, 15_000)
 })

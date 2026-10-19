@@ -220,8 +220,9 @@ export interface ConversationHandoverConfig {
   notifyMessage?: string
   /**
    * How long an ephemeral checkpoint stays resumable after its last write (stubs: twice
-   * that), as a duration (`'10m'`) or ms. Default: `conversation.timeout`, else `'5m'`. Set
-   * it above your longest wait timeout.
+   * that), as a duration (`'10m'`) or ms. Default: `conversation.timeout`, else `'5m'`. While
+   * the conversation waits, never shorter than that wait's explicit timeout (`ask({ timeout })`,
+   * `flow().timeout()`); refreshed at every wait.
    */
   ttl?: string | number
   /**
