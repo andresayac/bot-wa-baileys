@@ -61,6 +61,26 @@ describe('Bot facade: plugin-scoped registrations', () => {
   })
 })
 
+describe('Bot facade: lifecycle through a plugin-scoped bot', () => {
+  it('ctx.bot.stop() from a plugin stops the real bot (shared lifecycle state)', async () => {
+    const provider = new MockProvider()
+    const bot = new Bot({ provider })
+    let scoped: Bot | undefined
+    bot.plug({ name: 'p', version: '1.0.0', install({ bot: b }) { scoped = b } })
+    await bot.start()
+    await scoped!.stop()
+    expect(bot.getConnectionState()).toBe('closed')
+    const got: string[] = []
+    bot.onMessage((ctx) => { got.push(ctx.body) })
+    provider.incoming('after-stop'); await tick()
+    expect(got).toEqual([])
+    await bot.start()
+    provider.incoming('after-restart'); await tick()
+    expect(got).toEqual(['after-restart'])
+    await bot.stop()
+  })
+})
+
 describe('Bot facade: late-bound lookups', () => {
   it('a subclass isHandedOff() override is honoured by paced replies', async () => {
     const handedOff = new Set<ChatId>()
