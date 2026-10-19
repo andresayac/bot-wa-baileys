@@ -5,7 +5,8 @@
  * the logs.
  */
 import { loadEnvFile } from 'node:process'
-import { isPreset, type AIProviderName } from '@bot-wa/ai'
+import { parseDuration } from '@bot-wa/core'
+import { isPreset, type AIProviderName, type AIThinking, type Effort } from '@bot-wa/ai'
 
 export type Env = Readonly<Record<string, string | undefined>>
 
@@ -20,6 +21,12 @@ export class ConfigError extends Error {
 const NATIVE_PROVIDERS = ['ollama', 'anthropic', 'openai', 'gemini'] as const
 const GROUP_MODES = ['all', 'mentions', 'commands'] as const
 const LOG_LEVELS = ['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent'] as const
+const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const satisfies readonly Effort[]
+const TRUE = ['on', 'true', '1', 'yes']
+const FALSE = ['off', 'false', '0', 'no']
+
+/** Defaults of the AI tuning variables. */
+export const AI_DEFAULTS = { maxSteps: 5, memoryMaxFacts: 20 } as const
 
 export type GroupMode = (typeof GROUP_MODES)[number]
 export type LogLevel = (typeof LOG_LEVELS)[number]
@@ -31,6 +38,18 @@ export interface AIEnvConfig {
   apiKey?: string
   baseUrl?: string
   timeoutMs: number
+  /** Long-term per-user memory (`AI_MEMORY`, `AI_MEMORY_MAX_FACTS`, `AI_MEMORY_TTL`); `false` = off. */
+  memory: false | { maxFacts: number; ttl?: string }
+  /** Anthropic extended thinking (`AI_THINKING`). Absent = the provider's `'auto'`. */
+  thinking?: AIThinking
+  /** Reasoning effort (`AI_EFFORT`), for the providers that support it. */
+  effort?: Effort
+  /** Output-token cap per model call (`AI_MAX_TOKENS`). Absent = the provider's default. */
+  maxTokens?: number
+  /** Model calls per turn in the tool loop (`AI_MAX_STEPS`). */
+  maxSteps: number
+  /** Chat history messages sent to the model (`AI_CONTEXT_MESSAGES`). Absent = the plugin's default. */
+  contextMessages?: number
 }
 
 export interface CommonConfig {
@@ -119,6 +138,46 @@ class Reader {
     return n
   }
 
+  /** An optional integer in `[min, max]` (absent → `undefined`). */
+  optInt(name: string, min: number, max: number): number | undefined {
+    if (this.str(name) === undefined) return undefined
+    const n = this.int(name, Number.NaN, min, max)
+    return Number.isNaN(n) ? undefined : n
+  }
+
+  /** An optional value of `allowed`, case-insensitive. */
+  optOneOf<T extends string>(name: string, allowed: readonly T[]): T | undefined {
+    if (this.str(name) === undefined) return undefined
+    return this.oneOf<T | ''>(name, allowed, '') || undefined
+  }
+
+  /** on/off, true/false, yes/no, 1/0. */
+  bool(name: string, fallback: boolean): boolean {
+    const v = this.str(name)?.toLowerCase()
+    if (v === undefined) return fallback
+    if (TRUE.includes(v)) return true
+    if (FALSE.includes(v)) return false
+    this.problems.push(`${name} must be on or off (also true/false, yes/no, 1/0).`)
+    return fallback
+  }
+
+  /** A positive duration (`30d`, `12h`, `90m`, milliseconds). */
+  duration(name: string): string | undefined {
+    const v = this.str(name)
+    if (v === undefined) return undefined
+    let ms = Number.NaN
+    try {
+      ms = parseDuration(v)
+    } catch {
+      // reported below
+    }
+    if (!Number.isFinite(ms) || ms <= 0) {
+      this.problems.push(`${name} must be a duration such as 30d, 12h or 90m.`)
+      return undefined
+    }
+    return v
+  }
+
   url(name: string, value: string | undefined, opts: { https?: boolean } = {}): string | undefined {
     if (value === undefined) return undefined
     let parsed: URL
@@ -157,13 +216,37 @@ function readAI(r: Reader): AIEnvConfig {
   const baseUrlVar = !r.str('AI_BASE_URL') && isOllama ? 'OLLAMA_URL' : 'AI_BASE_URL'
   const baseUrl = r.url(baseUrlVar, r.str(baseUrlVar) ?? (isOllama ? 'http://127.0.0.1:11434' : undefined))
   const apiKey = r.str('AI_API_KEY')
+  const memoryOn = r.bool('AI_MEMORY', true)
+  const maxFacts = r.int('AI_MEMORY_MAX_FACTS', AI_DEFAULTS.memoryMaxFacts, 1, 500)
+  const ttl = r.duration('AI_MEMORY_TTL')
+  const thinking = readThinking(r)
+  const effort = r.optOneOf('AI_EFFORT', EFFORTS)
+  const maxTokens = r.optInt('AI_MAX_TOKENS', 64, 128_000)
+  const contextMessages = r.optInt('AI_CONTEXT_MESSAGES', 1, 500)
   return {
     provider,
     timeoutMs: r.int('AI_TIMEOUT_MS', 120_000, 1_000, 600_000),
     ...(model ? { model } : {}),
     ...(baseUrl ? { baseUrl } : {}),
     ...(apiKey ? { apiKey } : {}),
+    maxSteps: r.int('AI_MAX_STEPS', AI_DEFAULTS.maxSteps, 1, 20),
+    memory: memoryOn ? { maxFacts, ...(ttl ? { ttl } : {}) } : false,
+    ...(thinking !== undefined ? { thinking } : {}),
+    ...(effort ? { effort } : {}),
+    ...(maxTokens !== undefined ? { maxTokens } : {}),
+    ...(contextMessages !== undefined ? { contextMessages } : {}),
   }
+}
+
+/** `AI_THINKING`: auto | adaptive | off | a budget in tokens (Anthropic only). */
+function readThinking(r: Reader): AIThinking | undefined {
+  const v = r.str('AI_THINKING')?.toLowerCase()
+  if (v === undefined) return undefined
+  if (v === 'auto' || v === 'adaptive' || v === 'off') return v
+  const n = /^\d+$/.test(v) ? Number(v) : Number.NaN
+  if (Number.isInteger(n) && n >= 1024 && n <= 128_000) return { budgetTokens: n }
+  r.problems.push('AI_THINKING must be auto, adaptive, off or a thinking budget in tokens (an integer between 1024 and 128000).')
+  return undefined
 }
 
 function readCommon(r: Reader): CommonConfig {
@@ -232,6 +315,9 @@ export function describeConfig(config: BaileysConfig | TwilioConfig): Record<str
     channel: config.channel,
     aiProvider: config.ai.provider,
     aiModel: config.ai.model ?? '(provider default)',
+    aiMemory: config.ai.memory ? `on (${config.ai.memory.maxFacts} facts${config.ai.memory.ttl ? `, ttl ${config.ai.memory.ttl}` : ''})` : 'off',
+    aiThinking: typeof config.ai.thinking === 'object' ? `budget ${config.ai.thinking.budgetTokens}` : (config.ai.thinking ?? 'auto'),
+    aiMaxTokens: config.ai.maxTokens ?? '(provider default)',
     allowList: config.allowedUsers.length ? `${config.allowedUsers.length} id(s)` : 'off (everybody)',
     groupMode: config.groupMode,
   }

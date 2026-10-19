@@ -20,14 +20,51 @@ function problemsOf(fn: () => unknown): readonly string[] {
 describe('config', () => {
   it('defaults to Ollama on localhost', () => {
     const c = loadBaileysConfig({})
-    expect(c.ai).toEqual({ provider: 'ollama', model: 'llama3.1', baseUrl: 'http://127.0.0.1:11434', timeoutMs: 120_000 })
+    expect(c.ai).toEqual({
+      provider: 'ollama', model: 'llama3.1', baseUrl: 'http://127.0.0.1:11434', timeoutMs: 120_000,
+      maxSteps: 5, memory: { maxFacts: 20 },
+    })
     expect(c).toMatchObject({ channel: 'baileys', session: 'bakery', sessionsDir: 'sessions', groupMode: 'commands', allowedUsers: [] })
   })
 
   it('reads any @bot-wa/ai provider or preset', () => {
-    expect(loadBaileysConfig({ AI_PROVIDER: 'anthropic', AI_API_KEY: 'k' }).ai).toEqual({ provider: 'anthropic', apiKey: 'k', timeoutMs: 120_000 })
+    expect(loadBaileysConfig({ AI_PROVIDER: 'anthropic', AI_API_KEY: 'k' }).ai).toMatchObject({ provider: 'anthropic', apiKey: 'k', timeoutMs: 120_000 })
+    expect(loadBaileysConfig({ AI_PROVIDER: 'anthropic' }).ai).not.toHaveProperty('model')
     expect(loadBaileysConfig({ AI_PROVIDER: 'groq', AI_MODEL: 'm' }).ai).toMatchObject({ provider: 'groq', model: 'm' })
     expect(loadBaileysConfig({ OLLAMA_URL: 'http://gpu-box:11434/' }).ai.baseUrl).toBe('http://gpu-box:11434')
+  })
+
+  it('reads the AI tuning options (memory, thinking, effort, budgets)', () => {
+    const c = loadBaileysConfig({
+      AI_PROVIDER: 'anthropic', AI_MEMORY: 'on', AI_MEMORY_MAX_FACTS: '50', AI_MEMORY_TTL: '30d',
+      AI_THINKING: 'Adaptive', AI_EFFORT: 'LOW', AI_MAX_TOKENS: '2048', AI_MAX_STEPS: '8', AI_CONTEXT_MESSAGES: '30',
+    })
+    expect(c.ai).toMatchObject({
+      memory: { maxFacts: 50, ttl: '30d' }, thinking: 'adaptive', effort: 'low', maxTokens: 2048, maxSteps: 8, contextMessages: 30,
+    })
+    expect(loadBaileysConfig({ AI_THINKING: '4096' }).ai.thinking).toEqual({ budgetTokens: 4096 })
+    expect(loadBaileysConfig({ AI_THINKING: 'off' }).ai.thinking).toBe('off')
+    for (const off of ['off', 'false', '0', 'no', 'NO']) expect(loadBaileysConfig({ AI_MEMORY: off }).ai.memory, off).toBe(false)
+    expect(loadBaileysConfig({}).ai).not.toHaveProperty('thinking')
+  })
+
+  it('rejects invalid AI tuning options, naming the variable', () => {
+    const problems = problemsOf(() => loadBaileysConfig({
+      AI_MEMORY: 'maybe', AI_MEMORY_MAX_FACTS: '0', AI_MEMORY_TTL: 'forever', AI_THINKING: 'deep', AI_EFFORT: 'extreme',
+      AI_MAX_TOKENS: '10', AI_MAX_STEPS: '99', AI_CONTEXT_MESSAGES: 'all',
+    }))
+    expect(problems).toHaveLength(8)
+    for (const name of ['AI_MEMORY ', 'AI_MEMORY_MAX_FACTS', 'AI_MEMORY_TTL', 'AI_THINKING', 'AI_EFFORT', 'AI_MAX_TOKENS', 'AI_MAX_STEPS', 'AI_CONTEXT_MESSAGES']) {
+      expect(problems.some((p) => p.startsWith(name)), name).toBe(true)
+    }
+    expect(problemsOf(() => loadBaileysConfig({ AI_THINKING: '512' }))).toEqual(['AI_THINKING must be auto, adaptive, off or a thinking budget in tokens (an integer between 1024 and 128000).'])
+  })
+
+  it('logs the AI tuning in the summary', () => {
+    expect(describeConfig(loadBaileysConfig({ AI_MEMORY: 'off', AI_THINKING: 'off', AI_MAX_TOKENS: '1000' }))).toMatchObject({
+      aiMemory: 'off', aiThinking: 'off', aiMaxTokens: 1000,
+    })
+    expect(describeConfig(loadBaileysConfig({}))).toMatchObject({ aiMemory: 'on (20 facts)', aiThinking: 'auto', aiMaxTokens: '(provider default)' })
   })
 
   it('splits the allow-list', () => {

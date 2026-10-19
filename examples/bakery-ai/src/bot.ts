@@ -3,7 +3,7 @@
  * provider (Baileys or Twilio) and hand it here; tests hand a MockProvider.
  */
 import { Bot, slashCommandsPlugin, type IProvider, type LoggerLike } from '@bot-wa/core'
-import { aiPlugin, type AIProvider, type AIProviderName, type AIToolEvent } from '@bot-wa/ai'
+import { aiPlugin, type AIProvider, type AIProviderName, type AIThinking, type AIToolEvent, type Effort } from '@bot-wa/ai'
 import { createBakeryTools } from './tools.js'
 import { InMemoryOrderStore, type Order, type OrderStore } from './shop.js'
 
@@ -35,8 +35,22 @@ export interface BakeryAIOptions {
   baseUrl?: string
   /** Per model call, ms. Default 120 000 (local models can be slow). */
   timeoutMs?: number
-  /** Long-term per-user memory (facts like "prefers decaf"). Default true. */
-  memory?: boolean
+  /**
+   * Long-term per-user memory (facts like "prefers decaf"), extracted by the model
+   * after each reply. `true` (default) keeps up to 20 facts per customer, forever;
+   * an object tunes `maxFacts` and `ttl` (`'30d'`, `'12h'`, ms); `false` turns it off.
+   */
+  memory?: boolean | { maxFacts?: number; ttl?: string | number }
+  /** Anthropic extended thinking: `'auto'` (default), `'adaptive'`, `'off'` or `{ budgetTokens }`. Other providers ignore it. */
+  thinking?: AIThinking
+  /** Reasoning effort, for the providers/models that support it. */
+  effort?: Effort
+  /** Output-token cap per model call (thinking included). Default: the provider's. */
+  maxTokens?: number
+  /** Model calls per turn in the tool loop. Default 5. */
+  maxSteps?: number
+  /** Chat history messages sent to the model. Default: the plugin's. */
+  contextMessages?: number
 }
 
 export interface BakeryBotOptions {
@@ -89,8 +103,12 @@ export function createBakeryBot(provider: IProvider, options: BakeryBotOptions =
     ...(ai.baseUrl ? { baseUrl: ai.baseUrl } : {}),
     persona: PERSONA,
     timeoutMs: ai.timeoutMs ?? 120_000,
-    maxSteps: 5,
-    memory: ai.memory === false ? false : { autoExtract: true, maxFacts: 20 },
+    maxSteps: ai.maxSteps ?? 5,
+    ...(ai.maxTokens !== undefined ? { maxTokens: ai.maxTokens } : {}),
+    ...(ai.effort ? { effort: ai.effort } : {}),
+    ...(ai.thinking !== undefined ? { thinking: ai.thinking } : {}),
+    ...(ai.contextMessages !== undefined ? { context: { maxMessages: ai.contextMessages } } : {}),
+    memory: memoryConfig(ai.memory),
     errorMessage: "⚠️ Sorry, I can't answer right now. Please try again in a moment.",
     refusalMessage: "Sorry, I can't help with that. I can help you with our menu and your orders.",
     tools: createBakeryTools(orders, { onOrderChange: (change) => logOrder(log, change) }),
@@ -98,6 +116,13 @@ export function createBakeryBot(provider: IProvider, options: BakeryBotOptions =
   }))
 
   return bot
+}
+
+/** `BakeryAIOptions.memory` → `aiPlugin({ memory })`: facts extracted automatically after each reply. */
+function memoryConfig(memory: BakeryAIOptions['memory']) {
+  if (memory === false) return false
+  const opts = typeof memory === 'object' ? memory : {}
+  return { autoExtract: true, maxFacts: opts.maxFacts ?? 20, ...(opts.ttl !== undefined ? { ttl: opts.ttl } : {}) }
 }
 
 /** Audit trail of the tool loop. Metadata only: tool arguments can carry user data. */

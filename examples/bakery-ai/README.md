@@ -171,6 +171,14 @@ exact id to `ALLOWED_USERS` next to (or instead of) `whatsapp:+<number>`. With
 | `AI_BASE_URL` | (none) | both | Endpoint override for any provider. Wins over `OLLAMA_URL`. |
 | `AI_API_KEY` | (none) | both | API key. Optional: each SDK/preset also reads its own variable (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GROQ_API_KEY`, ...). |
 | `AI_TIMEOUT_MS` | `120000` | both | Timeout per model call. |
+| `AI_MEMORY` | `on` | both | Long-term per-customer memory: after each reply the model extracts durable facts ("prefers decaf") and they are added to later prompts. `on`/`off` (also `true`/`false`, `yes`/`no`, `1`/`0`). Costs one extra small model call per reply. |
+| `AI_MEMORY_MAX_FACTS` | `20` | both | Facts kept per customer (1-500); the oldest go first. |
+| `AI_MEMORY_TTL` | (permanent) | both | How long a fact lives (`30d`, `12h`, `90m`, ms). Re-stating a fact renews it. |
+| `AI_THINKING` | `auto` | both | Anthropic only. `auto` uses adaptive thinking on the models that support it (Claude Opus/Sonnet 4.6+, Haiku 5+) and none on older ones such as `claude-haiku-4-5`; `adaptive` forces it, `off` never sends it, a number (1024-128000) is a thinking budget in tokens for older models. |
+| `AI_EFFORT` | (provider default) | both | `low`, `medium`, `high`, `xhigh` or `max`: how hard the model reasons (Anthropic, OpenAI reasoning models). `low` is usually enough for a shop assistant and cheaper. |
+| `AI_MAX_TOKENS` | (provider default) | both | Output-token cap per model call (64-128000), thinking included. Raise it if replies or tool calls get cut off. |
+| `AI_MAX_STEPS` | `5` | both | Model calls per turn in the tool loop (1-20). |
+| `AI_CONTEXT_MESSAGES` | `20` | both | Chat history messages sent to the model (1-500). |
 | `ALLOWED_USERS` | empty (everybody) | both | Comma-separated ids allowed to talk to the bot. |
 | `GROUP_MODE` | `commands` | both | `all`, `mentions` or `commands`. |
 | `LOG_LEVEL` | `info` | both | pino level. |
