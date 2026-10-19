@@ -36,6 +36,21 @@ export function hasModuleHeader(text: string): boolean {
   return /^(\r?\n|import[\s{*'"]|export\s+(type\s+)?(\{|\*)|$)/.test(next)
 }
 
+/**
+ * Comment lines of `text` that read as Spanish (AGENTS.md: code comments are English).
+ * Quoted text is stripped first, so Spanish sample strings in JSDoc examples are fine.
+ */
+export function spanishCommentLines(text: string): string[] {
+  const comments = text.split('\n').flatMap((line) => {
+    const m = /^\s*(?:\/\/|\/?\*+)(.*)$/.exec(line) ?? /\s\/\/\s(.*)$/.exec(line)
+    return m ? [m[1] ?? ''] : []
+  })
+  const marker = /ción\b|ciones\b|\b(para|por|que|del|los|las|una|sin|siempre|dormido|comandos|activa)\b/i
+  return comments
+    .map((c) => c.replace(/'[^']*'|`[^`]*`|"[^"]*"/g, ''))
+    .filter((c) => marker.test(c))
+}
+
 /** Every module of the package. */
 const ALL_MODULES = listModules('')
 
@@ -64,6 +79,17 @@ describe('core structure', () => {
 
   it.each(ALL_MODULES)('%s opens with a header comment saying what it is responsible for', (rel) => {
     expect(hasModuleHeader(read(rel))).toBe(true)
+  })
+
+  it('spots Spanish comments but not Spanish sample strings', () => {
+    expect(spanishCommentLines('      // 2. conversación activa\n')).toHaveLength(1)
+    expect(spanishCommentLines('/** Alias para migración desde BuilderBot. */\n')).toHaveLength(1)
+    expect(spanishCommentLines(" * bot.when('hola', (ctx) => ctx.reply('¡Hola, para ti!'))\n")).toHaveLength(0)
+    expect(spanishCommentLines('  // the active conversation, step 8\n')).toHaveLength(0)
+  })
+
+  it.each(ALL_MODULES)('%s has English code comments', (rel) => {
+    expect(spanishCommentLines(read(rel))).toEqual([])
   })
 
   it('Bot.ts has no ECMAScript #private members', () => {

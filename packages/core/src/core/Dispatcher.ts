@@ -323,13 +323,13 @@ export class Dispatcher {
       if (!(await hooks.runBefore('message', ctx))) { span?.setAttribute(TRACE_ATTR.dispatchStage, 'aborted_by_hook'); return }
       if (this.deps.reprepare && ctx.body !== bodyBeforeHooks) await this.deps.reprepare(ctx)
 
-      // 0. routing gate (human handoff): skip every routing stage, still finish()
+      // 6. handoff gate (human handoff): skip every routing stage, still finish()
       if (this.deps.gate && !this.deps.gate(ctx)) {
         span?.setAttribute(TRACE_ATTR.dispatchStage, 'handoff')
         return this.finish(ctx)
       }
 
-      // 1. comandos — SIEMPRE antes que la conversación activa
+      // 7. commands — ALWAYS before the active conversation
       if (ctx.body?.startsWith(prefix)) {
         const [raw, ...args] = ctx.body.slice(prefix.length).trim().split(/\s+/)
         const name = normalizeText(raw ?? '')
@@ -344,7 +344,7 @@ export class Dispatcher {
         // If a conversation IS active, the emit must not fire at all — otherwise a real
         // 'command:unknown' listener (e.g. slashCommandsPlugin) would reply "Comando
         // desconocido" AND the conversation would ALSO consume "/xyz" as its answer below
-        // (double behavior). Falling through here lets step 2 (runtime.deliver) consume it.
+        // (double behavior). Falling through here lets step 8 (runtime.deliver) consume it.
         if (!runtime.hasActive(runtime.keyFor(ctx))) {
           const handled = emit('command:unknown', { ctx, command: raw })
           if (handled) {
@@ -355,19 +355,19 @@ export class Dispatcher {
         // fall through: a conversation may take "/xyz" as text
       }
 
-      // 2. conversación activa
+      // 8. active conversation
       if (runtime.deliver(ctx)) {
         span?.setAttribute(TRACE_ATTR.dispatchStage, 'conversation')
         return this.finish(ctx)
       }
 
-      // 3. checkpoint dormido
+      // 9. dormant checkpoint resume
       if (await runtime.resumeDormant(ctx)) {
         span?.setAttribute(TRACE_ATTR.dispatchStage, 'dormant')
         return this.finish(ctx)
       }
 
-      // 4. matchers por especificidad
+      // 10. matchers by specificity
       for (const m of this.matchers) {
         if (!matchTrigger(m.trigger, ctx)) continue
         if (isWelcomeTrigger(m.trigger) && !(await this.isFirstContact(ctx))) continue
@@ -378,7 +378,7 @@ export class Dispatcher {
         if (!ctx._passed) return this.finish(ctx)
       }
 
-      // 5. catch-all
+      // 11. catch-all
       span?.setAttribute(TRACE_ATTR.dispatchStage, this.catchAlls.length > 0 ? 'catch_all' : 'unhandled')
       for (const h of this.catchAlls) {
         ctx._passed = false

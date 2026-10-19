@@ -3,7 +3,7 @@
  *
  * Registers on the Dispatcher's *command route* (`bot.command`) rather than as a
  * `when()` matcher, so `/reset` and friends always beat active conversations —
- * see `Dispatcher.run()` step 1 ("comandos — SIEMPRE antes que la conversación activa").
+ * see `Dispatcher.run()` step 7 ("commands — always beat an active conversation").
  *
  * Commands:
  *   /start     — show greeting + command list

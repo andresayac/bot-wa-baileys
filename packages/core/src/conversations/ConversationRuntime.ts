@@ -869,7 +869,7 @@ export class ConversationRuntime {
       await forked.result
     } catch (e) {
       if (entry.cancelled) {
-        // Conversación reemplazada/abortada: muere en silencio, sin efectos visibles.
+        // Conversation replaced/aborted: it dies silently, with no visible effects.
         outcome = 'cancelled'
       } else if (e instanceof ConversationEnded) {
         outcome = e.guarded ? 'guarded' : 'ended'

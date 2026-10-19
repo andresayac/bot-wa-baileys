@@ -147,7 +147,7 @@ export function isCompiledFlow(x: unknown): x is CompiledFlow {
  * `.choose()` and `.use()` add the keys they capture, so `c.state` is typed without casts.
  */
 export function flow<S extends object = EmptyFlowState>(trigger: Trigger): FlowBuilder<S> { return new FlowBuilder<S>(trigger) }
-/** Alias para migración desde bot-whatsapp/BuilderBot. */
+/** Alias for migrating from bot-whatsapp/BuilderBot. */
 export const addKeyword = flow
 
 function delayOf(d: FlowDelay | undefined): number | undefined {
