@@ -1,4 +1,4 @@
-import { createCipheriv, createDecipheriv, randomBytes, timingSafeEqual } from 'node:crypto'
+import { createCipheriv, createDecipheriv, createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 import { redactSecrets } from './redact.js'
 
 export type ControlAction =
@@ -67,22 +67,23 @@ export class SecretVault {
   put(tenantId: string, name: string, value: string): { ref: string; version: number } {
     if (!tenantId || !name || !value) throw new ControlPlaneError('tenantId, name and value are required', 'INVALID')
     const ref = `${tenantId}:${name}`
-    const previous = this.records.get(ref)
+    const key = recordKey(tenantId, ref)
+    const previous = this.records.get(key)
     const iv = randomBytes(12)
     const cipher = createCipheriv('aes-256-gcm', this.key, iv)
     const ciphertext = Buffer.concat([cipher.update(value, 'utf8'), cipher.final()])
-    this.records.set(ref, { tenantId, iv, tag: cipher.getAuthTag(), ciphertext, version: (previous?.version ?? 0) + 1 })
+    this.records.set(key, { tenantId, iv, tag: cipher.getAuthTag(), ciphertext, version: (previous?.version ?? 0) + 1 })
     return { ref, version: (previous?.version ?? 0) + 1 }
   }
   get(tenantId: string, ref: string): string {
-    const record = this.records.get(ref)
+    const record = this.records.get(recordKey(tenantId, ref))
     if (!record || record.tenantId !== tenantId) throw new ControlPlaneError('secret not found', 'NOT_FOUND')
     const decipher = createDecipheriv('aes-256-gcm', this.key, record.iv)
     decipher.setAuthTag(record.tag)
     return Buffer.concat([decipher.update(record.ciphertext), decipher.final()]).toString('utf8')
   }
   describe(tenantId: string, ref: string): { ref: string; version: number } {
-    const record = this.records.get(ref)
+    const record = this.records.get(recordKey(tenantId, ref))
     if (!record || record.tenantId !== tenantId) throw new ControlPlaneError('secret not found', 'NOT_FOUND')
     return { ref, version: record.version }
   }
@@ -113,10 +114,22 @@ export class IdempotencyRegistry<T> {
   }
 }
 
+/** Constant-time API key check over SHA-256 digests (the key length is not leaked either). */
 export function verifyApiKey(presented: string, expected: string): boolean {
-  const a = Buffer.from(presented)
-  const b = Buffer.from(expected)
-  return a.byteLength === b.byteLength && timingSafeEqual(a, b)
+  return timingSafeEqual(sha256(presented), sha256(expected))
+}
+
+function sha256(value: string): Buffer {
+  return createHash('sha256').update(value, 'utf8').digest()
+}
+
+/**
+ * Vault map key. Scoped by tenant with a NUL separator: the public ref
+ * (`tenant:name`) is ambiguous when ids contain `:` (`a:b` + `c` and `a` + `b:c`),
+ * and must never let one tenant overwrite another tenant's secret.
+ */
+function recordKey(tenantId: string, ref: string): string {
+  return `${tenantId}\u0000${ref}`
 }
 
 function redact(metadata: Record<string, unknown> | undefined): Record<string, unknown> | undefined {

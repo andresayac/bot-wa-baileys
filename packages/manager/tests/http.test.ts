@@ -239,6 +239,18 @@ describe('createManagerApi', () => {
       expect(res.status).toBe(200)
     })
 
+    it('accepts the Bearer scheme in any case (RFC 9110: schemes are case-insensitive)', async () => {
+      const secured = createManagerApi(manager, { auth: { token: 'secret' } })
+      expect((await call(secured, 'GET', '/bots', { authorization: 'bearer secret' })).status).toBe(200)
+      expect((await call(secured, 'GET', '/bots', { authorization: 'BEARER  secret' })).status).toBe(200)
+    })
+
+    it('fails fast on a missing or empty token instead of crashing on the first request', () => {
+      // e.g. `{ token: process.env.MANAGER_TOKEN! }` with the variable unset.
+      expect(() => createManagerApi(manager, { auth: { token: undefined as unknown as string } })).toThrow(/auth\.token/)
+      expect(() => createManagerApi(manager, { auth: { token: '' } })).toThrow(/auth\.token/)
+    })
+
     it('supports a custom header name', async () => {
       const secured = createManagerApi(manager, { auth: { token: 'secret', header: 'x-api-key' } })
       const ok = await call(secured, 'POST', '/bots/a/start', { 'x-api-key': 'secret' })
