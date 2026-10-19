@@ -20,6 +20,7 @@ import {
   type OutboundContent,
   type StoredMessage,
 } from '@bot-wa/core'
+import { assertSafeTarget, type HostResolver } from '@bot-wa/http'
 import type { BotManager, BotStatus } from '../BotManager.js'
 import { CapabilityError, capability, requireCapability } from '../capabilities.js'
 import { ManagerError } from '../errors.js'
@@ -62,6 +63,15 @@ export interface RestApiOptions {
   openapi?: Omit<OpenApiOptions, 'prefix'>
   /** Media URLs accepted by `send`: only `https:` by default; set `true` to also accept `http:`. */
   allowInsecureMediaUrls?: boolean
+  /**
+   * Accept media URLs whose host is (or resolves to) a loopback, private,
+   * link-local or otherwise internal address. Default `false`: some transports
+   * (Baileys) download `{ url }` media themselves, so an internal URL would let
+   * an API client make the bot fetch from your private network (SSRF).
+   */
+  allowPrivateMediaHosts?: boolean
+  /** DNS resolver used to vet media hosts (tests, egress gateways). Default: the system resolver. */
+  mediaHostResolver?: HostResolver
 }
 
 /** Node-style handler; calls `next()` (when given) for paths outside the prefix. */
@@ -154,6 +164,18 @@ export function createRestApi(manager: BotManager, options: RestApiOptions): Res
     return ok(publicStatus(manager.status(id)!))
   }
 
+  const vetMediaHost = async (media: { url: string }): Promise<void> => {
+    try {
+      await assertSafeTarget(new URL(media.url), {
+        allowHttp: options.allowInsecureMediaUrls === true,
+        allowPrivateHosts: options.allowPrivateMediaHosts === true,
+        ...(options.mediaHostResolver ? { resolver: options.mediaHostResolver } : {}),
+      })
+    } catch {
+      throw invalid('content.media url must point to a public host')
+    }
+  }
+
   // ── route handlers ───────────────────────────────────────────────────
   const handlers: Record<string, (ctx: RouteContext) => Promise<Result> | Result> = {
     getHealth: () => ok({ status: 'ok', uptimeMs: Date.now() - startedAt }),
@@ -227,6 +249,7 @@ export function createRestApi(manager: BotManager, options: RestApiOptions): Res
       if (body.text !== undefined) content = requiredString(body, 'text', 4096)
       else if (body.content !== undefined) content = sanitizeContent(body.content, options.allowInsecureMediaUrls === true)
       else throw invalid('text or content is required')
+      if (typeof content !== 'string' && 'media' in content) await vetMediaHost(content.media as { url: string })
       const sendTo = requireCapability(manager.get(id), 'sendTo')
       try {
         const sent = (await sendTo(chatId, content)) as { id?: unknown; chatId?: unknown; skipped?: unknown } | undefined

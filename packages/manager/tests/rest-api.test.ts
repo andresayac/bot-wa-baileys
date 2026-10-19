@@ -60,6 +60,7 @@ function setup(extra: Partial<RestApiOptions> = {}) {
       { id: 'reader', token: READER, tenantId: 'acme', scopes: ['bots:read'] },
     ],
     rateLimit: false,
+    mediaHostResolver: async (host) => (host === 'internal.example' ? ['10.0.0.5'] : ['93.184.216.34']),
     ...extra,
   })
   return { manager, api, providers }
@@ -251,7 +252,12 @@ describe('REST API — messaging, conversations, flows, idempotency', () => {
       { kind: 'text', text: 'hola' },
       { kind: 'image', media: { url: 'https://example.com/a.png' }, caption: 'c' },
     ])
-    for (const media of ['/etc/passwd', { path: '/etc/passwd' }, { url: 'file:///etc/passwd' }, { url: 'http://insecure' }]) {
+    for (const media of [
+      '/etc/passwd', { path: '/etc/passwd' }, { url: 'file:///etc/passwd' }, { url: 'http://insecure' },
+      // SSRF: transports such as Baileys download `{ url }` media themselves, without @bot-wa/http.
+      { url: 'https://127.0.0.1/a.png' }, { url: 'https://[::ffff:7f00:1]/a.png' }, { url: 'https://localhost/a.png' },
+      { url: 'https://internal.example/a.png' }, { url: 'https://user:pw@example.com/a.png' },
+    ]) {
       const res = await call(api, 'POST', '/v1/bots/b/send', { token: OPS, body: { chatId: 'c', content: { kind: 'document', media } } })
       expect(res.status).toBe(400)
     }

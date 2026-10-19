@@ -358,6 +358,29 @@ describe('chatwootPlugin — handoff integration', () => {
   })
 })
 
+describe('chatwootPlugin — attachment hardening (security audit)', () => {
+  it('forwards only http(s) attachment URLs and never a path-like filename', async () => {
+    const { bot, chat, provider } = await createTestBot()
+    const { fake, plugin } = setup()
+    bot.plug(plugin)
+    await chat.send('hola')
+    await plugin.flush()
+    await plugin.handleWebhook(tokenReq(agentReply(fake.onlyConversation().id, '', {
+      attachments: [
+        // Some transports (Baileys) read a non-http `{ url }` from the local disk.
+        { file_type: 'file', data_url: '/etc/passwd' },
+        { file_type: 'file', data_url: 'file:///etc/passwd' },
+        { file_type: 'file', data_url: 'https://cdn.example.com/x/..%2F..%2Fsecret.pdf' },
+        { file_type: 'file', data_url: 'https://cdn.example.com/bad%E0%A4%A.pdf' },
+      ],
+    })))
+    const out = provider.outbox.filter((m) => m.chatId === CHAT).map((m) => m.content) as Array<{ kind: string; media: { url: string }; filename?: string }>
+    expect(out.map((c) => c.media.url)).toEqual(['https://cdn.example.com/x/..%2F..%2Fsecret.pdf', 'https://cdn.example.com/bad%E0%A4%A.pdf'])
+    for (const c of out) expect(c.filename ?? '').not.toMatch(/[\x5c/]/)
+    await bot.stop()
+  })
+})
+
 describe('chatwootPlugin — webhook authentication', () => {
   it('requires webhookToken or webhookSecret', () => {
     expect(() => chatwootPlugin({ baseUrl: 'https://x.example.com', apiKey: 'k', accountId: 1, inboxId: 2 })).toThrow(/webhookToken|webhookSecret/)

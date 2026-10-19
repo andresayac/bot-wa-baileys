@@ -14,7 +14,7 @@
  * Every response is JSON.
  */
 
-import { timingSafeEqual } from 'node:crypto'
+import { createHash, timingSafeEqual } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { BotManager } from './BotManager.js'
 
@@ -33,19 +33,16 @@ export interface ManagerApiOptions {
    * Never expose an unauthenticated manager API to an untrusted network.
    */
   auth?: { token: string; header?: string }
+  /**
+   * Receives the error of a failed start/stop. The HTTP response only says
+   * `"<action> failed"`: error messages can carry paths, hosts or tokens.
+   */
+  onError?: (error: unknown, info: { id: string; action: 'start' | 'stop' }) => void
 }
 
-/** Timing-safe string compare that never short-circuits on length. */
+/** Timing-safe string compare over fixed-length digests (the length is not a side channel). */
 function safeEqual(a: string, b: string): boolean {
-  const ab = Buffer.from(a)
-  const bb = Buffer.from(b)
-  // Compare against a fixed-length digest-like buffer so length itself isn't a side channel.
-  if (ab.length !== bb.length) {
-    // Still burn a comparison to keep timing roughly constant.
-    timingSafeEqual(ab, ab)
-    return false
-  }
-  return timingSafeEqual(ab, bb)
+  return timingSafeEqual(createHash('sha256').update(a).digest(), createHash('sha256').update(b).digest())
 }
 
 /** Extract the presented token from the configured header (`Bearer ` prefix optional). */
@@ -153,7 +150,7 @@ export function createManagerApi(manager: BotManager, opts: ManagerApiOptions = 
     if (m && method === 'POST') {
       const id = decodeId(m[1])
       if (!manager.has(id)) return notFound(`bot "${id}" not found`)
-      return run(send, async () => {
+      return run(send, { id, action: 'start' }, opts.onError, async () => {
         await manager.start(id)
         send(200, { id, running: manager.isRunning(id) })
       })
@@ -163,7 +160,7 @@ export function createManagerApi(manager: BotManager, opts: ManagerApiOptions = 
     if (m && method === 'POST') {
       const id = decodeId(m[1])
       if (!manager.has(id)) return notFound(`bot "${id}" not found`)
-      return run(send, async () => {
+      return run(send, { id, action: 'stop' }, opts.onError, async () => {
         await manager.stop(id)
         send(200, { id, running: manager.isRunning(id) })
       })
@@ -182,10 +179,16 @@ export function createManagerApi(manager: BotManager, opts: ManagerApiOptions = 
   }
 }
 
-/** Run an async route body; map rejections to `500 { error }`. */
-function run(send: (status: number, body: unknown) => void, body: () => Promise<void>): void {
+/** Run an async route body; map rejections to a generic `500 { error }` (details go to `onError`). */
+function run(
+  send: (status: number, body: unknown) => void,
+  info: { id: string; action: 'start' | 'stop' },
+  onError: ManagerApiOptions['onError'],
+  body: () => Promise<void>,
+): void {
   body().catch((error: unknown) => {
-    send(500, { error: error instanceof Error ? error.message : String(error) })
+    try { onError?.(error, info) } catch { /* a throwing hook must not hang the request */ }
+    send(500, { error: `${info.action} failed` })
   })
 }
 

@@ -50,9 +50,19 @@ const BARE_INVITE_RE = /\b(?:chat\.whatsapp\.com|t\.me|telegram\.me|discord\.gg|
 /** Every link-like token in `text` (scheme links, `www.` links and bare invite hosts). */
 export function findLinks(text: string): string[] {
   const seen = new Set<string>()
-  for (const m of text.matchAll(LINK_RE)) seen.add(m[0])
+  // Spans of scheme/www links, in text order: a bare invite inside one of them is
+  // part of that link. Both scans run left to right, so one pointer keeps this linear
+  // (comparing every bare match with every link was O(n²) on a crafted body).
+  const spans: Array<[start: number, end: number]> = []
+  for (const m of text.matchAll(LINK_RE)) {
+    seen.add(m[0])
+    spans.push([m.index, m.index + m[0].length])
+  }
+  let span = 0
   for (const m of text.matchAll(BARE_INVITE_RE)) {
-    if (![...seen].some((s) => s.includes(m[0]))) seen.add(m[0])
+    while (span < spans.length && spans[span]![1] <= m.index) span++
+    const inside = span < spans.length && spans[span]![0] <= m.index
+    if (!inside) seen.add(m[0])
   }
   return [...seen]
 }

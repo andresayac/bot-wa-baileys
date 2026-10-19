@@ -263,6 +263,8 @@ si se pasa (para montarlo dentro de otro servidor) o reciben `404`.
 | `defaultTenantId` | `'default'` (tenant de los bots añadidos sin tenant) |
 | `openapi` | Sobrescrituras `{ title?, version?, servers? }` del documento |
 | `allowInsecureMediaUrls` | `false`: `send` solo acepta URLs de media `https:` |
+| `allowPrivateMediaHosts` | `false`: `send` rechaza URLs de media cuyo host es o resuelve a una dirección loopback/privada/link-local (SSRF) |
+| `mediaHostResolver` | Resolver DNS para comprobar los hosts de media (tests, gateways de salida). Por defecto, el del sistema |
 
 ### Autenticación y tenants
 
@@ -439,7 +441,9 @@ la API compacta original: `GET {prefix}/health`, `GET {prefix}/metrics`
 (texto Prometheus), `GET {prefix}/bots`, `GET {prefix}/bots/:id`,
 `POST {prefix}/bots/:id/start` y `POST {prefix}/bots/:id/stop`. Sin `auth`
 **no tiene autenticación** y registra un aviso una sola vez; pon siempre un
-token. Para despliegues nuevos, usa `createRestApi`.
+token. Un start/stop fallido responde `500 { "error": "start failed" }` (el
+error va a `onError(error, { id, action })`, nunca al cliente). Para
+despliegues nuevos, usa `createRestApi`.
 
 ## Ver también
 

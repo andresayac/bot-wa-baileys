@@ -561,6 +561,9 @@ importers:
       '@bot-wa/core':
         specifier: workspace:*
         version: link:../core
+      '@bot-wa/http':
+        specifier: workspace:*
+        version: link:../http
       pino:
         specifier: ^10.3.1
         version: 10.3.1

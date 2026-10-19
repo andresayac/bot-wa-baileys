@@ -151,8 +151,10 @@ export class GoHighLevelProvider implements IProvider<GhlWebhookBody> {
     }
     if (!body || typeof body !== 'object' || Array.isArray(body)) return 400
     const event = body as GhlWebhookBody
-    if (event.locationId !== undefined && event.locationId !== this.config.locationId) {
-      this.logger.debug({ locationId: event.locationId }, 'HighLevel webhook for another location ignored')
+    // HighLevel signs every app's webhooks with the same platform key: a body
+    // without (or with another) locationId may have been signed for someone else.
+    if (event.locationId !== this.config.locationId) {
+      this.logger.debug({ locationId: event.locationId }, 'HighLevel webhook for another (or no) location ignored')
       return 200
     }
     const parsed = parseInbound(event)

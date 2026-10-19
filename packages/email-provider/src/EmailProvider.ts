@@ -58,7 +58,7 @@ import {
 import { domainOf, looksLikeAddress, normalizeAddress, type EmailAddress } from './address.js'
 import { isAuthenticated } from './auth.js'
 import { detectBounce } from './bounce.js'
-import { composeContent, type ResolvedMedia } from './compose.js'
+import { composeContent, singleLine, type ResolvedMedia } from './compose.js'
 import { toEmailProviderError } from './errors.js'
 import { htmlToText } from './html.js'
 import { ImapIngress, isAuthError, type ImapMessageMeta } from './imap.js'
@@ -586,9 +586,10 @@ export class EmailProvider implements IProvider<EmailRaw> {
     }
 
     const pd = options?.platformData ?? {}
-    const subject = (typeof pd.subject === 'string' && pd.subject)
+    // Inbound subjects/names are RFC 2047-decoded and may carry CR/LF: never let them reach a header raw.
+    const subject = singleLine((typeof pd.subject === 'string' && pd.subject)
       || composed.overrides.subject
-      || (thread?.subject ? `Re: ${thread.subject}` : this.config.defaultSubject ?? '(no subject)')
+      || (thread?.subject ? `Re: ${thread.subject}` : this.config.defaultSubject ?? '(no subject)'))
     const id = `${randomUUID()}@${domainOf(this.address) ?? 'bot-wa.local'}`
     const inReplyTo = options?.quoted?.id ?? thread?.lastMessageId
     const refs = [...(thread?.references ?? [])]
@@ -602,8 +603,8 @@ export class EmailProvider implements IProvider<EmailRaw> {
     }
 
     const mail: SmtpMailOptions = {
-      from: this.config.fromName ? { name: this.config.fromName, address: this.address } : { address: this.address },
-      to: to.name ? { name: to.name, address: to.address } : { address: to.address },
+      from: this.config.fromName ? { name: singleLine(this.config.fromName), address: this.address } : { address: this.address },
+      to: to.name ? { name: singleLine(to.name), address: to.address } : { address: to.address },
       subject,
       text: composed.overrides.text ?? composed.text,
       messageId: `<${id}>`,

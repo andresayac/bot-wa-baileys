@@ -145,3 +145,28 @@ describe('parseGraphBody', () => {
     expect(parseGraphBody<{ a: number }>({ a: 3 })).toEqual({ a: 3 })
   })
 })
+
+describe('security audit hardening', () => {
+  it('verifyChallenge never accepts an empty configured verify token', () => {
+    expect(verifyChallenge({ 'hub.mode': 'subscribe', 'hub.verify_token': '', 'hub.challenge': '1' }, '')).toBeNull()
+    expect(verifyChallenge({ 'hub.mode': 'subscribe', 'hub.challenge': '1' }, '')).toBeNull()
+  })
+
+  it('verifyChallenge rejects non-string (array) query values', () => {
+    const query = { 'hub.mode': 'subscribe', 'hub.verify_token': ['s3cret'], 'hub.challenge': '1' } as unknown as Parameters<typeof verifyChallenge>[0]
+    expect(verifyChallenge(query, 's3cret')).toBeNull()
+  })
+
+  it('checkGraphSignature finds the signature header regardless of its casing', () => {
+    const raw = Buffer.from('{"object":"whatsapp_business_account"}')
+    const sig = `sha256=${createHmac('sha256', 'app-secret').update(raw).digest('hex')}`
+    expect(checkGraphSignature(raw, { 'X-Hub-Signature-256': sig }, 'app-secret')).toEqual({ ok: true })
+  })
+
+  it('verifySignature accepts an upper-case hex digest and rejects garbage', () => {
+    const raw = Buffer.from('{}')
+    const hex = createHmac('sha256', 'k').update(raw).digest('hex')
+    expect(verifySignature(raw, `sha256=${hex.toUpperCase()}`, 'k')).toBe(true)
+    expect(verifySignature(raw, 'sha256=zz', 'k')).toBe(false)
+  })
+})
