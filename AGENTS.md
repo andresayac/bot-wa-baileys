@@ -44,6 +44,7 @@ pnpm --filter "./packages/*-store" test   # los stores (con BOTWA_TEST_*_URL, ta
 
 pnpm changeset                            # añade un changeset (todo cambio visible de un paquete público)
 pnpm pack:smoke                           # empaqueta los paquetes públicos y los prueba instalados desde tarballs (no publica)
+pnpm test:scripts                         # tests de los helpers de scripts/ (semver del smoke test)
 
 pnpm docs:dev                             # sitio VitePress en local (http://localhost:5173/)
 pnpm docs                                 # TypeDoc + VitePress (CI lo compila en Node 24; no se publica en ningún hosting)

@@ -16,6 +16,7 @@
     "docs:serve": "vitepress serve docs",
     "typecheck": "pnpm -r typecheck",
     "pack:smoke": "node scripts/pack-smoke.mjs",
+    "test:scripts": "node --test scripts/smoke/semver.test.mjs",
     "changeset": "changeset",
     "version-packages": "changeset version",
     "release": "pnpm build && changeset publish"

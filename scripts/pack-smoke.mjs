@@ -38,6 +38,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { gunzipSync } from 'node:zlib'
+import { satisfies } from './smoke/semver.mjs'
 
 /* -------------------------------------------------------------------------- */
 /* Consumer sources                                                           */
@@ -251,60 +252,6 @@ function exportSubpaths(pkg) {
 }
 const norm = (p) => p.replace(/^\.\//, '')
 const specifier = (name, sub) => (sub === '.' ? name : `${name}/${sub.slice(2)}`)
-
-/* -------------------------------------------------------------------------- */
-/* Minimal semver (only what our ranges use: exact, ^, ~, >=, prereleases)     */
-/* -------------------------------------------------------------------------- */
-
-function parseVer(v) {
-  const m = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$/.exec(v.trim())
-  if (!m) return undefined
-  return { major: +m[1], minor: +m[2], patch: +m[3], pre: m[4] ? m[4].split('.') : [] }
-}
-function cmpVer(a, b) {
-  for (const k of ['major', 'minor', 'patch']) if (a[k] !== b[k]) return a[k] - b[k]
-  if (!a.pre.length || !b.pre.length) return (b.pre.length ? 1 : 0) - (a.pre.length ? 1 : 0)
-  for (let i = 0; i < Math.max(a.pre.length, b.pre.length); i++) {
-    const x = a.pre[i]
-    const y = b.pre[i]
-    if (x === undefined) return -1
-    if (y === undefined) return 1
-    const nx = /^\d+$/.test(x)
-    const ny = /^\d+$/.test(y)
-    if (nx && ny && +x !== +y) return +x - +y
-    if (nx !== ny) return nx ? -1 : 1
-    if (x !== y) return x < y ? -1 : 1
-  }
-  return 0
-}
-/** Does `version` satisfy `range`? Prereleases are allowed (we pack alphas). */
-function satisfies(version, range) {
-  const v = parseVer(version)
-  if (!v) return false
-  return range.split('||').some((alt) =>
-    alt
-      .trim()
-      .split(/\s+/)
-      .every((c) => {
-        const m = /^(\^|~|>=|<=|>|<|=)?(.+)$/.exec(c)
-        const op = m?.[1] ?? '='
-        const r = parseVer(m?.[2] ?? '')
-        if (!r) return c === '*' || c === 'latest'
-        const d = cmpVer(v, r)
-        if (op === '=') return d === 0
-        if (op === '>=') return d >= 0
-        if (op === '>') return d > 0
-        if (op === '<=') return d <= 0
-        if (op === '<') return d < 0
-        if (d < 0) return false
-        if (op === '~') return v.major === r.major && v.minor === r.minor
-        // ^: same left-most non-zero component
-        if (r.major > 0) return v.major === r.major
-        if (r.minor > 0) return v.major === 0 && v.minor === r.minor
-        return v.major === 0 && v.minor === 0 && v.patch === r.patch
-      }),
-  )
-}
 
 /* -------------------------------------------------------------------------- */
 /* Main                                                                       */
