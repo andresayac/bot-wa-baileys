@@ -85,3 +85,40 @@ describe('toInbound — timestamps', () => {
     expect(typeof m.timestamp).toBe('number')
   })
 })
+
+describe('toInbound — location, contact and template replies', () => {
+  it('maps a static location and uses its name as body', () => {
+    const m = toInbound(msg({ locationMessage: { degreesLatitude: 4.6, degreesLongitude: -74.1, name: 'Panadería', address: 'Calle 1' } }), new IdentityStore())
+    expect(m.type).toBe('location')
+    expect(m.body).toBe('Panadería')
+  })
+
+  it('falls back to the address when a location has no name', () => {
+    const m = toInbound(msg({ locationMessage: { address: 'Calle 1' } }), new IdentityStore())
+    expect(m.body).toBe('Calle 1')
+  })
+
+  it('maps a live location to location', () => {
+    const m = toInbound(msg({ liveLocationMessage: { degreesLatitude: 1, degreesLongitude: 2 } }), new IdentityStore())
+    expect(m.type).toBe('location')
+    expect(m.body).toBe('')
+  })
+
+  it('maps a single contact card with its display name', () => {
+    const m = toInbound(msg({ contactMessage: { displayName: 'Ana', vcard: 'BEGIN:VCARD' } }), new IdentityStore())
+    expect(m.type).toBe('contact')
+    expect(m.body).toBe('Ana')
+  })
+
+  it('maps a contacts array to contact', () => {
+    const m = toInbound(msg({ contactsArrayMessage: { displayName: '2 contacts', contacts: [{ displayName: 'A' }, { displayName: 'B' }] } }), new IdentityStore())
+    expect(m.type).toBe('contact')
+    expect(m.body).toBe('2 contacts')
+  })
+
+  it('maps a template button reply to buttons with the selected text', () => {
+    const m = toInbound(msg({ templateButtonReplyMessage: { selectedId: 'b1', selectedDisplayText: 'Sí' } }), new IdentityStore())
+    expect(m.type).toBe('buttons')
+    expect(m.body).toBe('Sí')
+  })
+})

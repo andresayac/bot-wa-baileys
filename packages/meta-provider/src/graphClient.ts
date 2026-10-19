@@ -4,9 +4,9 @@
  * core's typed provider errors.
  */
 
-import { ProviderError, type ChatId } from '@bot-wa/core'
+import { PayloadTooLargeError, ProviderError, type ChatId } from '@bot-wa/core'
 import { toGraphError, type GraphError } from '@bot-wa/graph-core'
-import { secureFetch, type SecureFetchOptions } from '@bot-wa/http'
+import { SecureHttpError, secureFetch, type SecureFetchOptions, type SecureFetchResponse } from '@bot-wa/http'
 import { isBsuid } from './identity.js'
 
 export interface GraphClientConfig {
@@ -35,6 +35,25 @@ async function graphFetch(url: string, init?: RequestInit): Promise<Response> {
     return await fetch(url, init)
   } catch (err) {
     const wrapped = new ProviderError(`Graph API request failed: ${err instanceof Error ? err.message : String(err)}`)
+    ;(wrapped as { cause?: unknown }).cause = err
+    throw wrapped
+  }
+}
+
+/**
+ * `secureFetch` for the media CDN step: policy refusals (SSRF, redirects),
+ * timeouts and transport failures reject with a typed {@link ProviderError}
+ * (original as `cause`); an oversized body becomes a {@link PayloadTooLargeError}.
+ * The message never includes the URL's query (signed media URLs carry tokens).
+ */
+async function secureFetchTyped(url: string, init: SecureFetchOptions): Promise<SecureFetchResponse> {
+  try {
+    return await secureFetch(url, init)
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err)
+    const wrapped = err instanceof SecureHttpError && err.code === 'RESPONSE_TOO_LARGE'
+      ? new PayloadTooLargeError(`Media download too large: ${detail}`)
+      : new ProviderError(`Media download failed: ${detail}`)
     ;(wrapped as { cause?: unknown }).cause = err
     throw wrapped
   }
@@ -121,7 +140,7 @@ export class GraphClient {
     const meta = await graphFetch(this.base(mediaId), { headers: this.headers() })
     const info = (await this.check(meta, '')) as { url?: string; mime_type?: string }
     if (!info.url) throw new ProviderError('Media metadata returned no url')
-    const { response: file, body } = await secureFetch(info.url, { ...this.cfg.mediaDownload, headers: this.headers() })
+    const { response: file, body } = await secureFetchTyped(info.url, { ...this.cfg.mediaDownload, headers: this.headers() })
     if (!file.ok) throw new ProviderError(`Media download failed: HTTP ${file.status}`)
     return { buffer: body, mimetype: info.mime_type ?? 'application/octet-stream' }
   }

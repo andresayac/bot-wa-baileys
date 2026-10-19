@@ -8,4 +8,4 @@
 - Statuses other than `sent` / `delivered` / `read` / `failed` (e.g. `deleted`, `warning`) are dropped instead of being reported as `failed`, which also kept them from triggering session-window fallbacks.
 - Location and contact messages get a readable `body`.
 - Buffer / stream / path media are uploaded with a real MIME type (document `mimetype`, file extension, magic bytes, then a per-kind default) instead of `application/octet-stream`, which the Cloud API rejects for images, audio, video and stickers; documents keep their `filename` in the upload.
-- Requests that never get a response (DNS, TLS, reset) reject with a `ProviderError`.
+- Requests that never get a response (DNS, TLS, reset) reject with a `ProviderError`, including the media CDN download, where an SSRF refusal or timeout is a `ProviderError` and an oversized file a `PayloadTooLargeError`.
