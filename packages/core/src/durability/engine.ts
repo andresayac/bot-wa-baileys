@@ -30,7 +30,8 @@ import { ConfigValidationError } from '../utils/validateConfig.js'
 import type { StoreNamespace } from '../store/NamespacedStore.js'
 import { computeBackoff } from './backoff.js'
 import { currentCause, nextSendKey, runWithCause, settled, type CauseRef } from './causation.js'
-import { decodeInbound, decodeJson, encodedSize, encodeInbound, encodeJson } from './codec.js'
+import { decodeInbound, decodeJson, encodedSize, encodeJson } from './codec.js'
+import { encodeInboundWithMedia, hasStoredMedia, rehydrateInbound, type InboundMediaCodec } from './media.js'
 import { SendDeferredError, StaleLeaseError } from './errors.js'
 import { MemoryDurability } from './memory.js'
 import type {
@@ -114,6 +115,8 @@ export interface DurableEngineDeps {
   reportError(error: unknown): void
   /** Clock (epoch ms). */
   now?: () => number
+  /** Durable media references (provider hooks); absent = media tokens are journaled as they are. */
+  media?: InboundMediaCodec
 }
 
 /** A send prepared by {@link DurableEngine.prepareSend}. */
@@ -269,6 +272,8 @@ export class DurableEngine implements DurabilityControl {
     this.pollMs = Math.max(10, ms(config.pollMs, 1_000, 'durability.pollMs'))
     this.retentionMs = ms(config.retention, 7 * 24 * 3600_000, 'durability.retention')
     this.failOpen = config.failOpen === true
+    const mediaRefs = config.inbox?.mediaRefs
+    if (mediaRefs !== undefined && typeof mediaRefs !== 'boolean') throw new ConfigValidationError('durability.inbox.mediaRefs', 'a boolean', mediaRefs)
     this.now = deps.now ?? (() => Date.now())
   }
 
@@ -361,7 +366,7 @@ export class DurableEngine implements DurabilityControl {
    * running it), `true` otherwise. Rejects with the pipeline's error.
    */
   async admit(event: InboundEvent, handle: () => Promise<boolean>): Promise<boolean> {
-    const payload = encodeInbound(event)
+    const payload = encodeInboundWithMedia(event, this.deps.media, this.deps.logger)
     if (!this.running || payload === undefined) return (await handle()) !== false
     const chatId = event.kind === 'message' ? event.message.chatId : event.kind === 'interaction' ? event.interaction.chatId : ''
     const { id, idempotencyKey } = this.recordId(event)
@@ -425,7 +430,11 @@ export class DurableEngine implements DurabilityControl {
       return
     }
     this.counters.inboundReplayed++
-    this.process(record, () => this.deps.replay(event), true)
+    // A journaled media reference is rebuilt inside the record's partition turn (chat FIFO kept).
+    const handle = hasStoredMedia(event)
+      ? () => rehydrateInbound(event, this.deps.media, this.deps.logger).then((e) => this.deps.replay(e))
+      : () => this.deps.replay(event)
+    this.process(record, handle, true)
       .catch((error) => this.deps.reportError(error))
   }
 

@@ -297,6 +297,15 @@ export interface DurabilityConfig {
     maxAttempts?: number
     /** Backoff between failed attempts. Default `{ baseMs: 1000, capMs: 60000, jitter: 0.2 }`. */
     backoff?: RetryBackoff
+    /**
+     * Journal a serializable reference to each message's media (`IProvider.serializeMediaRef`)
+     * so a replayed message (crash recovery, background retry) can still download it
+     * (`IProvider.rehydrateMediaRef`). Only applies to providers with those hooks. The
+     * reference grants access to the media, like the message body stored next to it.
+     * `false`: journal media tokens as they are, as before (a replayed message may then be
+     * unable to download its media). Default `true`.
+     */
+    mediaRefs?: boolean
   }
   outbox?: {
     /** Retries after the first attempt before a send is dead-lettered. Default `5`. */

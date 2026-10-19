@@ -21,6 +21,7 @@ import type { I18nConfig, LangSource, TranslateParams } from '../i18n/types.js'
 import type { StreamOptions, StreamResult, StreamSource } from '../streaming/types.js'
 import type { FormContent, FormDefinition } from '../forms/types.js'
 import type { SchedulerOptions } from '../scheduler/ScheduleStore.js'
+import type { SerializedMediaRef } from './mediaRefs.js'
 
 /* ============================================================================
  * 1. IDENTITY PRIMITIVES  (opaque — no shape grammar)
@@ -637,6 +638,23 @@ export interface IProvider<TRaw = unknown> {
 
   /** Lazy media retrieval behind one signature for every download model. */
   downloadMedia?(ref: MediaRef): Promise<Buffer | NodeJS.ReadableStream>
+
+  /**
+   * Durable journaling (`BotConfig.durability`): turn a live `MediaRef` into a JSON-safe,
+   * versioned reference that {@link rehydrateMediaRef} can rebuild in another process, so a
+   * replayed message (crash recovery, background retry) can still download its media.
+   * Synchronous, cheap and side-effect free; a throw counts as "not durable". Return
+   * `undefined` for a ref that must not be journaled (e.g. view-once media). Never include
+   * credentials: the result is stored at rest with the inbound record.
+   */
+  serializeMediaRef?(ref: MediaRef): SerializedMediaRef | undefined
+  /**
+   * Rebuild the `MediaRef` of a replayed message from what {@link serializeMediaRef} wrote.
+   * `ref` is the journaled ref without its token. Pure decoding: it must not need the
+   * transport to be connected. `stored` comes from storage and is UNTRUSTED: reject an
+   * invalid, unknown-version or tampered value with a `ProviderError`.
+   */
+  rehydrateMediaRef?(stored: SerializedMediaRef, ref: Omit<MediaRef, 'token'>): MediaRef | Promise<MediaRef>
 
   /**
    * Read-back seam for poll aggregation, quote-body resolution, retry decrypt.
