@@ -22,7 +22,8 @@
  */
 
 import type { Logger } from 'pino'
-import type { LeaseProvider } from '../coordination/lease.js'
+import { isCoordinatorLease, type SchedulerLease } from '../coordination/lease.js'
+import type { Leadership } from '../coordination/types.js'
 import type { DurableTaskHandler, DurableTaskOptions, MissedRunPolicy, ScheduledTask } from '../core/types.js'
 import { parseDuration } from '../utils/duration.js'
 import { parseIdlePeriod, randomId } from '../utils/timers.js'
@@ -80,7 +81,7 @@ export class DurableScheduler {
   private readonly entries = new Map<string, DurableEntry>()
   private readonly store: ScheduleStore
   private readonly explicitStore: boolean
-  private readonly lease?: LeaseProvider
+  private readonly lease?: SchedulerLease
   private readonly leaderKey: string
   private readonly tickMs: number
   private readonly leaderTtlMs: number
@@ -93,6 +94,8 @@ export class DurableScheduler {
   private epoch = 0
   private poll?: ReturnType<typeof setInterval>
   private leader?: { token: number; until: number }
+  /** The held leadership when {@link lease} is a `Coordinator` (renewed by the coordinator). */
+  private leadership?: Leadership
   private warnedMemory = false
   private readonly orphansLogged = new Set<string>()
 
@@ -105,7 +108,14 @@ export class DurableScheduler {
     this.leaderKey = `${scope}scheduler:leader`
     this.owner = opts.owner ?? randomId('replica')
     this.tickMs = parseIdlePeriod(opts.tickMs ?? 1000, 'scheduler.tickMs')
-    this.leaderTtlMs = parseIdlePeriod(opts.leaderTtlMs ?? 30_000, 'scheduler.leaderTtlMs')
+    // With a Coordinator lease, the follower's grace defaults to the coordinator's own lease TTL.
+    const coordinatorTtl = opts.lease && isCoordinatorLease(opts.lease)
+      ? (opts.lease as { leaseMs?: unknown }).leaseMs
+      : undefined
+    this.leaderTtlMs = parseIdlePeriod(
+      opts.leaderTtlMs ?? (typeof coordinatorTtl === 'number' && coordinatorTtl > 0 ? coordinatorTtl : 30_000),
+      'scheduler.leaderTtlMs',
+    )
     // With a leader lease, a follower only steps in after `leaderTtlMs`, and a dead leader's
     // lease takes up to `leaderTtlMs` to expire: neither delay makes a slot "missed".
     this.graceMs = this.tickMs + (this.lease ? 2 * this.leaderTtlMs : 0)
@@ -266,9 +276,12 @@ export class DurableScheduler {
     }
     const leader = this.leader
     this.leader = undefined
-    if (!leader || !this.lease) return undefined
-    return this.lease.release(this.leaderKey, this.owner, leader.token)
-      .catch((err: unknown) => { this.logger?.warn?.({ err }, 'scheduler: releasing the leader lease failed') })
+    const leadership = this.leadership
+    this.leadership = undefined
+    const onError = (err: unknown) => { this.logger?.warn?.({ err }, 'scheduler: releasing the leader lease failed') }
+    if (leadership) return leadership.release().catch(onError)
+    if (!leader || !this.lease || isCoordinatorLease(this.lease)) return undefined
+    return this.lease.release(this.leaderKey, this.owner, leader.token).catch(onError)
   }
 
   /** Delete a stored schedule (an orphan, or a registered task, which is cancelled too). */
@@ -510,6 +523,19 @@ export class DurableScheduler {
   private async isLeader(): Promise<boolean> {
     const lease = this.lease
     if (!lease) return true
+    if (isCoordinatorLease(lease)) {
+      // The coordinator renews a held leadership itself; its signal aborts once it is lost.
+      if (this.leadership && !this.leadership.signal.aborted) return true
+      this.leadership = undefined
+      const won = await lease.tryLead(this.leaderKey)
+      if (!won) return false
+      if (!this.running) {
+        await won.release()
+        return false
+      }
+      this.leadership = won
+      return true
+    }
     const now = this.now()
     const ttl = this.leaderTtlMs
     if (this.leader && this.leader.until - now > ttl / 3) return true

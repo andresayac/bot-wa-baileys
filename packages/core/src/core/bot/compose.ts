@@ -154,8 +154,9 @@ export function composeBot(host: ComposeHost, inputConfig: BotConfig, fields: Co
   }
   k.store = store
   k.namespace = namespace
-  // Durable scheduler tasks (opt-in): only replaced when `BotConfig.scheduler` is set.
-  if (config.scheduler) k.scheduler = createBotScheduler(config.scheduler, namespace)
+  // Durable scheduler tasks (opt-in): only replaced when `BotConfig.scheduler` is set. Its
+  // leadership defaults to the multi-replica coordinator (`BotConfig.coordination`).
+  if (config.scheduler) k.scheduler = createBotScheduler(config.scheduler, namespace, config.coordination?.coordinator)
   const persistence = new Persistence(store, k.chatWrites)
   k.messageLog = new MessageLog({
     store,

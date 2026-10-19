@@ -156,6 +156,16 @@ bot.on('error', ({ error }) => {
 
 ## Singleton jobs and fenced locks
 
+Durable scheduler tasks (`bot.every('5m', { id: 'report' }, fn)` with
+`BotConfig.scheduler`, see the [scheduler guide](./scheduler.md))
+already run each occurrence on one replica at a time. With `coordination` set,
+the scheduler's leadership (`scheduler.lease`) defaults to the same coordinator,
+so one Redis backend coordinates chats, the transport session and the
+scheduler. Pass `scheduler.lease` explicitly (for example `store.leases()`) to
+use a different backend.
+
+For a plain (non-durable) task, take the leadership yourself:
+
 ```ts
 const coordinator = store.coordinator()
 bot.every('5m', async () => {

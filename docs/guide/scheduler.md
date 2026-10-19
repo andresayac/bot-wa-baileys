@@ -205,10 +205,10 @@ kept and never run.
 | Option | Default | Meaning |
 |---|---|---|
 | `store` | in memory | Where schedules persist. `SQLiteStore#schedules()` (table `schedules`, same connection) or `RedisStore#schedules()` (`{prefix}:sched:{id}`, same client). Without it durable tasks work but do not survive a restart, and a warning is logged once. |
-| `lease` | none | Optional leadership, which saves store round-trips with many replicas: the replica holding `scheduler:leader` claims on time, and the others only claim an occurrence left overdue for `leaderTtlMs` (a task only they registered, e.g. during a rolling deploy, or a dead leader), so such a task runs up to `leaderTtlMs` late. `RedisStore#leases()` gives a fenced one. Correctness never depends on it. |
+| `lease` | none | Optional leadership, which saves store round-trips with many replicas: the replica holding `scheduler:leader` claims on time, and the others only claim an occurrence left overdue for `leaderTtlMs` (a task only they registered, e.g. during a rolling deploy, or a dead leader), so such a task runs up to `leaderTtlMs` late. Either a fenced `LeaseProvider` (`RedisStore#leases()`, `MemoryLeaseProvider`) or a multi-replica `Coordinator` (`store.coordinator()`); with `BotConfig.coordination` it defaults to that coordinator. Correctness never depends on it. |
 | `owner` | random | This process's lease-owner id. |
 | `tickMs` | `'1s'` | Poll period: picks up an occurrence whose runner crashed (once its lease expires) and retries after store errors. |
-| `leaderTtlMs` | `'30s'` | TTL of the leader lease. |
+| `leaderTtlMs` | `'30s'` | TTL of the leader lease. With a `Coordinator` (which renews its leadership itself) it is only the follower's grace; default: the coordinator's `leaseMs`. |
 
 Any object implementing `ScheduleStore` works (exported from
 `@bot-wa/core`, with `MemoryScheduleStore` as the reference). Postgres, MySQL

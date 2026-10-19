@@ -11,7 +11,7 @@
  * shared suite `test-utils/schedule-store-conformance.ts` runs against every backend.
  */
 
-import type { LeaseProvider } from '../coordination/lease.js'
+import type { LeaseProvider, SchedulerLease } from '../coordination/lease.js'
 
 /** Kind of a durable task. */
 export type ScheduleKind = 'cron' | 'interval' | 'once'
@@ -99,8 +99,13 @@ export interface SchedulerOptions {
    * holding the `scheduler:leader` lease claims occurrences on time; the others only claim
    * one left overdue for `leaderTtlMs` (a task only they registered, or a dead leader).
    * Correctness never depends on it: per-occurrence claims are fenced anyway.
+   *
+   * Either a fenced {@link LeaseProvider} (`MemoryLeaseProvider`, `RedisStore#leases()`)
+   * or a multi-replica `Coordinator` (`RedisCoordinator`, `MemoryCoordinator`), whose
+   * `tryLead` leadership is used. A bot with `BotConfig.coordination` defaults to its
+   * coordinator here.
    */
-  lease?: LeaseProvider
+  lease?: SchedulerLease
   /** This process's lease-owner id. Default: a random id per scheduler. */
   owner?: string
   /**
@@ -110,7 +115,12 @@ export interface SchedulerOptions {
    * than that after it fell due counts as missed (no replica ran it in time).
    */
   tickMs?: string | number
-  /** TTL of the `scheduler:leader` lease when {@link lease} is set (duration or ms, default `'30s'`). */
+  /**
+   * TTL of the `scheduler:leader` lease when {@link lease} is set (duration or ms, default
+   * `'30s'`). With a `Coordinator` lease the coordinator renews the leadership itself;
+   * this is then only the follower's grace before it steps in (default: the
+   * coordinator's `leaseMs` when it exposes one, else `'30s'`).
+   */
   leaderTtlMs?: string | number
   /** Clock used for durable tasks (epoch ms). For tests; default `Date.now`. */
   now?: () => number

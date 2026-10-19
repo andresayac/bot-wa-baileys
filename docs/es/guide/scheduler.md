@@ -210,10 +210,10 @@ se conserva y nunca se ejecuta.
 | Opción | Por defecto | Significado |
 |---|---|---|
 | `store` | en memoria | Dónde se guardan los calendarios. `SQLiteStore#schedules()` (tabla `schedules`, misma conexión) o `RedisStore#schedules()` (`{prefix}:sched:{id}`, mismo cliente). Sin él las tareas durables funcionan pero no sobreviven a un reinicio, y se avisa una vez en el log. |
-| `lease` | ninguno | Liderazgo opcional, que ahorra viajes al store con muchas réplicas: la réplica que tiene `scheduler:leader` reclama a tiempo y las demás solo reclaman una ejecución que lleva `leaderTtlMs` vencida (una tarea que solo ellas registran, p. ej. durante un despliegue gradual, o un líder caído), así que esa tarea corre hasta `leaderTtlMs` tarde. `RedisStore#leases()` da uno con fencing. La corrección nunca depende de él. |
+| `lease` | ninguno | Liderazgo opcional, que ahorra viajes al store con muchas réplicas: la réplica que tiene `scheduler:leader` reclama a tiempo y las demás solo reclaman una ejecución que lleva `leaderTtlMs` vencida (una tarea que solo ellas registran, p. ej. durante un despliegue gradual, o un líder caído), así que esa tarea corre hasta `leaderTtlMs` tarde. Un `LeaseProvider` con fencing (`RedisStore#leases()`, `MemoryLeaseProvider`) o un `Coordinator` multi-réplica (`store.coordinator()`); con `BotConfig.coordination` usa ese coordinador por defecto. La corrección nunca depende de él. |
 | `owner` | aleatorio | Id de dueño de lease de este proceso. |
 | `tickMs` | `'1s'` | Periodo de sondeo: recoge una ejecución cuyo ejecutor cayó (cuando vence su lease) y reintenta tras errores del store. |
-| `leaderTtlMs` | `'30s'` | TTL del lease de líder. |
+| `leaderTtlMs` | `'30s'` | TTL del lease de líder. Con un `Coordinator` (que renueva su liderazgo él mismo) es solo la gracia del seguidor; por defecto, el `leaseMs` del coordinador. |
 
 Sirve cualquier objeto que implemente `ScheduleStore` (exportado desde
 `@bot-wa/core`, con `MemoryScheduleStore` como referencia). Los backends de

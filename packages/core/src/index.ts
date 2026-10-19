@@ -175,9 +175,10 @@ export type {
   SchedulerOptions,
 } from './scheduler/ScheduleStore.js'
 export { cronNextRun } from './scheduler/cron.js'
-// Coordination: minimal fenced lease contract (to be unified with the multi-replica Coordinator)
+// Scheduler leadership: a low-level fenced LeaseProvider, or the multi-replica Coordinator
+// (`SchedulerLease`; a bot with `coordination` uses its coordinator by default).
 export { MemoryLeaseProvider } from './coordination/lease.js'
-export type { LeaseProvider, LeaseGrant } from './coordination/lease.js'
+export type { LeaseProvider, LeaseGrant, SchedulerLease } from './coordination/lease.js'
 
 // Engine internals (buildMessageContext, createPacer, runBroadcast, MetricsCollector, …) live
 // under the "./internal" subpath (import from '@bot-wa/core/internal'). The main entry still

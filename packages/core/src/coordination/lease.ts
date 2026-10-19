@@ -1,11 +1,26 @@
 /**
- * Minimal fenced lease contract, shared by the persistent scheduler (leadership) and,
- * later, by the multi-replica coordinator.
+ * Minimal fenced lease contract: the low-level primitive behind the persistent
+ * scheduler's (optional) leadership.
  *
- * NOTE (unification): the multi-replica coordinator owns this folder. When it ships its
- * `Coordinator` (fenced, numeric tokens), `LeaseProvider` must become a subset of it or a
- * type alias, never a second incompatible lease type.
+ * Unification with multi-replica coordination: the scheduler's leadership seam is
+ * {@link SchedulerLease}, which accepts either this low-level {@link LeaseProvider}
+ * (explicit owner, TTL and token) or the replicas' {@link Coordinator} (its `tryLead`
+ * leadership, renewed by the coordinator). A bot with `BotConfig.coordination` uses its
+ * coordinator for the scheduler's leadership unless `scheduler.lease` says otherwise,
+ * so a multi-replica deployment has one coordination backend, not two.
  */
+import type { Coordinator } from './types.js'
+
+/**
+ * Leadership backend of the persistent scheduler: a fenced {@link LeaseProvider}, or a
+ * multi-replica {@link Coordinator} (only its `tryLead` is used).
+ */
+export type SchedulerLease = LeaseProvider | Pick<Coordinator, 'tryLead'>
+
+/** Is `lease` a {@link Coordinator} (leadership through `tryLead`) rather than a {@link LeaseProvider}? */
+export function isCoordinatorLease(lease: SchedulerLease): lease is Pick<Coordinator, 'tryLead'> {
+  return typeof (lease as Partial<Coordinator>).tryLead === 'function'
+}
 
 /** A granted lease: `token` is a fencing token, strictly increasing per key. */
 export interface LeaseGrant {

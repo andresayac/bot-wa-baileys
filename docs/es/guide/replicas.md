@@ -167,6 +167,16 @@ bot.on('error', ({ error }) => {
 
 ## Tareas únicas y locks con fencing
 
+Las tareas durables del scheduler (`bot.every('5m', { id: 'informe' }, fn)` con
+`BotConfig.scheduler`, ver la [guía del scheduler](./scheduler.md))
+ya ejecutan cada ocurrencia en una sola réplica a la vez. Con `coordination`,
+el liderazgo del scheduler (`scheduler.lease`) usa por defecto el mismo
+coordinador, así que un solo Redis coordina chats, la sesión del transporte y
+el scheduler. Pasa `scheduler.lease` explícitamente (por ejemplo
+`store.leases()`) para usar otro backend.
+
+Para una tarea normal (no durable), toma el liderazgo tú mismo:
+
 ```ts
 const coordinator = store.coordinator()
 bot.every('5m', async () => {
