@@ -185,7 +185,10 @@ export class DurableEngine implements DurabilityControl {
     outboxJournaled: 0, outboxDeduped: 0, outboxRetried: 0, outboxDeferred: 0, outboxDead: 0,
     outboxAmbiguous: 0, outboxBypassed: 0, staleLeases: 0,
   }
+  /** The journals are in use (between `resume()` and `stop()`). */
   private running = false
+  /** Inline retries and the sweeper are on (between `resume()` and `pause()`). */
+  private sweeperOn = false
   private recovered: InboxRecord[] = []
   private timer: ReturnType<typeof setInterval> | undefined
   private sweeping: Promise<void> | undefined
@@ -255,6 +258,7 @@ export class DurableEngine implements DurabilityControl {
    */
   resume(): void {
     this.running = true
+    this.sweeperOn = true
     const recovered = this.recovered
     this.recovered = []
     for (const record of recovered) this.spawnReplay(record)
@@ -263,9 +267,12 @@ export class DurableEngine implements DurabilityControl {
     void this.runSweep(true)
   }
 
-  /** `bot.stop()`, as inbound closes: stop the sweeper; inline retries give up (the outbox keeps them). */
+  /**
+   * `bot.stop()`, as inbound closes: stop the sweeper; inline retries give up (the outbox
+   * keeps them for the next start). Sends still in flight keep being journaled until {@link stop}.
+   */
   pause(): void {
-    this.running = false
+    this.sweeperOn = false
     if (this.timer) clearInterval(this.timer)
     this.timer = undefined
   }
@@ -284,6 +291,7 @@ export class DurableEngine implements DurabilityControl {
       ])
       if (timer) clearTimeout(timer)
     }
+    this.running = false
     await this.backend.stop?.()
   }
 
@@ -551,7 +559,7 @@ export class DurableEngine implements DurabilityControl {
         if (error instanceof RateLimitedError || (error as { name?: unknown })?.name === 'RateLimitedError') {
           wait = Math.max(wait, Number((error as RateLimitedError).retryAfterMs) || 0)
         }
-        const keepInline = inline && this.running && now + wait - startedAt <= this.inlineMaxMs
+        const keepInline = inline && this.sweeperOn && now + wait - startedAt <= this.inlineMaxMs
         // While retrying inline, the record stays out of the sweeper's reach until just after the wait.
         const retryAt = now + wait + (keepInline ? this.pollMs * 2 + 1_000 : 0)
         await this.settleSend(record, () => this.outbox.markFailed(record.key, record.fencingToken, errorSummary(error), { now, retryAt }))
@@ -563,7 +571,7 @@ export class DurableEngine implements DurabilityControl {
           throw error
         }
         await sleep(wait)
-        const again = this.running ? await this.outbox.begin(record.key, { owner: this.instanceId, leaseMs: this.outboxLeaseMs, now: this.now() }) : null
+        const again = this.sweeperOn ? await this.outbox.begin(record.key, { owner: this.instanceId, leaseMs: this.outboxLeaseMs, now: this.now() }) : null
         if (!again) {
           this.counters.outboxDeferred++
           throw new SendDeferredError(record.key, error)
@@ -609,7 +617,7 @@ export class DurableEngine implements DurabilityControl {
     const cause = currentCause()
     const put = await this.outbox.put({ key, chatId: payload.chatId, ...(cause ? { causationId: cause.id } : {}), ...encoded, createdAt: now }, now)
     if (put.status === 'created') this.counters.outboxJournaled++
-    if (this.running) void this.sweep()
+    if (this.sweeperOn) void this.sweep()
     return { key, status: put.status === 'created' ? 'queued' : 'exists' }
   }
 
@@ -692,12 +700,12 @@ export class DurableEngine implements DurabilityControl {
 
   async replayInbound(id: string): Promise<void> {
     await this.inbox.replay(id, this.now())
-    if (this.running) await this.sweep()
+    if (this.sweeperOn) await this.sweep()
   }
 
   async retrySend(key: string): Promise<void> {
     await this.outbox.retry(key, this.now())
-    if (this.running) await this.sweep()
+    if (this.sweeperOn) await this.sweep()
   }
 }
 

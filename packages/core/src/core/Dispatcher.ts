@@ -198,6 +198,11 @@ export class Dispatcher {
    *   1. blacklist / whitelist — dropped silently: not persisted, no hooks, no 'message',
    *      and NOT recorded by dedupe (a redelivery after un-blocking is processed)
    *   2. inbound dedupe — a redelivered message/interaction (same chatId + id) stops here
+   *   2b. durability journal (only with `BotConfig.durability`) — the event is appended to
+   *      the inbox before anything else runs (a redelivery the journal already knows stops
+   *      here; a journal that cannot record it keeps it out, fail-closed) and is acknowledged
+   *      once the conversation steps it started/fed settled; after a crash it is replayed
+   *      from step 1 (access lists re-checked)
    *   3. persistence — chat, contact and message upserts
    *   4. groupMode filter — a group message the bot must ignore stops here (still persisted)
    *  Dispatcher (per-chat FIFO queue, this method) — a job whose turn comes after
