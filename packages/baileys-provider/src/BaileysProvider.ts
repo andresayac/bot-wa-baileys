@@ -35,6 +35,7 @@ import type {
   ProviderCapabilities,
   SendOptions,
   SendResult,
+  SerializedMediaRef,
   UserId,
 } from '@bot-wa/core'
 import {
@@ -53,6 +54,7 @@ import {
   type PollStore, type TrackedPoll,
 } from './polls.js'
 import { contextInfoOf, toInbound } from './toInbound.js'
+import { parseBaileysMediaRef, serializeBaileysMediaRef } from './mediaRef.js'
 import { toCallEvent } from './toCallEvent.js'
 import { toOutbound } from './toOutbound.js'
 import type { RemoteMediaConfig } from './MediaProcessor.js'
@@ -118,6 +120,13 @@ export interface BaileysProviderConfig {
    * {@link RemoteMediaConfig}.
    */
   remoteMedia?: RemoteMediaConfig
+  /**
+   * Durable inbox (`BotConfig.durability`): which media references may be journaled so a
+   * replayed message can still download its media. By default every media message is except
+   * view-once media, whose key is never written to a journal; `{ viewOnce: true }` journals
+   * those too. Turn journaling off for every media with `durability.inbox.mediaRefs: false`.
+   */
+  durableMedia?: { viewOnce?: boolean }
   debug?: boolean
   logger?: Logger
 }
@@ -333,6 +342,27 @@ export class BaileysProvider implements IProvider<WAMessage> {
       ;(wrapped as { cause?: unknown }).cause = err
       throw wrapped
     }
+  }
+
+  /**
+   * Durable inbox: the media content (no thumbnail, caption or quoted context) and the raw
+   * message key, enough to download the media again in another process. `undefined` for
+   * view-once media unless `durableMedia.viewOnce` is set.
+   */
+  serializeMediaRef(ref: MediaRef): SerializedMediaRef | undefined {
+    return serializeBaileysMediaRef(ref, { viewOnce: this.config.durableMedia?.viewOnce === true })
+  }
+
+  /**
+   * Rebuild the token of a replayed media message: the original `WAMessage` while it is still
+   * in this process's message cache, otherwise one holding only the journaled media content.
+   * Expired CDN media is re-requested from the sender's phone on download, as for live media.
+   * @throws {ProviderError} on an invalid, unknown-version or tampered reference.
+   */
+  rehydrateMediaRef(stored: SerializedMediaRef, ref: Omit<MediaRef, 'token'>): MediaRef {
+    const { key, message } = parseBaileysMediaRef(stored, ref.kind)
+    const cached = this.msgCache.get(cacheKey(key))
+    return { ...ref, token: cached?.message ? cached : message }
   }
 
   async markRead(refs: MessageRef[]): Promise<void> {
