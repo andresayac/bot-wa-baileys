@@ -287,9 +287,18 @@ The example is in English. To serve customers in another language:
    answers in. Translate `GREETING`, `errorMessage`, `refusalMessage` and the
    tool `title`s, which the customer sees in confirmations.
 2. **Built-in texts** (the confirmation wrapper "About to: ... Do you confirm?
-   (yes/no)", the Yes/No button labels, slash-command replies) come from the i18n catalog. Set
-   `i18n: { defaultLocale: 'es' }` for the bundled Spanish texts, or register
-   your own language with `bot.locale('fr', { ai: { tools: { confirm: '...' } }, core: { ... } })`.
+   (yes/no)", the Yes/No button labels, slash-command replies) come from the i18n catalog.
+   The bot pins them to English with `i18n: { defaultLocale: 'en', locales: ['en'] }`,
+   so they always match the English persona even when the customer's client reports
+   another language (Telegram sends its `language_code`). For a Spanish-only bot set
+   `i18n: { defaultLocale: 'es', locales: ['es'] }` (bundled Spanish texts), or register
+   your own language with `bot.locale('fr', { ai: { tools: { confirm: '...' } }, core: { ... } })`
+   and list it in `locales`.
+   **Bilingual instead:** use `locales: ['en', 'es']` so each customer gets the
+   built-in texts in their client's language (or the one they pick with
+   `ctx.setLang()`), and make your own content follow `ctx.lang` too — the
+   persona (the model's language), `GREETING`, the error/refusal messages and the
+   tool `title`s — otherwise customers get Spanish wrappers around English content.
    Accepted answers to a confirmation can be extended with
    `aiPlugin({ toolConfirm: { yes: [...], no: [...] } })`.
 3. **Money and menu.** Change `CURRENCY`/`LOCALE` and the product names in

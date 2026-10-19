@@ -123,6 +123,28 @@ describe('bakery bot (end to end)', () => {
     expect(await orders.list(ALICE)).toEqual([])
   })
 
+  it('keeps its built-in texts in English whatever language the client reports', async () => {
+    // A Telegram client in Spanish reports language_code "es" on some updates only.
+    const provider = new MockProvider({ buttons: true })
+    bot = createBakeryBot(provider, { aiProvider: scriptedModel(), allowedUsers: [ALICE], ai: { memory: false } })
+    await bot.start()
+    const asks = () => provider.outbox.filter((m) => m.content.kind === 'buttons').map((m) => m.content as Extract<MockOutgoing['content'], { kind: 'buttons' }>)
+    const ask = async (text: string, platformData?: Record<string, unknown>) => {
+      provider.incoming(text, { from: ALICE, ...(platformData ? { platformData } : {}) })
+      await new Promise((r) => setTimeout(r, 50))
+      const last = asks().at(-1)!
+      provider.interaction(last.buttons[1]!.id, { from: ALICE, platformData: { languageCode: 'es' } })
+      await new Promise((r) => setTimeout(r, 50))
+      return last
+    }
+    const first = await ask('two croissants and a coffee')
+    const second = await ask('two croissants and a coffee', { languageCode: 'es' })
+    for (const q of [first, second]) {
+      expect(q.text).toMatch(/^About to: Place order\n[\s\S]*\nDo you confirm\?$/)
+      expect(q.buttons.map((b) => b.title)).toEqual(['Yes', 'No'])
+    }
+  })
+
   it('does nothing when the customer says no', async () => {
     const { alice, orders } = await startBakery()
     await alice.send('two croissants and a coffee')
