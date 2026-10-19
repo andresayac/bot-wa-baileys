@@ -41,6 +41,8 @@ export class ChatTurnGate {
   private reservations = new Map<string, Promise<unknown>>()
   /** Keys whose last turn on this replica was lost and not re-acquired since. */
   private lostKeys = new Map<string, LeaseLostError>()
+  /** Turns this replica currently holds, by key. */
+  private held = new Map<string, ChatTurn>()
 
   constructor(private deps: ChatTurnGateDeps) {}
 
@@ -69,6 +71,7 @@ export class ChatTurnGate {
         throw new CoordinationUnavailableError(key, 'unavailable', { cause: error })
       }
       this.lostKeys.delete(key)
+      this.held.set(key, turn)
       const onLost = () => {
         const reason = turn.signal.reason
         const error = reason instanceof LeaseLostError ? reason : new LeaseLostError(key, turn.fence, 'expired')
@@ -84,6 +87,7 @@ export class ChatTurnGate {
         await this.settled(key, turn)
       } finally {
         turn.signal.removeEventListener('abort', onLost)
+        if (this.held.get(key) === turn) this.held.delete(key)
         await turn.release().catch(() => {})
       }
     }
@@ -97,6 +101,7 @@ export class ChatTurnGate {
     if (key === undefined) return
     const lost = this.lostKeys.get(key)
     if (lost) throw lost
+    this.held.get(key)?.assertHeld()
   }
 
   private async settled(key: string, turn: ChatTurn): Promise<void> {
