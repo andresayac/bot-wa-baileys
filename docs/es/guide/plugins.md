@@ -20,14 +20,29 @@ await bot.start()
 // unplug()
 ```
 
-`bot.plug(plugin, config?)` devuelve una función **unplug** que revierte
-todo lo que el plugin registró vía `ctx.bot` (comandos, matchers,
-conversaciones, flows, hooks, plugins anidados y callbacks de `onDispose`) y
-después llama a su `uninstall(ctx)`, si lo tiene. Llamarla dos veces no hace
-nada. Si `install()` lanza, lo que alcanzó a registrar se revierte antes de
-que el error te llegue. Los flows que el plugin registra en caliente con
-`ctx.bot.registerFlow()` (o crea con `ctx.bot.replaceFlow()`) también se
-desregistran.
+`bot.plug(plugin, config?)` devuelve una función **unplug** (no el bot, así
+que las llamadas a `plug()` no se encadenan). Al llamarla, primero ejecuta el
+`uninstall(ctx)` del plugin, si lo tiene, y después revierte, de lo más nuevo
+a lo más antiguo, lo que el plugin registró vía `ctx.bot`:
+
+- comandos (`command()`), matchers (`when()`, `onMessage()`, `onType()`),
+  conversaciones y disparadores de flows (`conversation()`, `use(flow)`);
+- hooks (`before()`, `after()`, `onError()`, `hook()`);
+- plugins anidados (`ctx.bot.plug()` / `ctx.bot.use(plugin)`);
+- flows registrados en caliente con `ctx.bot.registerFlow()`, o creados (no
+  reemplazados) con `ctx.bot.replaceFlow()`;
+- cada callback de `ctx.onDispose(fn)`.
+
+**No** deshace nada más: listeners de eventos (`ctx.bot.on()` / `once()`),
+herramientas inyectadas (`ctx.bot.provide()` / `ctx.tools`), mensajes de
+idioma (`ctx.bot.locale()`), tareas programadas (`schedule()`, `every()`,
+`delay()`), handlers de inactividad (`onIdle()`), un flow que `replaceFlow()`
+sobrescribió (no se restaura), el estado de handoff, escrituras en el store ni
+timers o conexiones propios. Deshazlos en `ctx.onDispose()` (o en
+`uninstall()`). Llamar a unplug dos veces no hace nada. Si `install()` lanza de
+forma síncrona, lo que alcanzó a registrar se revierte antes de que el error te
+llegue; si devuelve una promesa que rechaza, el rechazo va al evento `'error'`
+y no se revierte nada.
 
 ### Dependencias entre plugins (`requires`)
 
@@ -38,9 +53,11 @@ alguno:
 ```ts
 const crm = definePlugin({ name: 'crm', version: '1.0.0', requires: ['inbox'], install(ctx) { /* … */ } })
 
-bot.plug(crm)            // Error: Plugin "crm" requires plugin(s) "inbox", which is not plugged…
-bot.plug(inbox)          // ok: primero la dependencia...
-bot.plug(crm)            // ...y después el plugin que la requiere
+bot.plug(crm)                        // Error: Plugin "crm" requires plugin(s) "inbox", which is not plugged…
+
+const unplugInbox = bot.plug(inbox)  // ok: primero la dependencia...
+const unplugCrm = bot.plug(crm)      // ...y después el plugin que la requiere
+// plug() devuelve una función unplug, no el bot: una llamada por plugin, sin encadenar
 ```
 
 La comprobación solo ocurre al enchufar: desenchufar `inbox` después no

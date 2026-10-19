@@ -206,8 +206,10 @@ bot.plug(slashCommandsPlugin, { greeting: 'Hi!' })
 ```
 
 Un plugin es un paquete reutilizable que puede registrar hooks, handlers y
-herramientas. `bot.plug()` devuelve una función `unplug()` que revierte
-todo lo que registró.
+herramientas. `bot.plug()` devuelve una función `unplug()` que revierte lo que
+registró vía `ctx.bot` (handlers, hooks, plugins anidados, flows en caliente y
+callbacks de `onDispose`; listeners, herramientas, idiomas y tareas programadas
+necesitan un `onDispose`, ver [Plugins](./plugins.md)).
 
 ## Dedupe de entrada
 

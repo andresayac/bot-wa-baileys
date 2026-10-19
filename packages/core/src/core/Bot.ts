@@ -1108,9 +1108,13 @@ export class Bot extends EventEmitter {
 
   /**
    * Install a plugin (optionally with `config`). Unlike {@link use}, returns an
-   * unsubscriber that removes everything the plugin registered through `ctx.bot`
-   * (commands, matchers, conversations, flows, hooks, nested plugins and `onDispose`
-   * callbacks) and then calls its `uninstall()`; calling it again is a no-op.
+   * unsubscriber (not the bot: do not chain) that first calls the plugin's `uninstall()`
+   * and then removes, newest first, what it registered through `ctx.bot`: commands,
+   * matchers, conversations/flow triggers, hooks, nested plugins, runtime flows and
+   * `onDispose` callbacks. Calling it again is a no-op. It does NOT undo event listeners
+   * (`on`/`once`), `provide()`d tools, `locale()` messages, `schedule`/`every`/`delay`
+   * jobs, `onIdle` handlers or a flow `replaceFlow()` overwrote: undo those in
+   * `ctx.onDispose()`.
    *
    * `install()` should be synchronous. If it throws, whatever it registered so far is
    * rolled back and the error is rethrown; if it returns a promise that rejects, the

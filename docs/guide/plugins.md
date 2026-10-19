@@ -20,14 +20,28 @@ await bot.start()
 // unplug()
 ```
 
-`bot.plug(plugin, config?)` returns an **unplug** function that reverts
-everything the plugin registered through `ctx.bot` (commands, matchers,
-conversations, flows, hooks, nested plugins and `onDispose` callbacks) and
-then calls the plugin's `uninstall(ctx)`, if it has one. Calling it twice is
-a no-op. If `install()` throws, whatever it registered so far is rolled back
-before the error reaches you. Flows the plugin registers at runtime with
-`ctx.bot.registerFlow()` (or creates with `ctx.bot.replaceFlow()`) are
-unregistered too.
+`bot.plug(plugin, config?)` returns an **unplug** function (not the bot, so
+`plug()` calls do not chain). Calling it first runs the plugin's
+`uninstall(ctx)`, if it has one, and then reverts, newest first, what the
+plugin registered through `ctx.bot`:
+
+- commands (`command()`), matchers (`when()`, `onMessage()`, `onType()`),
+  conversations and flow triggers (`conversation()`, `use(flow)`);
+- hooks (`before()`, `after()`, `onError()`, `hook()`);
+- nested plugins (`ctx.bot.plug()` / `ctx.bot.use(plugin)`);
+- flows registered at runtime with `ctx.bot.registerFlow()`, or created (not
+  replaced) with `ctx.bot.replaceFlow()`;
+- every `ctx.onDispose(fn)` callback.
+
+It does **not** undo anything else: event listeners (`ctx.bot.on()` /
+`once()`), injected tools (`ctx.bot.provide()` / `ctx.tools`), locale messages
+(`ctx.bot.locale()`), scheduled jobs (`schedule()`, `every()`, `delay()`),
+idle handlers (`onIdle()`), a flow that `replaceFlow()` overwrote (it is not
+restored), handoff state, store writes, or timers and connections of your own.
+Undo those in `ctx.onDispose()` (or `uninstall()`). Calling unplug twice is a
+no-op. If `install()` throws synchronously, whatever it registered so far is
+rolled back before the error reaches you; if it returns a promise that
+rejects, the rejection goes to the `'error'` event and nothing is rolled back.
 
 ### Dependencies between plugins (`requires`)
 
@@ -38,9 +52,11 @@ plugged:
 ```ts
 const crm = definePlugin({ name: 'crm', version: '1.0.0', requires: ['inbox'], install(ctx) { /* … */ } })
 
-bot.plug(crm)            // Error: Plugin "crm" requires plugin(s) "inbox", which is not plugged…
-bot.plug(inbox)          // ok: plug the dependency first...
-bot.plug(crm)            // ...then the plugin that requires it
+bot.plug(crm)                        // Error: Plugin "crm" requires plugin(s) "inbox", which is not plugged…
+
+const unplugInbox = bot.plug(inbox)  // ok: plug the dependency first...
+const unplugCrm = bot.plug(crm)      // ...then the plugin that requires it
+// plug() returns an unplug function, not the bot: one call per plugin, no chaining
 ```
 
 The check runs at plug time only: unplugging `inbox` later does not unplug

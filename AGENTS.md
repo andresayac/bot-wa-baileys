@@ -112,7 +112,8 @@ Son los errores que más caro han salido. Respétalos aunque un cambio "parezca"
 
 ### Plugins
 - `Plugin.install()` debe ser **síncrono**. `Bot.plug()` no hace `await` de `install()`: un `install` que lanza de forma síncrona se revierte (lo registrado se deshace) y el error se relanza, pero si devuelve una promesa que rechaza, el rechazo va al evento `'error'` del bot (ya no tumba el proceso) **sin revertir nada**: el plugin queda enchufado a medio instalar. Si necesitas inicialización async, usa el patrón de `LazyProvider` en `@bot-wa/ai`: se resuelve en el primer uso y un `warmup()` no fatal reporta errores de configuración al arrancar.
-- `PluginSpec.requires` se comprueba en `plug()`: si falta un plugin requerido (por `name`), lanza antes de `install()`. Todo lo que un plugin registra vía `ctx.bot` (incluidos los flows de `registerFlow()`) se deshace en el unplug; no registres cosas en el `Bot` real saltándote `ctx.bot`.
+- `PluginSpec.requires` se comprueba en `plug()`: si falta un plugin requerido (por `name`), lanza antes de `install()`. `plug()` devuelve la función unplug, no el bot: no se encadena.
+- El unplug llama primero a `uninstall()` y después deshace (de lo más nuevo a lo más antiguo) lo que el plugin registró vía `ctx.bot`: `command`, `when`/`onMessage`/`onType`, conversaciones y triggers de flows, hooks, plugins anidados, flows de `registerFlow()` (o creados por `replaceFlow()`) y los callbacks de `ctx.onDispose()`. **No** deshace listeners (`on`/`once`), `provide()`/`ctx.tools`, `locale()`, `schedule`/`every`/`delay`, `onIdle`, un flow sobrescrito por `replaceFlow()` ni nada fuera del bot (store, timers): límpialo en `ctx.onDispose()`. No registres cosas en el `Bot` real saltándote `ctx.bot`.
 - `aiPlugin` es un catch-all: se instala **después** de `slashCommandsPlugin`.
 
 ### Stores
