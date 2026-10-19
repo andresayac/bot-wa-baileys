@@ -51,6 +51,10 @@ is in the dedupe window.
   `secureFetch`: HTTPS only by default, no credentials in the URL, DNS answers
   checked against private ranges and the socket pinned to the checked IP
   (no DNS rebinding), every redirect re-validated, timeouts and size limits.
+  Rejections are a `SecureHttpError` whose `code` says why: `INVALID_URL`,
+  `INVALID_OPTIONS`, `UNSAFE_URL`, `UNSAFE_HOST`, `TIMEOUT`,
+  `RESPONSE_TOO_LARGE`, `TOO_MANY_REDIRECTS`, or `HTTP_STATUS` (a non-2xx from
+  `fetchBuffer`, with the code in `error.status`).
 - **Manager REST `/v1`.** Mandatory tokens (≥ 16 chars, compared as SHA-256
   digests without early exit), per-route scopes, tenant isolation (other
   tenants' bots answer `404`), token-bucket rate limiting, `1 MiB` JSON body
