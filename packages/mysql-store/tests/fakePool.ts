@@ -366,10 +366,15 @@ export class FakePool implements PoolLike {
       const row = this.table(messages).get(key(p[0]))
       return [row ? [{ msg: this.jsonOut(String(row.msg)) }] : [], []]
     }
-    if (s === `SELECT msg FROM \`${messages}\` WHERE chat_id = ? ORDER BY timestamp DESC LIMIT ?`) {
+    if (s === `SELECT msg FROM \`${messages}\` WHERE chat_id = ? ORDER BY timestamp DESC, id DESC LIMIT ?`) {
+      // mysql2 interpolates the LIMIT placeholder: MySQL only parses a non-negative integer there.
+      if (!Number.isSafeInteger(p[1]) || Number(p[1]) < 0) {
+        throw Object.assign(new Error('ER_PARSE_ERROR: You have an error in your SQL syntax (LIMIT)'), { errno: 1064 })
+      }
+      const bytes = (v: unknown): Buffer => Buffer.from(String(v), 'utf8')
       const rows = [...this.table(messages).values()]
         .filter((r) => r.chat_id === key(p[0]))
-        .sort((a, b) => Number(b.timestamp) - Number(a.timestamp))
+        .sort((a, b) => Number(b.timestamp) - Number(a.timestamp) || Buffer.compare(bytes(b.id), bytes(a.id)))
         .slice(0, Number(p[1]))
         .map((r) => ({ msg: this.jsonOut(String(r.msg)) }))
       return [rows, []]

@@ -116,9 +116,15 @@ export interface MysqlStoreOptions {
   /**
    * Max messages retained per chat. When set, `saveMessage` prunes the oldest
    * rows (by timestamp) beyond the cap. Default: undefined = unbounded.
+   * Must be a non-negative integer, else the constructor throws a `RangeError`.
    */
   maxMessagesPerChat?: number
-  logger?: { error?: (...args: unknown[]) => void }
+  /**
+   * Receives lifecycle errors (pool close failure) and, through `warn` (falling
+   * back to `error`), the legacy-schema notice `start()` emits for tables
+   * created by an earlier version.
+   */
+  logger?: { error?: (...args: unknown[]) => void; warn?: (...args: unknown[]) => void }
 }
 
 /** JSON column reply from mysql2: parsed object OR raw string, depending on driver/column type. */
@@ -146,10 +152,13 @@ export class MysqlStore implements IStore {
     cursors: string
   }
   private readonly maxMessagesPerChat?: number
-  private readonly logger?: { error?: (...args: unknown[]) => void }
+  private readonly logger?: { error?: (...args: unknown[]) => void; warn?: (...args: unknown[]) => void }
   private readonly userData: MysqlUserData
 
   constructor(opts: MysqlStoreOptions = {}) {
+    if (opts.maxMessagesPerChat != null && !(Number.isInteger(opts.maxMessagesPerChat) && opts.maxMessagesPerChat >= 0)) {
+      throw new RangeError(`MysqlStore: maxMessagesPerChat must be a non-negative integer, got ${opts.maxMessagesPerChat}`)
+    }
     // mysql2's pool typings are a wide generic union; the `query(sql, params)`
     // subset used here matches at runtime, so narrow at the boundary.
     this.pool = (opts.pool ?? null) as PoolLike | null
@@ -249,7 +258,13 @@ export class MysqlStore implements IStore {
 
   /* Messages -------------------------------------------------------------- */
 
+  /**
+   * Upsert keyed by `messageKey(ref)`. A message without `ref.id` or `chatId`
+   * is ignored, like MemoryStore: providers send `''` when they have no stable
+   * id, and keying those would make them overwrite each other.
+   */
   async saveMessage(msg: StoredMessage): Promise<void> {
+    if (!msg.ref?.id || !msg.chatId) return
     await this.query(
       `INSERT INTO \`${this.t.messages}\` (id, chat_id, timestamp, msg) VALUES (?, ?, ?, ?) ` +
         'ON DUPLICATE KEY UPDATE chat_id = VALUES(chat_id), timestamp = VALUES(timestamp), msg = VALUES(msg)',
@@ -274,14 +289,22 @@ export class MysqlStore implements IStore {
   }
 
   async getMessage(ref: MessageRef): Promise<StoredMessage | undefined> {
+    if (!ref.id || !ref.chatId) return undefined
     const [rows] = await this.query(`SELECT msg FROM \`${this.t.messages}\` WHERE id = ?`, [messageKey(ref)])
     return fromJson<StoredMessage>(rows[0]?.msg)
   }
 
   async getMessagesByChat(chatId: string, limit = 50): Promise<StoredMessage[]> {
+    // MemoryStore's window for ANY number: non-positive/NaN gives nothing, a
+    // fraction rounds up, Infinity means everything. Raw, MySQL rejected a
+    // negative or fractional LIMIT (and `Infinity`) as a syntax error.
+    if (!(limit > 0)) return []
+    const count = Number.isFinite(limit) ? Math.min(Math.ceil(limit), Number.MAX_SAFE_INTEGER) : Number.MAX_SAFE_INTEGER
+    // Timestamp ties break by id — the order trimChat keeps — so the window is
+    // deterministic; InnoDB's secondary index already ends in the primary key.
     const [rows] = await this.query(
-      `SELECT msg FROM \`${this.t.messages}\` WHERE chat_id = ? ORDER BY timestamp DESC LIMIT ?`,
-      [chatId, limit],
+      `SELECT msg FROM \`${this.t.messages}\` WHERE chat_id = ? ORDER BY timestamp DESC, id DESC LIMIT ?`,
+      [chatId, count],
     )
     return rows
       .map((r) => fromJson<StoredMessage>(r.msg))
@@ -389,6 +412,7 @@ export class MysqlStore implements IStore {
   async getUserData(userId: UserId, namespace: string, key: string): Promise<UserDataEntry | undefined> {
     return this.userData.get(userId, namespace, key, Date.now())
   }
+  /** Upsert one entry; rejects with a `TypeError` when `value` is not JSON-serialisable. */
   async setUserData(entry: UserDataEntry): Promise<void> {
     await this.userData.set(entry)
   }
@@ -458,5 +482,48 @@ export class MysqlStore implements IStore {
     )
     await this.query(`CREATE TABLE IF NOT EXISTS \`${this.t.cursors}\` (\`key\` VARBINARY(1024) NOT NULL PRIMARY KEY, value TEXT) ${opts}`)
     await this.userData.migrate()
+    await this.checkLegacySchema()
+  }
+
+  /**
+   * Warn (once per start) when a key column is not VARBINARY: tables created by
+   * an early version kept `VARCHAR(255)` keys — collation-dependent comparisons
+   * ('abc' = 'ABC'), a 255-character cap — and lack the `chat_ts` index, and
+   * `CREATE TABLE IF NOT EXISTS` never upgrades them. Advisory only: the store
+   * keeps working, and a failing check (no access to information_schema) is ignored.
+   */
+  private async checkLegacySchema(): Promise<void> {
+    const keyColumns: Array<[table: string, column: string]> = [
+      [this.t.messages, 'id'],
+      [this.t.messages, 'chat_id'],
+      [this.t.chats, 'id'],
+      [this.t.contacts, 'id'],
+      [this.t.checkpoints, 'key'],
+      [this.t.conversations, 'key'],
+      [this.t.cursors, 'key'],
+    ]
+    let rows: MysqlQueryResult[0]
+    try {
+      ;[rows] = await this.query(
+        'SELECT TABLE_NAME AS t, COLUMN_NAME AS c, DATA_TYPE AS type FROM information_schema.COLUMNS ' +
+          'WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN (?, ?, ?, ?, ?, ?)',
+        Object.values(this.t),
+      )
+    } catch {
+      return
+    }
+    const legacy = rows
+      .map((r) => ({ table: fromKey(r.t), column: fromKey(r.c), type: fromKey(r.type).toLowerCase() }))
+      .filter((r) => r.type !== 'varbinary' && keyColumns.some(([t, c]) => t === r.table && c === r.column))
+    if (legacy.length === 0) return
+    const columns = legacy.map((r) => `${r.table}.${r.column} (${r.type})`).join(', ')
+    const log = this.logger?.warn ?? this.logger?.error
+    log?.call(
+      this.logger,
+      { columns: legacy.map((r) => `${r.table}.${r.column}`) },
+      `MysqlStore: tables created by an earlier version use non-binary key columns: ${columns}. ` +
+        'Ids then compare case- and accent-insensitively and are capped at 255 characters, and the messages index is missing. ' +
+        'Upgrade them with the ALTER TABLE statements in the @bot-wa/mysql-store README ("Upgrading tables created by an earlier version").',
+    )
   }
 }

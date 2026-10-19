@@ -80,8 +80,8 @@ await store.start()
 | `database`    | `string`           | —                            | Database for the config-based connection. |
 | `tablePrefix` | `string`           | `''`                         | Prefix for every table (`[A-Za-z0-9_]` only). |
 | `pool`        | `PoolLike`         | —                            | Inject an existing mysql2/promise pool (required for tests): `query`, `getConnection` and `end`. The store never creates/closes it. |
-| `maxMessagesPerChat` | `number`    | — (unbounded)                | Keep at most N messages per chat; `saveMessage` prunes the oldest (by `timestamp`) beyond the cap. |
-| `logger`      | `{ error? }`       | —                            | Receives lifecycle errors (e.g. pool close failure). |
+| `maxMessagesPerChat` | `number`    | — (unbounded)                | Keep at most N messages per chat; `saveMessage` prunes the oldest (by `timestamp`) beyond the cap. Must be a non-negative integer (else `RangeError`). |
+| `logger`      | `{ error?, warn? }` | —                           | Receives lifecycle errors (e.g. pool close failure) and, through `warn` (else `error`), the legacy-schema notice of `start()`. |
 
 ## Schema
 
@@ -102,7 +102,7 @@ Why `VARBINARY` keys: ids are opaque strings and must compare exactly. A `VARCHA
 
 ### Upgrading tables created by an earlier version
 
-`CREATE TABLE IF NOT EXISTS` never alters existing tables. Tables provisioned before the switch to `VARBINARY` keys keep the old `VARCHAR(255)` columns (collation-dependent comparisons, 255-character limit) and lack the index. To upgrade them in place (bytes are preserved; replace `{p}` with your prefix):
+`CREATE TABLE IF NOT EXISTS` never alters existing tables. Tables provisioned before the switch to `VARBINARY` keys keep the old `VARCHAR(255)` columns (collation-dependent comparisons, 255-character limit) and lack the index. `start()` detects them and logs a warning naming the affected columns (the store keeps working). To upgrade them in place (bytes are preserved; replace `{p}` with your prefix):
 
 ```sql
 ALTER TABLE `{p}messages` MODIFY id VARBINARY(1024) NOT NULL, MODIFY chat_id VARBINARY(1024) NOT NULL, ADD KEY chat_ts (chat_id, timestamp);

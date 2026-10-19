@@ -189,13 +189,69 @@ describe.skipIf(!enabled)('MysqlStore — real MySQL integration', () => {
       const { prefix, teardown } = await makeStore()
       try {
         const [plan] = await admin.query<RowDataPacket[]>(
-          `EXPLAIN SELECT msg FROM \`${prefix}messages\` WHERE chat_id = ? ORDER BY timestamp DESC LIMIT ?`,
+          `EXPLAIN SELECT msg FROM \`${prefix}messages\` WHERE chat_id = ? ORDER BY timestamp DESC, id DESC LIMIT ?`,
           ['c', 10],
         )
         expect(String(plan[0]?.key)).toBe('chat_ts')
+        // The id tie-break is served by the index too (InnoDB appends the primary key): no filesort.
+        expect(String(plan[0]?.Extra ?? '')).not.toMatch(/filesort/i)
       } finally {
         await teardown()
       }
+    })
+  })
+
+  describe('connection loss', () => {
+    it('survives the server killing idle pool connections and keeps serving', async () => {
+      const error = vi.fn()
+      const { store, teardown } = await makeStore({ logger: { error } })
+      try {
+        await store.upsertChat({ id: 'c1', name: 'before' })
+        // Kill every idle connection but the admin's own, as a server restart,
+        // failover or wait_timeout would.
+        const [procs] = await admin.query<RowDataPacket[]>(
+          "SELECT ID AS id FROM information_schema.PROCESSLIST WHERE COMMAND = 'Sleep' AND ID <> CONNECTION_ID()",
+        )
+        for (const p of procs) await admin.query(`KILL ${Number(p.id)}`).catch(() => {})
+        await new Promise((resolve) => setTimeout(resolve, 200))
+        await store.upsertChat({ id: 'c1', kind: 'group' })
+        expect(await store.getChat('c1')).toEqual({ id: 'c1', name: 'before', kind: 'group' })
+      } finally {
+        await teardown()
+      }
+    })
+  })
+
+  describe('legacy schema', () => {
+    it('warns with the upgrade pointer when tables from an earlier version have VARCHAR keys', async () => {
+      const prefix = nextPrefix()
+      // The schema of the first releases: VARCHAR(255) keys, no chat_ts index.
+      await admin.query(`CREATE TABLE \`${prefix}messages\` (id VARCHAR(255) PRIMARY KEY, chat_id VARCHAR(255), timestamp BIGINT, msg JSON)`)
+      await admin.query(`CREATE TABLE \`${prefix}chats\` (id VARCHAR(255) PRIMARY KEY, data JSON)`)
+      const warn = vi.fn()
+      const store = new MysqlStore({ uri: MYSQL_URL, tablePrefix: prefix, logger: { warn } })
+      try {
+        await store.start()
+        expect(warn).toHaveBeenCalledTimes(1)
+        const [meta, text] = warn.mock.calls[0] as [{ columns: string[] }, string]
+        expect(meta.columns.sort()).toEqual([`${prefix}chats.id`, `${prefix}messages.chat_id`, `${prefix}messages.id`])
+        expect(text).toMatch(/Upgrading tables created by an earlier version/)
+        // Still usable while the operator schedules the upgrade.
+        await store.saveMessage(msg('c', 'm1', 'legacy', 1))
+        expect(bodies(await store.getMessagesByChat('c'))).toEqual(['legacy'])
+      } finally {
+        await store.stop()
+        await dropTables(prefix)
+      }
+    })
+
+    it('stays silent on a current schema', async () => {
+      const warn = vi.fn()
+      const error = vi.fn()
+      const { teardown } = await makeStore({ logger: { warn, error } })
+      await teardown()
+      expect(warn).not.toHaveBeenCalled()
+      expect(error).not.toHaveBeenCalled()
     })
   })
 
