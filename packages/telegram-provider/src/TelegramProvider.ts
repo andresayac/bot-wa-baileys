@@ -36,6 +36,7 @@ import type {
   ProviderCapabilities,
   SendOptions,
   SendResult,
+  SerializedMediaRef,
   UserId,
 } from '@bot-wa/core'
 import {
@@ -60,6 +61,8 @@ const REPLYABLE = new Set([
 
 /** How long a draft's stop callback stays registered (drafts are ~30 s previews). */
 const DRAFT_STOP_TTL_MS = 10 * 60_000
+/** A Telegram `file_id` (base64url); anything else read back from a journal is rejected. */
+const TELEGRAM_FILE_ID = /^[A-Za-z0-9_-]{1,512}$/
 
 const MEDIA_KINDS: ReadonlyArray<OutboundContent['kind']> = ['image', 'video', 'audio', 'voice', 'document', 'sticker']
 
@@ -412,6 +415,22 @@ export class TelegramProvider implements IProvider<unknown> {
   }
 
   /* Capability-gated actions ---------------------------------------------- */
+
+  /**
+   * Durable inbox: the `file_id` (bot-scoped; it stays valid for this bot token). No credentials
+   * are stored: the token is added again at download time.
+   */
+  serializeMediaRef(ref: MediaRef): SerializedMediaRef | undefined {
+    return typeof ref.token === 'string' && TELEGRAM_FILE_ID.test(ref.token) ? { v: 1, data: ref.token } : undefined
+  }
+
+  /** Rebuild a journaled `file_id`. @throws {ProviderError} on an invalid or unknown-version value. */
+  rehydrateMediaRef(stored: SerializedMediaRef, ref: Omit<MediaRef, 'token'>): MediaRef {
+    if (stored?.v !== 1 || typeof stored.data !== 'string' || !TELEGRAM_FILE_ID.test(stored.data)) {
+      throw new ProviderError('Invalid Telegram media reference')
+    }
+    return { ...ref, token: stored.data }
+  }
 
   /** getFile → file_path → GET {baseUrl}/file/bot{token}/{file_path} → bytes. */
   async downloadMedia(ref: MediaRef): Promise<Buffer> {
