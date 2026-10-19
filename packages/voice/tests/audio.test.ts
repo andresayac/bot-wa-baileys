@@ -70,6 +70,15 @@ describe('encodeMultipart', () => {
       '--XYZ--\r\n',
     )
   })
+
+  it('never lets a part content type inject headers or extra fields (it can come from an inbound message)', () => {
+    const { body } = encodeMultipart([
+      { name: 'file', filename: 'a.ogg', contentType: 'audio/ogg\r\n\r\n--XYZ\r\nContent-Disposition: form-data; name="model"\r\n\r\nevil', data: Buffer.from('D') },
+    ], 'XYZ')
+    const text = body.toString()
+    expect(text.match(/Content-Disposition/g)).toHaveLength(1)
+    expect(text).not.toMatch(/name="model"\r\n/)
+  })
 })
 
 describe('trimPunctuation', () => {
