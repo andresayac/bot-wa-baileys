@@ -169,6 +169,13 @@ Revisión de los 10 paquetes públicos, con hallazgos y decisiones en [`docs/api
 - Los eventos sin un id utilizable se descartan (y se registran) en vez de emitirse con ids `undefined`.
 - WhatsApp Flows: `cta`, `submitLabel` y el cuerpo ya no quedan fijos en español (`'Abrir formulario'`, `'Enviar'`, `'Completa el formulario.'`): llegan localizados desde el core según `ctx.lang`, y `toFlowJson(def, { lang })` / `publishForm(def, { flowJson: { lang } })` eligen el idioma de la etiqueta de envío del Flow publicado (por defecto `'es'`).
 
+### Canales WhatsApp: robustez (2026-10, ronda G)
+- **`@bot-wa/baileys`**: los mensajes envueltos (modo temporal, *ver una vez*, documento con pie de foto) se desenvuelven antes de clasificarlos (antes llegaban como `unknown`); la cita y las menciones se leen también de los pies de foto, video y documento, y `quoted.ref` apunta al mensaje citado; `timestamp` es siempre un número (los `Long` de protobuf pasaban como objeto). `stop()` cancela una reconexión pendiente (un `start()` posterior ya no abre un segundo socket). `downloadMedia()` rechaza con `ProviderError` sin conexión o si la descarga falla; `markRead()`/`deleteMessage()` aceptan refs sin clave nativa.
+- **`@bot-wa/meta`**: `ingest()` responde `400` a un body que no es un objeto JSON (antes lanzaba); los botones de respuesta rápida de plantillas (`type: 'button'`) llegan como interacción con su `payload`; las respuestas exponen `quoted.ref`; los estados desconocidos (`deleted`, `warning`) se descartan en vez de reportarse como `failed`; la media subida desde `Buffer`/stream/ruta lleva un tipo MIME real en vez de `application/octet-stream` (que la Cloud API rechaza); un fallo de red rechaza con `ProviderError`.
+- **`@bot-wa/graph-core`**: `tryParseGraphBody` (parseo sin excepciones, `400` para cuerpos malformados); `checkGraphSignature`/`parseGraphBody` aceptan `Uint8Array`; `toGraphError` mapea `130429`, `131056` y `131048` a `RateLimitedError`, `131030` y `551` a `RecipientUnreachableError`, y `10`/`2018278` (Messenger/Instagram) a `OutsideSessionWindowError`.
+- **`@bot-wa/evolution`** (privado): desenvuelve los mensajes envueltos de Baileys (temporal, *ver una vez*) igual que `@bot-wa/baileys`, y descarta los mensajes de protocolo que vienen dentro de un envoltorio.
+- **`@bot-wa/gupshup` y `@bot-wa/twilio`** (privados): un fallo de transporte (DNS, TLS, timeout) en `send()`/`downloadMedia()` rechaza con `ProviderError` (o `PayloadTooLargeError` si la respuesta excede el límite) en vez de un `SecureHttpError` sin tipar; el mensaje de error nunca incluye la query de la URL.
+
 ### @bot-wa/telegram (2026-10)
 
 **Añadido**
