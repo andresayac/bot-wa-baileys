@@ -255,6 +255,8 @@ export class Bot extends EventEmitter {
   private preparedLang = new WeakMap<object, string>()
   /** Runtime flow CRUD (`registerFlow`/`unregisterFlow`/`replaceFlow`/`triggerFlow`). */
   private flowRegistry: DynamicFlowRegistry
+  /** Names of the plugins currently plugged (with a count), for `PluginSpec.requires`. */
+  private readonly pluggedNames = new Map<string, number>()
 
   constructor(config: BotConfig) {
     super()
@@ -1113,6 +1115,13 @@ export class Bot extends EventEmitter {
    * `install()` should be synchronous. If it throws, whatever it registered so far is
    * rolled back and the error is rethrown; if it returns a promise that rejects, the
    * rejection goes to the `'error'` event instead of crashing the process.
+   *
+   * `spec.requires` lists plugin names that must already be plugged (a nested plugin may
+   * require its parent); a missing one throws before `install()` runs. Flows registered
+   * through `ctx.bot.registerFlow()` (or created by `ctx.bot.replaceFlow()`) are
+   * unregistered on unplug.
+   *
+   * @throws {Error} when a plugin named in `spec.requires` is not plugged.
    */
   plug(plugin: Plugin, config?: Record<string, unknown>): () => void {
     const spec = typeof plugin === 'function' ? plugin(config) : plugin
@@ -1120,6 +1129,15 @@ export class Bot extends EventEmitter {
       throw new TypeError(
         'plug() expects a plugin object { name, version, install(ctx) } or a factory returning one, ' +
           `got ${spec === null ? 'null' : typeof spec}`,
+      )
+    }
+    const missing = (Array.isArray(spec.requires) ? spec.requires : [])
+      .filter((name) => !this.pluggedNames.has(name))
+    if (missing.length > 0) {
+      throw new Error(
+        `Plugin "${spec.name}" requires plugin(s) ${missing.map((n) => `"${n}"`).join(', ')}, which ` +
+          `${missing.length === 1 ? 'is' : 'are'} not plugged. Plug ${missing.length === 1 ? 'it' : 'them'} ` +
+          `before "${spec.name}" (PluginSpec.requires).`,
       )
     }
     const disposables: Array<() => void> = []
@@ -1156,6 +1174,28 @@ export class Bot extends EventEmitter {
     scopedBot.after = ((event: HookEvent, handler: HookHandler, priority = 0) => hook(event, 'after', handler, priority)) as Bot['after']
     scopedBot.onError = ((event: HookEvent, handler: HookHandler, priority = 0) => hook(event, 'error', handler, priority)) as Bot['onError']
     scopedBot.hook = hook as Bot['hook']
+    // Flows registered at runtime through ctx.bot are unregistered with the plugin. Tracked by
+    // id; an id the plugin unregisters itself is forgotten, so a later bot flow under the same
+    // id survives the unplug. replaceFlow() is tracked only when it CREATES the flow.
+    const pluginFlows = new Set<string>()
+    scopedBot.registerFlow = (f) => {
+      const id = this.registerFlow(f)
+      pluginFlows.add(id)
+      return id
+    }
+    scopedBot.replaceFlow = (id, f) => {
+      const created = !this.hasFlow(id)
+      this.replaceFlow(id, f)
+      if (created) pluginFlows.add(id)
+    }
+    scopedBot.unregisterFlow = (id) => {
+      pluginFlows.delete(id)
+      return this.unregisterFlow(id)
+    }
+    disposables.push(() => {
+      for (const id of pluginFlows) this.unregisterFlow(id)
+      pluginFlows.clear()
+    })
 
     const ctx: PluginContext = {
       bot: scopedBot,
@@ -1173,16 +1213,25 @@ export class Bot extends EventEmitter {
       }
     }
 
+    // Counted before install() so a nested plugin may require its parent.
+    this.pluggedNames.set(spec.name, (this.pluggedNames.get(spec.name) ?? 0) + 1)
+    const unregisterName = () => {
+      const left = (this.pluggedNames.get(spec.name) ?? 1) - 1
+      if (left > 0) this.pluggedNames.set(spec.name, left)
+      else this.pluggedNames.delete(spec.name)
+    }
     try {
       reportAsync(spec.install(ctx, config))
     } catch (error) {
       disposeRegistrations()
+      unregisterName()
       throw error
     }
     let disposed = false
     return () => {
       if (disposed) return
       disposed = true
+      unregisterName()
       if (spec.uninstall) {
         try { reportAsync(spec.uninstall(ctx)) } catch (error) { this.emitError({ error }) }
       }
