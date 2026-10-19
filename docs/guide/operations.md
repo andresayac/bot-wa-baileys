@@ -106,6 +106,8 @@ Use `MemoryEventJournal` in tests. `FileEventJournal.open('./data/events.json')`
 
 `EventWorker` claims events, invokes the handler, acknowledges successful work and moves exhausted retries to the dead-letter state.
 
+Every claim hands out a **fencing token** (`record.fencingToken`, strictly increasing per event and never reused, not even after `replay`). The worker passes it back to `ack`/`fail`, and the journal rejects a superseded token with `StaleLeaseError`: a worker whose lease expired while its handler was still running cannot complete, retry or dead-letter an event another worker has re-claimed. `runBatch()` reports those as `stale` (`{ processed, failed, stale }`), and it skips a record whose lease already ran out before its handler started. Handlers still run at least once, so keep them idempotent (the envelope's `idempotencyKey` is there for that). `new EventWorker(journal, { leaseMs, clock })` sets the lease length and the time source. An `EventJournal` adapter for PostgreSQL or Redis must check the token in the same atomic update that changes the state.
+
 ### Inbox and CRM
 
 `@bot-wa/inbox` provides optimistic-concurrency assignment, handoff, notes and unread state. Project ledger `StoredMessage` entries with `inbox.projectMessage(message)` so conversations can be rebuilt across channels.

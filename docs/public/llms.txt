@@ -83,7 +83,7 @@ Experimental (private, not published):
 - @bot-wa/voice — voicePlugin (speech-to-text for voice notes, text-to-speech replies)
 - @bot-wa/chatwoot (Chatwoot handoff bridge) · @bot-wa/tickets (support tickets and queues) · @bot-wa/moderation (group moderation) · @bot-wa/dialogflow (Dialogflow ES/CX intents to flows)
 - @bot-wa/manager — BotManager multi-bot registry (persisted per-tenant configs, auto-reconnect) + HTTP control plane: createRestApi (full /v1 REST API with scoped tokens, OpenAPI 3.1, idempotency, rate limiting), plus createControlPlaneApi and the legacy createManagerApi; JSON flow documents (compileFlowDocument)
-- @bot-wa/events — event envelopes, idempotent journal, EventWorker retries + dead-letter
+- @bot-wa/events — event envelopes, idempotent journal, EventWorker retries + dead-letter, fencing tokens (StaleLeaseError) against expired leases
 - eslint-plugin-bot-wa — ESLint rules (v1 API leftovers, awaited runtime.enter, async Plugin.install, asks without timeout, ...)
 
 Prototypes (private, in-memory, minimal): @bot-wa/inbox, @bot-wa/crm, @bot-wa/hub, @bot-wa/campaigns, @bot-wa/deployments (includes a golden-transcript publish gate)

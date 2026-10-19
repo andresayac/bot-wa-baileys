@@ -81,14 +81,52 @@ export interface EventRecord<TPayload = unknown> {
   attempts: number
   nextAttemptAt: number
   leaseUntil?: number
+  /**
+   * Fencing token of the latest claim. Strictly increasing per event (never
+   * reused, not even after `replay`); 0 or absent if it was never claimed.
+   * Pass it back to `ack`/`fail` so a worker whose lease expired cannot
+   * complete an event another worker has since re-claimed.
+   */
+  fencingToken?: number
   lastError?: string
   completedAt?: number
 }
 
-export interface FailEventOptions {
+export interface ClaimEventOptions {
+  now?: number
+  leaseMs?: number
+}
+
+export interface AckEventOptions {
+  now?: number
+  /**
+   * Token from the claim being acknowledged. When set, the call is rejected
+   * with {@link StaleLeaseError} unless the event is still `processing` under
+   * this same token. Omit it only for operator overrides.
+   */
+  fencingToken?: number
+}
+
+export interface FailEventOptions extends AckEventOptions {
   maxAttempts?: number
   retryDelayMs?: number
-  now?: number
+}
+
+/**
+ * Raised by a fenced `ack`/`fail` whose claim was superseded: the lease
+ * expired and another worker re-claimed the event, or the event already left
+ * `processing` (acknowledged, failed or replayed).
+ */
+export class StaleLeaseError extends Error {
+  constructor(
+    readonly eventId: string,
+    readonly fencingToken: number,
+    readonly currentToken: number,
+    readonly state: EventRecordState,
+  ) {
+    super(`Stale lease for event ${eventId}: token ${fencingToken} (current ${currentToken}, state ${state})`)
+    this.name = 'StaleLeaseError'
+  }
 }
 
 /**
@@ -98,8 +136,11 @@ export interface FailEventOptions {
 export interface EventJournal {
   append<TPayload>(envelope: EventEnvelope<TPayload>): Promise<boolean>
   get(eventId: string): Promise<EventRecord | undefined>
-  claim(limit: number, options?: { now?: number; leaseMs?: number }): Promise<EventRecord[]>
-  ack(eventId: string, now?: number): Promise<void>
+  /** Lease up to `limit` due events; each returned record carries a fresh `fencingToken`. */
+  claim(limit: number, options?: ClaimEventOptions): Promise<EventRecord[]>
+  /** Mark done. With `fencingToken`, rejects with {@link StaleLeaseError} if the claim was superseded. */
+  ack(eventId: string, options?: AckEventOptions): Promise<void>
+  /** Schedule a retry or dead-letter the event. Fenced like `ack`. */
   fail(eventId: string, error: unknown, options?: FailEventOptions): Promise<void>
   replay(eventId: string, now?: number): Promise<void>
   list(options?: { state?: EventRecordState; limit?: number }): Promise<EventRecord[]>
@@ -127,7 +168,7 @@ export class MemoryEventJournal implements EventJournal {
     return record ? structuredClone(record) : undefined
   }
 
-  async claim(limit: number, options: { now?: number; leaseMs?: number } = {}): Promise<EventRecord[]> {
+  async claim(limit: number, options: ClaimEventOptions = {}): Promise<EventRecord[]> {
     const now = options.now ?? Date.now()
     const leaseMs = options.leaseMs ?? 30_000
     if (!Number.isInteger(limit) || limit <= 0) throw new Error('claim limit must be a positive integer')
@@ -143,12 +184,14 @@ export class MemoryEventJournal implements EventJournal {
       record.state = 'processing'
       record.leaseUntil = now + leaseMs
       record.attempts++
+      record.fencingToken = (record.fencingToken ?? 0) + 1
     }
     return structuredClone(available)
   }
 
-  async ack(eventId: string, now = Date.now()): Promise<void> {
-    const record = this.required(eventId)
+  async ack(eventId: string, options: AckEventOptions = {}): Promise<void> {
+    const record = this.fenced(eventId, options.fencingToken)
+    const now = options.now ?? Date.now()
     record.state = 'done'
     record.completedAt = now
     record.leaseUntil = undefined
@@ -156,7 +199,7 @@ export class MemoryEventJournal implements EventJournal {
   }
 
   async fail(eventId: string, error: unknown, options: FailEventOptions = {}): Promise<void> {
-    const record = this.required(eventId)
+    const record = this.fenced(eventId, options.fencingToken)
     const maxAttempts = options.maxAttempts ?? 5
     const now = options.now ?? Date.now()
     record.lastError = error instanceof Error ? error.message : String(error)
@@ -187,6 +230,17 @@ export class MemoryEventJournal implements EventJournal {
         .sort((a, b) => a.envelope.occurredAt - b.envelope.occurredAt)
         .slice(0, limit),
     )
+  }
+
+  /** The record, after checking that `token` (when given) still owns its lease. */
+  private fenced(eventId: string, token: number | undefined): EventRecord {
+    const record = this.required(eventId)
+    if (token === undefined) return record
+    const current = record.fencingToken ?? 0
+    if (record.state !== 'processing' || current !== token) {
+      throw new StaleLeaseError(eventId, token, current, record.state)
+    }
+    return record
   }
 
   private required(eventId: string): EventRecord {
@@ -223,8 +277,8 @@ export class FileEventJournal implements EventJournal {
   }
   async append<TPayload>(envelope: EventEnvelope<TPayload>): Promise<boolean> { const changed = await this.memory.append(envelope); if (changed) await this.persist(); return changed }
   get(eventId: string): Promise<EventRecord | undefined> { return this.memory.get(eventId) }
-  async claim(limit: number, options?: { now?: number; leaseMs?: number }): Promise<EventRecord[]> { const records = await this.memory.claim(limit, options); if (records.length) await this.persist(); return records }
-  async ack(eventId: string, now?: number): Promise<void> { await this.memory.ack(eventId, now); await this.persist() }
+  async claim(limit: number, options?: ClaimEventOptions): Promise<EventRecord[]> { const records = await this.memory.claim(limit, options); if (records.length) await this.persist(); return records }
+  async ack(eventId: string, options?: AckEventOptions): Promise<void> { await this.memory.ack(eventId, options); await this.persist() }
   async fail(eventId: string, error: unknown, options?: FailEventOptions): Promise<void> { await this.memory.fail(eventId, error, options); await this.persist() }
   async replay(eventId: string, now?: number): Promise<void> { await this.memory.replay(eventId, now); await this.persist() }
   list(options?: { state?: EventRecordState; limit?: number }): Promise<EventRecord[]> { return this.memory.list(options) }
@@ -249,12 +303,36 @@ export class FileEventJournal implements EventJournal {
 
 export type EventHandler<TPayload = unknown> = (envelope: EventEnvelope<TPayload>) => void | Promise<void>
 
+export interface EventWorkerOptions {
+  /** Attempts before an event goes to the dead-letter state. Defaults to 5. */
+  maxAttempts?: number
+  /** Fixed retry delay; defaults to {@link exponentialBackoff}. */
+  retryDelayMs?: number
+  /** Lease length requested on each claim. Defaults to the journal default (30 s in the bundled journals). */
+  leaseMs?: number
+  /** Time source for claims, lease checks, acks and failures. Defaults to `Date.now`. */
+  clock?: () => number
+}
+
+export interface EventBatchResult {
+  /** Handled and acknowledged. */
+  processed: number
+  /** Handler threw (or none was registered); scheduled for retry or dead-lettered. */
+  failed: number
+  /**
+   * Lease lost: it expired before the handler started (the handler was
+   * skipped), or the journal fenced off the ack/fail because another worker
+   * re-claimed the event.
+   */
+  stale: number
+}
+
 export class EventWorker {
   private handlers = new Map<string, EventHandler>()
 
   constructor(
     private readonly journal: EventJournal,
-    private readonly options: { maxAttempts?: number; retryDelayMs?: number } = {},
+    private readonly options: EventWorkerOptions = {},
   ) {}
 
   on<TPayload>(eventType: string, handler: EventHandler<TPayload>): () => void {
@@ -266,23 +344,52 @@ export class EventWorker {
     }
   }
 
-  async runBatch(limit = 100): Promise<{ processed: number; failed: number }> {
-    const records = await this.journal.claim(limit)
-    let processed = 0
-    let failed = 0
+  async runBatch(limit = 100): Promise<EventBatchResult> {
+    const clock = this.options.clock ?? Date.now
+    const { maxAttempts, retryDelayMs, leaseMs } = this.options
+    const records = await this.journal.claim(limit, { now: clock(), ...(leaseMs !== undefined ? { leaseMs } : {}) })
+    const result: EventBatchResult = { processed: 0, failed: 0, stale: 0 }
     for (const record of records) {
-      const handler = this.handlers.get(record.envelope.eventType)
+      const { eventId, eventType } = record.envelope
+      const fencingToken = record.fencingToken
+      // Records run one after another, so a later lease can run out while
+      // earlier handlers work. Running it then would race whoever re-claims
+      // it; leave it to them instead.
+      if (record.leaseUntil !== undefined && clock() >= record.leaseUntil) {
+        result.stale++
+        continue
+      }
+      const handler = this.handlers.get(eventType)
+      let handlerError: unknown
+      let ok = false
       try {
-        if (!handler) throw new Error(`No handler registered for ${record.envelope.eventType}`)
+        if (!handler) throw new Error(`No handler registered for ${eventType}`)
         await handler(record.envelope)
-        await this.journal.ack(record.envelope.eventId)
-        processed++
+        ok = true
       } catch (error) {
-        await this.journal.fail(record.envelope.eventId, error, this.options)
-        failed++
+        handlerError = error
+      }
+      try {
+        if (ok) {
+          await this.journal.ack(eventId, { now: clock(), fencingToken })
+          result.processed++
+        } else {
+          await this.journal.fail(eventId, handlerError, {
+            now: clock(),
+            fencingToken,
+            ...(maxAttempts !== undefined ? { maxAttempts } : {}),
+            ...(retryDelayMs !== undefined ? { retryDelayMs } : {}),
+          })
+          result.failed++
+        }
+      } catch (error) {
+        // Fenced off: another worker owns the event now. Any other journal
+        // error propagates; the remaining leases expire and get re-claimed.
+        if (!(error instanceof StaleLeaseError)) throw error
+        result.stale++
       }
     }
-    return { processed, failed }
+    return result
   }
 }
 
