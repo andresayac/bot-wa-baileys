@@ -492,7 +492,7 @@ Entregables:
 - Auth, RBAC, secretos y audit log.
 - Jobs, DLQ y replay.
 - QR, logs, health y estado vía SSE.
-- Scheduler durable.
+- Scheduler durable. *Parcial:* tareas con `id` persistidas en un `ScheduleStore` (memoria, SQLite, Redis), política de ejecuciones perdidas y reclamos con lease y fencing por ejecución. Faltan backends Postgres/MySQL/Mongo (la suite de conformidad los hace mecánicos) y unificar `LeaseProvider` con el coordinador multi-réplica.
 
 Salida:
 

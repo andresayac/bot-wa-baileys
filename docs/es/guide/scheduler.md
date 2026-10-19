@@ -86,6 +86,114 @@ const heartbeat = bot.every('30 seconds', () => console.log('💓'))
 heartbeat.cancel()
 ```
 
+## Tareas durables (sobreviven a reinicios, una réplica por ejecución)
+
+Las tareas anteriores viven en memoria: un reinicio olvida cuándo tocaban y, con
+varias réplicas, cada una ejecuta su propia copia. Dale a una tarea un `id`
+estable y pasa a ser **durable**:
+
+- su próxima ejecución se guarda, así que un reinicio conserva el calendario en
+  lugar de volver a planificar desde "ahora";
+- las ejecuciones perdidas mientras el bot estaba caído siguen una política
+  (`missed`);
+- cada ejecución se reclama con un lease con fencing en el store compartido, así
+  que con N réplicas corre en exactamente una.
+
+Es opt-in: las tareas sin `id` y los bots sin `scheduler` se comportan igual que
+antes.
+
+```ts
+import { Bot } from '@bot-wa/core'
+import { SQLiteStore } from '@bot-wa/sqlite-store'
+
+const store = new SQLiteStore({ file: './data/bot.db' })
+const bot = new Bot({ provider, store, scheduler: { store: store.schedules() } })
+
+// Los mismos métodos, con las opciones antes del handler.
+bot.schedule('0 9 * * 1-5', { id: 'resumen-matinal', missed: 'run-once' }, async (run) => {
+  await enviarResumen({ idempotencyKey: run.occurrenceKey })
+})
+bot.every('15m', { id: 'sync-crm', missed: 'catch-up', maxCatchUp: 4 }, async (run) => { /* ... */ })
+bot.delay('2h', { id: `seguimiento:${pedidoId}` }, async () => { /* ... */ })
+```
+
+El handler recibe un `ScheduledRun`:
+
+| Campo | Significado |
+|---|---|
+| `taskId` | El `id` de la tarea. |
+| `scheduledAt` | El hueco que cubre esta ejecución (no la hora real a la que empezó). |
+| `occurrenceKey` | `` `${taskId}@${scheduledAt.toISOString()}` ``: estable por ejecución, úsalo como clave de idempotencia. |
+| `fencingToken` | Estrictamente creciente por tarea; pásalo a los sistemas que escribes para rechazar escrituras obsoletas. |
+| `missed` | `true` cuando la ejecución viene de la política de ejecuciones perdidas. |
+| `signal` | Se aborta cuando el bot se detiene o se pierde el lease de esta ejecución. |
+
+### Opciones
+
+| Opción | Por defecto | Significado |
+|---|---|---|
+| `id` | (obligatorio) | Estable y único por bot. Se le aplica el namespace del store del bot, así que bots que comparten backend no chocan. Registrar dos veces el mismo id lanza `TypeError`. |
+| `missed` | `'skip'` | Qué hacer con las ejecuciones perdidas mientras no corría ningún scheduler (ver abajo). |
+| `maxCatchUp` | `10` | Máximo de huecos perdidos que ejecuta `'catch-up'`. |
+| `leaseMs` | `'60s'` | Cuánto dura el lease de una ejecución reclamada; se renueva cada tercio mientras corre el handler. |
+
+### Ejecuciones perdidas
+
+Se aplica una vez, cuando el scheduler arranca y encuentra un hueco vencido hace
+más de `tickMs` (1 s por defecto):
+
+- `'skip'`: no ejecuta ninguna y espera al siguiente hueco después de ahora.
+- `'run-once'`: ejecuta una (`missed: true`, `scheduledAt` es el primer hueco
+  perdido) y espera al siguiente hueco.
+- `'catch-up'`: ejecuta en orden cada hueco perdido, cada uno con su propio
+  `scheduledAt` y `occurrenceKey`, hasta `maxCatchUp`; el resto se salta y se
+  registra en el log.
+
+Un `delay` de una sola vez cuenta como un hueco: `'skip'` descarta un
+recordatorio que venció con el bot caído, así que usa `'run-once'` para
+recordatorios. Su hora se fija cuando el id se guarda por primera vez; un
+reinicio no la retrasa. Tras ejecutarse, la fila queda como tombstone (no vuelve
+a dispararse en el siguiente arranque) hasta que `cancel()` la borra.
+
+Los intervalos no derivan: el siguiente hueco es el anterior más el intervalo,
+no "ahora" más el intervalo. El cron sigue en hora local.
+
+### Backends
+
+`BotConfig.scheduler` acepta:
+
+| Opción | Por defecto | Significado |
+|---|---|---|
+| `store` | en memoria | Dónde se guardan los calendarios. `SQLiteStore#schedules()` (tabla `schedules`, misma conexión) o `RedisStore#schedules()` (`{prefix}:sched:{id}`, mismo cliente). Sin él las tareas durables funcionan pero no sobreviven a un reinicio, y se avisa una vez en el log. |
+| `lease` | ninguno | Liderazgo opcional: solo la réplica que tiene `scheduler:leader` reclama, lo que ahorra viajes al store con muchas réplicas. `RedisStore#leases()` da uno con fencing. La corrección nunca depende de él. |
+| `owner` | aleatorio | Id de dueño de lease de este proceso. |
+| `tickMs` | `'1s'` | Periodo de sondeo: recoge una ejecución cuyo ejecutor cayó (cuando vence su lease) y reintenta tras errores del store. |
+| `leaderTtlMs` | `'30s'` | TTL del lease de líder. |
+
+Sirve cualquier objeto que implemente `ScheduleStore` (exportado desde
+`@bot-wa/core`, con `MemoryScheduleStore` como referencia). Los backends de
+Postgres, MySQL y Mongo aún no existen.
+
+### Garantías y límites
+
+- **Al menos una vez por ejecución.** Si un ejecutor cae, o se queda parado más
+  que `leaseMs`, su lease vence y otra réplica (o el reinicio) vuelve a ejecutar
+  el mismo hueco. El `signal` del ejecutor obsoleto se aborta y su commit se
+  rechaza (queda en el log). Haz los handlers idempotentes con
+  `run.occurrenceKey`.
+- **Solo se guarda el calendario**, no el handler. Un id guardado que ninguna
+  tarea registrada reclama es un **huérfano**: se registra una vez al arrancar,
+  se conserva y nunca se ejecuta. Bórralo con `store.schedules().delete(id)` (un
+  `Scheduler` independiente también tiene `forget(id)`).
+- Cambiar la especificación de una tarea (cron o intervalo) entre despliegues la
+  vuelve a planificar desde ahora; la política de perdidas no se aplica a la
+  especificación anterior.
+- `stop()` pausa: las filas se conservan. `task.cancel()` borra la fila.
+- Los plazos de los leases usan el reloj de cada réplica: mantén los relojes
+  sincronizados (NTP) y `leaseMs` muy por encima del desfase esperado.
+- `bot.onIdle()` sigue en memoria a propósito: los temporizadores de inactividad
+  por chat se reconstruyen con el tráfico entrante.
+
 ## Siguientes pasos
 
 - [Sub-APIs](./sub-apis) — grupos, perfil, chats, etc.

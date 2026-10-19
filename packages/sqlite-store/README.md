@@ -59,6 +59,7 @@ With a durable store, `flow(...).persistent()` checkpoints survive a restart: th
 | `checkpoints`   | key                                 | `FlowCheckpoint` (JSON: flow id, step, `c.state`) |
 | `conversations` | key                                 | `AIMessage[]` (JSON), the `@bot-wa/ai` history |
 | `cursors`       | key                                 | delivery cursor string (e.g. Telegram `update_id`) |
+| `schedules`     | task id                             | durable scheduler tasks (`store.schedules()`): spec, next/last run, fencing token, lease |
 
 ## Semantics
 
@@ -69,6 +70,18 @@ With a durable store, `flow(...).persistent()` checkpoints survive a restart: th
 - Statements are prepared once per store, not on every call.
 - `purgeExpiredUserData` deletes `purgeBatchSize` rows per statement and yields to the event loop between batches, so a large backlog never blocks the bot (better-sqlite3 is synchronous) or holds the write lock for long.
 - **Message keys.** `messageKey(ref)` (from `@bot-wa/core`) is `{chatId}:{id}` with `%` and `:` percent-escaped in each part (`%25`, `%3A`), so ids that contain `:` — Twilio's `whatsapp:+1…` chat ids — never collide (`('a:b', 'c')` and `('a', 'b:c')` used to share the key `a:b:c`). Ids without `:` or `%` keep exactly the key earlier versions wrote. Rows written by an earlier version under the old unescaped key are still read and deleted (a fallback that only runs for ids containing `:` or `%`, and only returns or deletes a row whose stored `ref` is that very message, since a legacy key can be another message's new key), and re-saving such a message moves it to the new key — no manual migration. One theoretical edge remains: an id that literally contains `%3A` and was stored by an earlier version can be overwritten by a new message whose id has `:` in the same place.
+
+## Durable scheduler tasks
+
+`store.schedules()` returns a `ScheduleStore` on the same connection (table `schedules`, created on first use) for durable `bot.schedule/every/delay` tasks, the ones registered with an `id`:
+
+```ts
+const store = new SQLiteStore({ file: './data/bot.db' })
+const bot = new Bot({ provider, store, scheduler: { store: store.schedules() } })
+bot.schedule('0 9 * * *', { id: 'daily-report', missed: 'run-once' }, async (run) => { /* ... */ })
+```
+
+Their next run survives restarts. Claims run in `BEGIN IMMEDIATE` transactions, so several processes sharing the file never run the same occurrence twice (barring a crash mid-run: occurrences are at least once).
 
 ## Docker
 
