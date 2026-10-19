@@ -499,3 +499,8 @@ export type {
   TraceAttributes, TraceAttributeValue, TelemetryConfig,
 } from './telemetry/types.js'
 export type { ConversationTraceHooks, ConversationTurnTrace } from './conversations/ConversationRuntime.js'
+// W3C trace context carried by checkpoints (FlowCheckpoint.trace) across replicas/restarts.
+export { formatTraceparent, parseTraceparent } from './telemetry/w3c.js'
+export type { CheckpointTrace } from './telemetry/w3c.js'
+// Scheduled task spans (bot.task): the hook the scheduler calls around each run.
+export type { TaskTraceHooks, TaskRunInfo } from './scheduler/tracing.js'

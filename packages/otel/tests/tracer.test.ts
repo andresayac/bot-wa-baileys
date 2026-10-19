@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { Bot, flow, TRACE_ATTR } from '@bot-wa/core'
+import { Bot, flow, MemoryStore, TRACE_ATTR } from '@bot-wa/core'
 import { MockProvider } from '@bot-wa/core/testing'
 
 import { createOtelTracer, otelTracer } from '../src/index.js'
@@ -87,6 +87,61 @@ describe('otelTracer', () => {
     expect(timeout!.links.map((l) => l.context.spanId)).toEqual([first!.spanContext().spanId])
     expect(timeout!.spanContext().traceId).not.toBe(first!.spanContext().traceId)
     await bot.stop()
+  })
+
+  it('spanContext() reports the W3C tracestate; links carry tracestate and isRemote back to OTel', () => {
+    env = memoryTracing()
+    const tracer = otelTracer({ api, tracerProvider: env.provider, spanMetrics: false })
+    const remote = { traceId: '4bf92f3577b34da6a3ce929d0e0e4736', spanId: '00f067aa0ba902b7', traceFlags: 1, isRemote: true, traceState: api.createTraceState('vendor=a') }
+    const parent = api.trace.setSpanContext(api.context.active(), remote)
+    const child = api.context.with(parent, () => tracer.startSpan('child'))
+    expect(child.spanContext()).toMatchObject({ traceId: remote.traceId, traceState: 'vendor=a' })
+    const linked = tracer.startSpan('linked', { links: [{ context: { traceId: remote.traceId, spanId: remote.spanId, traceState: 'vendor=a', isRemote: true } }] })
+    child.end(); linked.end()
+    const link = env.byName('linked')!.links[0]!
+    expect(link.context.isRemote).toBe(true)
+    expect(link.context.traceState?.serialize()).toBe('vendor=a')
+    // A link without those fields keeps today's mapping.
+    const plain = tracer.startSpan('plain', { links: [{ context: { traceId: remote.traceId, spanId: remote.spanId } }] })
+    plain.end()
+    expect(env.byName('plain')!.links[0]!.context.isRemote).toBe(false)
+    expect(env.byName('plain')!.links[0]!.context.traceState).toBeUndefined()
+  })
+
+  it('a persistent flow resumed by another process links its dormant turn to the previous turn (remote, with tracestate)', async () => {
+    env = memoryTracing()
+    const store = new MemoryStore({})
+    const tracer = otelTracer({ api, tracerProvider: env.provider, spanMetrics: false })
+    const make = async () => {
+      const provider = new MockProvider()
+      const bot = new Bot({ provider, store, telemetry: { tracer, ids: 'raw' } })
+      bot.on('error', () => {})
+      bot.use(flow('registrar').persistent().ask('¿nombre?', 'name').ask('¿email?', 'email'))
+      await bot.start()
+      return { bot, provider }
+    }
+    const first = await make()
+    const remote = api.trace.setSpanContext(api.context.active(), {
+      traceId: '4bf92f3577b34da6a3ce929d0e0e4736', spanId: '00f067aa0ba902b7', traceFlags: 1, isRemote: true, traceState: api.createTraceState('vendor=a'),
+    })
+    first.provider.incoming('registrar', { from: 'u1' })
+    await tick()
+    api.context.with(remote, () => first.provider.incoming('Ana', { from: 'u1' }))
+    await tick()
+    await first.bot.stop()
+    const parked = env.spans().find((s) => s.name === 'bot.conversation.turn' && s.attributes[TRACE_ATTR.conversationParked] === true && s.attributes[TRACE_ATTR.conversationReason] === 'reply')!
+
+    const second = await make()
+    second.provider.incoming('a@b.co', { from: 'u1' })
+    await tick()
+    const resumed = env.spans().find((s) => s.name === 'bot.conversation.turn' && s.attributes[TRACE_ATTR.conversationReason] === 'dormant')!
+    expect(resumed.links).toHaveLength(1)
+    const link = resumed.links[0]!
+    expect(link.context).toMatchObject({ traceId: parked.spanContext().traceId, spanId: parked.spanContext().spanId, isRemote: true })
+    expect(link.context.traceState?.serialize()).toBe('vendor=a')
+    expect(link.attributes).toEqual({ [TRACE_ATTR.linkReason]: 'resume' })
+    expect(resumed.spanContext().traceId).not.toBe(parked.spanContext().traceId)
+    await second.bot.stop()
   })
 
   it('flow steps become span events of the turn', async () => {

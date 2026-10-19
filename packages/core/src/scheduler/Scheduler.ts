@@ -14,6 +14,7 @@ import type { ScheduleKind, SchedulerOptions } from './ScheduleStore.js'
 import { parseDuration, randomId } from '../utils/timers.js'
 import { assertCron, cronNextRun } from './cron.js'
 import { assertTimeZone } from './cronZone.js'
+import { isUntraced, type TaskRunInfo, type TaskTraceHooks } from './tracing.js'
 
 /** `opts` of `cron(expr, opts, fn)` selects a plain (in-memory) task with a time zone. */
 function isPlainCronOptions(opts: object): opts is CronTaskOptions {
@@ -35,6 +36,10 @@ interface InternalTask extends ScheduledTask {
   generation: number
   nextRunDate: Date | null
   computeNextRun(): Date | null
+  /** Internal timer (handler marked with `untracedTask`): never traced. */
+  untraced?: boolean
+  /** Interval in ms (interval tasks), for its span. */
+  intervalMs?: number
 }
 
 export class Scheduler {
@@ -44,6 +49,8 @@ export class Scheduler {
   private readonly durable: DurableScheduler
   /** Default zone of cron tasks (`SchedulerOptions.timeZone`). */
   private readonly timeZone?: string
+  /** Task spans (`BotConfig.telemetry`); unset: tasks run untouched. */
+  private tracing?: TaskTraceHooks
 
   /**
    * `opts` only affect durable tasks, except `timeZone` (the default zone of every cron
@@ -79,6 +86,15 @@ export class Scheduler {
       t.timer = undefined
     }
     return this.durable.stop()
+  }
+
+  /**
+   * Trace every task run (plain runs and durable occurrences) through `hooks` — the bot
+   * installs its `bot.task` spans here when `BotConfig.telemetry` is set. `undefined` removes it.
+   */
+  trace(hooks: TaskTraceHooks | undefined): void {
+    this.tracing = hooks
+    this.durable.trace(hooks)
   }
 
   /** Add a cron-style task. */
@@ -180,6 +196,8 @@ export class Scheduler {
       isRecurring: cronExpr !== undefined || interval !== undefined,
       ...(timeZone !== undefined ? { timeZone } : {}),
       handler,
+      ...(isUntraced(handler) ? { untraced: true } : {}),
+      ...(interval !== undefined ? { intervalMs: parseDuration(interval) } : {}),
       generation: 0,
       nextRunDate: computeNextRun(),
       get nextRun() { return this.nextRunDate },
@@ -227,7 +245,9 @@ export class Scheduler {
       // handler runs must not schedule it again (start() only reschedules known tasks).
       if (!task.isRecurring) this.tasks.delete(task.id)
       try {
-        await task.handler()
+        const tracing = this.tracing
+        if (tracing && !task.untraced) await tracing.run(runInfo(task), () => task.handler())
+        else await task.handler()
       } catch (err) {
         this.logger?.error?.({ err, taskId: task.id }, 'scheduled task failed')
       }
@@ -243,3 +263,15 @@ export class Scheduler {
 
 /** Longest delay `setTimeout` honours (2^31-1 ms); longer ones fire after 1 ms. */
 const MAX_TIMER_MS = 2 ** 31 - 1
+
+/** The span description of one run of a plain task. */
+function runInfo(task: InternalTask): TaskRunInfo {
+  return {
+    id: task.id,
+    kind: task.cron !== undefined ? 'cron' : task.intervalMs !== undefined ? 'interval' : 'once',
+    durable: false,
+    ...(task.cron !== undefined ? { cron: task.cron } : {}),
+    ...(task.intervalMs !== undefined ? { intervalMs: task.intervalMs } : {}),
+    ...(task.timeZone !== undefined ? { timeZone: task.timeZone } : {}),
+  }
+}

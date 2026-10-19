@@ -151,6 +151,16 @@ export function runStoreConformance(name: string, h: ConformanceHarness): void {
       expect(await store.listCheckpoints()).toHaveLength(0)
     })
 
+    it('round-trips the optional checkpoint fields opaquely (trace context included)', async () => {
+      const cp = {
+        flowId: 'reg', step: 1, state: {}, updatedAt: 2, parked: true,
+        trace: { traceparent: '00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01', tracestate: 'vendor=a' },
+      }
+      await store.setCheckpoint('t@x', cp)
+      expect(await store.getCheckpoint('t@x')).toEqual(cp)
+      await store.clearCheckpoint('t@x')
+    })
+
     it('manages AI conversation history (set/get/clear)', async () => {
       const msgs = [{ role: 'user' as const, content: 'hi' }, { role: 'assistant' as const, content: 'yo' }]
       await store.setConversation('c@x', msgs)

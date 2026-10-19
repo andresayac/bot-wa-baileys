@@ -38,6 +38,7 @@ import type { BotConfig, ChatId, MessageContext, Trigger } from '../types.js'
 import { WelcomeTracker } from '../welcome.js'
 import { createTracing } from '../../telemetry/tracing.js'
 import { ConversationTracing } from '../../telemetry/conversation.js'
+import { createTaskTracing } from '../../telemetry/tasks.js'
 import { createContextFactory } from './contextFactory.js'
 import { createHandoverBridge, runtimeHandover } from './handover.js'
 import { createEventSink, dispatcherEmit, type EventHost } from './events.js'
@@ -162,6 +163,8 @@ export function composeBot(host: ComposeHost, inputConfig: BotConfig, fields: Co
   // Durable scheduler tasks (opt-in): only replaced when `BotConfig.scheduler` is set. Its
   // leadership defaults to the multi-replica coordinator (`BotConfig.coordination`).
   if (config.scheduler) k.scheduler = createBotScheduler(config.scheduler, namespace, config.coordination?.coordinator)
+  // Tracing: every task run is a root `bot.task` span (plain runs and durable occurrences).
+  if (k.tracing) k.scheduler.trace(createTaskTracing(k.tracing))
   const persistence = new Persistence(store, k.chatWrites)
   k.messageLog = new MessageLog({
     store,

@@ -13,6 +13,7 @@ import { translateFor } from '../i18n/I18n.js'
 import { CORE_MESSAGES } from '../i18n/builtins.js'
 import type { TranslateParams } from '../i18n/types.js'
 import type { CheckpointAnswer, InboundLocation } from '../core/provider.js'
+import type { CheckpointTrace } from '../telemetry/w3c.js'
 import {
   adoptCause, currentCause, forkCause, hasCause, replayCauseRef, restoreCause, trackSettle,
   type CauseBox, type CauseRef, type SettleOutcome,
@@ -94,11 +95,20 @@ export interface ConversationTurnTrace { readonly conversation: true }
  * The Bot injects its implementation when `BotConfig.telemetry` is set.
  */
 export interface ConversationTraceHooks {
-  begin(info: { id: string; name: string }, reason: 'start' | 'goto' | 'dormant'): ConversationTurnTrace
+  /**
+   * `from`: the trace context a resumed checkpoint (or a hand-over stub restarted) carried
+   * from the process that wrote it (`FlowCheckpoint.trace`): the first turn links to it.
+   */
+  begin(info: { id: string; name: string }, reason: 'start' | 'goto' | 'dormant', from?: CheckpointTrace): ConversationTurnTrace
   run<T>(trace: ConversationTurnTrace, fn: () => T): T
   resume(trace: ConversationTurnTrace, reason: 'reply' | 'timeout' | 'idle' | 'end'): void
   park(trace: ConversationTurnTrace): void
   end(trace: ConversationTurnTrace, outcome: string, goto?: string): void
+  /**
+   * Optional: the W3C trace context of the conversation's current (or last parked) turn,
+   * stored in its checkpoints and hand-over stubs (`FlowCheckpoint.trace`).
+   */
+  carry?(trace: ConversationTurnTrace): CheckpointTrace | undefined
 }
 
 export interface RuntimeConfig {
@@ -299,6 +309,8 @@ export class ConversationRuntime {
   private bufferedCauses = new WeakMap<RuntimeMessage, CauseRef>()
   /** Tracing: keys whose next {@link run} resumes a dormant checkpoint (consumed synchronously). */
   private tracedResumes = new Set<string>()
+  /** Tracing: the stored trace context the next {@link run} for a key links its first turn to (consumed synchronously). */
+  private tracedFrom = new Map<string, CheckpointTrace>()
 
   constructor(private cfg: RuntimeConfig = {}) {}
 
@@ -394,6 +406,7 @@ export class ConversationRuntime {
           // where the next step's send keys continue (a re-run step re-derives the same keys).
           ...(cause ? { inboundId: cause.id, cause: { id: cause.id, seq: cause.seq } } : {}),
           ...(forward ? { handover: this.ephemeralMeta(entry, flow.id, shape!, now) } : {}),
+          ...this.traceField(entry),
         }
         // Coordination: a replica known to have lost the chat does not overwrite the new owner's checkpoint.
         this.cfg.fence?.(key)
@@ -519,7 +532,7 @@ export class ConversationRuntime {
       }
       if (meta.kind === 'stub') {
         this.queueClear(key, undefined, true)
-        return this.interrupted(ctx, interruptedOf(key, name, 'unforwardable', meta))
+        return this.interrupted(ctx, interruptedOf(key, name, 'unforwardable', meta, cp.trace))
       }
     }
     const flow = this.compiled.get(cp.flowId)
@@ -527,7 +540,7 @@ export class ConversationRuntime {
     if (meta?.kind === 'ephemeral' && meta.shape !== undefined && meta.shape !== flowShape(flow)) {
       // The flow changed on this replica (rolling deploy): its step index means something else.
       this.queueClear(key, undefined, true)
-      return this.interrupted(ctx, interruptedOf(key, cp.flowId, 'changed', meta))
+      return this.interrupted(ctx, interruptedOf(key, cp.flowId, 'changed', meta, cp.trace))
     }
     // Durability (a cause is active and the checkpoint recorded one): the pending step re-runs
     // under the causation it had, so its prompt — already sent before the restart — is answered
@@ -549,18 +562,21 @@ export class ConversationRuntime {
     else if (handover && !replayOfCaptured) this.handoverAnswers.set(key, [ctx])
     // enter() is fire-and-forget (it only resolves when the resumed flow ends); a rejection
     // here (e.g. a bad goto target) would otherwise become an unhandled rejection → crash.
-    // TODO(tracing x hand-over): a checkpoint resumed on another replica starts a fresh trace
-    // ('dormant' turn). Carrying a span link (traceparent) in FlowCheckpoint needs a stored
-    // SpanContextRef from the parking turn plus a link on resume; documented as a limit in
-    // docs/guide/tracing.md (Multi-replica).
-    if (this.cfg.tracing) this.tracedResumes.add(key)
+    // Tracing: the resumed conversation's first turn ('dormant') runs under the waking
+    // message's dispatch and LINKS to the turn that wrote the checkpoint (`cp.trace`, the
+    // W3C context carried from the replica or process that ran it before), so the trace of
+    // the waking message stays whole and the earlier trace is one click away.
+    if (this.cfg.tracing) {
+      this.tracedResumes.add(key)
+      if (cp.trace) this.tracedFrom.set(key, cp.trace)
+    }
     void this.enter(resumed, ctx, { name: cp.flowId }).catch((e) => {
       this.cfg.onError?.(e, ctx)
       this.cfg.logger?.error?.('resume failed', e)
     })
     this.handoverAnswers.delete(key)   // consumed synchronously by run(); never left behind
     if (meta?.kind === 'ephemeral') this.reportHandover(key, cp.flowId, 'resumed')
-    if (this.cfg.tracing) this.tracedResumes.delete(key)
+    if (this.cfg.tracing) { this.tracedResumes.delete(key); this.tracedFrom.delete(key) }
     // Durability: the waking message answers the re-run step (a handover already queued it as
     // the parked wait's answer) — unless the checkpoint already captured this very message (a
     // replay after the step that consumed it): the flow then only re-runs its pending steps.
@@ -614,10 +630,13 @@ export class ConversationRuntime {
       }
       if (consumed) outcome = 'migrated'
     } else if (policy === 'restart' && this.registry.has(info.name)) {
+      // Tracing: the restarted conversation's first turn links to the stub's last turn.
+      if (this.cfg.tracing && info.trace) this.tracedFrom.set(info.key, info.trace)
       void this.enter(info.name, ctx, info.startState ? { state: info.startState } : {}).catch((e) => {
         this.cfg.onError?.(e, ctx)
         this.cfg.logger?.error?.('hand-over restart failed', e)
       })
+      this.tracedFrom.delete(info.key)
       consumed = true
       outcome = 'restarted'
     } else if (policy === 'notify' || policy === 'restart') {
@@ -823,7 +842,9 @@ export class ConversationRuntime {
     const tracing = this.cfg.tracing
     if (tracing) {
       const reason = latest ? 'goto' : this.tracedResumes.delete(key) ? 'dormant' : 'start'
-      entry.trace = tracing.begin({ id: startInfo.id, name }, reason)
+      const from = latest ? undefined : this.tracedFrom.get(key)
+      this.tracedFrom.delete(key)
+      entry.trace = tracing.begin({ id: startInfo.id, name }, reason, from)
     }
 
     const controls = (this.cfg.controlsFactory ?? defaultControlsFactory)(this, entry, ctx)
@@ -1116,7 +1137,7 @@ export class ConversationRuntime {
     const lifeMs = h ? Math.max(h.ttlMs, parking?.timeoutMs ?? 0) : 0
     const refresh = meta !== undefined && parking !== undefined && meta.expiresAt - now < lifeMs
     if (answer === undefined && !dropAnswer && !refresh && (current.parked === true) === parked) return undefined
-    const cp: FlowCheckpoint = { ...current, parked }
+    const cp: FlowCheckpoint = { ...current, parked, ...this.traceField(entry) }
     if (answer) cp.answer = answer
     else if (dropAnswer) delete cp.answer
     if (meta && h) cp.handover = { ...meta, expiresAt: now + (parking ? lifeMs : h.ttlMs) }
@@ -1137,6 +1158,18 @@ export class ConversationRuntime {
     }
     if (!captured) return undefined
     return { ...captured, ...(ref ? { cause: { id: ref.id, seq: ref.seq } } : {}), at: Date.now() }
+  }
+
+  /**
+   * Tracing: `{ trace }` — the W3C context of `entry`'s current (or last parked) turn — to
+   * spread into a checkpoint or stub it writes; `{}` without tracing or a carriable context.
+   */
+  private traceField(entry: ActiveConversation | undefined): { trace?: CheckpointTrace } {
+    const hooks = this.cfg.tracing
+    if (!hooks?.carry || !entry?.trace) return {}
+    let trace: CheckpointTrace | undefined
+    try { trace = hooks.carry(entry.trace) } catch { /* telemetry never breaks a checkpoint */ }
+    return trace ? { trace } : {}
   }
 
   /**
@@ -1165,6 +1198,7 @@ export class ConversationRuntime {
         startedAt: life.startedAt,
         ...(entry.startState ? { startState: entry.startState } : {}),
       },
+      ...this.traceField(entry),
     }
     entry.stub = stub
     entry.stubbed = true
@@ -1393,6 +1427,7 @@ function takeInterrupt(entry: ActiveConversation): Error | undefined {
 
 function interruptedOf(
   key: string, name: string, reason: InterruptedConversation['reason'], meta: NonNullable<FlowCheckpoint['handover']>,
+  trace?: CheckpointTrace,
 ): InterruptedConversation {
   return {
     name,
@@ -1400,6 +1435,7 @@ function interruptedOf(
     reason,
     ...(meta.startedAt !== undefined ? { startedAt: meta.startedAt } : {}),
     ...(meta.startState ? { startState: { ...meta.startState } } : {}),
+    ...(trace ? { trace: { ...trace } } : {}),
   }
 }
 

@@ -23,6 +23,7 @@ import type { FormContent, FormDefinition } from '../forms/types.js'
 import type { SchedulerOptions } from '../scheduler/ScheduleStore.js'
 import type { SerializedMediaRef } from './mediaRefs.js'
 import type { TelemetryConfig } from '../telemetry/types.js'
+import type { CheckpointTrace } from '../telemetry/w3c.js'
 
 /* ============================================================================
  * 1. IDENTITY PRIMITIVES  (opaque — no shape grammar)
@@ -1099,6 +1100,14 @@ export interface FlowCheckpoint {
   answer?: CheckpointAnswer
   /** Multi-replica hand-over metadata (`coordination.handover`): an ephemeral checkpoint or a stub. */
   handover?: CheckpointHandover
+  /**
+   * Tracing (`BotConfig.telemetry`) only: the W3C trace context of the conversation turn
+   * that wrote this checkpoint. The replica (or restarted process) that resumes it LINKS
+   * its first turn to that span (the resumed turn's parent stays the waking message's
+   * dispatch). Absent without telemetry or when the tracer's ids are not W3C-shaped.
+   * Stores persist it opaquely, as JSON.
+   */
+  trace?: CheckpointTrace
 }
 
 /** See {@link FlowCheckpoint.answer}. Stores persist it opaquely, as JSON. */
