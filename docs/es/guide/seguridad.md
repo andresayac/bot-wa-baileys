@@ -92,6 +92,15 @@ siga en la ventana de dedupe.
   los hosts que son o resuelven a direcciones internas
   (`allowPrivateMediaHosts: true` para desactivarlo, `mediaHostResolver` para
   tests).
+- **`@bot-wa/baileys`: SSRF por redirecciones.** Baileys descargaba los
+  `{ url }` con `fetch` sin más, que sigue las redirecciones sin comprobarlas,
+  así que una URL pública que respondía `302` hacia `http://169.254.169.254/…`
+  se saltaba la comprobación de host de la API REST. Ahora el provider descarga
+  la media remota él mismo con `@bot-wa/http` (cada salto revalidado, socket
+  fijado a la dirección comprobada, límites de 64 MiB y 60 s) y le pasa un
+  Buffer a Baileys. Se ajusta con `remoteMedia` (`maxBytes`, `timeoutMs`,
+  `allowHttp`); `remoteMedia.allowPrivateHosts: true` recupera el paso directo
+  anterior para media servida desde tu propia red.
 - **`@bot-wa/manager`: fuga de errores.** El antiguo `createManagerApi`
   devolvía el mensaje del error en los `500`; ahora responde
   `"start failed"`/`"stop failed"` y entrega el error a `onError`.
@@ -135,10 +144,14 @@ siga en la ventana de dedupe.
   una fuente string o `{ path }` se lee de disco, y Baileys también lee de disco
   un `{ url }` que no sea `http`. Nunca pases texto del usuario como fuente de
   media; la API REST y Chatwoot ya lo limitan a URLs `http(s)`.
-- **Transportes que descargan por su cuenta.** Baileys descarga los `{ url }`
-  sin `secureFetch`. La API REST comprueba el host antes de enviar, pero una URL
-  que construyas en tu código no se comprueba. Además, su comprobación DNS
-  ocurre antes de la resolución propia del transporte (ventana de rebinding).
+- **Transportes que descargan por su cuenta.** Evolution y WPPConnect pasan los
+  `{ url }` a su propio servidor, que los descarga (y sigue redirecciones) desde
+  su red; Cloud API, Messenger, Instagram, Twilio, Gupshup y HighLevel le dan el
+  enlace a la plataforma. La API REST comprueba el primer host, pero una
+  redirección la resuelve ese otro servidor, fuera de `secureFetch`. Despliega
+  esos servidores donde un destino interno no sea alcanzable, o envía Buffers.
+  Baileys está cubierto (descarga con `@bot-wa/http`) salvo que pongas
+  `remoteMedia.allowPrivateHosts: true`.
 - **El estado en memoria crece con los contactos**: los mapas de identidad
   LID/PN (Evolution, WPPConnect, Baileys), los contadores de avisos de
   moderación y la lista de supresión de email no tienen tope. El resto de

@@ -55,6 +55,7 @@ import {
 import { toInbound } from './toInbound.js'
 import { toCallEvent } from './toCallEvent.js'
 import { toOutbound } from './toOutbound.js'
+import type { RemoteMediaConfig } from './MediaProcessor.js'
 import { RateLimiter, type RateLimitConfig } from './RateLimiter.js'
 import {
   assertSessionDirectorySafe,
@@ -110,6 +111,13 @@ export interface BaileysProviderConfig {
   pollStore?: PollStore
   /** Anti-ban outbound pacing. */
   rateLimit?: RateLimitConfig
+  /**
+   * How outbound `{ url }` media is fetched. By default the provider downloads
+   * it through `@bot-wa/http` (redirects vetted, private hosts refused, 64 MiB
+   * cap) instead of letting Baileys follow redirects blindly. See
+   * {@link RemoteMediaConfig}.
+   */
+  remoteMedia?: RemoteMediaConfig
   debug?: boolean
   logger?: Logger
 }
@@ -275,7 +283,7 @@ export class BaileysProvider implements IProvider<WAMessage> {
     // Everything below rejects through mapSendError, so send() only ever rejects
     // with ProviderError subclasses (rate-limiter timeouts and resets included).
     try {
-      const waContent = await toOutbound(content)
+      const waContent = await toOutbound(content, this.config.remoteMedia)
       const waOptions: Record<string, unknown> = {}
       if (options?.quoted?.native) waOptions.quoted = options.quoted.native
       const resolvedJid = await this.resolveJid(chatId)

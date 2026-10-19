@@ -88,6 +88,14 @@ is in the dedupe window.
   `{ url }` media themselves (outside `secureFetch`). Hosts that are or resolve
   to internal addresses are now rejected with `400`
   (`allowPrivateMediaHosts: true` to opt out, `mediaHostResolver` for tests).
+- **`@bot-wa/baileys`: SSRF through redirects.** Baileys downloaded `{ url }`
+  media with plain `fetch`, which follows redirects without checking them, so a
+  public URL answering `302` to `http://169.254.169.254/…` got past the REST
+  host check. The provider now downloads remote media itself through
+  `@bot-wa/http` (every hop vetted, socket pinned to the vetted address, 64 MiB
+  and 60 s caps) and hands Baileys a Buffer. Tune it with `remoteMedia`
+  (`maxBytes`, `timeoutMs`, `allowHttp`); `remoteMedia.allowPrivateHosts: true`
+  restores the old pass-through for media served from your own network.
 - **`@bot-wa/manager`: error leak.** The older `createManagerApi` returned the
   error message on `500`; it now answers `"start failed"`/`"stop failed"` and
   hands the error to `onError`.
@@ -126,10 +134,14 @@ is in the dedupe window.
   string or `{ path }` media source is read from disk, and Baileys reads a
   non-`http` `{ url }` from disk too. Never pass user-controlled text as a media
   source; the REST API and Chatwoot already restrict it to `http(s)` URLs.
-- **Transports that fetch by themselves.** Baileys downloads `{ url }` media
-  without `secureFetch`. The REST API vets the host before sending, but a URL
-  you build in your own code is not checked. Its DNS check also happens before
-  the transport's own lookup (rebinding window).
+- **Transports that fetch by themselves.** Evolution and WPPConnect pass
+  `{ url }` media to their own server, which downloads it (and follows
+  redirects) from its network; Cloud API, Messenger, Instagram, Twilio, Gupshup
+  and HighLevel hand the link to the platform. The REST API vets the first host,
+  but a redirect is resolved by that other server, outside `secureFetch`. Host
+  those servers where an internal redirect target is unreachable, or send
+  Buffers. Baileys is covered (it downloads through `@bot-wa/http`) unless you
+  set `remoteMedia.allowPrivateHosts: true`.
 - **In-memory state grows with contacts**: LID/PN identity maps (Evolution,
   WPPConnect, Baileys), moderation warning counters and the email suppression
   list are not capped. Other per-chat maps are bounded.

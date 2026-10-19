@@ -97,6 +97,9 @@ importers:
       '@bot-wa/core':
         specifier: workspace:*
         version: link:../core
+      '@bot-wa/http':
+        specifier: workspace:*
+        version: link:../http
       '@cacheable/node-cache':
         specifier: ^1.5.0
         version: 1.7.4

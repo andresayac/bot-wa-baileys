@@ -30,8 +30,8 @@ export { RateLimiter, RateLimiterTimeout } from './RateLimiter.js'
 export type { RateLimitConfig, RateLimitBucketConfig, RateLimitJitterConfig } from './RateLimiter.js'
 
 // Media processing (sticker/opus/upload)
-export { toMediaUpload, toBuffer as mediaToBuffer, makeSticker, transcodeToOpus } from './MediaProcessor.js'
-export type { StickerOptions } from './MediaProcessor.js'
+export { toMediaUpload, toBuffer as mediaToBuffer, makeSticker, transcodeToOpus, resolveRemoteMedia, REMOTE_MEDIA_MAX_BYTES } from './MediaProcessor.js'
+export type { StickerOptions, RemoteMediaConfig } from './MediaProcessor.js'
 
 // Low-level normalizers (advanced)
 export { toInbound } from './toInbound.js'

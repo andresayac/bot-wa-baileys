@@ -7,7 +7,7 @@
 
 import type { AnyMessageContent, WAMessage } from '@whiskeysockets/baileys'
 import { UnsupportedContentError, type OutboundContent } from '@bot-wa/core'
-import { toMediaUpload, makeSticker, transcodeToOpus } from './MediaProcessor.js'
+import { toMediaUpload, resolveRemoteMedia, makeSticker, transcodeToOpus, type RemoteMediaConfig } from './MediaProcessor.js'
 
 function vcard(phone: string, displayName?: string): string {
   const digits = phone.replace(/[^\d]/g, '')
@@ -24,22 +24,23 @@ function numberedButtons(text: string, rows: Array<{ title: string }>, footer?: 
   return [text, '', menu, footer ? `\n${footer}` : ''].filter(Boolean).join('\n')
 }
 
-export async function toOutbound(content: OutboundContent): Promise<AnyMessageContent> {
+export async function toOutbound(content: OutboundContent, remoteMedia: RemoteMediaConfig = {}): Promise<AnyMessageContent> {
+  const upload = (media: Parameters<typeof toMediaUpload>[0]) => resolveRemoteMedia(toMediaUpload(media), content.kind, remoteMedia)
   switch (content.kind) {
     case 'text':
       return { text: content.text }
     case 'image':
-      return { image: toMediaUpload(content.media), caption: content.caption, viewOnce: content.viewOnce } as AnyMessageContent
+      return { image: await upload(content.media), caption: content.caption, viewOnce: content.viewOnce } as AnyMessageContent
     case 'video':
-      return { video: toMediaUpload(content.media), caption: content.caption, gifPlayback: content.gifPlayback, ptv: content.ptv, viewOnce: content.viewOnce } as AnyMessageContent
+      return { video: await upload(content.media), caption: content.caption, gifPlayback: content.gifPlayback, ptv: content.ptv, viewOnce: content.viewOnce } as AnyMessageContent
     case 'audio':
-      return { audio: toMediaUpload(content.media), mimetype: 'audio/ogg; codecs=opus', ptt: false } as AnyMessageContent
+      return { audio: await upload(content.media), mimetype: 'audio/ogg; codecs=opus', ptt: false } as AnyMessageContent
     case 'voice': {
       const opus = await transcodeToOpus(content.media)
       return { audio: opus, mimetype: 'audio/ogg; codecs=opus', ptt: true } as AnyMessageContent
     }
     case 'document':
-      return { document: toMediaUpload(content.media), fileName: content.filename, caption: content.caption, mimetype: content.mimetype } as AnyMessageContent
+      return { document: await upload(content.media), fileName: content.filename, caption: content.caption, mimetype: content.mimetype } as AnyMessageContent
     case 'sticker': {
       const sticker = await makeSticker(content.media, { pack: content.pack, author: content.author })
       return { sticker } as AnyMessageContent

@@ -67,7 +67,9 @@ export interface RestApiOptions {
    * Accept media URLs whose host is (or resolves to) a loopback, private,
    * link-local or otherwise internal address. Default `false`: some transports
    * (Baileys) download `{ url }` media themselves, so an internal URL would let
-   * an API client make the bot fetch from your private network (SSRF).
+   * an API client make the bot fetch from your private network (SSRF). This
+   * check only sees the first host: redirects are vetted by the transport
+   * (`@bot-wa/baileys` downloads through `@bot-wa/http`).
    */
   allowPrivateMediaHosts?: boolean
   /** DNS resolver used to vet media hosts (tests, egress gateways). Default: the system resolver. */
