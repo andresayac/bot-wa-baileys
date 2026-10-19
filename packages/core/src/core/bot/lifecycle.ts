@@ -64,10 +64,7 @@ export function defaultLifecycleSteps(k: BotKernel): LifecycleStep[] {
     {
       name: 'storage',
       start: () => k.store.start(),
-      rollback: async () => {
-        try { await k.store.stop() }
-        catch (rollbackError) { k.logger.error({ err: rollbackError }, 'store start rollback failed') }
-      },
+      rollback: guardedRollback(k, 'store start rollback failed', () => k.store.stop()),
       stop: () => k.store.stop(),
     },
     // Multi-replica coordination (`BotConfig.coordination`) only: the coordinator starts
@@ -94,10 +91,7 @@ export function defaultLifecycleSteps(k: BotKernel): LifecycleStep[] {
       name: 'transport',
       // With coordination, the transport is started only on the elected replica (or shared).
       start: () => (k.coordination ? k.coordination.startProvider() : k.provider.start()),
-      rollback: async () => {
-        try { await (k.coordination ? k.coordination.stopProvider() : k.provider.stop()) }
-        catch (rollbackError) { k.logger.error({ err: rollbackError }, 'provider start rollback failed') }
-      },
+      rollback: guardedRollback(k, 'provider start rollback failed', () => (k.coordination ? k.coordination.stopProvider() : k.provider.stop())),
       stop: () => (k.coordination ? k.coordination.stopProvider() : k.provider.stop()),
     },
     {
@@ -117,16 +111,24 @@ export function defaultLifecycleSteps(k: BotKernel): LifecycleStep[] {
   ]
 }
 
+/**
+ * A step rollback that never throws: a failure of `undo` (sync or async) is logged as
+ * `message` and swallowed, so the remaining rollbacks still run.
+ */
+function guardedRollback(k: BotKernel, message: string, undo: () => Promise<void>): () => Promise<void> {
+  return async () => {
+    try { await undo() }
+    catch (rollbackError) { k.logger.error({ err: rollbackError }, message) }
+  }
+}
+
 /** The `coordination` step: the multi-replica coordinator (heartbeat, turns, leadership). */
 function coordinationStep(coordination: BotCoordination, k: BotKernel): LifecycleStep {
   return {
     name: 'coordination',
     start: () => coordination.start(),
     // Only when its start() was attempted (it releases leases): no alwaysRollback.
-    rollback: async () => {
-      try { await coordination.stop() }
-      catch (rollbackError) { k.logger.error({ err: rollbackError }, 'coordination start rollback failed') }
-    },
+    rollback: guardedRollback(k, 'coordination start rollback failed', () => coordination.stop()),
     stop: () => coordination.stop(),
   }
 }
@@ -137,16 +139,13 @@ function coordinationStep(coordination: BotCoordination, k: BotKernel): Lifecycl
  * `stop()` after the transport (in-flight sends stay journaled until then).
  */
 function durabilityStep(durable: DurableEngine, k: BotKernel): LifecycleStep {
+  const stopDurable = guardedRollback(k, 'durability start rollback failed', () => durable.stop())
   return {
     name: 'durability',
     start: () => durable.recover(),
     afterStart: () => { durable.resume() },
     pause: () => { durable.pause() },
-    rollback: async () => {
-      durable.pause()
-      try { await durable.stop() }
-      catch (rollbackError) { k.logger.error({ err: rollbackError }, 'durability start rollback failed') }
-    },
+    rollback: async () => { durable.pause(); await stopDurable() },
     stop: () => durable.stop(),
   }
 }

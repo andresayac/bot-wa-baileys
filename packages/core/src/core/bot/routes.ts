@@ -11,29 +11,18 @@
 import { FlowBuilder, isCompiledFlow, type CompiledFlow } from '../../flows/FlowBuilder.js'
 import type { ConversationFn } from '../../conversations/ConversationRuntime.js'
 import type { ConversationHandler } from '../../conversations/handler.js'
+import type { CommandHandler, MessageHandler } from '../Bot.js'
 import type { HookEvent, HookHandler, HookPhase, MessageContext, MessageType, Plugin, Trigger } from '../types.js'
 import { asMessage, type BotKernel } from './kernel.js'
 
-/** A user message handler — receives the full inbound {@link MessageContext}. */
-export type RouteHandler = (ctx: MessageContext) => unknown | Promise<unknown>
-/** A slash-command handler — receives the context plus the parsed argument list. */
-export type RouteCommandHandler = (ctx: MessageContext, args: string[]) => unknown | Promise<unknown>
 /** Registers the route that enters conversation/flow `target` when `trigger` matches. */
 export type EnterMatcher = (trigger: Trigger, target: string) => () => void
 
 export class RouteRegistrar {
   constructor(private readonly k: BotKernel) {}
 
-  when(trigger: Trigger, handler: RouteHandler | FlowBuilder | CompiledFlow, enter: EnterMatcher): () => void {
-    if (handler instanceof FlowBuilder) {
-      const compiled = handler.compile()
-      this.k.runtime.registerCompiled(compiled)
-      return enter(trigger, compiled.id)
-    }
-    if (isCompiledFlow(handler)) {
-      this.k.runtime.registerCompiled(handler)
-      return enter(trigger, handler.id)
-    }
+  when(trigger: Trigger, handler: MessageHandler | FlowBuilder | CompiledFlow, enter: EnterMatcher): () => void {
+    if (handler instanceof FlowBuilder || isCompiledFlow(handler)) return enter(trigger, this.registerFlowItem(handler).id)
     const fn = handler
     const unmatch = this.k.dispatcher.matcher(trigger, (ctx) => fn(asMessage(ctx)))
     const unroute = this.k.flowRoutes.add(trigger)
@@ -53,19 +42,22 @@ export class RouteRegistrar {
     plug: (plugin: Plugin) => unknown,
   ): void {
     for (const i of items) {
-      if (i instanceof FlowBuilder) {
-        const compiled = i.compile()
-        this.k.runtime.registerCompiled(compiled)
+      if (i instanceof FlowBuilder || isCompiledFlow(i)) {
+        const compiled = this.registerFlowItem(i)
         enter(compiled.trigger, compiled.id)
-      } else if (isCompiledFlow(i)) {
-        this.k.runtime.registerCompiled(i)
-        enter(i.trigger, i.id)
       } else if (isPluginSpec(i)) {
         plug(i)
       } else {
         throw new Error('use() expects a FlowBuilder, CompiledFlow or Plugin')
       }
     }
+  }
+
+  /** Compile (a builder) and register a flow with the runtime; its route is registered by the caller. */
+  private registerFlowItem(item: FlowBuilder | CompiledFlow): CompiledFlow {
+    const compiled = item instanceof FlowBuilder ? item.compile() : item
+    this.k.runtime.registerCompiled(compiled)
+    return compiled
   }
 
   /** The body of `Bot.registerEnterMatcher`. */
@@ -81,19 +73,19 @@ export class RouteRegistrar {
     return unsub
   }
 
-  command(name: string, handler: RouteCommandHandler): () => void {
+  command(name: string, handler: CommandHandler): () => void {
     const unsub = this.k.dispatcher.command(name, (ctx, args) => handler(asMessage(ctx), args))
     this.k.disposables.add(unsub)
     return unsub
   }
 
-  onMessage(handler: RouteHandler): () => void {
+  onMessage(handler: MessageHandler): () => void {
     const unsub = this.k.dispatcher.catchAll((ctx) => handler(asMessage(ctx)))
     this.k.disposables.add(unsub)
     return unsub
   }
 
-  onType(type: MessageType, handler: RouteHandler): () => void {
+  onType(type: MessageType, handler: MessageHandler): () => void {
     const unsub = this.k.dispatcher.onType(type, (ctx) => handler(asMessage(ctx)))
     this.k.disposables.add(unsub)
     return unsub
@@ -104,6 +96,11 @@ export class RouteRegistrar {
   }
 }
 
+/**
+ * Loose plugin check of `use()`: any function (a plugin factory) or an object with
+ * `name` + `install`. Deliberately not `isPlugin()`, which rejects every function and
+ * checks the field types: swapping them would change what `use()` accepts.
+ */
 function isPluginSpec(x: unknown): x is Plugin {
   if (typeof x === 'function') return true
   return typeof x === 'object' && x !== null && 'name' in x && 'install' in x

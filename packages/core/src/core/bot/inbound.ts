@@ -5,13 +5,13 @@
  * Messages/interactions: access lists → dedupe (`runInboundOnce`) → persistence →
  * groupMode → Dispatcher; the full order is documented on `Dispatcher.run`.
  */
-import { checkAccess } from '../../gates/accessList.js'
 import type { StoredMessage } from '../../store/IStore.js'
 import type { DispatchContext } from '../Dispatcher.js'
 import { callToInbound, RecentIds } from '../calls.js'
 import { receiveTimestamp } from '../ledger.js'
 import type { CallEvent, ChatId, HookEvent, InboundEvent, InboundInteraction, InboundMessage, UserId } from '../types.js'
 import type { ContextFactory } from './contextFactory.js'
+import { admitAccess, admitHandoff } from './gates.js'
 import { assertCoordinated, type BotKernel } from './kernel.js'
 import type { Persistence } from './persistence.js'
 
@@ -81,11 +81,7 @@ export class InboundPipeline {
    * processed), and before persistence, hooks and routing. Counts and debug-logs the drop.
    */
   admitsSender(ids: { chatId: ChatId; senderId: UserId }): boolean {
-    const access = checkAccess(this.k.access.blacklist, this.k.access.whitelist, ids)
-    if (access === 'allowed') return true
-    this.k.counters.blockedDropped()
-    this.k.logger.debug({ gate: access, chatId: ids.chatId, senderId: ids.senderId }, 'inbound dropped by access list')
-    return false
+    return admitAccess(this.k, ids, 'inbound dropped by access list')
   }
 
   /**
@@ -233,19 +229,10 @@ export class InboundPipeline {
    * matchers. Group calls follow `groupMode`: anything but `'all'` keeps them away from triggers.
    */
   private async handleCall(call: CallEvent): Promise<void> {
-    const { counters, logger, config } = this.k
+    const { config } = this.k
     const inbound = callToInbound(call)
-    const access = checkAccess(this.k.access.blacklist, this.k.access.whitelist, inbound)
-    if (access !== 'allowed') {
-      counters.blockedDropped()
-      logger.debug({ gate: access, chatId: inbound.chatId, senderId: inbound.senderId }, 'call dropped by access list')
-      return
-    }
-    if (!this.k.handoffs.admits(inbound)) {
-      counters.handoffDropped()
-      logger.debug({ gate: 'handoff', chatId: inbound.chatId, senderId: inbound.senderId }, 'call dropped: chat handed off')
-      return
-    }
+    if (!admitAccess(this.k, inbound, 'call dropped by access list')) return
+    if (!admitHandoff(this.k, inbound, 'call dropped: chat handed off')) return
     const proceed = await this.dispatchHookEvent('call', call)
     if (!proceed || !this.k.state.acceptingInbound || !this.k.dispatcher.hasTypeMatcher('call')) return
     // A call can never mention the bot nor be a command: a restrictive groupMode keeps group calls out.
