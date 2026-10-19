@@ -137,7 +137,7 @@ tar -xzf backup.tar.gz
 ```ts
 process.on('SIGINT', async () => {
   console.log('Shutting down gracefully...')
-  await bot.stop({ drain: true, timeout: 15_000 }) // wait up to 15s for pending sends
+  await bot.stop({ drain: true, timeout: '15s' }) // wait up to 15s for pending sends (ms also work)
   process.exit(0)
 })
 

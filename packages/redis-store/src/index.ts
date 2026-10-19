@@ -4,4 +4,5 @@ export type {
   RedisLikeClient,
   RedisZRangeOptions,
   NativeRedisClient,
+  RedisMulti,
 } from './RedisStore.js'

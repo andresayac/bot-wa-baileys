@@ -15,7 +15,7 @@ import {
   slashCommandsPlugin,
 } from '../src/index.js'
 import type { InboundMessage, MessageContext } from '../src/index.js'
-import { MockProvider, type IncomingOpts } from '../src/testing/MockProvider.js'
+import { MockProvider, type MockIncomingOptions } from '../src/testing/MockProvider.js'
 
 /* ------------------------------------------------------------------------- */
 
@@ -34,7 +34,7 @@ function dispatched(bot: Bot): Promise<void> {
   })
 }
 
-async function deliver(bot: Bot, provider: MockProvider, text: string, opts: IncomingOpts = {}): Promise<void> {
+async function deliver(bot: Bot, provider: MockProvider, text: string, opts: MockIncomingOptions = {}): Promise<void> {
   const done = dispatched(bot)
   provider.incoming(text, opts)
   await done
@@ -470,7 +470,7 @@ describe('conversations and built-in messages', () => {
     const { bot, provider } = await makeBot()
     bot.locale('en', EN)
     bot.plug(slashCommandsPlugin)
-    const steps: Array<[string, IncomingOpts]> = [
+    const steps: Array<[string, MockIncomingOptions]> = [
       ['/reset', { language: 'en' }],
       ['/ping', { language: 'en' }],
       ['/nope', { language: 'en' }],

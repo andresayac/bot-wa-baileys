@@ -29,7 +29,7 @@ export const DEFAULT_USER_NAMESPACE = 'default'
 const DEFAULT_PURGE_INTERVAL_MS = 60_000
 
 /** An IStore whose user-data methods are all present. */
-type UserDataStore = IStore & Required<Pick<IStore, 'getUserData' | 'setUserData' | 'deleteUserData' | 'listUserData'>>
+export type UserDataStore = IStore & Required<Pick<IStore, 'getUserData' | 'setUserData' | 'deleteUserData' | 'listUserData'>>
 
 /**
  * Whether `store` implements the user-data contract (`getUserData`,

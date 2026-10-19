@@ -1,0 +1,93 @@
+#!/usr/bin/env node
+/**
+ * api-check.cjs — cheap API-extractor-style checks over the compiled `.d.ts` of the
+ * public packages (run `pnpm build` first). Uses the root TypeScript (5.9, the one
+ * TypeDoc uses) only to read declarations; it never compiles anything.
+ *
+ *   node scripts/api-check.cjs missing    # types referenced by public signatures but exported from no entry
+ *   node scripts/api-check.cjs surface    # sorted list of every exported name per entry (diff it before/after)
+ *   node scripts/api-check.cjs any        # `any` in exported declarations
+ *   node scripts/api-check.cjs internal   # exported symbols tagged @internal
+ *
+ * Exits 1 when `missing`, `internal` or `any` finds something. See docs/api-review.md.
+ */
+const path = require('path')
+const fs = require('fs')
+
+const root = path.resolve(__dirname, '..')
+const mode = process.argv[2] || 'missing'
+const ts = require(path.join(root, 'node_modules/typescript'))
+const PUBLIC = ['core', 'baileys-provider', 'meta-provider', 'telegram-provider', 'sqlite-store', 'redis-store', 'ai', 'http', 'graph-core']
+/** Reviewed and accepted (see docs/api-review.md): EventEmitter-compatible overloads and HookHandler's default. */
+const ALLOWED_ANY = new Set(['Bot', 'HookHandler'])
+
+let problems = 0
+for (const dir of PUBLIC) {
+  const pdir = path.join(root, 'packages', dir)
+  const pj = JSON.parse(fs.readFileSync(path.join(pdir, 'package.json'), 'utf8'))
+  const entries = Object.entries(pj.exports).map(([k, v]) => [k, path.join(pdir, typeof v === 'string' ? v : v.types)])
+  const program = ts.createProgram(entries.map((e) => e[1]), {
+    module: ts.ModuleKind.NodeNext, moduleResolution: ts.ModuleResolutionKind.NodeNext, noEmit: true, skipLibCheck: true,
+  })
+  const checker = program.getTypeChecker()
+  const libDir = path.join(pdir, 'lib').replace(/\\/g, '/')
+  const exported = new Set()
+  const names = []
+  const exportSyms = []
+  for (const [k, file] of entries) {
+    const sf = program.getSourceFile(file)
+    if (!sf) throw new Error(`${pj.name}: missing ${file} — run pnpm build first`)
+    for (const s of checker.getExportsOfModule(checker.getSymbolAtLocation(sf))) {
+      const target = s.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(s) : s
+      exported.add(target)
+      names.push(`${pj.name}${k === '.' ? '' : k.slice(1)}#${s.name}`)
+      exportSyms.push([k, s.name, target])
+    }
+  }
+  if (mode === 'surface') { names.sort().forEach((n) => console.log(n)); continue }
+
+  const missing = new Map()
+  const anys = []
+  const internals = []
+  const seen = new Set()
+  const visit = (decl, owner) => {
+    const walk = (node) => {
+      if (ts.isTypeReferenceNode(node) || ts.isExpressionWithTypeArguments(node) || ts.isTypeQueryNode(node)) {
+        const nameNode = ts.isTypeReferenceNode(node) ? node.typeName : ts.isTypeQueryNode(node) ? node.exprName : node.expression
+        let sym = checker.getSymbolAtLocation(nameNode)
+        if (sym && sym.flags & ts.SymbolFlags.Alias) sym = checker.getAliasedSymbol(sym)
+        if (sym && sym.declarations && sym.declarations.length && !(sym.flags & ts.SymbolFlags.TypeParameter)) {
+          const f = sym.declarations[0].getSourceFile().fileName.replace(/\\/g, '/')
+          if (f.startsWith(libDir) && !exported.has(sym)) {
+            const key = `${sym.name} (${path.relative(pdir, f).replace(/\\/g, '/')})`
+            if (!missing.has(key)) missing.set(key, new Set())
+            missing.get(key).add(owner)
+            if (!seen.has(sym)) { seen.add(sym); for (const d of sym.declarations) visit(d, sym.name) }
+          }
+        }
+      }
+      if (node.kind === ts.SyntaxKind.AnyKeyword && !ALLOWED_ANY.has(owner)) {
+        const sf = node.getSourceFile()
+        anys.push(`${owner} @ ${path.relative(pdir, sf.fileName)}:${sf.getLineAndCharacterOfPosition(node.getStart()).line + 1}`)
+      }
+      const isPrivate = (ts.isPropertyDeclaration(node) || ts.isMethodDeclaration(node))
+        && node.modifiers && node.modifiers.some((m) => m.kind === ts.SyntaxKind.PrivateKeyword)
+      if (!isPrivate) ts.forEachChild(node, walk)
+    }
+    walk(decl)
+  }
+  for (const [k, name, sym] of exportSyms) {
+    for (const d of sym.declarations ?? []) {
+      if (ts.getJSDocTags(d).some((t) => t.tagName.text === 'internal')) internals.push(`${k} ${name}`)
+      visit(d, name)
+    }
+  }
+  const out = mode === 'missing' ? [...missing].map(([k, v]) => `MISSING ${k} <- ${[...v].slice(0, 4).join(', ')}`)
+    : mode === 'any' ? anys.map((a) => `ANY ${a}`)
+    : mode === 'internal' ? internals.map((a) => `INTERNAL ${a}`)
+    : []
+  console.log(`${pj.name}: ${names.length} exports${out.length ? `, ${out.length} finding(s)` : ''}`)
+  for (const line of out) console.log(`  ${line}`)
+  problems += out.length
+}
+process.exitCode = problems > 0 ? 1 : 0

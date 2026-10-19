@@ -378,3 +378,40 @@ describe('RedisStore — glob metacharacters in the prefix (hermetic)', () => {
     expect(await fake.keys('base\\[1\\]:chat:*')).toEqual([])
   })
 })
+
+describe('RedisStore — sessionTtl (duration, same unit convention as core)', () => {
+  const remaining = (fake: FakeRedisClient, key: string): number => (fake.expires.get(key) ?? 0) - Date.now()
+
+  it('takes a duration string and applies it to checkpoints and AI history', async () => {
+    const fake = new FakeRedisClient()
+    const store = new RedisStore({ client: fake, prefix: 'st', sessionTtl: '1m' })
+    await store.setCheckpoint('k', { flowId: 'f', step: 1, state: {}, updatedAt: 1 })
+    await store.setConversation('k', [{ role: 'user', content: 'hi' }])
+    for (const key of ['st:cp:k', 'st:conv:k']) {
+      expect(remaining(fake, key)).toBeGreaterThan(55_000)
+      expect(remaining(fake, key)).toBeLessThanOrEqual(60_000)
+    }
+  })
+
+  it('takes a number as milliseconds (unlike the deprecated `ttl`, in seconds)', async () => {
+    const fake = new FakeRedisClient()
+    const store = new RedisStore({ client: fake, prefix: 'st', sessionTtl: 60_000 })
+    await store.setCheckpoint('k', { flowId: 'f', step: 1, state: {}, updatedAt: 1 })
+    expect(remaining(fake, 'st:cp:k')).toBeGreaterThan(55_000)
+    expect(remaining(fake, 'st:cp:k')).toBeLessThanOrEqual(60_000)
+  })
+
+  it('the deprecated `ttl` (seconds) keeps working', async () => {
+    const fake = new FakeRedisClient()
+    const store = new RedisStore({ client: fake, prefix: 'st', ttl: 60 })
+    await store.setCheckpoint('k', { flowId: 'f', step: 1, state: {}, updatedAt: 1 })
+    expect(remaining(fake, 'st:cp:k')).toBeGreaterThan(55_000)
+  })
+
+  it('rejects invalid values and both options at once', () => {
+    const fake = new FakeRedisClient()
+    expect(() => new RedisStore({ client: fake, sessionTtl: 'soon' })).toThrow(/Invalid duration/)
+    expect(() => new RedisStore({ client: fake, sessionTtl: 0 })).toThrow(RangeError)
+    expect(() => new RedisStore({ client: fake, sessionTtl: '1m', ttl: 60 })).toThrow(RangeError)
+  })
+})

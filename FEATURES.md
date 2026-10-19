@@ -404,7 +404,7 @@ const bot = new Bot({
 })
 
 // O por reply:
-await ctx.replyWithTyping('Hola, déjame pensar...', { msPerChar: 50 })
+await ctx.reply('Hola, déjame pensar...', { typing: { charsPerSecond: 20 } })
 ```
 
 **Requiere:** en `sendThrough()`, llamar `provider.typing(chatId, 'composing')` → delay proporcional → enviar → `provider.typing(chatId, 'paused')`.

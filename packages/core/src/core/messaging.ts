@@ -95,8 +95,8 @@ export interface EditResult {
   edited: boolean
 }
 
-/** Minimal logger surface used here. */
-interface DebugLogger { debug(...args: unknown[]): void }
+/** Minimal logger surface the {@link Pacer} uses (only `debug`). */
+export interface PacerLogger { debug(...args: unknown[]): void }
 
 /** Resolve the support level of a messaging feature for a provider. */
 export function messagingSupport(provider: Pick<IProvider, 'capabilities' | 'typing' | 'editMessage'>, feature: MessagingFeature): MessagingSupport {
@@ -213,7 +213,7 @@ export const TYPING_REFRESH_MS = 4000
 export interface PacerOptions {
   provider: Pick<IProvider, 'capabilities' | 'typing'>
   typing: ResolvedTypingConfig
-  logger?: DebugLogger
+  logger?: PacerLogger
   /** Injected for tests. */
   sleep?: (ms: number) => Promise<void>
 }

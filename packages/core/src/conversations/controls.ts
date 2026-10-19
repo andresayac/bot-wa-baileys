@@ -14,8 +14,9 @@ import { CORE_MESSAGES } from '../i18n/builtins.js'
 import type { TranslateParams } from '../i18n/types.js'
 
 /** Types `c.waitMedia()` takes by default (voice notes only when asked for: `waitMedia(['voice'])`). */
-const MEDIA_TYPES = ['image', 'video', 'audio', 'document', 'sticker'] as const
-type MediaType = (typeof MEDIA_TYPES)[number] | 'voice'
+/** Media kinds `c.waitMedia(types)` accepts. */
+export type WaitMediaType = 'image' | 'video' | 'audio' | 'document' | 'sticker' | 'voice'
+const MEDIA_TYPES: readonly WaitMediaType[] = ['image', 'video', 'audio', 'document', 'sticker']
 
 export interface ConversationControls extends ConversationControlsBase {
   /**
@@ -28,7 +29,7 @@ export interface ConversationControls extends ConversationControlsBase {
   /** Wait for a text message (no prompt). Accepts `{ schema }` like {@link ask}. */
   waitText<T>(opts: SchemaWaitOptions<T>): Promise<T>
   waitText(opts?: WaitOptions): Promise<string>
-  waitMedia(types?: MediaType[], opts?: WaitOptions): Promise<RuntimeMessage>
+  waitMedia(types?: WaitMediaType[], opts?: WaitOptions): Promise<RuntimeMessage>
   choose(prompt: string, options: Record<string, string>, opts?: WaitOptions): Promise<string>
   goto(name: string, args?: unknown): never
   /**

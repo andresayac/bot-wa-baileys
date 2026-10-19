@@ -13,7 +13,7 @@ await ctx.say('How are you?')          // alias
 await ctx.answer('👍')                  // alias
 await ctx.text('plain text')            // alias
 await ctx.quote('replying to your message')     // cita el mensaje entrante
-await ctx.replyWithTyping('typing this out...') // muestra "escribiendo…" antes de enviar
+await ctx.reply('typing this out...', { typing: true }) // muestra "escribiendo…" antes de enviar
 ```
 
 ## Enviar foto
@@ -117,8 +117,8 @@ await ctx.reply('Aquí está', { delay: '1.5s', typing: { maxMs: 1000 } })
 - Si el indicador falla, el envío no falla: es cosmético y best effort.
 - En providers sin `capabilities.typing` no hay indicador **ni espera**. `delay` se respeta en todos.
 - Una respuesta en espera se descarta (resuelve `{ skipped: true }`) si el bot se detiene, el chat pasa a handoff o el flujo se aborta durante la espera. `stop({ drain: true })` espera a esas respuestas.
-- `ctx.replyWithTyping(texto, msPorCaracter?)` marca su propio ritmo (40 ms por
-  carácter por defecto) e ignora `BotConfig.typing`.
+- `ctx.replyWithTyping(texto, msPorCaracter?)` está **obsoleto**: marca su propio ritmo (40 ms
+  por carácter por defecto) e ignora `BotConfig.typing`. Usa `ctx.reply(texto, { typing: true })`.
 
 Las respuestas largas o generadas por IA se pueden enviar por partes en lugar de
 de una vez: ve [Streaming](./streaming).

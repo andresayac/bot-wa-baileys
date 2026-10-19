@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { MemoryStore } from '@bot-wa/core'
 import { MockAIProvider } from '../src/MockAIProvider.js'
 import { ContextManager } from '../src/ContextManager.js'
+import { TimeoutError } from '@bot-wa/core'
 import { AIClient, AITimeoutError } from '../src/AIClient.js'
 import type { AIProvider, GenerateInput, GenerateResult } from '../src/types.js'
 
@@ -64,6 +65,8 @@ describe('AIClient', () => {
     }
     const client = new AIClient(hanging, new ContextManager(new MemoryStore({})), { timeoutMs: 20 })
     await expect(client.ask('hola')).rejects.toBeInstanceOf(AITimeoutError)
+    // Coherent with core: one `instanceof TimeoutError` check catches AI timeouts too.
+    await expect(client.ask('hola')).rejects.toBeInstanceOf(TimeoutError)
     expect(abortedByClient).toBe(true) // the internal controller fired so a hung socket is cancelled
   })
 

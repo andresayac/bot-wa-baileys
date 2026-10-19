@@ -1,4 +1,10 @@
-export class ConversationError extends Error {}
+/** Base of the conversation control signals; `name` is the concrete class name. */
+export class ConversationError extends Error {
+  constructor(message?: string) {
+    super(message)
+    this.name = new.target.name
+  }
+}
 export class ConversationTimeout extends ConversationError { constructor() { super('conversation timeout') } }
 export class ConversationCancelled extends ConversationError { constructor(public silent = false) { super('conversation cancelled') } }
 export class RetriesExceeded extends ConversationError { constructor() { super('too many invalid attempts') } }

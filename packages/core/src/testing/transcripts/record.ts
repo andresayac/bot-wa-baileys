@@ -17,6 +17,7 @@ import type {
   ChatId,
   IProvider,
   InboundEvent,
+  InboundListener,
   OutboundContent,
   ProviderCapabilities,
   SendOptions,
@@ -64,7 +65,6 @@ export interface TranscriptRecorder<P extends IProvider = IProvider> {
   resume(): void
 }
 
-type Listener = (event: InboundEvent) => void | Promise<void>
 
 interface PendingOut {
   turn: TranscriptOutbound
@@ -93,7 +93,7 @@ export class RecordingProvider<P extends IProvider = IProvider> implements IProv
   private readonly entries: Array<TranscriptTurn | PendingOut> = []
   /** Entries dropped from the front by the cap (keeps {@link size} cursors stable). */
   private dropped = 0
-  private readonly listeners = new Set<Listener>()
+  private readonly listeners = new Set<InboundListener>()
   private startedAt: number | undefined
   private readonly now: () => number
   private readonly includeFromMe: boolean
@@ -130,7 +130,7 @@ export class RecordingProvider<P extends IProvider = IProvider> implements IProv
   start(): Promise<void> { return this.inner.start() }
   stop(): Promise<void> { return this.inner.stop() }
 
-  onEvent(listener: Listener): () => void {
+  onEvent(listener: InboundListener): () => void {
     this.listeners.add(listener)
     return () => { this.listeners.delete(listener) }
   }

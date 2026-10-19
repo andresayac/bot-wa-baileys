@@ -28,10 +28,10 @@ import {
 } from '@whiskeysockets/baileys'
 /** WhatsApp JID — `number@s.whatsapp.net`, `id@g.us`, `status@broadcast`, `…@lid`. */
 export type JID = string
-/** A chat identifier (opaque to core; a JID here). */
-export type ChatId = string
-/** A user identifier (LID or PN form). */
-export type UserId = string
+// ChatId/UserId are core's opaque ids (a JID here; UserId in LID or PN form).
+// Re-exported, not redeclared, so toChatId/toUserId return the public core types.
+import type { ChatId, UserId } from '@bot-wa/core'
+export type { ChatId, UserId }
 /** Anything that can be turned into a JID: full JID, plain number, or `{ groupId, userId }`. */
 export type JidInput = string | number | { groupId: string; userId?: string }
 

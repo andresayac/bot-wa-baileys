@@ -5,6 +5,7 @@
 
 export { CloudAPIProvider } from './CloudAPIProvider.js'
 export { GraphClient, toProviderError } from './graphClient.js'
+export type { GraphClientConfig } from './graphClient.js'
 export { toOutbound } from './toOutbound.js'
 export type { ResolvedMedia } from './toOutbound.js'
 export { parseInbound } from './parseInbound.js'

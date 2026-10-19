@@ -11,31 +11,9 @@ export function humanTypingDelay(text: string, msPerChar = 40): number {
   )
 }
 
-/** Parse common durations ("5s", "1m", "2h", "1d") or ms number → ms. */
-export function parseDuration(input: string | number): number {
-  if (typeof input === 'number') return input
-  const match = /^(\d+(?:\.\d+)?)\s*(ms|milli|millis|millisecond|milliseconds|s|sec|secs|second|seconds|m|min|mins|minute|minutes|h|hr|hrs|hour|hours|d|day|days|w|week|weeks)?$/.exec(input.trim())
-  if (!match) throw new Error(`Invalid duration: ${input}`)
-  const value = parseFloat(match[1])
-  const unitRaw = (match[2] ?? 'ms').toLowerCase()
-  // Normalize to short unit
-  const unit = unitRaw.startsWith('ms') || unitRaw.startsWith('milli') ? 'ms'
-    : unitRaw.startsWith('s') ? 's'
-    : unitRaw.startsWith('m') ? 'm'
-    : unitRaw.startsWith('h') ? 'h'
-    : unitRaw.startsWith('d') ? 'd'
-    : unitRaw.startsWith('w') ? 'w'
-    : 'ms'
-  const multipliers: Record<string, number> = {
-    ms: 1,
-    s: 1_000,
-    m: 60_000,
-    h: 3_600_000,
-    d: 86_400_000,
-    w: 604_800_000,
-  }
-  return Math.round(value * multipliers[unit])
-}
+/** Parse common durations ("5s", "1m", "2h", "1d") or ms number → ms. Same grammar as every duration option. */
+import { parseDuration } from './duration.js'
+export { parseDuration }
 
 /**
  * Longest delay a Node timer can hold: 2^31 − 1 ms (about 24.8 days). `setTimeout` with a

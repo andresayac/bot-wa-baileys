@@ -19,7 +19,8 @@ export type FormFieldType = 'text' | 'number' | 'email' | 'date' | 'select' | 'm
  */
 export type FormOptions = Record<string, string> | readonly string[]
 
-interface FormFieldBase {
+/** Properties shared by every {@link FormField} variant. */
+export interface FormFieldBase {
   /**
    * Key of the answer in the form's values (and in `c.state` with `flatten`).
    * Letters, digits and `_`, starting with a letter or `_` (`/^[A-Za-z_][A-Za-z0-9_]*$/`).

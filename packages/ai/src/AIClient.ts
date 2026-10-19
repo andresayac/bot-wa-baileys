@@ -1,4 +1,5 @@
 import type { AIMessage, MessageContext } from '@bot-wa/core'
+import { TimeoutError } from '@bot-wa/core'
 import type { AIChatMessage, AIProvider, GenerateInput, GenerateResult, Effort } from './types.js'
 import type { ContextManager } from './ContextManager.js'
 import type { MemoryFact, MemoryManager, RememberOptions } from './memory/MemoryManager.js'
@@ -106,8 +107,8 @@ export interface AIReplyOptions extends AIToolCallOptions {
   isGroup?: boolean
 }
 
-/** Thrown when an AI call exceeds its configured timeout. */
-export class AITimeoutError extends Error {
+/** Thrown when an AI call exceeds its configured timeout. Extends core's `TimeoutError`. */
+export class AITimeoutError extends TimeoutError {
   constructor(ms: number) {
     super(`AI request timed out after ${ms}ms`)
     this.name = 'AITimeoutError'

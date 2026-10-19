@@ -1,0 +1,250 @@
+# Public API coherence review
+
+Review of the 10 public packages (`@bot-wa/core` with its `testing` and `dev`
+subpaths, `@bot-wa/ai`, `@bot-wa/baileys`, `@bot-wa/meta`, `@bot-wa/telegram`,
+`@bot-wa/sqlite-store`, `@bot-wa/redis-store`, `@bot-wa/http`, `@bot-wa/graph-core`
+and `create-bot-wa`) before the first npm release (2026-10).
+
+**Rule for this pass:** only non-breaking changes. Types were added or widened.
+Names that lose a naming decision stay available with `@deprecated`. Nothing was
+removed. Breaking clean-ups are listed under [Deferred](#deferred-needs-a-maintainer-decision).
+
+## How it was checked
+
+`scripts/api-check.cjs` reads the compiled `lib/**/*.d.ts` of the public packages
+with the root TypeScript (5.9, the one TypeDoc uses). Run `pnpm build` first.
+
+```bash
+node scripts/api-check.cjs missing   # types referenced by public signatures but exported from no entry
+node scripts/api-check.cjs any       # `any` in exported declarations (reviewed exceptions allow-listed)
+node scripts/api-check.cjs internal  # exported symbols tagged @internal
+node scripts/api-check.cjs surface   # every exported name per entry; diff it before/after a change
+```
+
+Results for this pass:
+
+| Check | Before | After |
+| --- | --- | --- |
+| `missing` | 39 types in 6 packages | 0 |
+| `any` | 6 sites in `@bot-wa/core` | 0 outside the reviewed exceptions (F13) |
+| `internal` | 0 | 0 |
+| `surface` | 769 exported names | 806: **37 added, 0 removed** |
+
+A line diff of every public `.d.ts` before and after the change shows only these
+kinds of change: widened parameters (`send`, `stop`, `autoSaveInterval`, `isPlugin`),
+inline object types replaced by named exported types, and local aliases replaced by
+exported types.
+
+Severity: **high** means users hit wrong behaviour, a wrong unit or a type they cannot name.
+**Medium** means confusing or duplicated API. **Low** means cosmetic or naming only.
+
+## Findings
+
+### F1. Types used in public signatures were not exported (high)
+
+Users could not name types that appear in public signatures. They had to write
+`Parameters<…>` or copy the shape.
+
+| Package | Types now exported |
+| --- | --- |
+| `@bot-wa/core` | `InboundListener` (new name for the `onEvent` listener), `WaitMediaType` (`c.waitMedia`), `UserDataStore` (`supportsUserData` guard), `PacerLogger` (`PacerOptions.logger`), `FormFieldBase`, `StopOptions`, `ConversationTarget`, `JsonValue` (used by `TranscriptOutbound`; it was exported only from `/testing`, which TypeDoc reported) |
+| `@bot-wa/core/testing` | `MockIncomingOptions` (`MockProvider.incoming/interaction`, previously the unexported `IncomingOpts`) |
+| `@bot-wa/ai` | `AIPluginConfig` (the parameter of `aiPlugin`), `AnthropicLike`, `OpenAILike`, `GeminiLike`, `GeminiModelLike` and the request/response/usage types they reference (needed to inject a fake client) |
+| `@bot-wa/baileys` | `WAMediaUpload` (`toMediaUpload`), `DisconnectAction` (`classifyDisconnect`). `ChatId`/`UserId` were redeclared in `jid.ts`; core's types are now re-exported there instead |
+| `@bot-wa/meta` | `GraphClientConfig` (`new GraphClient(cfg)`) |
+| `@bot-wa/telegram` | `TelegramMessageEntity`, `TelegramPhotoSize`, `TelegramLocation`, `TelegramContact`, `TelegramPoll` (fields of `TelegramMessage`) |
+| `@bot-wa/redis-store` | `RedisMulti` (`RedisLikeClient.multi()`) |
+
+**Decision:** export all of them (done).
+
+### F2. Two different duration grammars in core (high)
+
+`@bot-wa/core` had two `parseDuration` functions. The exported one (`utils/timers`,
+used by the scheduler) accepted `'1d'`, `'1w'`, `'5 minutes'` and `'500'`. The internal
+one (`utils/duration`, used by flows, `ctx.reply({ delay })`, `broadcast`, `dedupe.ttl`,
+conversation timeouts and forms) accepted only `ms|s|m|h`. So
+`bot.every('1d', …)` worked, but `flow().timeout('1d')` and
+`ctx.reply(t, { delay: '1d' })` threw an error.
+
+**Decision:** keep a single implementation, the superset grammar, in `utils/duration.ts`.
+`timers.ts` re-exports it (done). This only widens what is accepted. The error message
+now lists `'1d'`.
+
+### F3. Duration options used different units and types (high)
+
+The convention across packages is: `fooMs: number` takes milliseconds, and `foo` takes a
+duration string or milliseconds. These options broke it:
+
+| Option | Was | Now |
+| --- | --- | --- |
+| `bot.stop({ timeout })` | `number` (ms) only | `string \| number`, type `StopOptions` |
+| `MemoryStore({ autoSaveInterval })` | `number` (ms) only | `string \| number`. An invalid value throws at construction |
+| `RedisStore({ ttl })` | `number` in **seconds** (a unit trap: the core's `ttl` options are a duration or ms) | new `sessionTtl: string \| number` (duration or ms). `ttl` is kept, `@deprecated`, and setting both throws a `RangeError` |
+| `TelegramProvider({ pollTimeout })` | seconds | **kept**: it mirrors the Bot API's `getUpdates.timeout`, and the JSDoc already states seconds |
+
+**Decision:** widen the first two, add `sessionTtl` and deprecate `ttl` (done). Keep
+`pollTimeout`.
+
+### F4. Plugin-scoped `bot.hook()` was not tracked, and `onError` dropped its priority (high, bug)
+
+Inside `Plugin.install`, `bot.before/after/onError` registrations are removed by
+`unplug()`, but `bot.hook()` registrations were not: they survived the unplug.
+`onError` had no `priority` parameter, unlike `before`/`after`/`hook`.
+
+**Decision:** wrap `hook` in the plugin scope, and add `onError(event, handler, priority = 0)`
+both on `Bot` and in the plugin scope (done, with tests).
+
+### F5. `bot.send` vs `bot.sendTo` vs `bot.sendText` (medium)
+
+`sendTo` (handoff) and `broadcast` accepted a plain string, but `send` did not.
+`sendText` covers only text.
+
+**Decision:** widen `send(chatId, string | OutboundContent)` (done). Keep `sendTo`,
+whose name reads well in handoff code, and `sendText`. Both are documented as
+equivalent to `send`. They are not deprecated because they are used across the docs.
+
+### F6. `bot.trigger` vs `bot.triggerFlow` (medium)
+
+There are two entry points for a proactive start. `triggerFlow(id, target, { state, body })`
+is a thin wrapper over `trigger(name, { chatId, userId, isGroup, data, ifActive, body })` with
+`ifActive: 'replace'`. Differences: the target is split into its own argument,
+`state` corresponds to `data`, it resolves to `boolean` instead of `TriggerResult`, and
+for an unknown flow it resolves `false` instead of rejecting.
+
+**Decision:** keep both. `triggerFlow` backs the `@bot-wa/manager` HTTP contract (a
+`boolean` result and a 404 for an unknown flow), and both the JSDoc and the guides already
+call it a wrapper. Revisit `state` vs `data` before 2.0.0 stable.
+
+### F7. Four names for a text reply (low)
+
+`ctx.say`, `ctx.reply`, `ctx.answer` and `ctx.text` are the same function.
+
+**Decision:** keep them, because they are documented as aliases in both guides. JSDoc now
+names `reply` as the canonical one and marks the others as aliases (done).
+
+### F8. `ctx.replyWithTyping(text, msPerChar?)` overlaps `ReplyOptions.typing` (medium)
+
+It ignores `BotConfig.typing`, does not refresh the indicator and is not dropped when the
+bot stops or the chat is handed off. `FEATURES.md` also showed it with a non-existent
+`{ msPerChar }` options object.
+
+**Decision:** deprecate it in favour of `ctx.reply(text, { typing: true })`. Update the
+EN/ES messaging guides and fix the `FEATURES.md` example (done).
+
+### F9. `bot.onMessage(handler)` vs `bot.on('message', listener)` (medium)
+
+`onMessage` is the dispatcher's catch-all: it only receives what nothing else routed.
+`on('message')` is the event that observes every inbound message. The names suggest the
+opposite.
+
+**Decision:** keep both (renaming would break the most common API). The JSDoc of
+`onMessage` now spells out the difference (done).
+
+### F10. Return types of registration methods (low)
+
+`when`, `command`, `onMessage`, `onType`, `plug` and `onIdle` return an unsubscriber.
+`use`, `before`, `after`, `onError` and `hook` return `this` for chaining.
+
+**Decision:** keep. Changing either group would break callers. JSDoc on each method now
+says which one it returns (done).
+
+### F11. Inline target types for conversations (low)
+
+`abortConversation(target: string | { from: string; sender: string; isGroup })` and
+`inspectConversation(target: { from: ChatId; sender: UserId; isGroup })` declared the
+same shape twice, with different id types.
+
+**Decision:** add `ConversationTarget` and use it in both. Any `ctx` satisfies it (done).
+
+### F12. `HookEvent` collapsed to `string` (low)
+
+`'message' | 'send' | … | string` reduces to `string`, so editors gave no autocomplete.
+
+**Decision:** use `| (string & {})`. The accepted values are the same and autocomplete
+works (done).
+
+### F13. `any` in public types (medium)
+
+| Site | Decision |
+| --- | --- |
+| `isPlugin(x: any)` | changed to `unknown`, with narrowing in the body (done) |
+| `Bot.on/once/off/emit(event: string, listener: (...args: any[]) => void)` | **kept**: the overload must stay assignable to Node's `EventEmitter` signatures. `unknown[]` would reject typed listeners such as `(x: string) => void` |
+| `HookHandler<TCtx = any>` | **kept**: changing the default to `unknown` breaks every un-annotated hook that reads `ctx.*`. Candidate for the next major |
+
+### F14. Error classes (medium)
+
+- `ProviderError` and `ConversationError` (and the subclasses without their own
+  constructor) reported `name === 'Error'`, so logs read `Error: conversation timeout`.
+  **Decision:** both bases now set `this.name = new.target.name` (done).
+- `AITimeoutError` (`@bot-wa/ai`) did not extend core's `TimeoutError`.
+  **Decision:** it now does, so one `instanceof TimeoutError` check covers both (done).
+- `ConversationTimeout`, `ConversationCancelled`, `RetriesExceeded` and
+  `RateLimiterTimeout` lack the `Error` suffix. **Decision:** keep them. They are control
+  signals that are rarely constructed by users, and aliases would only add surface.
+- Providers throw the typed `ProviderError` subclasses consistently (the AGENTS.md rule
+  holds in the public providers).
+
+### F15. `Plugin.install` allows `Promise<void>` (medium, boolean/async trap)
+
+`bot.plug()` does not await `install`, so an async `install` that rejects causes an
+unhandled rejection. The type still allows `Promise<void>`.
+
+**Decision:** narrowing the type would break existing plugins, so the JSDoc on `install`
+now warns about it and points to lazy initialisation (done).
+
+### F16. `@internal` leaks (low)
+
+No exported symbol is tagged `@internal`. `AIPluginConfig.__provider` (a test-only
+injection hook) is tagged `@internal` but still appears in the `.d.ts`, because no package
+uses `stripInternal`.
+
+**Decision:** keep. Turning on `stripInternal` needs a per-package audit, because some
+`@internal` helpers are imported across workspace packages. Deferred.
+
+### F17. `Config` alias of `BotConfig` (low)
+
+`@bot-wa/core` exported the same type under two names. Nothing in the repo used `Config`.
+
+**Decision:** `Config` is now a `@deprecated` type alias of `BotConfig` (done).
+
+### F18. Provider `logger` options take a pino `Logger`, core takes `LoggerLike` (medium)
+
+`BotConfig.logger` is the structural `LoggerLike`, but `BaileysProviderConfig`,
+`CloudAPIProviderConfig` and `TelegramProviderConfig` require pino's full `Logger`. A
+custom logger therefore works for the bot but not for the provider.
+
+**Decision:** deferred. Widening the input type is non-breaking for callers, but each
+provider first needs an audit of which pino methods it calls (`child`, `level`, …).
+
+### F19. Store defaults (low)
+
+`MemoryStore` caps `maxMessagesPerChat` at 1000 by default, while the persistent stores
+have no limit unless you set one.
+
+**Decision:** keep. It is deliberate for a RAM-only store and documented in its JSDoc.
+
+### F20. Naming conventions (low)
+
+- `get*` returns one item (`getHandoff`, `getStore`) and `list*` returns all of them
+  (`listHandoffs`, `listFlows`, `listConversations`). This is consistent.
+- `locales()` and `metrics()` are accessors without `get`. They are kept.
+- `telegram.baseUrl` vs `meta.graphUrl`: these are transport-specific names and are kept.
+- `Dispatcher{Message,Command}Handler` duplicate `MessageHandler`/`CommandHandler`, but over
+  the dispatcher's own context type. They are kept for advanced use.
+
+## Deferred (needs a maintainer decision)
+
+These would be breaking, or they need a wider audit:
+
+1. **Engine internals on the main entry.** No other workspace package, example or guide
+   uses these: `buildMessageContext`, `createControls`, `createPacer`, `runBroadcast`,
+   `runFormStep`, `newFormToken`, `resolveFormMode`, `resolveReplyTyping`,
+   `normalizeTypingConfig`, `typingDuration`, `parseReplyDelay`, `ExternalSendClock`,
+   `MetricsCollector`, `formatUptime`, `TYPING_REFRESH_MS`. Nothing is published yet, so
+   they could move to an `@bot-wa/core/internal` subpath (or be dropped) before
+   2.0.0 stable without affecting npm users.
+2. `stripInternal` per package (F16).
+3. Accept `LoggerLike` in the provider configs (F18).
+4. `HookHandler<TCtx = unknown>` and narrowing `Plugin.install` to `void` (F13, F15), in
+   the next major.
+5. Align `triggerFlow`'s `state` with `trigger`'s `data` (F6).

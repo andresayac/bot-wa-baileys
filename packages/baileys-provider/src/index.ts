@@ -31,7 +31,7 @@ export type { RateLimitConfig, RateLimitBucketConfig, RateLimitJitterConfig } fr
 
 // Media processing (sticker/opus/upload)
 export { toMediaUpload, toBuffer as mediaToBuffer, makeSticker, transcodeToOpus } from './MediaProcessor.js'
-export type { StickerOptions } from './MediaProcessor.js'
+export type { StickerOptions, WAMediaUpload } from './MediaProcessor.js'
 
 // Low-level normalizers (advanced)
 export { toInbound } from './toInbound.js'
@@ -39,6 +39,7 @@ export { toOutbound } from './toOutbound.js'
 
 // reconnect classification (advanced)
 export { classifyDisconnect, backoffDelay, MAX_RECONNECT_ATTEMPTS } from './reconnect.js'
+export type { DisconnectAction } from './reconnect.js'
 
 // Session path validation (advanced/self-hosted tooling)
 export {
