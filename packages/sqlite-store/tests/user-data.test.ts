@@ -52,4 +52,26 @@ describe('SQLiteStore — user data', () => {
     expect(count('SELECT COUNT(*) AS n FROM user_data')).toBe(2)
     expect(await store.purgeExpiredUserData(now)).toBe(0)
   })
+
+  it('purgeExpiredUserData deletes in batches of purgeBatchSize and still removes every expired row', async () => {
+    await store.stop()
+    const batched = new SQLiteStore({ file: FILE, purgeBatchSize: 3 })
+    store = batched
+    await batched.start()
+    const now = Date.now()
+    for (let i = 0; i < 7; i++) {
+      await batched.setUserData({ userId: `u${i}`, namespace: 'g', key: 'old', value: i, expiresAt: now - i, updatedAt: now })
+    }
+    await batched.setUserData({ userId: 'u1', namespace: 'g', key: 'live', value: 'x', expiresAt: now + 60_000, updatedAt: now })
+    await batched.setUserData({ userId: 'u1', namespace: 'g', key: 'forever', value: 'y', updatedAt: now })
+    expect(await batched.purgeExpiredUserData(now)).toBe(7)
+    expect(count('SELECT COUNT(*) AS n FROM user_data')).toBe(2)
+    expect(await batched.purgeExpiredUserData(now)).toBe(0)
+  })
+
+  it('rejects a purgeBatchSize that is not a positive integer', () => {
+    for (const purgeBatchSize of [0, -1, 1.5, Number.NaN]) {
+      expect(() => new SQLiteStore({ file: FILE, purgeBatchSize })).toThrow(RangeError)
+    }
+  })
 })

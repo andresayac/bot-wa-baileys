@@ -9,6 +9,9 @@
 import type BetterSqlite3 from 'better-sqlite3'
 import type { UserDataEntry, UserId } from '@bot-wa/core'
 
+/** Default rows per DELETE of {@link SqliteUserData.purge}. */
+export const DEFAULT_PURGE_BATCH_SIZE = 1000
+
 /** Idempotent schema for the user-data table. */
 export const USER_DATA_SCHEMA = `
   CREATE TABLE IF NOT EXISTS user_data (
@@ -55,7 +58,7 @@ export class SqliteUserData {
     purge: BetterSqlite3.Statement
   }
 
-  constructor(db: BetterSqlite3.Database) {
+  constructor(db: BetterSqlite3.Database, private readonly batchSize = DEFAULT_PURGE_BATCH_SIZE) {
     db.exec(USER_DATA_SCHEMA)
     this.stmts = {
       get: db.prepare(`SELECT ${COLUMNS} FROM user_data WHERE user_id = ? AND namespace = ? AND key = ? AND ${LIVE}`),
@@ -65,7 +68,12 @@ export class SqliteUserData {
       deleteUser: db.prepare('DELETE FROM user_data WHERE user_id = ?'),
       listUser: db.prepare(`SELECT ${COLUMNS} FROM user_data WHERE user_id = ? AND ${LIVE}`),
       listNamespace: db.prepare(`SELECT ${COLUMNS} FROM user_data WHERE user_id = ? AND namespace = ? AND ${LIVE}`),
-      purge: db.prepare('DELETE FROM user_data WHERE expires_at IS NOT NULL AND expires_at <= ?'),
+      // One bounded batch (SQLite has no DELETE ... LIMIT by default): the rowids
+      // come from the expiry index, and the expiry is re-checked on delete.
+      purge: db.prepare(
+        'DELETE FROM user_data WHERE rowid IN ' +
+          '(SELECT rowid FROM user_data WHERE expires_at IS NOT NULL AND expires_at <= ? LIMIT ?)',
+      ),
     }
   }
 
@@ -100,7 +108,19 @@ export class SqliteUserData {
     return rows.map(toEntry)
   }
 
-  purge(now: number): number {
-    return this.stmts.purge.run(now).changes
+  /**
+   * Delete expired rows `batchSize` at a time until a batch comes back short.
+   * Each batch is its own short write transaction and the loop yields to the
+   * event loop in between, so neither other connections nor the bot's own
+   * handlers wait for one huge DELETE.
+   */
+  async purge(now: number): Promise<number> {
+    let total = 0
+    for (;;) {
+      const removed = this.stmts.purge.run(now, this.batchSize).changes
+      total += removed
+      if (removed < this.batchSize) return total
+      await new Promise<void>((resolve) => setImmediate(resolve))
+    }
   }
 }

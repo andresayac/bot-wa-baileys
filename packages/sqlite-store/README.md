@@ -46,13 +46,14 @@ With a durable store, `flow(...).persistent()` checkpoints survive a restart: th
 | `file`               | `string`      | `'./bot.db'` | Path to the SQLite database file. The directory must exist. |
 | `wal`                | `boolean`     | `true`       | Enable WAL journal mode. |
 | `maxMessagesPerChat` | `number`      | — (unbounded) | Keep only the newest N messages per chat; older rows are pruned on each `saveMessage`. Must be a non-negative integer (else `RangeError`). |
+| `purgeBatchSize` | `number` | `1000` | Rows deleted per statement by `purgeExpiredUserData`; the purge loops until nothing expired is left, so a large backlog never runs as one long delete. Must be a positive integer (else `RangeError`). |
 | `logger`             | `{ error? }`  | —            | Receives lifecycle errors (e.g. close failure). |
 
 ## Table layout
 
 | Table           | Key                                 | Contents |
 | --------------- | ----------------------------------- | -------- |
-| `messages`      | `messageKey(ref)` (`{chatId}:{id}`) | `StoredMessage` as JSON, plus `chat_id`, `sender_id`, `timestamp`, `type`, `body`, `from_me` columns; indexed by `(chat_id, timestamp)` |
+| `messages`      | `messageKey(ref)` (`{chatId}:{id}`, escaped) | `StoredMessage` as JSON, plus `chat_id`, `sender_id`, `timestamp`, `type`, `body`, `from_me` columns; indexed by `(chat_id, timestamp)` |
 | `chats`         | `chat.id`                           | `StoredChat` (JSON) |
 | `contacts`      | `contact.id`                        | `StoredContact` (JSON) |
 | `checkpoints`   | key                                 | `FlowCheckpoint` (JSON: flow id, step, `c.state`) |
@@ -66,6 +67,8 @@ With a durable store, `flow(...).persistent()` checkpoints survive a restart: th
 - `saveMessage` is an upsert keyed by `messageKey(ref)`; re-saving a message replaces it. A message without `ref.id` or `chatId` is ignored, like in `MemoryStore`.
 - `getMessagesByChat(chatId, limit)`: a `limit` of `0` or less returns nothing, a fraction rounds up and `Infinity` returns the whole log.
 - Statements are prepared once per store, not on every call.
+- `purgeExpiredUserData` deletes `purgeBatchSize` rows per statement and yields to the event loop between batches, so a large backlog never blocks the bot (better-sqlite3 is synchronous) or holds the write lock for long.
+- **Message keys.** `messageKey(ref)` (from `@bot-wa/core`) is `{chatId}:{id}` with `%` and `:` percent-escaped in each part (`%25`, `%3A`), so ids that contain `:` — Twilio's `whatsapp:+1…` chat ids — never collide (`('a:b', 'c')` and `('a', 'b:c')` used to share the key `a:b:c`). Ids without `:` or `%` keep exactly the key earlier versions wrote. Rows written by an earlier version under the old unescaped key are still read and deleted (a fallback that only runs for ids containing `:` or `%`, and only returns a row that belongs to that chat), and re-saving such a message moves it to the new key — no manual migration. One theoretical edge remains: an id that literally contains `%3A` and was stored by an earlier version can be overwritten by a new message whose id has `:` in the same place.
 
 ## Docker
 
