@@ -42,6 +42,11 @@ export interface DispatcherDeps {
    */
   firstContact?: (ctx: DispatchContext) => Promise<boolean>
   /**
+   * Checked when a queued job's turn comes: `false` (the bot stopped meanwhile) drops the
+   * message or event without running anything. Omitted → always open.
+   */
+  isOpen?: () => boolean
+  /**
    * Per-context preparation run INSIDE the per-chat FIFO, before `before('message')`
    * hooks (and before type matchers for projected events) — e.g. resolving `ctx.lang`
    * from the store without reordering a chat's messages. Must not reject.
@@ -185,7 +190,8 @@ export class Dispatcher {
    *   2. inbound dedupe — a redelivered message/interaction (same chatId + id) stops here
    *   3. persistence — chat, contact and message upserts
    *   4. groupMode filter — a group message the bot must ignore stops here (still persisted)
-   *  Dispatcher (per-chat FIFO queue, this method)
+   *  Dispatcher (per-chat FIFO queue, this method) — a job whose turn comes after
+   *  `bot.stop()` is dropped here (`isOpen`), before anything runs
    *   5. language resolution (`prepare`: `ctx.lang` from ctx.user → provider → detector
    *      → default, only while i18n is on), then before('message') hooks — may abort;
    *      if a hook rewrote `ctx.body` (voice transcript) the language is re-resolved
@@ -216,6 +222,7 @@ export class Dispatcher {
   private async run(ctx: DispatchContext): Promise<void> {
     const { hooks, runtime, emit } = this.deps
     const prefix = this.deps.commandPrefix ?? '/'
+    if (this.deps.isOpen && !this.deps.isOpen()) return
     try {
       if (this.deps.prepare) await this.deps.prepare(ctx)
       const bodyBeforeHooks = ctx.body
@@ -316,6 +323,7 @@ export class Dispatcher {
   private async runEvent(ctx: DispatchContext): Promise<void> {
     const { runtime } = this.deps
     const key = runtime.keyFor(ctx)
+    if (this.deps.isOpen && !this.deps.isOpen()) return
     try {
       if (this.deps.prepare) await this.deps.prepare(ctx)
       for (const m of this.matchers) {

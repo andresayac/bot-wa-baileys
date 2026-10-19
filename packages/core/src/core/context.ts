@@ -185,6 +185,11 @@ export function buildMessageContext(deps: BuildContextDeps): IMessageContext {
       return sendOut({ kind: 'native', provider, payload })
     },
     stream(source, opts) {
+      const stop = deps.stopSignal?.()
+      if (stop) {
+        const signal = opts?.signal ? AbortSignal.any([opts.signal, stop]) : stop
+        opts = { ...opts, signal }
+      }
       return streamText({
         capabilities: deps.capabilities,
         isPrivate,
@@ -193,6 +198,7 @@ export function buildMessageContext(deps: BuildContextDeps): IMessageContext {
         delete: deps.deleteStreamMessage ? (ref) => deps.deleteStreamMessage!(ref) : undefined,
         draft: deps.sendDraft ? (draftId, text, o) => deps.sendDraft!(from, draftId, text, o) : undefined,
         typing: deps.typing ? () => deps.typing!(from, 'typing') : undefined,
+        ...(stop ? { shutdown: stop } : {}),
       }, source, opts)
     },
     async form(definition, opts) {

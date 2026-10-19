@@ -532,3 +532,34 @@ describe('ctx.stream + BotConfig.typing (messaging)', () => {
     await bot.stop()
   })
 })
+
+describe('streamText — target.shutdown', () => {
+  it('stops at once on shutdown: no flush, no retry wait left behind', async () => {
+    vi.useFakeTimers()
+    try {
+      const shutdown = new AbortController()
+      const sent: string[] = []
+      const edits: string[] = []
+      let edited = 0
+      const target: StreamTarget = {
+        capabilities: { streaming: 'edit', edit: true },
+        send: async (c) => { sent.push((c as { text: string }).text); return { ref: { id: 'm1', chatId: 'c' }, id: 'm1', chatId: 'c' } },
+        edit: async (_ref, c) => { edited++; if (edited === 1) throw new RateLimitedError(30_000); edits.push((c as { text: string }).text) },
+        shutdown: shutdown.signal,
+      }
+      async function* gen() { for (let i = 0; ; i++) { await new Promise((r) => setTimeout(r, 100)); yield `t${i} ` } }
+      const done = streamText(target, gen(), { throttleMs: 150, signal: shutdown.signal })
+      await vi.advanceTimersByTimeAsync(1_000)   // first send + a rate-limited edit (30 s back-off)
+      const before = { sent: sent.length, edits: edits.length }
+      shutdown.abort()
+      await vi.advanceTimersByTimeAsync(0)
+      const r = await done
+      expect(r.cancelled).toBe(true)
+      expect({ sent: sent.length, edits: edits.length }).toEqual(before)
+      await vi.advanceTimersByTimeAsync(100)   // the source's own pending sleep
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})

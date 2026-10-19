@@ -3,6 +3,20 @@
 export const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms))
 
+/**
+ * {@link sleep} that ends early (resolves, never rejects) when `signal` aborts, clearing its
+ * timer so nothing outlives the abort (e.g. paced replies on `bot.stop()`). Internal.
+ */
+export function abortableSleep(ms: number, signal?: AbortSignal): Promise<void> {
+  if (!signal) return sleep(ms)
+  if (signal.aborted) return Promise.resolve()
+  return new Promise((resolve) => {
+    const onAbort = () => { clearTimeout(timer); resolve() }
+    const timer = setTimeout(() => { signal.removeEventListener('abort', onAbort); resolve() }, ms)
+    signal.addEventListener('abort', onAbort, { once: true })
+  })
+}
+
 /** Human-paced typing delay: ~30-50ms per char with jitter. */
 export function humanTypingDelay(text: string, msPerChar = 40): number {
   return Math.min(

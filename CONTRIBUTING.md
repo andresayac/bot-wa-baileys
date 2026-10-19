@@ -52,6 +52,22 @@ docker rm -f botwa-it-postgres botwa-it-mysql botwa-it-mongo botwa-it-redis
 
 En PowerShell, las variables se definen con `$env:BOTWA_TEST_POSTGRES_URL = 'postgres://postgres:postgres@127.0.0.1:55432/botwa'` (y así con las demás). Puedes definir solo las que te interesen: el resto de suites se salta.
 
+## Carga, soak y fugas (`pnpm bench:soak`)
+
+`scripts/soak/soak.mjs` mete carga en el runtime de `@bot-wa/core` (y en `@bot-wa/ai` con `MockAIProvider`) sobre `MockProvider`: miles de chats y participantes de grupo con flows (`ask`/validación/reintentos/timeouts/`delay`), conversaciones con `c.idle`, `bot.onIdle`, dedupe de entrada, handoff, idioma "pegajoso", `ctx.user`, broadcast, métricas, pacer de typing, streaming y confirmaciones de herramientas de IA (botones, respuestas escritas, timeouts, `/reset`, pulsaciones viejas). Tras cada ronda espera a que los bots queden ociosos, fuerza GC y mide heap, handles activos (`process.getActiveResourcesInfo()`), tamaño de los mapas internos, lag del event loop y throughput. Al final hace `stop({ drain: true })` **bajo carga** y falla (código 2) si queda algún temporizador vivo. No forma parte de `pnpm test`.
+
+```bash
+pnpm build                                        # usa lib/ compilado
+pnpm bench:soak                                   # unos segundos
+pnpm bench:soak -- --chats 2000 --rounds 20       # más carga
+pnpm bench:soak -- --duration 600                 # soak de 10 minutos
+pnpm bench:soak -- --fresh 0                      # solo chats repetidos: el heap debe quedar plano
+pnpm bench:soak -- --json > soak.json             # informe en JSON
+pnpm bench:soak -- --rounds 1 --trace-timers      # de dónde salen los temporizadores que quedan tras stop()
+```
+
+Opciones: `--chats`, `--groups`, `--participants`, `--ai-chats`, `--fresh` (chats nuevos por ronda; hacen crecer el `MemoryStore` a propósito y el informe mide el heap tras borrarlos), `--rounds`, `--duration` (segundos), `--json`, `--trace-timers`. Cada fuga que se arregle lleva además un test rápido en la suite normal (`packages/core/tests/soak-regressions.test.ts`, `packages/ai/tests/soak-regressions.test.ts`).
+
 ## Reglas del código
 
 - **ESM-only**: `"type": "module"`, imports relativos con extensión `.js` (NodeNext). Node >= 22.

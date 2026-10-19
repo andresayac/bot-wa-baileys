@@ -19,6 +19,7 @@
 
 import { RateLimitedError } from '../core/provider.js'
 import type { DraftOptions, MessageRef, SentMessage } from '../core/provider.js'
+import { abortableSleep } from '../utils/timers.js'
 import { findSplitPoint, lastBoundaryAfter, splitMessage } from './split.js'
 import type { StreamOptions, StreamResult, StreamSource, StreamStrategy, StreamTarget } from './types.js'
 
@@ -34,7 +35,6 @@ const MAX_FINAL_RETRIES = 3
 const ABORTED: unique symbol = Symbol('aborted')
 
 const noop = (): void => undefined
-const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
 
 /** A fresh non-zero 31-bit draft id. */
 function newDraftId(): number {
@@ -128,6 +128,18 @@ class StreamSession {
       : this.maxLength
   }
 
+  /** The transport shut down: nothing more may reach the target. */
+  private get shut(): boolean {
+    return this.target.shutdown?.aborted === true
+  }
+
+  private onShutdown = (): void => {
+    if (this.timer) clearTimeout(this.timer)
+    this.timer = undefined
+    this.stopTyping()
+    this.cancel()
+  }
+
   private cancel = (): void => {
     if (this.cancelled) return
     this.cancelled = true
@@ -138,6 +150,9 @@ class StreamSession {
     const signal = this.opts.signal
     if (signal?.aborted) this.cancel()
     else signal?.addEventListener('abort', this.cancel, { once: true })
+    const shutdown = this.target.shutdown
+    if (shutdown?.aborted) this.onShutdown()
+    else shutdown?.addEventListener('abort', this.onShutdown, { once: true })
     if (this.strategy !== 'draft') this.startTyping()
 
     let sourceError: unknown
@@ -169,6 +184,7 @@ class StreamSession {
     } finally {
       this.stopTyping()
       signal?.removeEventListener('abort', this.cancel)
+      shutdown?.removeEventListener('abort', this.onShutdown)
     }
     if (sourceError !== undefined) throw sourceError
     if (this.fatal !== undefined) throw this.fatal
@@ -204,7 +220,7 @@ class StreamSession {
   /* --- live previews ------------------------------------------------------ */
 
   private schedulePreview(): void {
-    if (this.timer || this.previewQueued) return
+    if (this.shut || this.timer || this.previewQueued) return
     const throttle = this.throttleMs ?? (this.strategy === 'draft' ? DEFAULT_THROTTLE_DRAFT_MS : DEFAULT_THROTTLE_EDIT_MS)
     const wait = Math.max(0, this.lastPreviewAt + throttle - Date.now(), this.backoffUntil - Date.now())
     this.timer = setTimeout(() => {
@@ -231,7 +247,7 @@ class StreamSession {
   }
 
   private async preview(): Promise<void> {
-    if (this.fatal !== undefined) return
+    if (this.fatal !== undefined || this.shut) return
     const text = this.current
     if (!text.trim() || text === this.lastShown) return
     if (this.strategy === 'draft') {
@@ -322,7 +338,7 @@ class StreamSession {
     if (this.timer) clearTimeout(this.timer)
     this.timer = undefined
     await this.chain
-    if (this.fatal !== undefined) return
+    if (this.fatal !== undefined || this.shut) return
     const discard = this.cancelled && this.opts.onCancel === 'discard'
     await this.enqueue(async () => {
       if (this.strategy === 'edit' && this.editRef) {
@@ -362,21 +378,25 @@ class StreamSession {
    */
   private async finalEdit(ref: MessageRef, text: string): Promise<void> {
     if (!text) return
+    const shutdown = this.target.shutdown
     const pending = this.backoffUntil - Date.now()
-    if (pending > 0) await sleep(Math.min(pending, MAX_FINAL_RETRY_WAIT_MS))
+    if (pending > 0) await abortableSleep(Math.min(pending, MAX_FINAL_RETRY_WAIT_MS), shutdown)
     for (let attempt = 0; ; attempt++) {
+      if (this.shut) return
       try {
         await this.target.edit!(ref, { kind: 'text', text })
         break
       } catch (error) {
         if (!(error instanceof RateLimitedError) || attempt >= MAX_FINAL_RETRIES) throw error
-        await sleep(Math.min(Math.max(0, error.retryAfterMs), MAX_FINAL_RETRY_WAIT_MS))
+        await abortableSleep(Math.min(Math.max(0, error.retryAfterMs), MAX_FINAL_RETRY_WAIT_MS), shutdown)
       }
     }
     this.lastShown = text
   }
 
   private async sendMessage(text: string): Promise<SentMessage> {
+    // Shut down: nothing is sent (a live preview then degrades to buffering).
+    if (this.shut) return { ref: { id: '', chatId: '' }, id: '', chatId: '', skipped: true }
     const first = this.messages.length === 0
     const sent = await this.target.send({ kind: 'text', text }, first ? this.opts.sendOptions : undefined)
     this.messages.push(sent)
@@ -386,7 +406,7 @@ class StreamSession {
   /* --- typing ---------------------------------------------------------------- */
 
   private pingTyping(): void {
-    if (this.opts.typing === false || !this.target.typing) return
+    if (this.shut || this.opts.typing === false || !this.target.typing) return
     try { void this.target.typing().catch(noop) } catch { /* ignore */ }
   }
 

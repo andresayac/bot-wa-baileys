@@ -73,7 +73,9 @@ producido) o con el primer error de envío.
 Un stream se detiene cuando se aborta `signal` o, en los borradores de
 Telegram con `canStop: true`, cuando el usuario pulsa el botón de parar
 (`stoppedByUser: true`). Se deja de leer y se llama al `return()` de la
-fuente, así que una petición de IA también se aborta.
+fuente, así que una petición de IA también se aborta. `bot.stop()` también cancela
+todos los `ctx.stream()` en curso (después del `drain`, si lo hay), pero no envía
+nada más: ni envío final, ni edición, ni borrado, diga lo que diga `onCancel`.
 
 - `onCancel: 'flush'` (por defecto) envía el texto producido hasta entonces.
 - `onCancel: 'discard'` no envía nada más: un borrador simplemente caduca y,

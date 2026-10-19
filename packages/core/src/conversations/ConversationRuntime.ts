@@ -188,6 +188,8 @@ export class ConversationRuntime {
   private preserveOnAbort = new Set<string>()
   /** Registration history for introspection — see {@link listRegistrations}. */
   private registrations: ConversationRegistration[] = []
+  /** Set by {@link close} (bot stopped): no conversation starts until {@link open}. */
+  private closed = false
 
   constructor(private cfg: RuntimeConfig = {}) {}
 
@@ -352,6 +354,10 @@ export class ConversationRuntime {
     if (!fn) throw new Error(`Conversation "${String(nameOrFn)}" is not registered`)
     const name = typeof nameOrFn === 'string' ? nameOrFn : (opts.name ?? (fn.name || '(anonymous)'))
 
+    // A stopped bot starts nothing: a message queued before stop() (or a goto, or a
+    // detached handler) must not open a conversation — and arm its wait timers — afterwards.
+    if (this.closed) return
+
     const key = this.keyFor(ctx)
     // A fresh conversation on this key must not inherit a stale shutdown-preserve flag
     // (relevant when the runtime is reused across a stop()/start() cycle).
@@ -447,6 +453,24 @@ export class ConversationRuntime {
     }
     return n
   }
+
+  /**
+   * Teardown for `Bot.stop()`: {@link abortAll} (checkpoints preserved) and refuse new
+   * conversations until {@link open} — `enter()` then resolves at once without running.
+   * Returns the number aborted.
+   */
+  close(): number {
+    this.closed = true
+    return this.abortAll()
+  }
+
+  /** Accept conversations again (`Bot.start()`). */
+  open(): void {
+    this.closed = false
+  }
+
+  /** True between {@link close} and {@link open}. */
+  isClosed(): boolean { return this.closed }
 
   /**
    * Silently abort every active conversation in `chatId` — under `participant` scope that
@@ -603,6 +627,10 @@ export class ConversationRuntime {
   private cleanup(entry: ActiveConversation): void {
     if (entry.pending?.timer) clearTimeout(entry.pending.timer)
     if (this.active.get(entry.key) === entry) this.active.delete(entry.key)
+    // A shutdown-preserve flag is consumed by a persistent flow's own unwind (wrapCompiled);
+    // any other conversation never reads it, so drop it here unless a newer conversation
+    // already owns the key (one started after the abort deleted the flag itself anyway).
+    if (!this.active.has(entry.key)) this.preserveOnAbort.delete(entry.key)
     this.notifyEnd(entry)
   }
 

@@ -315,6 +315,14 @@ export class I18n {
   }
 
   /**
+   * Forget the provider-reported language remembered for `sender` (subject erasure,
+   * `bot.deleteSubject()`). Returns whether one was remembered.
+   */
+  forget(sender: string): boolean {
+    return this.reported.delete(sender)
+  }
+
+  /**
    * The language the provider reports for this update, else the last one it reported
    * for the same sender: some transports omit it on some updates (Telegram's optional
    * `language_code`), and a chat must not flip to the default between turns. Kept in

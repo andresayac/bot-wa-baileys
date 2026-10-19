@@ -97,4 +97,9 @@ export interface StreamTarget {
   delete?(ref: MessageRef): Promise<void>
   draft?(draftId: number, text: string, opts?: DraftOptions): Promise<void>
   typing?(): Promise<void>
+  /**
+   * Aborted when the transport shuts down (`bot.stop()`): the stream is cancelled and
+   * touches the target no more — no flush, no discard, no rate-limit wait.
+   */
+  shutdown?: AbortSignal
 }

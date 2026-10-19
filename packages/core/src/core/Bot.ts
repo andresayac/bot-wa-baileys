@@ -241,6 +241,11 @@ export class Bot extends EventEmitter {
    * point is dropped instead of hitting a stopped provider.
    */
   private pacedSendsOpen = false
+  /**
+   * Aborted by `stop()` when {@link pacedSendsOpen} closes (after the optional drain): wakes
+   * paced replies still waiting and cancels running `ctx.stream()`s, so no timer outlives stop.
+   */
+  private sendsAbort = new AbortController()
   /** Runtime counters behind {@link metrics}. */
   private counters = new MetricsCollector()
   /** Aborted by {@link stop}: cancels running broadcasts so nothing is sent through a stopped provider. */
@@ -276,6 +281,7 @@ export class Bot extends EventEmitter {
       provider: this.provider,
       typing: normalizeTypingConfig(config.typing),
       logger: this.logger,
+      signal: () => this.sendsAbort.signal,
     })
 
     // Store — injected instance, or the built-in MemoryStore. Every key is
@@ -347,6 +353,8 @@ export class Bot extends EventEmitter {
       runtime: this.runtime,
       commandPrefix: this.config.commandPrefix,
       firstContact: (ctx) => this.welcome.isFirstContact(ctx),
+      // A message queued before stop() is dropped when its turn comes after it.
+      isOpen: () => this.acceptingInbound,
       logger: this.logger.child({ module: 'dispatcher' }),
       emit: (event, payload) => {
         if (event === 'error') {
@@ -448,6 +456,7 @@ export class Bot extends EventEmitter {
     try {
       storeAttempted = true
       await this.store.start()
+      this.runtime.open()
       await this.runtime.loadDormant()
       await this.handoffs.load()   // never rejects: restore failures go to 'error'
       // A handed-off chat must not resume a checkpoint loadDormant() just brought back:
@@ -458,6 +467,7 @@ export class Bot extends EventEmitter {
       await this.provider.start()
       this.scheduler.start(this.logger.child({ module: 'scheduler' }))
       if (this.lifecycleAbort.signal.aborted) this.lifecycleAbort = new AbortController()
+      if (this.sendsAbort.signal.aborted) this.sendsAbort = new AbortController()
       this.isStarted = true
       this.acceptingInbound = true
       this.pacedSendsOpen = true
@@ -497,13 +507,21 @@ export class Bot extends EventEmitter {
     this.scheduler.stop()
     if (opts?.drain && this.inflightSends.size > 0) {
       const timeout = opts.timeout ?? 10_000
-      await Promise.race([
-        Promise.allSettled([...this.inflightSends]),
-        new Promise<void>((resolve) => setTimeout(resolve, timeout)),
-      ])
+      let timer: ReturnType<typeof setTimeout> | undefined
+      try {
+        await Promise.race([
+          Promise.allSettled([...this.inflightSends]),
+          new Promise<void>((resolve) => { timer = setTimeout(resolve, timeout) }),
+        ])
+      } finally {
+        // Drained before the deadline: the deadline timer must not keep the process alive.
+        if (timer) clearTimeout(timer)
+      }
     }
     this.pacedSendsOpen = false
-    this.runtime.abortAll()
+    this.sendsAbort.abort()
+    // Abort every conversation (checkpoints kept) and refuse new ones until start().
+    this.runtime.close()
     let stopError: unknown
     try { await this.provider.stop() }
     catch (error) { stopError = error }
@@ -1312,6 +1330,8 @@ export class Bot extends EventEmitter {
       await this.store.clearCheckpoint(key)
       result.checkpoints++
     }
+    // The language remembered from the provider's reports (in memory) goes as well.
+    this.i18n.forget(userId)
     // WELCOME markers (hashed keys): a returning erased subject is a first contact again.
     await this.welcome.forget(userId, chats.map((chat) => chat.id))
     result.userData = await this.users.erase(userId)
@@ -1743,7 +1763,7 @@ export class Bot extends EventEmitter {
    * covers the in-place updates. `after('send')` stays reserved for real messages. The
    * stream's new messages take the normal send path with `stream: 'message'`.
    */
-  private streamDeps(): Pick<BuildContextDeps, 'capabilities' | 'textFormatFor' | 'streamSend' | 'streamEdit' | 'sendDraft' | 'deleteStreamMessage'> {
+  private streamDeps(): Pick<BuildContextDeps, 'capabilities' | 'textFormatFor' | 'streamSend' | 'streamEdit' | 'sendDraft' | 'deleteStreamMessage' | 'stopSignal'> {
     const p = this.provider
     return {
       capabilities: p.capabilities,
@@ -1752,6 +1772,7 @@ export class Bot extends EventEmitter {
       streamEdit: p.editMessage ? (ref, content) => this.dispatchStreamEdit(ref, content) : undefined,
       sendDraft: p.sendDraft ? (chatId, draftId, text, opts) => this.dispatchStreamDraft(chatId, draftId, text, opts) : undefined,
       deleteStreamMessage: p.deleteMessage ? (ref) => this.deleteStreamMessage(ref) : undefined,
+      stopSignal: () => this.sendsAbort.signal,
     }
   }
 
