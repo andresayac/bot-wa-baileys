@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { OutsideSessionWindowError, RecipientUnreachableError } from '@bot-wa/core'
 import { MessengerProvider, toProviderError } from '../src/MessengerProvider.js'
-import { toOutbound } from '../src/toOutbound.js'
+import { toOutbound, toOutboundMessages } from '../src/toOutbound.js'
 import { parseInbound } from '../src/parseInbound.js'
 
 const baseCfg = { accessToken: 'TOK', verifyToken: 'vt', allowUnsignedWebhooks: true }
@@ -69,6 +69,59 @@ describe('Messenger outbound hardening', () => {
         },
       },
     })
+  })
+
+  it('a card whose body does not fit a template subtitle keeps all its text (image, then button template)', () => {
+    const body = 'Masa madre de 48 horas, queso campesino y un toque de orégano. Sale del horno cada mañana a las 7.'
+    const msgs = toOutboundMessages({
+      kind: 'card',
+      title: 'Pan de queso',
+      body,
+      imageUrl: 'https://x.dev/pan.jpg',
+      buttons: [{ id: 'BUY', title: 'Comprar' }],
+    })
+    expect(msgs).toEqual([
+      { attachment: { type: 'image', payload: { url: 'https://x.dev/pan.jpg', is_reusable: true } } },
+      {
+        attachment: {
+          type: 'template',
+          payload: {
+            template_type: 'button',
+            text: `Pan de queso\n${body}`,
+            buttons: [{ type: 'postback', title: 'Comprar', payload: 'BUY' }],
+          },
+        },
+      },
+    ])
+  })
+
+  it('a long card without buttons is image + plain text; past 640 chars the text goes alone before the buttons', () => {
+    const body = 'y'.repeat(100)
+    expect(toOutboundMessages({ kind: 'card', title: 'T', body, imageUrl: 'https://x.dev/i.jpg' })).toEqual([
+      { attachment: { type: 'image', payload: { url: 'https://x.dev/i.jpg', is_reusable: true } } },
+      { text: `T\n${body}` },
+    ])
+    const huge = 'z'.repeat(700)
+    const msgs = toOutboundMessages({ kind: 'card', title: 'T', body: huge, buttons: [{ id: 'A', title: 'A' }] }) as Array<Record<string, unknown>>
+    expect(msgs[0]).toEqual({ text: `T\n${huge}` })
+    expect(msgs[1]).toMatchObject({ attachment: { payload: { template_type: 'button', text: 'T' } } })
+  })
+
+  it('send() posts every message of a long card in order and returns the last ref', async () => {
+    const posted: unknown[] = []
+    let n = 0
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init: { body: string }) => {
+      posted.push((JSON.parse(init.body) as { message: unknown }).message)
+      n++
+      return { ok: true, status: 200, headers: { get: () => null }, json: async () => ({ message_id: `mid.${n}` }) }
+    }))
+    const res = await new MessengerProvider(baseCfg).send('PSID', {
+      kind: 'card', title: 'Pan', body: 'b'.repeat(90), imageUrl: 'https://x.dev/p.jpg', buttons: [{ id: 'B', title: 'Comprar' }],
+    })
+    expect(posted).toHaveLength(2)
+    expect(posted[0]).toMatchObject({ attachment: { type: 'image' } })
+    expect(posted[1]).toMatchObject({ attachment: { payload: { template_type: 'button' } } })
+    expect(res.ref.id).toBe('mid.2')
   })
 
   it('generic-template titles and subtitles are cut to 80 chars', () => {

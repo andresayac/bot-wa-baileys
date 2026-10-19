@@ -54,6 +54,25 @@ describe('toGraphError', () => {
   it('rate-limit defaults to 60s without a Retry-After', () => {
     expect((toGraphError({ code: 4 }) as RateLimitedError).retryAfterMs).toBe(60_000)
   })
+  it('maps the Messenger Platform window subcodes (Messenger 2018278, Instagram 2534022) with the chat id', () => {
+    for (const sub of [2018278, 2534022]) {
+      const e = toGraphError({ code: 10, error_subcode: sub, message: 'outside window' }, { chatId: 'PSID' })
+      expect(e).toBeInstanceOf(OutsideSessionWindowError)
+      expect((e as OutsideSessionWindowError).chatId).toBe('PSID')
+      expect(e.message).toContain(`10/${sub}`)
+    }
+  })
+  it('maps the Messenger Platform unreachable-recipient codes (551, subcodes 1545041 / 2018001 / 2534014)', () => {
+    expect(toGraphError({ code: 551, message: "This person isn't available" }, { chatId: 'P' })).toBeInstanceOf(RecipientUnreachableError)
+    for (const sub of [1545041, 2018001, 2534014]) {
+      const e = toGraphError({ code: 100, error_subcode: sub, message: 'No matching user found' }, { chatId: 'P' })
+      expect(e).toBeInstanceOf(RecipientUnreachableError)
+      expect((e as RecipientUnreachableError).chatId).toBe('P')
+    }
+  })
+  it('a code 10 without a window subcode is not a window error', () => {
+    expect(toGraphError({ code: 10, message: 'permission' })).not.toBeInstanceOf(OutsideSessionWindowError)
+  })
   it('falls back to a generic ProviderError', () => {
     const e = toGraphError({ code: 999, message: 'weird' })
     expect(e.constructor).toBe(ProviderError)

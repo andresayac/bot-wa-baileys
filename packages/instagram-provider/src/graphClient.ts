@@ -4,7 +4,7 @@
  * core's typed provider errors (code 4 / 613 → RateLimitedError).
  */
 
-import { OutsideSessionWindowError, ProviderError, RecipientUnreachableError, type ChatId } from '@bot-wa/core'
+import { ProviderError, type ChatId } from '@bot-wa/core'
 import { toGraphError, type GraphError } from '@bot-wa/graph-core'
 import { secureFetch, type SecureFetchOptions } from '@bot-wa/http'
 
@@ -16,30 +16,12 @@ export interface GraphClientConfig {
 }
 
 /**
- * Messenger Platform send failures that the shared Graph mapping does not know:
- *  - outside the messaging window: code 10 with subcode 2018278 (Messenger) or
- *    2534022 (Instagram) -> {@link OutsideSessionWindowError};
- *  - recipient gone / unknown: code 551 ("This person isn't available right
- *    now"), subcodes 1545041, 2018001 and 2534014 ("No matching user found")
- *    -> {@link RecipientUnreachableError}.
- */
-const WINDOW_SUBCODES = new Set([2018278, 2534022])
-const UNREACHABLE_SUBCODES = new Set([1545041, 2018001, 2534014])
-
-/**
- * Translate a Graph error into a typed provider error: the Messenger Platform
- * window/recipient codes first, then the shared {@link toGraphError} mapping.
- * `chatId` (the IGSID the call targeted) is carried on window/unreachable errors.
+ * Translate a Graph error into a typed provider error via the shared
+ * {@link toGraphError} mapping (which also covers the Messenger Platform
+ * window/recipient codes). `chatId` (the IGSID the call targeted) is carried on
+ * window/unreachable errors.
  */
 export function toProviderError(err: GraphError, retryAfterMs?: number, chatId: ChatId = ''): ProviderError {
-  const msg = err.message ?? 'Graph API error'
-  const tag = `${err.code ?? '?'}${err.error_subcode ? `/${err.error_subcode}` : ''}`
-  if (err.error_subcode !== undefined && WINDOW_SUBCODES.has(err.error_subcode)) {
-    return new OutsideSessionWindowError(chatId, `${msg} (${tag}) — the user must write first (24h window) or use a message tag.`)
-  }
-  if (err.code === 551 || (err.error_subcode !== undefined && UNREACHABLE_SUBCODES.has(err.error_subcode))) {
-    return new RecipientUnreachableError(chatId, `${msg} (${tag})`)
-  }
   return toGraphError(err, { retryAfterMs, chatId })
 }
 
