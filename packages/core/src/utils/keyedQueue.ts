@@ -1,5 +1,5 @@
 /**
- * Per-key FIFO task queue used to serialize the bot's own chat upserts.
+ * Per-key FIFO task queue: the core's one helper for serializing per-key async work.
  */
 
 /**
@@ -8,7 +8,10 @@
  * The Bot routes its own chat upserts through one of these: every store merges a chat
  * record with a non-atomic read-modify-write, so two overlapping upserts of the same
  * chat (an inbound message and a `handoff`/`resume` write, say) could otherwise drop
- * one of the fields. A failed task never blocks the tasks queued behind it.
+ * one of the fields. The `ctx.user` service (per-user read-modify-writes), the ledger,
+ * the welcome lanes and the durability engine use it the same way. A failed task never
+ * blocks the tasks queued behind it, and idle keys are dropped, so memory stays
+ * proportional to the keys with work in flight.
  */
 export class KeyedQueue {
   private readonly tails = new Map<string, Promise<void>>()

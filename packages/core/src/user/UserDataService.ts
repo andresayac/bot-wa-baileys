@@ -19,7 +19,7 @@ import type { IStore, UserDataEntry, UserId } from '../core/provider.js'
 import type { RuntimeMessage } from '../conversations/ConversationRuntime.js'
 import { parseDuration } from '../utils/timers.js'
 import { UserDataError } from './errors.js'
-import { KeyedMutex } from './KeyedMutex.js'
+import { KeyedQueue } from '../utils/keyedQueue.js'
 import { assertNamespace, assertUserId, getAt, parsePath, setAt, toJsonValue, unsetAt } from './paths.js'
 import type { UserData, UserSetOptions } from './types.js'
 
@@ -146,7 +146,7 @@ function planKey(
 
 export class UserDataService {
   /** Per-user write queue: every write of one subject runs in call order. */
-  private readonly locks = new KeyedMutex()
+  private readonly locks = new KeyedQueue()
   private readonly purgeIntervalMs: number | false
   private lastPurgeAt = Number.NEGATIVE_INFINITY
 
