@@ -110,7 +110,8 @@ const bot = new Bot({ provider, durability: { journal: eventsDurability({ journa
   left by a dead process is broken at once, and one held longer than `staleLockMs`
   (default 30 s) is treated as abandoned; nothing is ever killed. The file format is the
   `FileEventJournal` one, but never open a file with both at the same time (the shared
-  journal refuses a file a live `FileEventJournal` holds). The same-chat rule of
+  journal refuses a file a live locked `FileEventJournal` holds, also when that journal
+  opens it later: every shared operation then rejects instead of losing records). The same-chat rule of
   [Several replicas](#several-replicas) applies. For heavy traffic, use another
   `LeasedEventJournal` with a shared `outbox` (`eventsDurability({ journal, outbox: kv })`,
   with the `DurableKv` of a Postgres or Redis backend), or those backends directly.

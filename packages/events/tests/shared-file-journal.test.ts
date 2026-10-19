@@ -132,6 +132,40 @@ describe('SharedFileEventJournal: several journals on one file', () => {
     expect((await s.get('old'))?.state).toBe('pending')
   })
 
+  it('a FileEventJournal of this process cannot open a file a shared journal has open', async () => {
+    const s = await journal()
+    await s.append(env('a'))
+    await expect(FileEventJournal.open(file, { lock: true })).rejects.toThrow(/SharedFileEventJournal/)
+    await s.close()
+    const f = await FileEventJournal.open(file, { lock: true })
+    expect((await f.get('a'))?.state).toBe('pending')
+    await f.close()
+  })
+
+  it('refuses to write once a live FileEventJournal of another process holds the file, so nothing is lost', async () => {
+    const s = await journal()
+    await s.append(env('a'))
+    writeFileSync(`${file}.lock`, String(process.ppid)) // another live process opened it as a FileEventJournal
+    await expect(s.append(env('b'))).rejects.toThrow(/FileEventJournal/)
+    await expect(s.list()).rejects.toThrow(/FileEventJournal/)
+    rmSync(`${file}.lock`)
+    expect((await s.list()).map((r) => r.envelope.eventId)).toEqual(['a'])
+    writeFileSync(`${file}.lock`, '999999999') // a lock left by a dead process does not block
+    expect(await s.append(env('c'))).toBe(true)
+  })
+
+  it('a locked FileEventJournal reads the snapshot under the shared mutex (no write in flight is missed)', async () => {
+    writeFileSync(`${file}.mutex`, `${process.ppid}:live`) // a shared writer of another process is mid-write
+    let opened = false
+    const opening = FileEventJournal.open(file, { lock: true }).then((f) => { opened = true; return f })
+    await new Promise((r) => setTimeout(r, 60))
+    expect(opened).toBe(false)
+    rmSync(`${file}.mutex`)
+    const f = await opening
+    expect(existsSync(`${file}.mutex`)).toBe(false)
+    await f.close()
+  })
+
   it('rejects an invalid file and operations after close', async () => {
     writeFileSync(file, 'not json')
     await expect(SharedFileEventJournal.open(file)).rejects.toThrow()

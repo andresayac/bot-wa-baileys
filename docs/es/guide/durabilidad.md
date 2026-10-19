@@ -113,7 +113,9 @@ const bot = new Bot({ provider, durability: { journal: eventsDurability({ journa
   entero. Un mutex que dejó un proceso muerto se rompe al momento, y uno retenido más de
   `staleLockMs` (30 s por defecto) se da por abandonado; nunca se mata nada. El formato
   del archivo es el de `FileEventJournal`, pero no abras un archivo con los dos a la vez
-  (el journal compartido rechaza un archivo que tiene un `FileEventJournal` vivo). La
+  (el journal compartido rechaza un archivo que tiene un `FileEventJournal` vivo con
+  `lock`, también si ese journal lo abre después: cada operación compartida se rechaza
+  en lugar de perder registros). La
   regla del mismo chat de *Varias réplicas* sigue valiendo. Para mucho tráfico, usa otro
   `LeasedEventJournal` con un `outbox` compartido (`eventsDurability({ journal, outbox: kv })`,
   con el `DurableKv` de un backend de Postgres o Redis), o esos backends directamente.

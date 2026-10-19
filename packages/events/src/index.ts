@@ -518,6 +518,16 @@ function pidAlive(pid: number): boolean {
 /** Lock files held by an open journal of THIS process (canonical paths). */
 const heldLocks = new Set<string>()
 
+/** Open SharedFileEventJournals of THIS process, by the lock key of their file (count per key). */
+const sharedOpen = new Map<string, number>()
+
+/** Whether a live single-process FileEventJournal holds the `<file>.lock` lock with key `key`. */
+async function singleHolderAlive(lockPath: string, key: string): Promise<boolean> {
+  if (heldLocks.has(key)) return true
+  const holder = Number.parseInt(await readFile(lockPath, 'utf8').catch(() => ''), 10)
+  return holder !== process.pid && pidAlive(holder)
+}
+
 /** A canonical key for a lock path: real directory (symlinks resolved), case-folded on Windows. */
 async function lockKey(lockPath: string): Promise<string> {
   const key = join(await realpath(dirname(lockPath)), basename(lockPath))
@@ -585,6 +595,7 @@ export class FileEventJournal implements LeasedEventJournal {
       key = await lockKey(lockPath)
       // Checked and claimed with no await in between, so two concurrent opens cannot both pass.
       if (heldLocks.has(key)) throw new Error(`event journal is already open in this process: ${filePath}`)
+      if (sharedOpen.has(key)) throw new Error(`event journal is open as a SharedFileEventJournal in this process: ${filePath}`)
       heldLocks.add(key)
       try {
         await acquireLock(lockPath)
@@ -595,15 +606,21 @@ export class FileEventJournal implements LeasedEventJournal {
     }
     let records: EventRecord[] = []
     let sidecars: Record<string, unknown> = {}
+    // With the lock, the snapshot is read under the SharedFileEventJournal mutex: a shared writer
+    // (of another process) either committed before this read or sees the lock and refuses.
+    let releaseMutex: (() => Promise<void>) | undefined
     try {
+      if (lockPath) releaseMutex = await acquireMutex(`${filePath}.mutex`, 10_000, 30_000)
       ;({ records, sidecars } = parseSnapshot(await readFile(filePath, 'utf8')))
     } catch (error: unknown) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        await releaseMutex?.().catch(() => {})
         if (lockPath) await rm(lockPath, { force: true }).catch(() => {})
         if (key) heldLocks.delete(key)
         throw error
       }
     }
+    await releaseMutex?.()
     return new FileEventJournal(filePath, MemoryEventJournal.fromSnapshot(records), lockPath, key, sidecars)
   }
   async append<TPayload>(envelope: EventEnvelope<TPayload>): Promise<boolean> { const changed = await this.memory.append(envelope); if (changed) await this.persist(); return changed }
@@ -722,6 +739,12 @@ async function retrying<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
+function unregisterShared(key: string): void {
+  const n = (sharedOpen.get(key) ?? 1) - 1
+  if (n > 0) sharedOpen.set(key, n)
+  else sharedOpen.delete(key)
+}
+
 /** Per-file in-process queues: journals of this process on one file take turns before the file mutex. */
 const sharedQueues = new Map<string, Promise<void>>()
 
@@ -790,7 +813,9 @@ async function breakMutex(path: string, seen: string): Promise<void> {
  *
  * Every write rewrites the whole file: fine for modest volumes and a few processes; use a database
  * journal for heavy traffic. The file format is the {@link FileEventJournal} one, but never open
- * one file with both at the same time. A mutex left by a dead process is broken (nothing is
+ * one file with both at the same time: a locked FileEventJournal is refused while a shared
+ * journal of this process has the file open, and every shared operation rejects while a live
+ * locked FileEventJournal (of any process) holds it, so neither overwrites the other's records. A mutex left by a dead process is broken (nothing is
  * killed); one held longer than `staleLockMs` is treated as abandoned.
  */
 export class SharedFileEventJournal implements LeasedEventJournal {
@@ -802,7 +827,10 @@ export class SharedFileEventJournal implements LeasedEventJournal {
   private constructor(
     private readonly filePath: string,
     private readonly mutexPath: string,
-    private readonly queueKey: string,
+    /** The `<file>.lock` path a FileEventJournal takes; checked on every operation. */
+    private readonly singleLockPath: string,
+    /** Canonical key of `singleLockPath`: in-process registries and queue. */
+    private readonly lockKey: string,
     private readonly lockTimeoutMs: number,
     private readonly staleLockMs: number,
   ) {}
@@ -810,6 +838,7 @@ export class SharedFileEventJournal implements LeasedEventJournal {
   /**
    * Open (or create) the shared journal at `filePath`.
    * @throws {Error} when the file is not a valid journal or a {@link FileEventJournal} holds it.
+   *   Later operations reject too while a live locked FileEventJournal holds the file.
    */
   static async open(filePath: string, options: SharedFileEventJournalOptions = {}): Promise<SharedFileEventJournal> {
     const lockTimeoutMs = options.lockTimeoutMs ?? 10_000
@@ -819,16 +848,20 @@ export class SharedFileEventJournal implements LeasedEventJournal {
     await mkdir(dirname(filePath), { recursive: true })
     const singleLock = `${filePath}.lock`
     const key = await lockKey(singleLock)
-    const holder = Number.parseInt(await readFile(singleLock, 'utf8').catch(() => ''), 10)
-    if (heldLocks.has(key) || (holder !== process.pid && pidAlive(holder))) {
+    if (await singleHolderAlive(singleLock, key)) {
       throw new Error(`event journal is open as a single-process FileEventJournal: ${filePath}`)
     }
+    // Claimed at once so a FileEventJournal of this process opened from now on is refused.
+    sharedOpen.set(key, (sharedOpen.get(key) ?? 0) + 1)
     try {
       parseSnapshot(await readFile(filePath, 'utf8'))
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        unregisterShared(key)
+        throw error
+      }
     }
-    return new SharedFileEventJournal(filePath, `${filePath}.mutex`, key.replace(/\.lock$/, ''), lockTimeoutMs, staleLockMs)
+    return new SharedFileEventJournal(filePath, `${filePath}.mutex`, singleLock, key, lockTimeoutMs, staleLockMs)
   }
 
   async append<TPayload>(envelope: EventEnvelope<TPayload>): Promise<boolean> {
@@ -905,8 +938,10 @@ export class SharedFileEventJournal implements LeasedEventJournal {
 
   /** Wait for operations in flight; later operations reject. Idempotent. Nothing is held between operations. */
   async close(): Promise<void> {
+    if (this.closed) return
     this.closed = true
     await Promise.allSettled([...this.inflight])
+    unregisterShared(this.lockKey)
   }
 
   private assertOpen(): void {
@@ -933,10 +968,15 @@ export class SharedFileEventJournal implements LeasedEventJournal {
    */
   private write<T>(op: (memory: MemoryEventJournal, sidecars: Record<string, unknown>) => Promise<{ changed: boolean; result: T }>): Promise<T> {
     try { this.assertOpen() } catch (error) { return Promise.reject(error) }
-    const previous = sharedQueues.get(this.queueKey) ?? Promise.resolve()
+    const previous = sharedQueues.get(this.lockKey) ?? Promise.resolve()
     const run = previous.then(async () => {
       const release = await acquireMutex(this.mutexPath, this.lockTimeoutMs, this.staleLockMs)
       try {
+        // A FileEventJournal (another process) may have opened the file since: it keeps its own
+        // copy and rewrites the whole file, so a write from here would be lost. Refuse instead.
+        if (await singleHolderAlive(this.singleLockPath, this.lockKey)) {
+          throw new Error(`event journal is open as a single-process FileEventJournal: ${this.filePath}`)
+        }
         const { memory, sidecars } = await this.read()
         const out = await op(memory, sidecars)
         if (out.changed) await this.persist(memory.snapshot(), sidecars)
@@ -946,8 +986,8 @@ export class SharedFileEventJournal implements LeasedEventJournal {
       }
     })
     const settled = run.then(() => {}, () => {})
-    sharedQueues.set(this.queueKey, settled)
-    void settled.then(() => { if (sharedQueues.get(this.queueKey) === settled) sharedQueues.delete(this.queueKey) })
+    sharedQueues.set(this.lockKey, settled)
+    void settled.then(() => { if (sharedQueues.get(this.lockKey) === settled) sharedQueues.delete(this.lockKey) })
     this.inflight.add(run)
     void settled.then(() => this.inflight.delete(run))
     return run
