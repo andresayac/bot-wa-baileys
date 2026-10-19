@@ -1,8 +1,8 @@
 # @bot-wa/graph-core
 
-Helpers compartidos de **Meta Graph** para los transportes de Meta de [`@bot-wa/core`](../core):
-[`@bot-wa/meta`](../meta-provider) (WhatsApp Cloud API), [`@bot-wa/messenger`](../messenger-provider) e
-[`@bot-wa/instagram`](../instagram-provider). Las tres plataformas verifican el webhook igual, firman igual y
+Helpers compartidos de **Meta Graph** para los transportes de Meta de [`@bot-wa/core`](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/core):
+[`@bot-wa/meta`](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/meta-provider) (WhatsApp Cloud API), [`@bot-wa/messenger`](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/messenger-provider) e
+[`@bot-wa/instagram`](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/instagram-provider). Las tres plataformas verifican el webhook igual, firman igual y
 devuelven los mismos códigos de error de Graph; este paquete reúne esa lógica en un solo sitio para que no se
 duplique en cada provider.
 

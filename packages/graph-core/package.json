@@ -32,7 +32,7 @@
     "typecheck": "tsc -p tsconfig.test.json"
   },
   "dependencies": {
-    "@bot-wa/core": "workspace:*"
+    "@bot-wa/core": "workspace:^"
   },
   "devDependencies": {
     "@types/node": "^26.1.1",

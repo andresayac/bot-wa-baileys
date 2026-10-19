@@ -526,7 +526,7 @@ está en curso, sus hechos se descartan: no vuelven a aparecer.
 ## RAG (respuestas con tus documentos)
 
 `rag` acepta cualquier objeto con `retrieve(query)`; el paquete
-[`@bot-wa/rag`](../rag) trae uno listo (loaders, chunking, embeddings e índice):
+[`@bot-wa/rag`](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/rag) trae uno listo (loaders, chunking, embeddings e índice):
 
 ```ts
 import { createRag } from '@bot-wa/rag'
@@ -591,5 +591,5 @@ No-objetivos de esta primera versión, ya contemplados en el diseño de
 
 - [Guía en el sitio (EN)](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/guide/ai.md) ·
   [Guía en el sitio (ES)](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/es/guide/ai.md)
-- [`@bot-wa/core`](../core/README.md) — el framework base (plugins,
+- [`@bot-wa/core`](https://github.com/andresayac/bot-wa-baileys/blob/main/packages/core/README.md) — el framework base (plugins,
   DI, conversaciones)

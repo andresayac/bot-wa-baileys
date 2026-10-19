@@ -1,7 +1,7 @@
 # @bot-wa/telegram
 
-Telegram Bot API transport ([`IProvider` v2](../core/src/core/provider.ts)) for
-[@bot-wa/core](../core). Plain HTTP over Node's global `fetch` — no extra
+Telegram Bot API transport ([`IProvider` v2](https://github.com/andresayac/bot-wa-baileys/blob/main/packages/core/src/core/provider.ts)) for
+[@bot-wa/core](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/core). Plain HTTP over Node's global `fetch` — no extra
 runtime dependencies beyond `@bot-wa/core` and `pino`.
 
 - **Ingress:** long-polling (`getUpdates`, default) **or** webhook (`ingest()`).

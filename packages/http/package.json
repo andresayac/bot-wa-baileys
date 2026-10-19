@@ -45,5 +45,11 @@
   "dependencies": {
     "undici": "^8.8.0"
   },
-  "publishConfig": { "access": "public" }
+  "publishConfig": {
+    "access": "public"
+  },
+  "homepage": "https://github.com/andresayac/bot-wa-baileys/tree/main/packages/http#readme",
+  "bugs": {
+    "url": "https://github.com/andresayac/bot-wa-baileys/issues"
+  }
 }

@@ -36,7 +36,8 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/andresayac/bot-wa-baileys.git"
+    "url": "git+https://github.com/andresayac/bot-wa-baileys.git",
+    "directory": "packages/core"
   },
   "keywords": [
     "bot",
@@ -44,8 +45,7 @@
     "whatsapp",
     "bot-whatsapp",
     "flow",
-    "chatbot",
-    "whatsapp"
+    "chatbot"
   ],
   "files": [
     "./lib/**/*"
@@ -58,12 +58,14 @@
   "bugs": {
     "url": "https://github.com/andresayac/bot-wa-baileys/issues"
   },
-  "homepage": "https://github.com/andresayac/bot-wa-baileys#readme",
+  "homepage": "https://github.com/andresayac/bot-wa-baileys/tree/main/packages/core#readme",
   "devDependencies": {
     "@types/node": "^26.1.1",
     "typescript": "^7.0.2",
     "vite": "^7.3.6",
     "vitest": "^4.1.10"
   },
-  "publishConfig": { "access": "public" }
+  "publishConfig": {
+    "access": "public"
+  }
 }

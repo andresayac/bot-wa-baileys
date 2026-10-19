@@ -16,11 +16,11 @@ No hace falta para cambios que no llegan a npm: tests, CI, docs del sitio, refac
 
 La publicación es **manual**: la hace el mantenedor desde su máquina, en `main` y con el árbol limpio. No hay ningún workflow de GitHub que publique.
 
-1. `pnpm version-packages` (`changeset version`) consume los changesets pendientes: sube versiones, actualiza las dependencias internas (`workspace:*`) y escribe el `CHANGELOG.md` de cada paquete. Revisa el resultado y haz commit.
+1. `pnpm version-packages` (`changeset version`) consume los changesets pendientes: sube versiones, actualiza las dependencias internas (`workspace:^`) y escribe el `CHANGELOG.md` de cada paquete. Revisa el resultado y haz commit.
 2. `pnpm release` (`pnpm build && changeset publish`) publica en npm todo paquete público cuya versión aún no esté en el registro y crea los tags de git `<paquete>@<versión>`.
 3. `git push --follow-tags`.
 
-Para ver qué se publicaría sin publicar nada: `pnpm changeset publish-plan`.
+Para ver qué se publicaría sin publicar nada: `pnpm changeset publish-plan`. Para comprobar que los tarballs se instalan y funcionan como desde npm: `pnpm pack:smoke`.
 
 ## Configuración (`config.json`)
 

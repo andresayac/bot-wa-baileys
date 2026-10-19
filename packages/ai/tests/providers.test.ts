@@ -41,6 +41,19 @@ describe('loadModule', () => {
   it('throws an actionable error when the module is missing', async () => {
     await expect(loadModule('this-module-does-not-exist-xyz', 'pnpm add xyz')).rejects.toThrow(/pnpm add xyz/)
   })
+
+  it('keeps the resolution error as the cause of the actionable error', async () => {
+    const err = await loadModule('this-module-does-not-exist-xyz', 'pnpm add xyz').catch((e: unknown) => e)
+    expect(err).toBeInstanceOf(Error)
+    expect((err as Error).cause).toBeInstanceOf(Error)
+  })
+
+  it('rethrows a load failure of an installed module instead of reporting it as missing', async () => {
+    const broken = new URL('./fixtures/broken-sdk.mjs', import.meta.url).href
+    const err = await loadModule(broken, 'pnpm add broken').catch((e: unknown) => e)
+    expect((err as Error).message).toMatch(/sdk exploded on load/)
+    expect((err as Error).message).not.toMatch(/pnpm add broken/)
+  })
 })
 
 describe('AnthropicProvider', () => {
