@@ -98,18 +98,20 @@ class Reader {
     return v ?? ''
   }
 
+  /** One of `allowed`, matched case-insensitively (`Mentions` → `mentions`). */
   oneOf<T extends string>(name: string, allowed: readonly T[], fallback: T): T {
-    const v = this.str(name)
+    const v = this.str(name)?.toLowerCase()
     if (v === undefined) return fallback
     if ((allowed as readonly string[]).includes(v)) return v as T
     this.problems.push(`${name} must be one of: ${allowed.join(', ')}.`)
     return fallback
   }
 
+  /** A plain decimal integer in `[min, max]` (`Number()` alone would also take `0x10` or `1e3`). */
   int(name: string, fallback: number, min: number, max: number): number {
     const v = this.str(name)
     if (v === undefined) return fallback
-    const n = Number(v)
+    const n = /^\d+$/.test(v) ? Number(v) : Number.NaN
     if (!Number.isInteger(n) || n < min || n > max) {
       this.problems.push(`${name} must be an integer between ${min} and ${max}.`)
       return fallback
@@ -143,7 +145,7 @@ class Reader {
 }
 
 function readAI(r: Reader): AIEnvConfig {
-  const raw = r.str('AI_PROVIDER') ?? 'ollama'
+  const raw = (r.str('AI_PROVIDER') ?? 'ollama').toLowerCase()
   let provider: AIProviderName = 'ollama'
   if ((NATIVE_PROVIDERS as readonly string[]).includes(raw) || isPreset(raw)) provider = raw as AIProviderName
   else r.problems.push(`AI_PROVIDER must be one of: ${NATIVE_PROVIDERS.join(', ')} or an @bot-wa/ai preset (deepseek, groq, openrouter, ...).`)

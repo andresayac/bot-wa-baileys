@@ -15,6 +15,15 @@ describe('control plane primitives', () => {
     const audit = new AuditLog().append({ tenantId: 'a', actorId: 'u', action: 'secret.write', resource: secret.ref, outcome: 'allowed', metadata: { token: 'super-secret' } })
     expect(audit.metadata).toEqual({ token: '[REDACTED]' })
   })
+  it('never lets one tenant overwrite the secret of another tenant through a colliding ref', () => {
+    const vault = new SecretVault(Buffer.alloc(32, 7))
+    // Both refs read "a:b:c": tenant "a:b" + name "c", and tenant "a" + name "b:c".
+    const victim = vault.put('a:b', 'c', 'victim-secret')
+    const attacker = vault.put('a', 'b:c', 'attacker-secret')
+    expect(vault.get('a:b', victim.ref)).toBe('victim-secret')
+    expect(vault.describe('a:b', victim.ref).version).toBe(1)
+    expect(vault.get('a', attacker.ref)).toBe('attacker-secret')
+  })
   it('coalesces concurrent idempotent operations per tenant (same key + same request)', async () => {
     const registry = new IdempotencyRegistry<number>()
     let runs = 0

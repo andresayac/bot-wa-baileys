@@ -9,7 +9,18 @@
 
 import { agentsMd } from './agentsMd.js'
 import { DOMAIN_TEMPLATES, DOMAIN_AGENT_NOTES } from './domainTemplates.js'
-import { ANTHROPIC_SDK_VERSION, CORE_VERSION, GITIGNORE, botModule, botWaRange, packageJson, readme } from './shared.js'
+import {
+  AI_POLICY_URL,
+  ANTHROPIC_SDK_VERSION,
+  CORE_VERSION,
+  GITIGNORE,
+  aiBotConfig,
+  baileysMain,
+  botModule,
+  botWaRange,
+  packageJson,
+  readme,
+} from './shared.js'
 
 export type TemplateName =
   | 'baileys'
@@ -59,14 +70,7 @@ const baileys: ProjectTemplate = {
       path: 'src/bot.js',
       contents: botModule({
         imports: ["import { BaileysProvider } from '@bot-wa/baileys'"],
-        main: [
-          '// Secrets/config come from .env (loaded via `node --env-file=.env`).',
-          "// The session name just picks which sessions/<name> auth folder to use.",
-          "const bot = await createBot(new BaileysProvider({ session: process.env.BOT_SESSION ?? 'my-bot' }))",
-          "bot.on('qr', () => bot.logger.info('Scan the QR printed in the terminal to link WhatsApp'))",
-          "bot.on('ready', () => bot.logger.info('✅ Bot connected — send it \"hola\"'))",
-          'await bot.start()',
-        ],
+        main: baileysMain('my-bot', '✅ Bot connected — send it "hola"'),
       }),
     },
     {
@@ -238,8 +242,8 @@ function telegramLabel(): string { return 'Telegram · Bot API' }
 /* Since 2026-01-15 Meta's WhatsApp Business Platform terms ("AI Providers")
  * prohibit general-purpose AI assistants; AI that serves the business's own
  * customers (support, sales, bookings) is allowed. The template therefore ships
- * a persona scoped to one business instead of an open-ended assistant. */
-const AI_POLICY_URL = 'https://www.whatsapp.com/legal/business-solution-terms'
+ * a persona scoped to one business instead of an open-ended assistant
+ * (AI_POLICY_URL lives in ./shared.ts). */
 
 const ai: ProjectTemplate = {
   name: 'ai',
@@ -269,9 +273,10 @@ const ai: ProjectTemplate = {
           "  'Eres el asistente de atención al cliente de ' + BUSINESS + '.',",
           "  'Solo respondes sobre sus productos, servicios, precios, pedidos, horarios y reservas.',",
           "  'Si te piden algo ajeno al negocio, explica con amabilidad que solo puedes ayudar con temas de ' + BUSINESS + ' y ofrece hablar con una persona.',",
-          "  'Responde breve y en el idioma del cliente. Si no sabes un dato, dilo; no lo inventes.',",
+          "  'Responde breve y en español. Si no sabes un dato, dilo; no lo inventes.',",
           "].join(' ')",
         ],
+        config: aiBotConfig('provider'),
         setup: [
           '// AI autoresponder: answers text messages that no command/handler/flow consumed.',
           "// Also adds ctx.tools.ai and a /reset command to clear a chat's context.",
@@ -284,13 +289,7 @@ const ai: ProjectTemplate = {
           ')',
           '',
         ],
-        main: [
-          '// Secrets come from .env (loaded via `node --env-file=.env`; `npm run dev` loads it too).',
-          "const bot = await createBot(new BaileysProvider({ session: process.env.BOT_SESSION ?? 'my-ai-bot' }))",
-          "bot.on('qr', () => bot.logger.info('Scan the QR printed in the terminal to link WhatsApp'))",
-          "bot.on('ready', () => bot.logger.info('✅ Bot connected — unhandled text messages get a business-scoped AI reply'))",
-          'await bot.start()',
-        ],
+        main: baileysMain('my-ai-bot', '✅ Bot connected — unhandled text messages get a business-scoped AI reply'),
       }),
     },
     {

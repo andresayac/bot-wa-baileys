@@ -50,7 +50,9 @@ function presentedToken(req: IncomingMessage, headerName: string): string | unde
   const raw = req.headers[headerName.toLowerCase()]
   const value = Array.isArray(raw) ? raw[0] : raw
   if (!value) return undefined
-  return value.startsWith('Bearer ') ? value.slice('Bearer '.length) : value
+  // The auth scheme is case-insensitive (RFC 9110 §11.1): `bearer x` works too.
+  const bearer = /^bearer\s+(.+)$/i.exec(value.trim())
+  return bearer ? bearer[1]!.trim() : value.trim()
 }
 
 let warnedUnauthenticated = false
@@ -83,6 +85,11 @@ export function createManagerApi(manager: BotManager, opts: ManagerApiOptions = 
   const reOne = new RegExp(`^${esc}/bots/([^/]+)/?$`)
 
   const auth = opts.auth
+  if (auth && (typeof auth.token !== 'string' || auth.token.trim() === '')) {
+    // Usually `{ token: process.env.MANAGER_TOKEN! }` with the variable unset: fail at startup,
+    // not with a TypeError on every request.
+    throw new TypeError('createManagerApi: auth.token must be a non-empty string (is the token env var set?)')
+  }
   const authHeader = auth?.header ?? 'authorization'
   if (!auth && !warnedUnauthenticated) {
     warnedUnauthenticated = true

@@ -19,12 +19,23 @@ function escapeQuoted(value: string): string {
   return value.replace(/[\r\n]/g, ' ').replace(/"/g, '%22')
 }
 
+/**
+ * A part's `Content-Type` header value. It can come from an inbound message (the
+ * reported mimetype), so anything after a line break is dropped (no header or
+ * field injection) and a value that is not `type/subtype[; params]` becomes
+ * `application/octet-stream`.
+ */
+function safeContentType(value: string): string {
+  const line = value.split(/[\r\n]/)[0]!.trim()
+  return /^[\w!#$&^.+-]+\/[\w!#$&^.+-]+(?:\s*;[^\x00-\x1f\x7f]*)?$/.test(line) ? line : 'application/octet-stream'
+}
+
 export function encodeMultipart(parts: MultipartPart[], boundary = `----botwa${randomBytes(12).toString('hex')}`): MultipartBody {
   const chunks: Buffer[] = []
   for (const part of parts) {
     let header = `--${boundary}\r\nContent-Disposition: form-data; name="${escapeQuoted(part.name)}"`
     if ('data' in part) {
-      header += `; filename="${escapeQuoted(part.filename)}"\r\nContent-Type: ${part.contentType}\r\n\r\n`
+      header += `; filename="${escapeQuoted(part.filename)}"\r\nContent-Type: ${safeContentType(part.contentType)}\r\n\r\n`
       chunks.push(Buffer.from(header, 'utf8'), part.data, Buffer.from('\r\n'))
     } else {
       header += '\r\n\r\n'

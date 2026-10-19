@@ -41,6 +41,18 @@ describe('config', () => {
     expect(problems.join('\n')).toMatch(/AI_PROVIDER/)
   })
 
+  it('only accepts plain decimal integers (no 0x10, 1e3 or 3000.0)', () => {
+    for (const port of ['0x10', '1e3', '3000.0', '+80']) {
+      expect(problemsOf(() => loadTwilioConfig({ ...TWILIO, PORT: port })), port).toEqual(['PORT must be an integer between 1 and 65535.'])
+    }
+    expect(loadTwilioConfig({ ...TWILIO, PORT: ' 8080 ' }).port).toBe(8080)
+  })
+
+  it('matches AI_PROVIDER, GROUP_MODE and LOG_LEVEL case-insensitively', () => {
+    const c = loadBaileysConfig({ AI_PROVIDER: 'Anthropic', GROUP_MODE: 'Mentions', LOG_LEVEL: 'DEBUG' })
+    expect(c).toMatchObject({ ai: { provider: 'anthropic' }, groupMode: 'mentions', logLevel: 'debug' })
+  })
+
   it('builds the Twilio webhook URL from PUBLIC_URL', () => {
     const c = loadTwilioConfig(TWILIO)
     expect(c).toMatchObject({

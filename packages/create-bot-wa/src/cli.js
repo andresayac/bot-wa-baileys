@@ -10,7 +10,7 @@
  */
 
 import { realpathSync } from 'node:fs'
-import { relative } from 'node:path'
+import { isAbsolute, relative } from 'node:path'
 import process from 'node:process'
 import { createInterface } from 'node:readline/promises'
 import { fileURLToPath } from 'node:url'
@@ -27,16 +27,23 @@ const DEFAULT_TEMPLATE = 'baileys'
  */
 export function parseArgs(argv) {
   const out = { targetDir: undefined, template: undefined, name: undefined, yes: false, overwrite: false, force: false, help: false }
+  /** The value of option `flag`: the next argument, which must exist and not be another option. */
+  const valueOf = (flag, value) => {
+    if (value === undefined || value === '' || (value.startsWith('-') && value.length > 1)) {
+      throw new Error('Option ' + flag + ' needs a value')
+    }
+    return value
+  }
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]
     if (arg === '--help' || arg === '-h') out.help = true
     else if (arg === '--yes' || arg === '-y') out.yes = true
     else if (arg === '--overwrite') out.overwrite = true
     else if (arg === '--force') out.force = true
-    else if (arg === '--template' || arg === '-t') out.template = argv[++i]
-    else if (arg.startsWith('--template=')) out.template = arg.slice('--template='.length)
-    else if (arg === '--name') out.name = argv[++i]
-    else if (arg.startsWith('--name=')) out.name = arg.slice('--name='.length)
+    else if (arg === '--template' || arg === '-t') out.template = valueOf(arg, argv[++i])
+    else if (arg.startsWith('--template=')) out.template = valueOf('--template', arg.slice('--template='.length))
+    else if (arg === '--name') out.name = valueOf(arg, argv[++i])
+    else if (arg.startsWith('--name=')) out.name = valueOf('--name', arg.slice('--name='.length))
     else if (arg.startsWith('-') && arg.length > 1) throw new Error('Unknown option: ' + arg)
     else if (out.targetDir === undefined) out.targetDir = arg
     else throw new Error('Unexpected argument: ' + arg)
@@ -64,6 +71,19 @@ function printUsage(log = console.log) {
   log('  npm create bot-wa@latest my-bot')
   log('  npm create bot-wa@latest my-bot -- --template telegram')
   log('  npm create bot-wa@latest my-shop -- --template store')
+}
+
+/**
+ * The `cd` argument printed in "Next steps" (exported for tests): the path relative
+ * to `cwd` when the project is below it, else the absolute path (no `../../..`
+ * chains, and another drive on Windows has no relative path); quoted when it has spaces.
+ * @param {string} cwd
+ * @param {string} targetDir absolute project directory
+ */
+export function cdArgument(cwd, targetDir) {
+  const rel = relative(cwd, targetDir)
+  const path = rel === '' ? '.' : rel.startsWith('..') || isAbsolute(rel) ? targetDir : rel.split(/[\\/]/).join('/')
+  return /\s/.test(path) ? '"' + path + '"' : path
 }
 
 /** Prompt for missing options (interactive TTY only). */
@@ -124,7 +144,7 @@ export async function main(argv = process.argv.slice(2)) {
     })
 
     const template = getTemplate(result.template)
-    const cd = relative(process.cwd(), result.targetDir).split(/[\\/]/).join('/') || '.'
+    const cd = cdArgument(process.cwd(), result.targetDir)
     console.log('')
     console.log('✨ Created ' + template.label + ' project "' + result.name + '" in ' + result.targetDir)
     console.log('')
@@ -135,7 +155,8 @@ export async function main(argv = process.argv.slice(2)) {
     console.log('  cd ' + cd)
     console.log('  npm install            # or: pnpm install')
     console.log('  cp .env.example .env   # then fill in your credentials')
-    console.log('  npm start')
+    console.log('  npm run dev            # chat with it in the terminal (no phone needed)')
+    console.log('  npm start              # connect the real channel')
   } catch (err) {
     console.error('Error: ' + (err instanceof Error ? err.message : String(err)))
     process.exitCode = 1

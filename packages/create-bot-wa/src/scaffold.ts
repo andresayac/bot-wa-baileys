@@ -39,19 +39,34 @@ export interface ScaffoldResult {
   files: string[]
 }
 
-/**
- * Derive a valid npm package name from a raw name or directory path:
- * lowercase, illegal characters → dashes, no leading `.`/`_`, never empty.
- */
-export function sanitizeName(raw: string): string {
-  const cleaned = basename(raw)
+/** npm's limit for a package name (scope included). */
+const MAX_NAME_LENGTH = 214
+
+/** One name segment: lowercase, illegal characters → dashes, no leading `.`/`_`. */
+function cleanSegment(raw: string, max = MAX_NAME_LENGTH): string {
+  return raw
     .toLowerCase()
     .trim()
     .replace(/[^a-z0-9._~-]+/g, '-')
     .replace(/^[._]+/, '')
     .replace(/-{2,}/g, '-')
+    .slice(0, max)
     .replace(/^-+|-+$/g, '')
-  return cleaned || 'my-bot'
+}
+
+/**
+ * Derive a valid npm package name from a raw name or directory path:
+ * lowercase, illegal characters → dashes, no leading `.`/`_`, at most 214
+ * characters, never empty. A scoped name (`@acme/support-bot`) keeps its scope.
+ */
+export function sanitizeName(raw: string): string {
+  const scoped = /^\s*@([^/\\]+)\/([^/\\]+)$/.exec(raw.trimEnd())
+  if (scoped) {
+    const scope = cleanSegment(scoped[1]!)
+    const name = cleanSegment(scoped[2]!, Math.max(1, MAX_NAME_LENGTH - scope.length - 2))
+    if (scope && name) return '@' + scope + '/' + name
+  }
+  return cleanSegment(basename(raw)) || 'my-bot'
 }
 
 /** True when `dir` exists and contains at least one entry. */

@@ -32,7 +32,7 @@ describe('generated projects follow the defineBot factory pattern', () => {
     const bot = await readFile(join(target, 'src/bot.js'), 'utf8')
     expect(bot).toMatch(/^import \{ Bot, defineBot, flow, isMainModule(, \w+)* \} from '@bot-wa\/core'$/m)
     expect(bot).toMatch(/^const createBot = defineBot\(\(provider(, store)?\) => \{$/m)
-    expect(bot).toMatch(/^ {2}const bot = new Bot\(\{ provider(,| \})/m)
+    expect(bot).toMatch(/^ {2}const bot = new Bot\(\{\s*provider(,| \})/m)
     expect(bot).toContain('  return bot\n})')
     expect(bot).toContain('export default createBot')
     expect(bot).toContain('if (isMainModule(import.meta)) {')

@@ -82,6 +82,9 @@ describe('use-case templates (FEATURES #39)', () => {
     expect(bot).toContain('enum: PRODUCTS')
     for (const tool of ['ver_menu', 'mis_pedidos', 'crear_pedido', 'actualizar_pedido', 'cancelar_pedido']) expect(bot).toContain(tool + ': {')
     expect(bot).toContain('tools: TOOLS')
+    // Built-in texts pinned to the persona's language; tool-loop audit trail.
+    expect(bot).toContain("i18n: { defaultLocale: 'es', locales: ['es'] }")
+    expect(bot).toContain('onToolEvent:')
   })
 })
 
@@ -274,6 +277,11 @@ describe.skipIf(!existsSync(devEntry))('use-case bots run in the bot-wa dev simu
       expect(tools[name]!.title, name).toBeTruthy()
     }
     expect(tools.crear_pedido!.dedupe).toBe('args')
+    // Every tool has a human title; product keys have labels (fallback when confirmLines is absent).
+    for (const [name, tool] of Object.entries(tools)) expect(tool.title, name).toBeTruthy()
+    expect(tools.crear_pedido!.labels).toEqual({ producto: { torta_chocolate: 'Torta de chocolate', pan_queso: 'Pan de queso', cafe: 'Café' } })
+    const { confirmLines: _omit, ...withoutLines } = tools.crear_pedido as Tool & { confirmLines?: unknown }
+    expect(ai.defaultConfirmPrompt('crear_pedido', withoutLines, { items: [{ producto: 'pan_queso', cantidad: 2 }] })).toContain('Pan de queso')
     // A minimal ctx.user namespace.
     const data = new Map<string, unknown>()
     const tctx = { ctx: { user: { ns: () => ({ get: async (k: string) => data.get(k), set: async (k: string, v: unknown) => { data.set(k, v) } }) } } }
@@ -298,7 +306,7 @@ describe.skipIf(!existsSync(devEntry))('use-case bots run in the bot-wa dev simu
     ].join('\n'))
     const updatePrompt = ai.defaultConfirmPrompt('actualizar_pedido', tools.actualizar_pedido, { id: 'P-1', items: [{ producto: 'pan_queso', cantidad: 3 }] })
     expect(updatePrompt).toBe('Voy a: Cambiar pedido\n• Pedido: P-1\n• 3 × Pan de queso: $10.500\nTotal nuevo: $10.500\n¿Confirmas? (sí/no)')
-    expect(ai.defaultConfirmPrompt('cancelar_pedido', tools.cancelar_pedido, { id: 'P-1' })).toBe('Voy a: Cancelar pedido\n• Id: P-1\n¿Confirmas? (sí/no)')
+    expect(ai.defaultConfirmPrompt('cancelar_pedido', tools.cancelar_pedido, { id: 'P-1' })).toBe('Voy a: Cancelar pedido\n• Pedido: P-1\n¿Confirmas? (sí/no)')
     for (const prompt of [createPrompt, updatePrompt]) expect(prompt).not.toMatch(/torta_chocolate|pan_queso/)
 
     const order = await tools.crear_pedido!.handler({ items: [{ producto: 'torta_chocolate', cantidad: 2 }] }, tctx)
@@ -309,7 +317,10 @@ describe.skipIf(!existsSync(devEntry))('use-case bots run in the bot-wa dev simu
     // Unknown / already cancelled ids: an explicit { error } for the model, nothing changes.
     expect(await tools.cancelar_pedido!.handler({ id: order.id }, tctx)).toEqual({ error: expect.stringMatching(/No existe un pedido activo/) })
     expect(await tools.actualizar_pedido!.handler({ id: 'P-NOPE', items }, tctx)).toEqual({ error: expect.stringMatching(/P-NOPE/) })
-    expect(await tools.mis_pedidos!.handler({}, tctx)).toMatchObject([{ id: order.id, estado: 'cancelado' }])
+    // Ids written loosely by the model still find the order.
+    const second = await tools.crear_pedido!.handler({ items: [{ producto: 'cafe', cantidad: 1 }] }, tctx)
+    expect(await tools.cancelar_pedido!.handler({ id: ' ' + second.id.toLowerCase() + ' ' }, tctx)).toEqual({ id: expect.any(String), estado: 'cancelado' })
+    expect(await tools.mis_pedidos!.handler({}, tctx)).toMatchObject([{ id: order.id, estado: 'cancelado' }, { id: second.id, estado: 'cancelado' }])
   })
 
   it.each(DOMAIN)('template "%s" passes bot.lint() without errors', async (template) => {

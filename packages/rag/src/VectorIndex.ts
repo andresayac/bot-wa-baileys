@@ -71,14 +71,26 @@ export class VectorIndex {
   get size(): number { return this.entries.size }
   get dimensions(): number | null { return this.dims }
 
-  /** Insert or replace entries by id. All vectors must share one dimension. */
+  /**
+   * Insert or replace entries by id. All vectors must share one dimension and
+   * hold finite numbers. All-or-nothing: the whole batch is validated before
+   * anything is stored, so a bad entry leaves the index unchanged.
+   */
   upsert(entries: readonly IndexEntry[]): void {
+    let dims = this.dims
     for (const e of entries) {
       if (!Array.isArray(e.vector) || e.vector.length === 0) throw new RagError('INVALID_INDEX', `entry ${e.id} has no vector`)
-      if (this.dims === null) this.dims = e.vector.length
-      else if (e.vector.length !== this.dims) {
-        throw new RagError('INVALID_INDEX', `entry ${e.id} has ${e.vector.length} dimensions, index has ${this.dims}`)
+      if (dims === null) dims = e.vector.length
+      else if (e.vector.length !== dims) {
+        throw new RagError('INVALID_INDEX', `entry ${e.id} has ${e.vector.length} dimensions, index has ${dims}`)
       }
+      // NaN/Infinity (or a null from a hand-edited JSON file) would make every score NaN: the entry could never match.
+      if (!e.vector.every((x) => typeof x === 'number' && Number.isFinite(x))) {
+        throw new RagError('INVALID_INDEX', `entry ${e.id} has a non-finite vector component`)
+      }
+    }
+    this.dims = dims
+    for (const e of entries) {
       this.entries.set(e.id, e)
       this.norms.set(e.id, norm(e.vector))
     }

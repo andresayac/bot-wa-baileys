@@ -297,6 +297,16 @@ Revisión de los 10 paquetes públicos, con hallazgos y decisiones en [`docs/api
 - **`eslint-plugin-bot-wa`** (FEATURES #40): reglas `no-v1-api`, `no-await-runtime-enter`, `no-async-plugin-install`, `no-empty-trigger`, `require-timeout-on-ask` (configurable) y `prefer-ctx-user-over-global-state`, con configuraciones flat `recommended` y `strict`. El `src/bot.js` de todas las plantillas de `create-bot-wa` pasa la configuración `strict`.
 - **Prototipos**: `campaigns` cuenta el tope por destinatario solo con envíos confirmados (`markSent`/`markFailed`, descarte `limit`); `hub` valida semver y rangos reales y rutas `entry` relativas seguras; `inbox` usa compare-and-set por conversación.
 
+### Plugins y tooling: correcciones (2026-10)
+- **`@bot-wa/http`**: `secureFetch` rechaza de inmediato (sin petición) si la `signal` ya viene abortada; antes la ignoraba. El cuerpo de una redirección que se sigue se libera y las conexiones de cada salto se destruyen al final: un servidor que respondía una redirección con un cuerpo que nunca terminaba bloqueaba `secureFetch` para siempre (más allá de `timeoutMs`).
+- **`@bot-wa/manager`**: `SecretVault` indexa por tenant; antes la ref pública (`tenant:nombre`) era ambigua con `:` y el tenant `a` con el nombre `b:c` sobrescribía el secreto `c` del tenant `a:b`. `createManagerApi` falla al construirse si `auth.token` falta o está vacío (antes cada petición lanzaba un `TypeError`) y acepta el esquema `Bearer` en cualquier caja. `verifyApiKey` compara digests (no filtra la longitud).
+- **`@bot-wa/events`**: un fallo de escritura de `FileEventJournal` ya no envenena la cola (antes todas las escrituras siguientes fallaban) y borra su temporal; desuscribirse dos veces de `EventWorker.on` no quita un handler registrado después.
+- **`@bot-wa/rag`**: `VectorIndex.upsert` valida el lote entero antes de guardar (antes un vector de otra dimensión dejaba guardados los anteriores) y rechaza componentes no finitos (`NaN`/`null` de un índice editado a mano dejaban la entrada inalcanzable sin error).
+- **`@bot-wa/voice`**: el `Content-Type` de la parte de audio del multipart (viene del mimetype del mensaje entrante) ya no admite saltos de línea que inyectaran cabeceras o campos (`model`) en la petición STT.
+- **`create-bot-wa`**: `--template`/`-t` y `--name` sin valor (o seguidos de otra opción, `-t --yes`) dan un error en vez de caer en silencio a la plantilla por defecto; `--name @acme/bot` conserva el scope; el nombre se limita a 214 caracteres; "Next steps" incluye `npm run dev` y un `cd` absoluto si el proyecto queda fuera del directorio actual. Las plantillas `ai` y `ai-full` responden en español y fijan los textos integrados (`i18n: { defaultLocale: 'es', locales: ['es'] }`); las herramientas de `ai-full` llevan `title`, `labels` de producto, `confirmLines` también en `cancelar_pedido`, `maxItems`, ids de pedido tolerantes a mayúsculas/espacios y un log de auditoría `onToolEvent` solo con metadatos.
+- **`examples/bakery-ai`**: las variables enteras (`PORT`, `AI_TIMEOUT_MS`) solo aceptan enteros decimales (antes `0x10` o `1e3` pasaban) y `AI_PROVIDER`, `GROUP_MODE` y `LOG_LEVEL` no distinguen mayúsculas.
+- **Scripts**: `scripts/clean-lib.mjs` resuelve las rutas desde la raíz del repo, no desde el directorio actual.
+
 ---
 
 ## @bot-wa/ai
