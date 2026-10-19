@@ -36,7 +36,8 @@ import { chatKeyOf } from './chatKey.js'
 import { createMemory } from './memory/createMemory.js'
 import { toRagConfig } from './rag.js'
 import { AIToolCancelledError, type AIToolEvent } from './tools/types.js'
-import { isConfirmButtonId, suspendingConfirmer } from './tools/autoreplyConfirm.js'
+import { editsMessages, isConfirmButtonId, isLiveConfirmButton, suspendingConfirmer } from './tools/autoreplyConfirm.js'
+import { AI_MESSAGES, aiText } from './i18n.js'
 import { formatMarkdown, formatMarkdownStream, type TextFormat } from './format.js'
 
 /** Public config for {@link aiPlugin}. */
@@ -149,6 +150,7 @@ export function aiPlugin(config: AIPluginConfig = {}): PluginSpec<AIPluginConfig
                 timeout: cfg.toolConfirm?.timeout ?? DEFAULT_CONFIRM_TIMEOUT,
                 canAsk: () => generation.get(key) === gen,
                 ...(cfg.toolConfirm?.buttons !== undefined ? { buttons: cfg.toolConfirm.buttons } : {}),
+                ...(cfg.toolConfirm?.answeredNotice !== undefined ? { answeredNotice: cfg.toolConfirm.answeredNotice } : {}),
               })
             : undefined
           // Lets `/reset` cancel the turn even after its confirmation was answered.
@@ -197,10 +199,23 @@ export function aiPlugin(config: AIPluginConfig = {}): PluginSpec<AIPluginConfig
         })
       }
 
-      if (cfg.autoReply !== false && client.hasTools) {
+      if (client.hasTools) {
         // A press on a confirmation that is no longer pending (answered, superseded, timed
-        // out, /reset) reaches no conversation: acknowledge it (stops the Telegram spinner,
-        // meets Discord's deadline) and drop it. A pending one is taken by its conversation first.
+        // out, /reset) is acknowledged (stops the Telegram spinner, meets Discord's deadline)
+        // and dropped BEFORE routing, so it never answers a later question of a conversation
+        // (`confirmWith(c)`). Where the buttons stay on screen (no edit), a short notice tells
+        // the user why nothing happens.
+        const expiredNotice = cfg.toolConfirm?.expiredNotice !== false
+        bot.before('message', async (mctx: MessageContext, next: () => Promise<void>) => {
+          if (mctx.type !== 'buttons' || !isConfirmButtonId(mctx.body) || isLiveConfirmButton(mctx.body)) return next()
+          ctx.logger.debug('ai confirmation button pressed after it was answered (ignored)')
+          try { await mctx.acknowledge?.() } catch { /* best effort */ }
+          if (expiredNotice && !editsMessages(mctx)) {
+            await mctx.reply(aiText(mctx, AI_MESSAGES.confirmExpired)).catch(() => {})
+          }
+        })
+        // A pending confirmation's press that no conversation took (e.g. another group
+        // participant pressed it): acknowledge it and drop it.
         bot.when((m) => (m as { type?: string }).type === 'buttons' && isConfirmButtonId(m.body), async (mctx) => {
           ctx.logger.debug('ai confirmation button pressed after it was answered (ignored)')
           try { await mctx.acknowledge?.() } catch { /* best effort */ }

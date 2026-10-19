@@ -267,6 +267,9 @@ export class DiscordProvider implements IProvider<unknown> {
       ? await this.resolveMedia((content as { media: MediaSource }).media, DEFAULT_NAME[content.kind] ?? 'file.bin')
       : undefined
     const { payload, files } = toOutbound(content, file)
+    // PATCH keeps every field it is not sent: without an explicit empty list the old
+    // buttons / select menu stay under the edited content (and stay pressable).
+    if (content.kind !== 'native' && !('components' in payload)) payload.components = []
     await this.rest.editMessage(ref.chatId, ref.id, payload, files)
     return { ref }
   }

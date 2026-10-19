@@ -47,7 +47,13 @@ describe('ai i18n — built-in defaults', () => {
   it('ships es and en catalogs under the ai. namespace', () => {
     expect(Object.keys(AI_LOCALES).sort()).toEqual(['en', 'es'])
     expect(aiText({ lang: 'en-US' }, AI_MESSAGES.sources, { sources: 'a.md' })).toBe('Sources: a.md')
-    expect(aiText({ lang: 'fr' }, AI_MESSAGES.sources, { sources: 'a.md' })).toBe('Fuentes: a.md')
+  })
+
+  it('a language without built-ins falls back to the bot default locale, then English', () => {
+    expect(aiText({ lang: 'fr', defaultLang: 'es' }, AI_MESSAGES.sources, { sources: 'a.md' })).toBe('Fuentes: a.md')
+    expect(aiText({ lang: 'fr', defaultLang: 'en-GB' }, AI_MESSAGES.sources, { sources: 'a.md' })).toBe('Sources: a.md')
+    expect(aiText({ lang: 'fr', defaultLang: 'de' }, AI_MESSAGES.sources, { sources: 'a.md' })).toBe('Sources: a.md')
+    expect(aiText({ lang: 'pt' }, AI_MESSAGES.buttonYes)).toBe('Yes')
   })
 
   it('prefers a translation registered with bot.locale() (ctx.t)', () => {
@@ -65,6 +71,14 @@ describe('ai i18n — follows ctx.lang through the plugin', () => {
     await chat.expectReply('About to: Delete order\nDo you confirm? (yes/no)')
     await chat.send('yes')
     await chat.expectReply('done: deleted')
+  })
+
+  it('a chat in a language without AI built-ins gets the bot default locale (en)', async () => {
+    const { bot, chat, provider } = await createTestBot({ i18n: { defaultLocale: 'en' } }, { provider: { buttons: false } })
+    bot.locale('fr', { hello: 'Bonjour' })
+    bot.plug(aiPlugin({ __provider: scripted('borrar', 'delete'), tools: confirmTool }))
+    provider.incoming('delete it', { from: chat.jid, language: 'fr' })
+    await chat.expectReply('About to: Delete order\nDo you confirm? (yes/no)')
   })
 
   it('a bot.locale() override wins over the built-in text', async () => {

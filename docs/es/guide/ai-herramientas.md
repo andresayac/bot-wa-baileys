@@ -121,7 +121,7 @@ ejecuta cada handler con su timeout y le devuelve los resultados.
 | `maxSteps` | `5` | Máximo de llamadas al modelo por turno. |
 | `toolTimeoutMs` | `15000` | Timeout por defecto de cada herramienta (`0` lo desactiva). |
 | `maxStepsMessage` | mensaje localizado `ai.tools.maxSteps` (es: `'No pude completar la solicitud. Intenta de nuevo con más detalle.'`) | Respuesta cuando el bucle llega a `maxSteps`. |
-| `toolConfirm` | `{ timeout: '2m', buttons: true }` | `{ yes?, no?, timeout?, buttons?, systemNote? }` para las herramientas `confirm: true` del autoresponder. |
+| `toolConfirm` | `{ timeout: '2m', buttons: true }` | `{ yes?, no?, timeout?, buttons?, answeredNotice?, expiredNotice?, systemNote? }` para las herramientas `confirm: true` del autoresponder (`expiredNotice` cubre también `confirmWith(c)`). |
 | `onToolEvent` | — | Callback de auditoría para cada evento del bucle. |
 
 ::: tip Herramientas y streaming
@@ -194,10 +194,22 @@ coletilla de respuesta escrita (`ai.tools.confirmButtons`:
   botones, también una respuesta con cambios, que vuelve al modelo.
 - Ya respondida (o caducada / cancelada), los botones se quitan editando el
   mensaje a texto con la elección (`→ Sí`) donde el provider puede editar
-  (Telegram); en los demás se quedan, pero una segunda pulsación no hace nada.
+  (Telegram, Discord).
 - Una pulsación sobre una confirmación que ya no está pendiente (respondida,
-  sustituida por otra más nueva, caducada, `/reset`) se reconoce y se ignora:
-  cada confirmación tiene sus propios ids de botón.
+  sustituida por otra más nueva, caducada, `/reset`) se reconoce y se ignora
+  antes de enrutar nada: cada confirmación tiene sus propios ids de botón, así
+  que una pulsación vieja nunca responde una confirmación más nueva ni una
+  pregunta posterior de una conversación.
+- **Canales que no editan mensajes** (WhatsApp Cloud API, Messenger,
+  Instagram): los botones se quedan en pantalla. Ahí, una pulsación sobre una
+  confirmación que ya no está pendiente recibe una respuesta corta localizada
+  (`ai.tools.confirmExpired`: "Esa confirmación ya no está activa." / "That
+  confirmation is no longer active."); `toolConfirm.expiredNotice: false` la
+  descarta en silencio. Opcionalmente, `toolConfirm.answeredNotice: true`
+  responde también `ai.tools.confirmAnswered` ("Respuesta recibida: Sí." /
+  "Answer received: Yes.") cuando una pulsación responde; va apagado por
+  defecto porque esos canales ya muestran la elección como mensaje del
+  usuario. Ninguno de los dos avisos sale donde los botones se quitan editando.
 - Los canales sin botones nativos (WhatsApp vía Baileys, Twilio, SMS, email…)
   mantienen la pregunta escrita con la coletilla `(sí/no)`.
 - `toolConfirm.buttons: false` pide siempre la respuesta escrita. El
@@ -220,7 +232,9 @@ Voy a: Crear pedido
 
 Está en español por defecto y en inglés (`About to: Create order … Do you
 confirm? (yes/no)`) cuando `ctx.lang` es `en` (ver
-[i18n](/es/guide/i18n#mensajes-internos)). Cámbialo por idioma con
+[i18n](/es/guide/i18n#mensajes-internos)). Un chat en un idioma sin textos
+internos (por ejemplo `fr`) recibe el idioma por defecto del bot si es `es` o
+`en`, y si no, inglés. Cámbialo por idioma con
 `bot.locale('es', { ai: { tools: { confirm: '¿Ejecuto {tool}?{args}' } } })`
 (`{tool}` es el título y `{args}` un salto de línea más las líneas `• `, o
 vacío), o usa `confirmMessage` en la herramienta.
@@ -265,8 +279,14 @@ Total: $9000
 Si armas tu propio texto, `argLines(args, ctx, labels)` y
 `summarizeValue(valor, ctx, depth, labels)` están exportadas.
 
-**Dentro de tu propia conversación** pasa `confirmWith(c)`: pregunta con
-`c.ask()` (sí/no escrito, sin botones), que tampoco bloquea la cola.
+**Dentro de tu propia conversación** pasa `confirmWith(c)`. Tampoco bloquea la
+cola y, en un canal con botones nativos, pregunta con los mismos botones Sí/No
+que el autoresponder (misma semántica: las respuestas escritas siguen
+funcionando, la pulsación se reconoce, los botones se quitan editando donde se
+puede y una pulsación posterior se reconoce y se ignora en vez de responder tu
+siguiente `c.ask()`). En los demás canales, o con `buttons: false`, pregunta un
+sí/no escrito con `c.ask()`. Los botones van al chat del `ctx` que pasas a
+`replyInChat` (o de la opción `ctx`).
 
 ```ts
 import { chatKeyOf, confirmWith } from '@bot-wa/ai'
@@ -281,7 +301,8 @@ bot.conversation('soporte', async (c, ctx) => {
 })
 ```
 
-`confirmWith(c, { yes, no, timeout })` clasifica la respuesta igual que el
+`confirmWith(c, { yes, no, timeout, buttons, ctx, answeredNotice })` clasifica
+la respuesta igual que el
 autoresponder: `'approved'`, `'denied'` o `{ reply }`. Un error
 de control de la conversación (timeout, cancelación, conversación
 reemplazada) sale del bucle como siempre, para que lo gestione el runtime.
