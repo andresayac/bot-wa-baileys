@@ -224,8 +224,9 @@ function limitInput(value: unknown): number {
 }
 
 /**
- * Parse a conjunction of the predicate shapes PostgresStore's user-data SQL
- * uses: `col = $n`, `(col IS NULL OR col > $n)`, `col IS NOT NULL`, `col <= $n`.
+ * Parse a conjunction of the predicate shapes PostgresStore's user-data and message SQL
+ * uses: `col = $n`, `col #>> '{a,b}' = $n`, `(col IS NULL OR col > $n)`,
+ * `col IS NOT NULL`, `col <= $n`.
  * Bound values are converted with the column's type (a BIGINT bound must be an
  * integer). Anything else throws, so drift to new SQL fails loudly.
  */
@@ -241,6 +242,20 @@ function parseWhere(def: TableDef, where: string): Predicate[] {
       return (row, values) => {
         const want = typed(col!, values, n!)
         return row[col!] != null && want != null && compare(def.columns.get(col!), row[col!], want) === 0
+      }
+    }
+    m = /^(\w+) #>> '\{(\w+),(\w+)\}' = \$(\d+)$/.exec(clause)
+    if (m) {
+      // jsonb `#>>` path as text (message ownership checks): null when missing.
+      const [, col, k1, k2, n] = m
+      if (!def.columns.has(col!)) throw new FakePgError('42703', `column "${col}" does not exist`)
+      return (row, values) => {
+        const doc = typeof row[col!] === 'string' ? (JSON.parse(row[col!] as string) as unknown) : row[col!]
+        const outer = isPlainObject(doc) ? doc[k1!] : undefined
+        const v = isPlainObject(outer) ? outer[k2!] : undefined
+        if (v == null) return false
+        const want = values[Number(n) - 1]
+        return want != null && (typeof v === 'string' ? v : JSON.stringify(v)) === String(want)
       }
     }
     m = /^\((\w+) IS NULL OR (\w+) > \$(\d+)\)$/.exec(clause)

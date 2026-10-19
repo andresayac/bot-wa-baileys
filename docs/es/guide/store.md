@@ -198,7 +198,10 @@ Semántica que todo store debe respetar:
   con la clave antigua sin escapar (`legacyMessageKey(ref)`) se siguen leyendo y
   borrando, y al volver a guardarlas pasan a la clave nueva. Un store persistente
   propio que use `messageKey` debería hacer lo mismo y comprobar que la fila
-  encontrada con la clave antigua pertenece al chat pedido.
+  encontrada con la clave antigua es el mensaje pedido (su `ref.id` y su
+  `ref.chatId` guardados): la clave antigua puede ser la de otro chat o la clave
+  nueva de otro mensaje del mismo chat (la antigua `c:%3A` de `('c', '%3A')` es
+  la clave de `('c', ':')`).
 - `saveMessage` ignora un mensaje sin `ref.id` o sin `chatId` (los providers envían
   `ref.id: ''` cuando no tienen un id estable), y `getMessage` de esa referencia
   resuelve `undefined`. Guardar de nuevo un id reemplaza el mensaje guardado.

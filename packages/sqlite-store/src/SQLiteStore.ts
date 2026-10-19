@@ -142,7 +142,7 @@ export class SQLiteStore implements IStore {
         JSON.stringify(msg),
       )
       const legacy = legacyMessageKey(msg.ref)
-      if (legacy !== key) stmts.deleteMessage.run(legacy, msg.chatId)
+      if (legacy !== key) stmts.deleteMessage.run(legacy, msg.chatId, msg.ref.id, msg.ref.chatId)
     })
     this.deleteChatTx = this.db.transaction((id: string) => {
       stmts.deleteChatMessages.run(id)
@@ -194,7 +194,12 @@ export class SQLiteStore implements IStore {
       getMessage: db.prepare('SELECT msg_json FROM messages WHERE id = ? AND chat_id = ?'),
       // Timestamp ties break by id — the order trimChat keeps — so the window is deterministic.
       messagesByChat: db.prepare('SELECT msg_json FROM messages WHERE chat_id = ? ORDER BY timestamp DESC, id DESC LIMIT ?'),
-      deleteMessage: db.prepare('DELETE FROM messages WHERE id = ? AND chat_id = ?'),
+      // Only the row that holds THIS message: a legacy key can be another
+      // message's escaped key (legacy 'c:%3A' of ('c', '%3A') is the key of ('c', ':')).
+      deleteMessage: db.prepare(
+        "DELETE FROM messages WHERE id = ? AND chat_id = ? AND json_extract(msg_json, '$.ref.id') = ? " +
+          "AND json_extract(msg_json, '$.ref.chatId') = ?",
+      ),
       deleteChatMessages: db.prepare('DELETE FROM messages WHERE chat_id = ?'),
       getChat: db.prepare('SELECT chat_json AS json FROM chats WHERE id = ?'),
       putChat: db.prepare('INSERT OR REPLACE INTO chats (id, chat_json) VALUES (?, ?)'),
@@ -239,11 +244,23 @@ export class SQLiteStore implements IStore {
   async getMessage(ref: MessageRef): Promise<StoredMessage | undefined> {
     if (!ref.id || !ref.chatId) return undefined
     const key = messageKey(ref)
-    let row = this.stmts.getMessage.get(key, ref.chatId) as { msg_json: string } | undefined
+    const found = this.messageRow(key, ref)
+    if (found) return found
     // Rows written before keys were escaped (only differs when an id has ':' or '%').
     const legacy = legacyMessageKey(ref)
-    if (!row && legacy !== key) row = this.stmts.getMessage.get(legacy, ref.chatId) as { msg_json: string } | undefined
-    return row ? (JSON.parse(row.msg_json) as StoredMessage) : undefined
+    return legacy === key ? undefined : this.messageRow(legacy, ref)
+  }
+
+  /**
+   * The message stored under `key` when it IS `ref`. A legacy key alone may
+   * belong to another chat, or be another message's escaped key, so the
+   * payload's own ref is checked.
+   */
+  private messageRow(key: string, ref: MessageRef): StoredMessage | undefined {
+    const row = this.stmts.getMessage.get(key, ref.chatId) as { msg_json: string } | undefined
+    if (!row) return undefined
+    const msg = JSON.parse(row.msg_json) as StoredMessage
+    return msg.ref?.id === ref.id && msg.ref?.chatId === ref.chatId ? msg : undefined
   }
 
   async getMessagesByChat(chatId: string, limit = 50): Promise<StoredMessage[]> {
@@ -255,9 +272,9 @@ export class SQLiteStore implements IStore {
 
   async deleteMessage(ref: MessageRef): Promise<void> {
     const key = messageKey(ref)
-    this.stmts.deleteMessage.run(key, ref.chatId)
+    this.stmts.deleteMessage.run(key, ref.chatId, ref.id, ref.chatId)
     const legacy = legacyMessageKey(ref)
-    if (legacy !== key) this.stmts.deleteMessage.run(legacy, ref.chatId)
+    if (legacy !== key) this.stmts.deleteMessage.run(legacy, ref.chatId, ref.id, ref.chatId)
   }
 
   /* Chats ----------------------------------------------------------------- */

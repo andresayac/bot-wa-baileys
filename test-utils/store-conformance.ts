@@ -287,6 +287,20 @@ export function runStoreConformance(name: string, h: ConformanceHarness): void {
       expect((await store.getMessage({ chatId: 'a:b', id: 'c' }))?.body).toBe('again')
     })
 
+    it("never mixes up same-chat ids whose legacy key is another message's key", async () => {
+      // legacyMessageKey(('c', '%3A')) === 'c:%3A' === messageKey(('c', ':')).
+      await store.saveMessage(msg('c', ':', 'colon', 1))
+      expect(await store.getMessage({ chatId: 'c', id: '%3A' })).toBeUndefined()
+      await store.deleteMessage({ chatId: 'c', id: '%3A' })
+      expect((await store.getMessage({ chatId: 'c', id: ':' }))?.body).toBe('colon')
+      await store.saveMessage(msg('c', '%3A', 'percent', 2))
+      expect((await store.getMessage({ chatId: 'c', id: ':' }))?.body).toBe('colon')
+      expect((await store.getMessage({ chatId: 'c', id: '%3A' }))?.body).toBe('percent')
+      expect((await store.getMessagesByChat('c')).map((m) => m.body)).toEqual(['colon', 'percent'])
+      await store.deleteMessage({ chatId: 'c', id: '%3A' })
+      expect((await store.getMessagesByChat('c')).map((m) => m.body)).toEqual(['colon'])
+    })
+
     describe('legacy `${chatId}:${id}` rows (written before keys were escaped)', () => {
       const legacyIt = (title: string, fn: (seed: (m: StoredMessage) => Promise<void>) => Promise<void>) =>
         it(title, async (ctx) => {
@@ -332,6 +346,15 @@ export function runStoreConformance(name: string, h: ConformanceHarness): void {
         await store.deleteMessage({ chatId: 'x:y', id: 'z' })
         expect((await store.getMessage({ chatId: 'a', id: 'b:c' }))?.body).toBe('owner a')
         expect((await store.getMessage({ chatId: 'x%3Ay', id: 'z' }))?.body).toBe('owner x%3Ay')
+      })
+      legacyIt("never returns a legacy row stored under another message's escaped key", async (seed) => {
+        // The legacy row of ('c', '%3A') sits under 'c:%3A', the NEW key of ('c', ':').
+        await seed(msg('c', '%3A', 'old percent', 1))
+        expect(await store.getMessage({ chatId: 'c', id: ':' })).toBeUndefined()
+        await store.deleteMessage({ chatId: 'c', id: ':' })
+        expect((await store.getMessage({ chatId: 'c', id: '%3A' }))?.body).toBe('old percent')
+        await store.saveMessage(msg('c', '%3A', 'new percent', 1))
+        expect((await store.getMessagesByChat('c')).map((m) => m.body)).toEqual(['new percent'])
       })
     })
 

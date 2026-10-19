@@ -50,6 +50,16 @@ import { legacyMessageKey, messageKey } from '@bot-wa/core'
 import { PostgresUserData } from './userData.js'
 import { jsonbSafeString, toJsonb } from './jsonb.js'
 
+/**
+ * SQL predicate: the row's message is the one with `ref.id = <a>` and
+ * `ref.chatId = <b>` (placeholders). A legacy (unescaped) key can be another message's escaped
+ * key — legacy 'c:%3A' of ('c', '%3A') is the key of ('c', ':') — so a row
+ * found under one is only touched when its payload names the same message.
+ */
+function ownsMessage(a: string, b: string): string {
+  return `msg #>> '{ref,id}' = ${a} AND msg #>> '{ref,chatId}' = ${b}`
+}
+
 /** The slice of a `pg` `QueryResult` this store consumes. */
 export interface PostgresQueryResult {
   rows: unknown[]
@@ -241,8 +251,12 @@ export class PostgresStore implements IStore {
       await this.query(upsert, values)
     } else {
       // Same statement drops the copy an older version wrote under the legacy
-      // key (else the message would be listed twice).
-      await this.query(`WITH legacy AS (DELETE FROM ${t} WHERE id = $5 AND chat_id = $2) ${upsert}`, [...values, legacy])
+      // key (else the message would be listed twice) — only when that row
+      // holds THIS message: the legacy key can be another message's key.
+      await this.query(
+        `WITH legacy AS (DELETE FROM ${t} WHERE id = $5 AND chat_id = $2 AND ${ownsMessage('$6', '$7')}) ${upsert}`,
+        [...values, legacy, msg.ref.id, msg.ref.chatId],
+      )
     }
     await this.trimChat(msg.chatId)
   }
@@ -261,21 +275,26 @@ export class PostgresStore implements IStore {
   async getMessage(ref: MessageRef): Promise<StoredMessage | undefined> {
     if (!ref.id || !ref.chatId) return undefined
     const key = messageKey(ref)
-    const found = await this.messageRow(key, ref.chatId)
+    const found = await this.messageRow(key, ref)
     if (found) return found
     // Rows written before keys were escaped (only differs when an id has ':' or '%').
     const legacy = legacyMessageKey(ref)
-    return legacy === key ? undefined : this.messageRow(legacy, ref.chatId)
+    return legacy === key ? undefined : this.messageRow(legacy, ref)
   }
 
-  /** The message stored under `key` IN `chatId` (a legacy key alone may belong to another chat). */
-  private async messageRow(key: string, chatId: string): Promise<StoredMessage | undefined> {
+  /**
+   * The message stored under `key` when it IS `ref`. A legacy key alone may
+   * belong to another chat, or be another message's escaped key, so the
+   * payload's own ref is checked.
+   */
+  private async messageRow(key: string, ref: MessageRef): Promise<StoredMessage | undefined> {
     const { rows } = await this.query<{ msg: unknown }>(
       `SELECT msg FROM ${this.table('messages')} WHERE id = $1 AND chat_id = $2`,
-      [key, chatId],
+      [key, ref.chatId],
     )
     const row = rows[0]
-    return row ? this.asJson<StoredMessage>(row.msg) : undefined
+    const msg = row ? this.asJson<StoredMessage>(row.msg) : undefined
+    return msg?.ref?.id === ref.id && msg?.ref?.chatId === ref.chatId ? msg : undefined
   }
 
   async getMessagesByChat(chatId: string, limit = 50): Promise<StoredMessage[]> {
@@ -298,10 +317,15 @@ export class PostgresStore implements IStore {
     const key = messageKey(ref)
     const legacy = legacyMessageKey(ref)
     const t = this.table('messages')
+    // Only rows that hold THIS message: a legacy key can be another message's key.
+    const owns = ownsMessage('$3', '$2')
     if (legacy === key) {
-      await this.query(`DELETE FROM ${t} WHERE id = $1 AND chat_id = $2`, [key, ref.chatId])
+      await this.query(`DELETE FROM ${t} WHERE id = $1 AND chat_id = $2 AND ${owns}`, [key, ref.chatId, ref.id])
     } else {
-      await this.query(`WITH legacy AS (DELETE FROM ${t} WHERE id = $3 AND chat_id = $2) DELETE FROM ${t} WHERE id = $1 AND chat_id = $2`, [key, ref.chatId, legacy])
+      await this.query(
+        `WITH legacy AS (DELETE FROM ${t} WHERE id = $4 AND chat_id = $2 AND ${owns}) DELETE FROM ${t} WHERE id = $1 AND chat_id = $2 AND ${owns}`,
+        [key, ref.chatId, ref.id, legacy],
+      )
     }
   }
 

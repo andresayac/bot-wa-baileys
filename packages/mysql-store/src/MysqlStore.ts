@@ -284,7 +284,7 @@ export class MysqlStore implements IStore {
     // Drop the copy an older version wrote under the legacy key (else the
     // message would be listed twice). No-op for ids without ':' or '%'.
     const legacy = legacyMessageKey(msg.ref)
-    if (legacy !== messageKey(msg.ref)) await this.deleteMessageRows(msg.chatId, legacy, legacy)
+    if (legacy !== messageKey(msg.ref)) await this.deleteMessageRows(msg.chatId, legacy, legacy, msg.ref)
     await this.trimChat(msg.chatId)
   }
 
@@ -306,22 +306,35 @@ export class MysqlStore implements IStore {
   async getMessage(ref: MessageRef): Promise<StoredMessage | undefined> {
     if (!ref.id || !ref.chatId) return undefined
     const key = messageKey(ref)
-    const found = await this.messageRow(key, ref.chatId)
+    const found = await this.messageRow(key, ref)
     if (found) return found
     // Rows written before keys were escaped (only differs when an id has ':' or '%').
     const legacy = legacyMessageKey(ref)
-    return legacy === key ? undefined : this.messageRow(legacy, ref.chatId)
+    return legacy === key ? undefined : this.messageRow(legacy, ref)
   }
 
-  /** The message stored under `key` IN `chatId` (a legacy key alone may belong to another chat). */
-  private async messageRow(key: string, chatId: string): Promise<StoredMessage | undefined> {
-    const [rows] = await this.query(`SELECT msg FROM \`${this.t.messages}\` WHERE id = ? AND chat_id = ?`, [key, chatId])
-    return fromJson<StoredMessage>(rows[0]?.msg)
+  /**
+   * The message stored under `key` when it IS `ref`. A legacy key alone may
+   * belong to another chat, or be another message's escaped key, so the
+   * payload's own ref is checked.
+   */
+  private async messageRow(key: string, ref: MessageRef): Promise<StoredMessage | undefined> {
+    const [rows] = await this.query(`SELECT msg FROM \`${this.t.messages}\` WHERE id = ? AND chat_id = ?`, [key, ref.chatId])
+    const msg = fromJson<StoredMessage>(rows[0]?.msg)
+    return msg?.ref?.id === ref.id && msg?.ref?.chatId === ref.chatId ? msg : undefined
   }
 
-  /** Delete the rows of `chatId` stored under either key (the escaped one and/or the legacy one). */
-  private async deleteMessageRows(chatId: string, key: string, legacy: string): Promise<void> {
-    await this.query(`DELETE FROM \`${this.t.messages}\` WHERE chat_id = ? AND id IN (?, ?)`, [chatId, key, legacy])
+  /**
+   * Delete the rows of `chatId` stored under either key (the escaped one
+   * and/or the legacy one) that hold THIS message: a legacy key can be another
+   * message's escaped key (legacy 'c:%3A' of ('c', '%3A') is the key of ('c', ':')).
+   */
+  private async deleteMessageRows(chatId: string, key: string, legacy: string, ref: MessageRef): Promise<void> {
+    await this.query(
+      `DELETE FROM \`${this.t.messages}\` WHERE chat_id = ? AND id IN (?, ?) ` +
+        "AND JSON_UNQUOTE(JSON_EXTRACT(msg, '$.ref.id')) = ? AND JSON_UNQUOTE(JSON_EXTRACT(msg, '$.ref.chatId')) = ?",
+      [chatId, key, legacy, ref.id, ref.chatId],
+    )
   }
 
   async getMessagesByChat(chatId: string, limit = 50): Promise<StoredMessage[]> {
@@ -343,7 +356,7 @@ export class MysqlStore implements IStore {
   }
 
   async deleteMessage(ref: MessageRef): Promise<void> {
-    await this.deleteMessageRows(ref.chatId, messageKey(ref), legacyMessageKey(ref))
+    await this.deleteMessageRows(ref.chatId, messageKey(ref), legacyMessageKey(ref), ref)
   }
 
   /* Chats ----------------------------------------------------------------- */

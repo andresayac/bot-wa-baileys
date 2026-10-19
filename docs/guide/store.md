@@ -197,7 +197,9 @@ Semantics every store must keep:
   (`legacyMessageKey(ref)`) are still read and deleted, and re-saving moves
   them to the new key. A custom persistent store that keys rows by
   `messageKey` should do the same and check that a row found under the legacy
-  key belongs to the requested chat.
+  key is the requested message (its stored `ref.id` and `ref.chatId`): the
+  legacy key can be another chat's key, or the new key of another message of
+  the same chat (legacy `c:%3A` of `('c', '%3A')` is the key of `('c', ':')`).
 - `saveMessage` ignores a message without `ref.id` or `chatId` (providers send
   `ref.id: ''` when they have no stable id), and `getMessage` of such a ref
   resolves `undefined`. Re-saving an id replaces the stored message.

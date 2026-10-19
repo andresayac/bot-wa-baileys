@@ -175,6 +175,15 @@ const UPSERT = { upsert: true, ignoreUndefined: true } as const
 const READ = { promoteBuffers: true } as const
 
 /**
+ * Filter for the document that holds the message `ref` names. A legacy
+ * (unescaped) key can be another message's escaped key — legacy 'c:%3A' of
+ * ('c', '%3A') is the key of ('c', ':') — so writes through one check it.
+ */
+function ownedBy(ref: MessageRef): Record<string, unknown> {
+  return { 'msg.ref.id': ref.id, 'msg.ref.chatId': ref.chatId }
+}
+
+/**
  * Max ids per trim `deleteMany`. One `$in` with the whole overflow of a long
  * history (cap turned on or lowered later) overflows BSON's 16 MiB command
  * limit — ~400k message keys already do — so the delete goes in chunks.
@@ -270,7 +279,7 @@ export class MongoStore implements IStore {
     // Drop the copy an older version wrote under the legacy key (else the
     // message would be listed twice). No-op for ids without ':' or '%'.
     const legacy = legacyMessageKey(msg.ref)
-    if (legacy !== key) await this.messages.deleteMany({ _id: legacy, chatId: msg.chatId })
+    if (legacy !== key) await this.messages.deleteMany({ _id: legacy, chatId: msg.chatId, ...ownedBy(msg.ref) })
     await this.trimChat(msg.chatId)
   }
 
@@ -294,17 +303,22 @@ export class MongoStore implements IStore {
   async getMessage(ref: MessageRef): Promise<StoredMessage | undefined> {
     if (!ref.id || !ref.chatId) return undefined
     const key = messageKey(ref)
-    const found = await this.messageIn(key, ref.chatId)
+    const found = await this.messageIn(key, ref)
     if (found) return found
     // Documents written before keys were escaped (only differs when an id has ':' or '%').
     const legacy = legacyMessageKey(ref)
-    return legacy === key ? undefined : this.messageIn(legacy, ref.chatId)
+    return legacy === key ? undefined : this.messageIn(legacy, ref)
   }
 
-  /** The message stored under `key` IN `chatId` (a legacy key alone may belong to another chat). */
-  private async messageIn(key: string, chatId: string): Promise<StoredMessage | undefined> {
+  /**
+   * The message stored under `key` when it IS `ref`. A legacy key alone may
+   * belong to another chat, or be another message's escaped key, so the
+   * document's own ref is checked.
+   */
+  private async messageIn(key: string, ref: MessageRef): Promise<StoredMessage | undefined> {
     const doc = await this.messages.findOne({ _id: key }, READ)
-    return doc?.chatId === chatId ? doc.msg : undefined
+    const msg = doc?.chatId === ref.chatId ? doc.msg : undefined
+    return msg?.ref?.id === ref.id && msg?.ref?.chatId === ref.chatId ? msg : undefined
   }
 
   async getMessagesByChat(chatId: string, limit = 50): Promise<StoredMessage[]> {
@@ -320,8 +334,12 @@ export class MongoStore implements IStore {
   }
 
   async deleteMessage(ref: MessageRef): Promise<void> {
-    // Both key formats, scoped to the chat: a legacy key alone may belong to another chat.
-    await this.messages.deleteMany({ _id: { $in: [messageKey(ref), legacyMessageKey(ref)] }, chatId: ref.chatId })
+    // Both key formats, scoped to the chat and to THIS message (see ownedBy).
+    await this.messages.deleteMany({
+      _id: { $in: [messageKey(ref), legacyMessageKey(ref)] },
+      chatId: ref.chatId,
+      ...ownedBy(ref),
+    })
   }
 
   /* Chats ----------------------------------------------------------------- */

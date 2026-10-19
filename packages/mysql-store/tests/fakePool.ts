@@ -396,11 +396,16 @@ export class FakePool implements PoolLike {
       const row = this.table(messages).get(key(p[0]))
       return [row && row.chat_id === key(p[1]) ? [{ msg: this.jsonOut(String(row.msg)) }] : [], []]
     }
-    if (s === `DELETE FROM \`${messages}\` WHERE chat_id = ? AND id IN (?, ?)`) {
+    if (
+      s ===
+      `DELETE FROM \`${messages}\` WHERE chat_id = ? AND id IN (?, ?) ` +
+        "AND JSON_UNQUOTE(JSON_EXTRACT(msg, '$.ref.id')) = ? AND JSON_UNQUOTE(JSON_EXTRACT(msg, '$.ref.chatId')) = ?"
+    ) {
       let n = 0
       for (const id of new Set([key(p[1]), key(p[2])])) {
         const row = this.table(messages).get(id)
-        if (row && row.chat_id === key(p[0])) {
+        const ref = row ? (JSON.parse(String(row.msg)) as { ref?: { id?: unknown; chatId?: unknown } }).ref : undefined
+        if (row && row.chat_id === key(p[0]) && ref?.id === String(p[3]) && ref?.chatId === String(p[4])) {
           this.table(messages).delete(id)
           n++
         }

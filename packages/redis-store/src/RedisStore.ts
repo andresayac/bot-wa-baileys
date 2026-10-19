@@ -197,6 +197,13 @@ function ownedMessage(raw: string | Buffer | null, ref: MessageRef): StoredMessa
   return msg.ref?.id === ref.id && msg.ref?.chatId === ref.chatId ? msg : undefined
 }
 
+/** Whether a message item holds a message of `chatId` (any message of that chat). */
+function sameChatMessage(raw: string | Buffer | null, chatId: string): boolean {
+  if (raw == null) return false
+  const msg = JSON.parse(toStr(raw)) as StoredMessage
+  return msg.ref?.chatId === chatId
+}
+
 /**
  * Unwrap node-redis' ReconnectStrategyError so start() rejects with the socket
  * error itself (e.g. `code: 'ECONNREFUSED'`), not the strategy wrapper.
@@ -410,16 +417,20 @@ export class RedisStore implements IStore {
    * Remove the legacy-format copy of `ref` (rows written before message keys
    * were escaped), if any. No-op for refs whose key never changed. The item is
    * only deleted when it still holds this very message: under the legacy
-   * format another ref may have overwritten it.
+   * format another ref may have overwritten it. When the item holds another
+   * message of the SAME chat, the legacy key is that message's escaped key
+   * (legacy 'c:%3A' of ('c', '%3A') is the key of ('c', ':')) and the ZSET
+   * member is its own, so it stays too.
    */
   private async dropLegacy(ref: MessageRef): Promise<void> {
     const legacy = legacyMessageKey(ref)
     if (legacy === messageKey(ref)) return
     const setKey = this.msgSetKey(ref.chatId)
     const itemKey = this.msgItemKey(legacy)
-    if (ownedMessage(await this.client.get(itemKey), ref)) {
+    const raw = await this.client.get(itemKey)
+    if (ownedMessage(raw, ref)) {
       await this.client.eval(DROP_MESSAGE_SCRIPT, { keys: [setKey, itemKey], arguments: [legacy] })
-    } else {
+    } else if (!sameChatMessage(raw, ref.chatId)) {
       await this.client.zRem(setKey, legacy)
     }
   }
@@ -485,12 +496,18 @@ export class RedisStore implements IStore {
   async deleteMessage(ref: MessageRef): Promise<void> {
     if (!ref.id || !ref.chatId) return
     const member = messageKey(ref)
-    // Atomic: drop the ZSET entry and its item together (no orphan member), and
-    // only when the member is in THIS chat's log (see DROP_MESSAGE_SCRIPT).
-    await this.client.eval(DROP_MESSAGE_SCRIPT, {
-      keys: [this.msgSetKey(ref.chatId), this.msgItemKey(member)],
-      arguments: [member],
-    })
+    const itemKey = this.msgItemKey(member)
+    const raw = await this.client.get(itemKey)
+    // The escaped key can hold another message's LEGACY row (legacy 'c:%3A' of
+    // ('c', '%3A') is the key of ('c', ':')): leave that one alone.
+    if (raw == null || ownedMessage(raw, ref)) {
+      // Atomic: drop the ZSET entry and its item together (no orphan member), and
+      // only when the member is in THIS chat's log (see DROP_MESSAGE_SCRIPT).
+      await this.client.eval(DROP_MESSAGE_SCRIPT, {
+        keys: [this.msgSetKey(ref.chatId), itemKey],
+        arguments: [member],
+      })
+    }
     await this.dropLegacy(ref)
   }
 
