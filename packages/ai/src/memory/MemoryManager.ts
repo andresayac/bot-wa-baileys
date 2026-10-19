@@ -33,7 +33,7 @@ export interface AIMemoryExtractConfig {
   /** Model used for extraction (default: the plugin's model). */
   model?: string
   /**
-   * Token budget of the extraction call. Default 300 on providers with a built-in
+   * Token budget of the extraction call (reasoning models spend part of it thinking). Default 1024 on providers with a built-in
    * cap; Ollama sends no cap unless this (or the plugin's `maxTokens`) is set.
    */
   maxTokens?: number

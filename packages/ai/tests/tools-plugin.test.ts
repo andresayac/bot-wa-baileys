@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { createTestBot } from '@bot-wa/core/testing'
+import type { LoggerLike } from '@bot-wa/core'
 import { MockAIProvider } from '../src/MockAIProvider.js'
 import { aiPlugin } from '../src/plugin.js'
 import type { AIPluginConfig } from '../src/plugin.js'
@@ -30,6 +31,24 @@ async function botWithTools(tools: AIToolSet, mock: MockAIProvider, cfg: Partial
 }
 
 describe('aiPlugin tools (autoreply)', () => {
+  it('warns (and does not run the tool) when a tool call is cut off by the output-token cap', async () => {
+    const warnings: unknown[][] = []
+    const noop = () => {}
+    const logger: LoggerLike = { debug: noop, info: noop, error: noop, warn: (...a: unknown[]) => { warnings.push(a) }, child: () => logger }
+    const { bot, chat } = await createTestBot({ logger }, { provider: { buttons: false } })
+    let runs = 0
+    const mock = new MockAIProvider({
+      reply: (input: GenerateInput) => input.messages.at(-1)?.role === 'tool'
+        ? 'Could you repeat that?'
+        : { toolCalls: [{ name: 'borrar', args: { id: 'x' } }], stopReason: 'max_tokens' },
+    })
+    bot.plug(aiPlugin({ __provider: mock, tools: { borrar: { description: 'b', handler: () => { runs++; return 'ok' } } } }))
+    await chat.send('borra x')
+    await chat.expectReply('Could you repeat that?')
+    expect(runs).toBe(0)
+    expect(warnings.some((w) => String(w[1]).includes('cut off by the output token limit'))).toBe(true)
+  })
+
   it('runs a plain tool and replies with the final answer', async () => {
     const { chat } = await botWithTools(
       { buscar: { description: 'Busca', schema: { type: 'object', properties: { q: { type: 'string' } } }, handler: (a) => `encontré ${(a as { q: string }).q}` } },

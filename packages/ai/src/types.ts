@@ -25,6 +25,24 @@ export type AIChatMessage =
 export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 
 /**
+ * Extended thinking of the Anthropic provider (other providers ignore it):
+ * - `'auto'` (default): adaptive thinking on the models that support it (Opus /
+ *   Sonnet 4.6+, Haiku 5+, Fable, Mythos and unknown ids), no `thinking` parameter
+ *   on older models such as Claude Haiku 4.5.
+ * - `'adaptive'`: always send `{ type: 'adaptive' }`.
+ * - `'off'`: never send the parameter (models that always think, such as Claude
+ *   Opus 5.5 or Fable, keep thinking; lower `effort` to make them think less).
+ * - `{ budgetTokens }`: budgeted thinking (`{ type: 'enabled', budget_tokens }`, min 1024)
+ *   on models without adaptive thinking; adaptive on the others, which reject budgets.
+ *   `max_tokens` is raised to `budgetTokens + maxTokens` when it would leave no room for the answer.
+ *
+ * Whatever the setting, a 400 whose message names `thinking` (or `effort`) is
+ * retried once without that parameter, and the model is remembered so later
+ * calls skip it.
+ */
+export type AIThinking = 'auto' | 'adaptive' | 'off' | { budgetTokens: number }
+
+/**
  * Which AI backend to use. Besides the three native providers, any OpenAI-
  * compatible preset (DeepSeek, Qwen, GLM, Kimi, Groq, OpenRouter, Mistral,
  * Grok, Together) is accepted — each resolves to the OpenAI client pointed at
@@ -77,6 +95,8 @@ export interface AIConfig {
   persona?: string
   maxTokens?: number
   effort?: Effort
+  /** Anthropic extended thinking (see {@link AIThinking}). Default `'auto'`. */
+  thinking?: AIThinking
   /**
    * Hard timeout (ms) for a single non-streaming AI call. On expiry the request
    * is aborted (via AbortSignal where the SDK honors it) AND the promise rejects,

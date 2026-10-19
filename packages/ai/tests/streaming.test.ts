@@ -216,7 +216,7 @@ describe('streaming + memory / RAG / tools', () => {
     await client.remember('u1', 'Vive en Bogotá')
     const out: string[] = []
     for await (const t of client.streamReplyInChat('k', '¿cuánto tarda?', { userId: 'u1' })) out.push(t)
-    expect(out.join('')).toBe('Tarda 3 días [1]\n\nFuentes: faq.md')
+    expect(out.join('')).toBe('Tarda 3 días [1]\n\nFuentes: [1] faq.md')
     const system = ai.inputs[0]!.system!
     expect(system.startsWith('ACME')).toBe(true)
     expect(system).toContain('- Vive en Bogotá')

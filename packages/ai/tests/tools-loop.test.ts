@@ -148,6 +148,39 @@ describe('tool loop (AIClient)', () => {
     expect(r.toolResults).toEqual([])
   })
 
+  it('never runs tool calls cut off by the output-token cap; tells the model and reports it', async () => {
+    for (const stopReason of ['max_tokens', 'length', 'MAX_TOKENS']) {
+      let step = 0
+      const mock = new MockAIProvider({
+        reply: () => {
+          step++
+          if (step === 1) return { toolCalls: [{ name: 'pay', args: { amount: 1 } }], stopReason }
+          return 'retry later'
+        },
+      })
+      let runs = 0
+      let asked = 0
+      const { c, events } = client(mock, { pay: { description: 'p', confirm: true, handler: () => { runs++; return 'paid' } } })
+      const r = await c.runTools({ messages: [{ role: 'user', content: 'x' }] }, { confirm: async () => { asked++; return 'approved' } })
+      expect(runs, stopReason).toBe(0)
+      expect(asked, stopReason).toBe(0)
+      expect(r.text).toBe('retry later')
+      expect(r.truncatedToolCalls).toBe(1)
+      const fed = mock.calls[1]!.messages.at(-1)
+      expect(fed?.role).toBe('tool')
+      if (fed?.role !== 'tool') return
+      expect(fed.results[0]).toMatchObject({ name: 'pay', isError: true })
+      expect(fed.results[0]!.content).toMatch(/cut off[\s\S]*NOT run/)
+      expect(events.map((e) => e.type)).toEqual(['tool.truncated'])
+      expect(events[0]).toMatchObject({ tool: 'pay', step: 1 })
+    }
+  })
+
+  it('reports truncatedToolCalls: 0 on a normal turn', async () => {
+    const { c } = client(callOnce('buscar', {}), { buscar: { description: 'b', handler: () => 1 } })
+    expect((await c.runTools({ messages: [{ role: 'user', content: 'x' }] })).truncatedToolCalls).toBe(0)
+  })
+
   it('returns handler errors to the model instead of throwing', async () => {
     const { c, events } = client(callOnce('roto', {}), { roto: { description: 'r', handler: () => { throw new Error('db caída') } } })
     expect(await c.ask('x')).toBe('final: ERR Error: db caída')

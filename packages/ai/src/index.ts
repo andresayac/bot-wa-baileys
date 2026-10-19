@@ -11,6 +11,7 @@ export { MockAIProvider } from './MockAIProvider.js'
 export type { MockOptions, MockTurn } from './MockAIProvider.js'
 export { resolveProvider } from './providers/resolve.js'
 export { AnthropicProvider } from './providers/anthropic.js'
+export { anthropicModelSupport, type AnthropicModelSupport } from './providers/anthropicModels.js'
 export type {
   AnthropicLike, AnthropicRequestOptions, AnthropicMessage, AnthropicContentBlock, AnthropicUsage, AnthropicStreamEvent,
 } from './providers/anthropic.js'
@@ -26,7 +27,7 @@ export type {
 export { LazyProvider } from './providers/LazyProvider.js'
 export { PRESETS, isPreset } from './providers/presets.js'
 export type { Preset, PresetName } from './providers/presets.js'
-export type { AIProvider, AIMessage, AIChatMessage, AIConfig, AIProviderName, GenerateInput, GenerateResult, Effort, AIStreamConfig } from './types.js'
+export type { AIProvider, AIMessage, AIChatMessage, AIConfig, AIProviderName, GenerateInput, GenerateResult, Effort, AIThinking, AIStreamConfig } from './types.js'
 
 // ai-tools — native tool / function calling
 export { defineTool, AIToolCancelledError } from './tools/types.js'
@@ -54,8 +55,8 @@ export type { AIChatReply, AIAugmentStage, AIReplyOptions, AIStreamReplyOptions 
 export { MemoryManager, DEFAULT_MEMORY_NAMESPACE } from './memory/MemoryManager.js'
 export type { MemoryFact, AIMemoryConfig, AIMemoryExtractConfig, RememberOptions, UserDataAccessor } from './memory/MemoryManager.js'
 export { factsSchema, parseFacts } from './memory/extract.js'
-export { DEFAULT_RAG_INSTRUCTIONS, ragContextBlock, citedChunks, formatSources } from './rag.js'
-export type { AIRetriever, AIRetrievedChunk, AIRagConfig } from './rag.js'
+export { DEFAULT_RAG_INSTRUCTIONS, ragContextBlock, citedChunks, citedPassages, formatSources } from './rag.js'
+export type { AIRetriever, AIRetrievedChunk, AIRagConfig, AICitedPassage } from './rag.js'
 
 /**
  * Augment `@bot-wa/core` so `ctx.tools.ai` is typed as {@link AIClient} in

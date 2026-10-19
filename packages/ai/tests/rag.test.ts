@@ -5,7 +5,7 @@ import { MockAIProvider } from '../src/MockAIProvider.js'
 import { AIClient } from '../src/AIClient.js'
 import { ContextManager } from '../src/ContextManager.js'
 import { aiPlugin } from '../src/plugin.js'
-import { citedChunks, formatSources, ragContextBlock, toRagConfig, type AIRetrievedChunk, type AIRetriever } from '../src/rag.js'
+import { citedChunks, citedPassages, formatSources, ragContextBlock, toRagConfig, type AIRetrievedChunk, type AIRetriever } from '../src/rag.js'
 
 const PASSAGES: AIRetrievedChunk[] = [
   { text: 'Los envíos tardan 3 días.', source: 'faq.md', citation: 'faq.md › Envíos', score: 0.9 },
@@ -37,6 +37,19 @@ describe('rag helpers', () => {
     expect(formatSources([PASSAGES[0]!, PASSAGES[0]!, { text: 'x', source: 'y.txt' }])).toBe('Fuentes: faq.md › Envíos, y.txt')
   })
 
+  it('citedPassages keeps the original [n] of each cited passage', () => {
+    expect(citedPassages('Pagos [2].', PASSAGES)).toEqual([{ n: 2, chunk: PASSAGES[1] }])
+    expect(citedPassages('Ver [2] y [1] y [9]', PASSAGES).map((p) => p.n)).toEqual([1, 2])
+    expect(citedPassages('sin citas', PASSAGES)).toEqual([])
+  })
+
+  it('formatSources numbers cited passages with their original [n], grouping repeated labels', () => {
+    expect(formatSources([{ n: 2, chunk: PASSAGES[1]! }])).toBe('Fuentes: [2] faq.md › Pagos')
+    const same = { text: 'otro', source: 'faq.md', citation: 'faq.md › Envíos' }
+    expect(formatSources([{ n: 1, chunk: PASSAGES[0]! }, { n: 2, chunk: PASSAGES[1]! }, { n: 3, chunk: same }]))
+      .toBe('Fuentes: [1][3] faq.md › Envíos, [2] faq.md › Pagos')
+  })
+
   it('toRagConfig accepts a retriever or { retriever }, rejects garbage', () => {
     const r = fakeRetriever()
     expect(toRagConfig(r)).toEqual({ retriever: r })
@@ -66,12 +79,25 @@ describe('AIClient + RAG', () => {
     const mock = new MockAIProvider({ reply: 'Tardan 3 días [1].' })
     const store = new MemoryStore()
     const ai = new AIClient(mock, new ContextManager(store), { rag: { retriever: fakeRetriever(), appendSources: true } })
-    expect(await ai.replyInChat('c', 'envío')).toBe('Tardan 3 días [1].\n\nFuentes: faq.md › Envíos')
+    expect(await ai.replyInChat('c', 'envío')).toBe('Tardan 3 días [1].\n\nFuentes: [1] faq.md › Envíos')
     expect((await store.getConversation('c'))!.at(-1)!.content).toBe('Tardan 3 días [1].')
     const custom = new AIClient(mock, new ContextManager(store), {
       rag: { retriever: fakeRetriever(), appendSources: (cs) => `📚 ${cs.length}` },
     })
     expect(await custom.replyInChat('d', 'envío')).toBe('Tardan 3 días [1].\n\n📚 1')
+  })
+
+  it('appendSources keeps the [n] the reply used (only [2] cited gives "[2] ..."), and passes them to a custom renderer', async () => {
+    const mock = new MockAIProvider({ reply: 'Aceptamos PSE [2].' })
+    const ai = new AIClient(mock, new ContextManager(new MemoryStore()), { rag: { retriever: fakeRetriever(), appendSources: true } })
+    expect(await ai.replyInChat('c', 'pagos')).toBe('Aceptamos PSE [2].\n\nFuentes: [2] faq.md › Pagos')
+    const custom = new AIClient(mock, new ContextManager(new MemoryStore()), {
+      rag: { retriever: fakeRetriever(), appendSources: (cs, cited) => cited.map((p) => `${p.n}=${p.chunk.citation}`).join(';') + ` (${cs.length})` },
+    })
+    expect(await custom.replyInChat('d', 'pagos')).toBe('Aceptamos PSE [2].\n\n2=faq.md › Pagos (1)')
+    // No citation in the reply: every retrieved source, unnumbered.
+    const none = new AIClient(new MockAIProvider({ reply: 'Sí.' }), new ContextManager(new MemoryStore()), { rag: { retriever: fakeRetriever(), appendSources: true } })
+    expect(await none.replyInChat('e', 'x')).toBe('Sí.\n\nFuentes: faq.md › Envíos, faq.md › Pagos')
   })
 
   it('custom instructions replace the default ones', async () => {
@@ -129,7 +155,7 @@ describe('aiPlugin({ rag })', () => {
     await new Promise((r) => setTimeout(r, 0))
     expect(retriever.warmed()).toBe(1)
     await chat.send('¿cuánto tarda el envío?')
-    await chat.expectReply('Tardan 3 días [1].\n\nFuentes: faq.md › Envíos')
+    await chat.expectReply('Tardan 3 días [1].\n\nFuentes: [1] faq.md › Envíos')
   })
 
   it('a failing warmup is logged, not thrown', async () => {

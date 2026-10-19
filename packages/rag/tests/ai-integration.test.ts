@@ -17,7 +17,7 @@ describe('@bot-wa/rag + aiPlugin', () => {
     const { bot, chat } = await createTestBot()
     bot.plug(aiPlugin({ __provider: mock, rag: { retriever, appendSources: true } }))
     await chat.send('¿Cuánto tardan los envíos?')
-    await chat.expectReply('Tardan 3 días hábiles [1].\n\nFuentes: faq.md › Tienda › Envíos')
+    await chat.expectReply('Tardan 3 días hábiles [1].\n\nFuentes: [1] faq.md › Tienda › Envíos')
     expect(mock.calls[0]!.system).toContain('[1] (faq.md › Tienda › Envíos)')
     expect(mock.calls[0]!.system).not.toContain('PSE')
   })

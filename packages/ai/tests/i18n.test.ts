@@ -93,7 +93,7 @@ describe('ai i18n — follows ctx.lang through the plugin', () => {
     const { bot, chat } = await createTestBot({ i18n: { defaultLocale: 'en' } })
     bot.plug(aiPlugin({ __provider: new MockAIProvider({ reply: 'Three days [1].' }), rag: { retriever, appendSources: true } }))
     await chat.send('shipping?')
-    await chat.expectReply('Three days [1].\n\nSources: faq.md')
+    await chat.expectReply('Three days [1].\n\nSources: [1] faq.md')
 
     const loop = new MockAIProvider({ reply: { toolCalls: [{ name: 'loop', args: {} }] } })
     const ai = new AIClient(loop, new ContextManager(new MemoryStore()), { tools: { loop: { description: 'l', handler: () => 'again' } }, maxSteps: 2 })
