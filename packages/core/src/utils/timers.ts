@@ -38,6 +38,24 @@ export function parseIdlePeriod(duration: string | number, api: string): number 
   return ms
 }
 
+/**
+ * Parse a duration that backs a Node timer (`setTimeout`/`setInterval`): a conversation or
+ * wait timeout, a flow timeout, an auto-save interval, a drain timeout. Accepts everything
+ * {@link parseDuration} does and requires a finite value between 0 and {@link MAX_TIMER_MS};
+ * throws `RangeError` otherwise, because a larger delay would fire after 1 ms instead of
+ * waiting (an unparsable string throws the parser's `Error`). Internal.
+ */
+export function parseTimerDuration(duration: string | number, api: string): number {
+  const ms = parseDuration(duration)
+  if (!Number.isFinite(ms) || ms < 0) {
+    throw new RangeError(`${api} needs a non-negative, finite duration — got ${JSON.stringify(duration)}`)
+  }
+  if (ms > MAX_TIMER_MS) {
+    throw new RangeError(`${api} supports at most ${MAX_TIMER_MS} ms (about 24 days) — got ${JSON.stringify(duration)}`)
+  }
+  return ms
+}
+
 /** Race a promise against a timeout — rejects with `TimeoutError` if exceeded. */
 export class TimeoutError extends Error {
   constructor(message = 'Operation timed out') {

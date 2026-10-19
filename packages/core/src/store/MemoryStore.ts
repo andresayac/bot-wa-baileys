@@ -20,7 +20,7 @@ import type {
   UserId,
 } from '../core/provider.js'
 import { MemoryUserDataTable } from './MemoryUserDataTable.js'
-import { parseDuration } from '../utils/duration.js'
+import { parseTimerDuration } from '../utils/timers.js'
 
 /** Minimal logger surface — satisfied by pino and by a bare `console`. */
 export interface MemoryStoreLogger {
@@ -55,7 +55,7 @@ export class MemoryStore implements IStore {
   private readonly autoSaveMs: number
 
   constructor(private opts: MemoryStoreOptions = {}) {
-    this.autoSaveMs = parseDuration(opts.autoSaveInterval ?? 60_000)
+    this.autoSaveMs = parseTimerDuration(opts.autoSaveInterval ?? 60_000, 'MemoryStore autoSaveInterval')
   }
 
   /**

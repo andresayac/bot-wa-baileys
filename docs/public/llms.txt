@@ -123,7 +123,7 @@ Prototypes (private, in-memory, minimal): @bot-wa/inbox, @bot-wa/crm, @bot-wa/hu
 ## Other exports worth knowing
 - Hooks/plugins: bot.before/after/onError(event, handler, priority?) (higher priority first), bot.plug(plugin, config) (returns unplug(); Plugin.install must be synchronous), bot.provide(name, value) → ctx.tools[name]
 - Built-in plugin: slashCommandsPlugin (/start, /help, /reset, /cancel, /id, /ping)
-- Durations: every duration option takes a string ('500ms', '30s', '2m', '1h', '1d', '1w', '5 minutes') or a number of ms (options named *Ms take ms only); parseDuration() exposes the grammar
+- Durations: every duration option takes a string ('500ms', '30s', '2m', '1h', '1d', '1w', '5 minutes') or a number of ms (options named *Ms take ms only); parseDuration() exposes the grammar. Timer-backed options (timeouts, autoSaveInterval, stop drain timeout, onIdle) are capped at about 24 days (2^31-1 ms) and throw RangeError above it
 - Scheduler: bot.schedule(cron, fn), bot.every(interval, fn), bot.delay(duration, fn)
 - Media handlers: bot.onImage/onAudio/onVideo/onDocument/onSticker/onLocation/onContact/onPoll(handler); catch-all bot.onMessage(handler)
 - Provider events forwarded on the bot: bot.on('ready'|'qr'|'connection'|'reaction'|'poll'|'call'|'group'|'presence'|'status', ...); bot events also include 'handoff', 'resume' and 'error'

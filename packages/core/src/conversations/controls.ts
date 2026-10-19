@@ -1,6 +1,6 @@
 import type { ConversationRuntime, ConversationHandle, RuntimeMessage, ConversationControlsBase, WaitAccepts } from './ConversationRuntime.js'
 import { ConversationEnded, ConversationGoto } from './errors.js'
-import { parseDuration } from '../utils/duration.js'
+import { parseTimerDuration } from '../utils/timers.js'
 import { normalizeText } from '../core/matching.js'
 import type { WaitOptions } from '../core/types.js'
 import { DEFAULT_RETRIES, WaitTracker, bindTracker, type WaitVerdict } from './retry.js'
@@ -94,7 +94,7 @@ export interface ConversationControls extends ConversationControlsBase {
 }
 
 export function createControls(rt: ConversationRuntime, handle: ConversationHandle, ctx: RuntimeMessage): ConversationControls {
-  const timeoutOf = (o?: WaitOptions) => (o?.timeout !== undefined ? parseDuration(o.timeout) : undefined)
+  const timeoutOf = (o?: WaitOptions) => (o?.timeout !== undefined ? parseTimerDuration(o.timeout, 'wait timeout') : undefined)
 
   const rawWait = (o: WaitOptions | undefined, accepts: WaitAccepts) =>
     rt.wait(handle, { timeoutMs: timeoutOf(o), filter: o?.filter, accepts })

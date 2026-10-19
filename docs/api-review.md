@@ -70,6 +70,15 @@ conversation timeouts and forms) accepted only `ms|s|m|h`. So
 `timers.ts` re-exports it (done). This only widens what is accepted. The error message
 now lists `'1d'`.
 
+Follow-up: the wider grammar let timer-backed options take values a Node timer cannot hold
+(2^31 − 1 ms, about 24.8 days). `setTimeout`/`setInterval` fire after 1 ms for a larger
+delay, so `flow().timeout('30d')` expired the conversation at once and
+`MemoryStore({ autoSaveInterval: '30d' })` saved in a tight loop. Every timer-backed
+option (`flow().timeout()`, `c.ask`/wait `timeout`, `conversation.timeout`, form `timeout`,
+`MemoryStore.autoSaveInterval`, `bot.stop({ timeout })`) now goes through
+`parseTimerDuration`, which throws `RangeError` above `MAX_TIMER_MS`, as `onIdle()` and
+reply delays already did (done, with tests).
+
 ### F3. Duration options used different units and types (high)
 
 The convention across packages is: `fooMs: number` takes milliseconds, and `foo` takes a

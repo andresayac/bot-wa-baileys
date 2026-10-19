@@ -12,7 +12,7 @@ import { DEFAULT_RETRIES } from '../conversations/retry.js'
 import { UnsupportedContentError, type ProviderCapabilities } from '../core/provider.js'
 import { CORE_MESSAGES as M } from '../i18n/builtins.js'
 import type { Translate } from '../i18n/types.js'
-import { parseDuration } from '../utils/duration.js'
+import { parseTimerDuration } from '../utils/timers.js'
 import { newFormToken, parseFormReply } from './reply.js'
 import { withFormDefaults } from './defaults.js'
 import type { FormDefinition, FormField, FormStepOptions, FormValue, FormValues } from './types.js'
@@ -79,7 +79,7 @@ async function runNative(
     throw new UnsupportedContentError('form', `form "${def.id}": native mode needs a Bot context whose provider renders forms`)
   }
   const retries = opts.retries ?? DEFAULT_RETRIES
-  const timeoutMs = timeout === undefined ? undefined : parseDuration(timeout)
+  const timeoutMs = timeout === undefined ? undefined : parseTimerDuration(timeout, 'form timeout')
   let invalid = 0
   const strike = (): void => { if (++invalid >= retries) throw new RetriesExceeded() }
 

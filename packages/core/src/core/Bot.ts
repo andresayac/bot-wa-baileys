@@ -76,8 +76,7 @@ import type { ConversationHandler } from '../conversations/handler.js'
 import { ChatIdleWatchers, type IdleHandler } from './idle.js'
 import { FlowBuilder, isCompiledFlow, type CompiledFlow } from '../flows/FlowBuilder.js'
 import { Scheduler } from '../scheduler/Scheduler.js'
-import { parseDuration } from '../utils/duration.js'
-import { randomId } from '../utils/timers.js'
+import { parseTimerDuration, randomId } from '../utils/timers.js'
 import { validateConfig } from '../utils/validateConfig.js'
 import { FlowRouteLog, isDurableStore, type FlowInventory } from '../flows/inventory.js'
 import { describeFlows, type DescribeOptions, type FlowGraph } from '../flows/describe.js'
@@ -329,7 +328,7 @@ export class Bot extends EventEmitter {
     const conv = this.config.conversation ?? {}
     this.runtime = new ConversationRuntime({
       controlsFactory: createControls,
-      defaultTimeoutMs: conv.timeout !== undefined ? parseDuration(conv.timeout) : undefined,
+      defaultTimeoutMs: conv.timeout !== undefined ? parseTimerDuration(conv.timeout, 'conversation.timeout') : undefined,
       timeoutMessage: conv.timeoutMessage,
       retriesMessage: conv.retriesMessage,
       errorMessage: conv.errorMessage,
@@ -510,7 +509,7 @@ export class Bot extends EventEmitter {
 
   private async stopOnce(opts?: StopOptions): Promise<void> {
     // Validate before tearing anything down, so a bad duration leaves the bot running.
-    const drainTimeout = parseDuration(opts?.timeout ?? 10_000)
+    const drainTimeout = parseTimerDuration(opts?.timeout ?? 10_000, 'stop() timeout')
     if (!this.isStarted) return
     this.acceptingInbound = false
     // Running broadcasts start no new send from here on; their in-flight sends are
@@ -1393,7 +1392,7 @@ export class Bot extends EventEmitter {
     return {
       registrations: this.runtime.listRegistrations(),
       routes: this.flowRoutes.list(),
-      defaultTimeoutMs: timeout !== undefined ? parseDuration(timeout) : undefined,
+      defaultTimeoutMs: timeout !== undefined ? parseTimerDuration(timeout, 'conversation.timeout') : undefined,
       durableStore: isDurableStore(this.store),
     }
   }

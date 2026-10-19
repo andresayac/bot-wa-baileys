@@ -5,7 +5,7 @@ import type { ConversationControls } from '../conversations/controls.js'
 import { normalizeText } from '../core/matching.js'
 import { isTypeTrigger, isWelcomeTrigger } from '../core/triggers.js'
 import { parseDuration } from '../utils/duration.js'
-import { MAX_TIMER_MS } from '../utils/timers.js'
+import { MAX_TIMER_MS, parseTimerDuration } from '../utils/timers.js'
 import type { SchemaLike } from './schema.js'
 import {
   isFlowMediaKind,
@@ -334,7 +334,7 @@ export class FlowBuilder<S extends object = EmptyFlowState> {
     return this
   }
 
-  timeout(d: string | number): FlowBuilder<S> { this._timeoutMs = parseDuration(d); return this }
+  timeout(d: string | number): FlowBuilder<S> { this._timeoutMs = parseTimerDuration(d, 'flow().timeout()'); return this }
   persistent(): FlowBuilder<S> { this._persistent = true; return this }
   scope(s: TriggerScope): FlowBuilder<S> { this._scope = s; return this }
   id(explicit: string): FlowBuilder<S> { this._id = explicit; return this }
