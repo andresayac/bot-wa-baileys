@@ -116,6 +116,11 @@ Son los errores que más caro han salido. Respétalos aunque un cambio "parezca"
 - DSL de flows: `flow()` (alias `addKeyword`) con `.say/.ask/.do/.choose/.media/.timeout/.persistent`, que compila al runtime async. La API v1 (`.addAnswer`, `.addAction`, `.end()`, `{ capture: true }`) **no existe**; no la generes.
 - Los flows `.persistent()` solo sobreviven a un reinicio si hay un store persistente; `MemoryStore` vive en RAM.
 
+### Bot (fachada)
+- `Bot` (`core/src/core/Bot.ts`) es una fachada: la lógica vive en `core/src/core/bot/` (`compose` construye el kernel y los módulos `lifecycle`, `inbound`, `outbound`, `routes`, `pluginHost`, `ops`…). Un cambio de comportamiento va al módulo, no a la fachada; el ciclo de vida se extiende con un `LifecycleStep` nuevo en `defaultLifecycleSteps`.
+- Nada de campos `#private` en `Bot`: `plug()` crea el bot del plugin con `Object.create(bot)` y sus métodos corren con ese `this`. Por la misma razón, `emit`, `isHandedOff`, `registerEnterMatcher` y `plug` se llaman siempre a través del bot en el momento (lambdas), nunca capturados.
+- Los internos del motor se exportan desde `@bot-wa/core/internal` (sin garantía semver); la entrada principal solo los reexporta como `@deprecated` hasta v3. No añadas internos nuevos a la entrada principal.
+
 ### Plugins
 - `Plugin.install()` debe ser **síncrono**. `Bot.plug()` no hace `await` de `install()`: un `install` que lanza de forma síncrona se revierte (lo registrado se deshace) y el error se relanza, pero si devuelve una promesa que rechaza, el rechazo va al evento `'error'` del bot (ya no tumba el proceso) **sin revertir nada**: el plugin queda enchufado a medio instalar. Si necesitas inicialización async, usa el patrón de `LazyProvider` en `@bot-wa/ai`: se resuelve en el primer uso y un `warmup()` no fatal reporta errores de configuración al arrancar.
 - `PluginSpec.requires` se comprueba en `plug()`: si falta un plugin requerido (por `name`), lanza antes de `install()`. `plug()` devuelve la función unplug, no el bot: no se encadena.

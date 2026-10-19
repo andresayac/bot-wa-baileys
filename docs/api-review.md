@@ -19,6 +19,7 @@ node scripts/api-check.cjs missing   # types referenced by public signatures but
 node scripts/api-check.cjs any       # `any` in exported declarations (reviewed exceptions allow-listed)
 node scripts/api-check.cjs internal  # exported symbols tagged @internal
 node scripts/api-check.cjs surface   # every exported name per entry; diff it before/after a change
+node scripts/api-check.cjs deprecated # exported names tagged @deprecated (listing only)
 ```
 
 Results for this pass:
@@ -245,13 +246,14 @@ have no limit unless you set one.
 
 These would be breaking, or they need a wider audit:
 
-1. **Engine internals on the main entry.** No other workspace package, example or guide
-   uses these: `buildMessageContext`, `createControls`, `createPacer`, `runBroadcast`,
-   `runFormStep`, `newFormToken`, `resolveFormMode`, `resolveReplyTyping`,
-   `normalizeTypingConfig`, `typingDuration`, `parseReplyDelay`, `ExternalSendClock`,
-   `MetricsCollector`, `formatUptime`, `TYPING_REFRESH_MS`. Nothing is published yet, so
-   they could move to an `@bot-wa/core/internal` subpath (or be dropped) before
-   2.0.0 stable without affecting npm users.
+1. ~~**Engine internals on the main entry.**~~ **Resolved:** `buildMessageContext`,
+   `createControls`, `createPacer`, `runBroadcast`, `runFormStep`, `newFormToken`,
+   `resolveFormMode`, `resolveReplyTyping`, `normalizeTypingConfig`, `typingDuration`,
+   `parseReplyDelay`, `ExternalSendClock`, `MetricsCollector`, `formatUptime` and
+   `TYPING_REFRESH_MS` now live in the `@bot-wa/core/internal` subpath (no semver
+   guarantee). The main entry still re-exports the same values, each marked `@deprecated`
+   on its export specifier, until v3. `node scripts/api-check.cjs deprecated` lists them
+   (plus `Config` and `DEFAULT_SCHEMA_MESSAGE`).
 2. `stripInternal` per package (F16).
 3. Accept `LoggerLike` in the provider configs (F18).
 4. `HookHandler<TCtx = unknown>` and narrowing `Plugin.install` to `void` (F13, F15), in
