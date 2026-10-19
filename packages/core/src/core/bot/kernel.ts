@@ -1,7 +1,7 @@
 /**
  * The shared internals of one {@link Bot}: every subsystem object and the mutable
  * lifecycle state, built once by `composeBot()` and handed to the pipeline modules
- * (`lifecycle`, `inbound`, `outbound`, `routes`, `pluginHost`, `ops`).
+ * (`lifecycle`, `inbound`, `outbound`, `routes`, `pluginHost`, `ops`, `gates`, `lang`).
  *
  * Internal — no semver guarantee. The kernel always belongs to the REAL bot: a
  * plugin-scoped bot (`Object.create(bot)`) reads it through the prototype, so state
@@ -21,7 +21,7 @@ import type { UserDataService } from '../../user/UserDataService.js'
 import type { MetricsCollector } from '../../ops/metrics.js'
 import type { I18n } from '../../i18n/I18n.js'
 import type { KeyedQueue } from '../../utils/keyedQueue.js'
-import type { BotConfig, ChatId, ConnectionState, IProvider, MessageContext } from '../types.js'
+import type { BotConfig, ChatId, ConnectionState, IProvider, MessageContext, OutboundContent } from '../types.js'
 import type { DispatchContext, Dispatcher } from '../Dispatcher.js'
 import type { ExternalSendClock, Pacer } from '../messaging.js'
 import type { InboundDeduper } from '../dedupe.js'
@@ -143,4 +143,9 @@ export function asMessage(ctx: DispatchContext): MessageContext { return ctx as 
 /** Does `x` look like a promise? */
 export function isThenable(x: unknown): x is PromiseLike<unknown> {
   return typeof (x as { then?: unknown } | null | undefined)?.then === 'function'
+}
+
+/** A plain string is sent as text (`bot.send`, `bot.enqueue`, `bot.broadcast`). */
+export function toOutbound(content: string | OutboundContent): OutboundContent {
+  return typeof content === 'string' ? { kind: 'text', text: content } : content
 }

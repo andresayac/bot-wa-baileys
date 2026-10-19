@@ -36,12 +36,14 @@ import { MessageLog } from '../ledger.js'
 import { ExternalSendClock, createPacer, normalizeTypingConfig } from '../messaging.js'
 import type { BotConfig, ChatId, MessageContext, Trigger } from '../types.js'
 import { WelcomeTracker } from '../welcome.js'
-import { createContextFactory, type ContextFactory } from './contextFactory.js'
+import { createContextFactory } from './contextFactory.js'
 import { createEventSink, dispatcherEmit, type EventHost } from './events.js'
 import { InboundPipeline } from './inbound.js'
-import { asMessage, assertCoordinated, DisposableList, type BotKernel, type LifecycleState } from './kernel.js'
+import { admitHandoff } from './gates.js'
+import { assertCoordinated, DisposableList, type BotKernel, type LifecycleState } from './kernel.js'
+import { createLangSeams } from './lang.js'
 import { Lifecycle, defaultLifecycleSteps } from './lifecycle.js'
-import { BotOps, resolveLang } from './ops.js'
+import { BotOps } from './ops.js'
 import { OutboundPipeline } from './outbound.js'
 import { Persistence } from './persistence.js'
 import { PluginHost } from './pluginHost.js'
@@ -66,16 +68,12 @@ export interface ComposeFields {
   whitelist: Whitelist
 }
 
+/** What the `Bot` facade keeps: the kernel and the modules it delegates to. */
 export interface BotParts {
   kernel: BotKernel
-  /** `config.store` (or the built-in MemoryStore) before namespacing. */
-  baseStore: IStore
   ready: Promise<void>
   lifecycle: Lifecycle
   outbound: OutboundPipeline
-  inbound: InboundPipeline
-  persistence: Persistence
-  contextFor: ContextFactory
   routes: RouteRegistrar
   plugins: PluginHost
   ops: BotOps
@@ -129,14 +127,15 @@ export function composeBot(host: ComposeHost, inputConfig: BotConfig, fields: Co
 
   // Store — injected instance, or the built-in MemoryStore. Every key is
   // namespaced so sharing one backend across bots cannot collide.
+  const storeConfig = config.storeConfig as { file?: string; maxMessagesPerChat?: number; autoSaveInterval?: number } | undefined
   const baseStore =
     (typeof config.store === 'object' && config.store !== null
       ? (config.store as IStore)
       : null) ??
     new MemoryStore({
-      file: (config.storeConfig as { file?: string } | undefined)?.file,
-      maxMessagesPerChat: (config.storeConfig as { maxMessagesPerChat?: number } | undefined)?.maxMessagesPerChat,
-      autoSaveInterval: (config.storeConfig as { autoSaveInterval?: number } | undefined)?.autoSaveInterval,
+      file: storeConfig?.file,
+      maxMessagesPerChat: storeConfig?.maxMessagesPerChat,
+      autoSaveInterval: storeConfig?.autoSaveInterval,
       logger: logger.child({ module: 'store' }),
     })
   let namespace: StoreNamespace = {
@@ -226,8 +225,6 @@ export function composeBot(host: ComposeHost, inputConfig: BotConfig, fields: Co
     })
   }
 
-  /** `ctx.lang` as `prepare` resolved it, to tell whether a hook overrode it. */
-  const preparedLang = new WeakMap<object, string>()
   k.dispatcher = new Dispatcher({
     hooks: k.hooks,
     runtime: k.runtime,
@@ -238,28 +235,9 @@ export function composeBot(host: ComposeHost, inputConfig: BotConfig, fields: Co
     turns: k.coordination?.turns,
     logger: logger.child({ module: 'dispatcher' }),
     emit: dispatcherEmit(k.events),
-    gate: (ctx) => {
-      const admitted = k.handoffs.admits(ctx)
-      if (!admitted) k.counters.handoffDropped()
-      return admitted
-    },
-    prepare: async (ctx) => {
-      if (!k.i18n.enabled) return
-      const mctx = asMessage(ctx)
-      await resolveLang(k.i18n, mctx)
-      preparedLang.set(mctx, mctx.lang)
-    },
-    // A before('message') hook rewrote ctx.body (e.g. a voice transcript): let a
-    // body-based detector see the final text. Skipped when the language came from a
-    // signal the body cannot change (stored preference, provider) or when a hook
-    // already set ctx.lang itself.
-    reprepare: async (ctx) => {
-      if (!k.i18n.enabled || !k.i18n.hasDetector) return
-      const mctx = asMessage(ctx)
-      if (mctx.langSource !== 'detector' && mctx.langSource !== 'default') return
-      if (preparedLang.get(mctx) !== mctx.lang) return
-      await resolveLang(k.i18n, mctx)
-    },
+    // Human handoff (read lazily: the registry is built below).
+    gate: (ctx) => admitHandoff(k, ctx),
+    ...createLangSeams(k),
   })
 
   // The handoff index lives under a store cursor key; a backend without cursor support
@@ -322,13 +300,9 @@ export function composeBot(host: ComposeHost, inputConfig: BotConfig, fields: Co
 
   return {
     kernel,
-    baseStore,
     ready,
     lifecycle: new Lifecycle(kernel, defaultLifecycleSteps(kernel)),
     outbound,
-    inbound,
-    persistence,
-    contextFor,
     routes: new RouteRegistrar(kernel),
     plugins: new PluginHost(kernel),
     ops: new BotOps(kernel, contextFor),

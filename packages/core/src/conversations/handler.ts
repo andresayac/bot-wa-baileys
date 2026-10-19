@@ -1,3 +1,7 @@
+/**
+ * The public handler type of `bot.conversation()` (`ConversationHandler`): the full
+ * `MessageContext` view of the runtime's minimal conversation function. Types only.
+ */
 import type { DefaultTools, MessageContext } from '../core/provider.js'
 import type { ConversationControls } from './controls.js'
 

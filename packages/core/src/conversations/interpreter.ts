@@ -1,3 +1,8 @@
+/**
+ * Interpreter of compiled DSL flows: runs `CompiledFlow` steps (`say`/`ask`/`do`/`choose`/
+ * `media`/forms…) on the conversation controls, with per-step delays, `c.retry()` replay and
+ * the step markers the runtime checkpoints. It does not persist anything itself.
+ */
 import type { CompiledFlow, CompiledStep, FlowAction } from '../flows/FlowBuilder.js'
 import { isCompiledFlow } from '../flows/FlowBuilder.js'
 import type { ConversationFn, RuntimeMessage } from './ConversationRuntime.js'

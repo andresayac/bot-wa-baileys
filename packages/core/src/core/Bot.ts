@@ -62,8 +62,7 @@ import type { ConversationHandler } from '../conversations/handler.js'
 import { ChatIdleWatchers, type IdleHandler } from './idle.js'
 import { FlowBuilder, type CompiledFlow } from '../flows/FlowBuilder.js'
 import { Scheduler } from '../scheduler/Scheduler.js'
-import { parseTimerDuration } from '../utils/timers.js'
-import { isDurableStore, type FlowInventory, type FlowRouteLog } from '../flows/inventory.js'
+import type { FlowInventory, FlowRouteLog } from '../flows/inventory.js'
 import { describeFlows, type DescribeOptions, type FlowGraph } from '../flows/describe.js'
 import { lintFlows, type LintDiagnostic, type LintOptions } from '../flows/lint.js'
 import { AccessList, Whitelist, type AccessListSnapshot, type AccessListsSnapshot, type WhitelistSnapshot } from '../gates/accessList.js'
@@ -75,14 +74,14 @@ import type { UserDataService } from '../user/UserDataService.js'
 import type { UserData } from '../user/types.js'
 import { MetricsCollector, type BotMetricsSnapshot, type ConversationEndedEvent, type ConversationStartedEvent } from '../ops/metrics.js'
 import { type BroadcastOptions, type BroadcastResult } from '../ops/broadcast.js'
-import { deleteSubjectData, exportSubjectData, type SubjectDataDeps, type SubjectDataExport, type SubjectDeletionResult } from './subjectData.js'
+import { deleteSubjectData, exportSubjectData, type SubjectDataExport, type SubjectDeletionResult } from './subjectData.js'
 import { type TriggerOptions, type TriggerResult } from '../ops/trigger.js'
 import type { I18n } from '../i18n/I18n.js'
 import type { CoordinatorEvents, Fence, LeaseLossReason } from '../coordination/types.js'
 import type { DurabilityControl } from '../durability/bind.js'
 import type { I18nConfig, LocaleMessages, TranslateParams } from '../i18n/types.js'
 import { composeBot } from './bot/compose.js'
-import { createLifecycleState, type BotKernel, type LifecycleState } from './bot/kernel.js'
+import { createLifecycleState, toOutbound, type BotKernel, type LifecycleState } from './bot/kernel.js'
 import type { Lifecycle } from './bot/lifecycle.js'
 import type { OutboundPipeline } from './bot/outbound.js'
 import type { RouteRegistrar } from './bot/routes.js'
@@ -176,17 +175,17 @@ export class Bot extends EventEmitter {
   readonly logger: Logger
 
   /*
-   * The engine lives in `./bot/*` (built by `composeBot`); this class is a facade over it.
-   * No ECMAScript `#private` here: `plug()` builds the plugin's bot with
-   * `Object.create(bot)` and its methods run with `this` set to that object.
-   * The private fields below are references to the kernel objects (diagnostics such as
-   * the soak script, and plugins such as `@bot-wa/moderation`, read some of them).
+   * The engine lives in `./bot/*` (built by `composeBot`); this class is a facade over it
+   * and holds no logic of its own. No ECMAScript `#private` here: `plug()` builds the
+   * plugin's bot with `Object.create(bot)` and its methods run with `this` set to that
+   * object. The private getters below read the kernel through `this` (so through the
+   * prototype for a plugin-scoped bot); diagnostics such as the soak script read some of
+   * them by name.
    */
   /** Start/stop state shared by every module (see bot/kernel.ts). */
   private readonly state: LifecycleState = createLifecycleState()
   /** Runtime counters behind {@link metrics}. */
   private counters = new MetricsCollector()
-  private scheduler = new Scheduler()
   /** Per-chat inactivity watchers ({@link onIdle}); backed by the scheduler. */
   private idle = new ChatIdleWatchers({
     events: this,
@@ -218,34 +217,36 @@ export class Bot extends EventEmitter {
   private readonly plugins: PluginHost
   private readonly ops: BotOps
 
-  private config: BotConfig
-  private store: IStore
-  private provider: IProvider
-  private namespace: StoreNamespace
+  private get config(): BotConfig { return this.kernel.config }
+  private get store(): IStore { return this.kernel.store }
+  private get provider(): IProvider { return this.kernel.provider }
+  private get namespace(): StoreNamespace { return this.kernel.namespace }
   /** `ctx.user` profiles — one service so writes of a user serialise across chats. */
-  private users: UserDataService
-  private runtime: ConversationRuntime
-  private dispatcher: Dispatcher
+  private get users(): UserDataService { return this.kernel.users }
+  private get runtime(): ConversationRuntime { return this.kernel.runtime }
+  private get dispatcher(): Dispatcher { return this.kernel.dispatcher }
   /** Inbound idempotency guard (`BotConfig.dedupe`); `null` when disabled. */
-  private inboundDedupe: InboundDeduper | null
-  private tools: Record<string, unknown>
+  private get inboundDedupe(): InboundDeduper | null { return this.kernel.inboundDedupe }
+  private get tools(): Record<string, unknown> { return this.kernel.tools }
   /** In-flight outbound sends — tracked so `stop({ drain: true })` can wait for them. */
-  private inflightSends: Set<Promise<unknown>>
+  private get inflightSends(): Set<Promise<unknown>> { return this.kernel.inflightSends }
   /** Trigger routes, kept for `describe()` / `lint()` introspection. */
-  private flowRoutes: FlowRouteLog
+  private get flowRoutes(): FlowRouteLog { return this.kernel.flowRoutes }
   /** Store-backed first-contact state for the `WELCOME` trigger. */
-  private welcome: WelcomeTracker
+  private get welcome(): WelcomeTracker { return this.kernel.welcome }
   /** Provider events still being handled (stored, dispatched) — see {@link isBusy}. */
-  private inflightEvents: Set<Promise<void>>
-  private handoffs: HandoffRegistry
+  private get inflightEvents(): Set<Promise<void>> { return this.kernel.inflightEvents }
+  private get handoffs(): HandoffRegistry { return this.kernel.handoffs }
   /** Serializes this bot's chat upserts per chat. */
-  private chatWrites: KeyedQueue
+  private get chatWrites(): KeyedQueue { return this.kernel.chatWrites }
   /** Sends outside a chat's own `ctx` replies — they invalidate `ctx.edit(content)` targets. */
-  private externalSends: ExternalSendClock
+  private get externalSends(): ExternalSendClock { return this.kernel.externalSends }
   /** Locale registry behind `bot.locale()` / `ctx.t()` (see i18n/I18n.ts). */
-  private i18n: I18n
+  private get i18n(): I18n { return this.kernel.i18n }
   /** Runtime flow CRUD (`registerFlow`/`unregisterFlow`/`replaceFlow`/`triggerFlow`). */
-  private flowRegistry: DynamicFlowRegistry
+  private get flowRegistry(): DynamicFlowRegistry { return this.kernel.flowRegistry }
+  /** Plain timers, or the durable scheduler `BotConfig.scheduler` builds (see bot/compose.ts). */
+  private get scheduler(): Scheduler { return this.kernel.scheduler }
 
   constructor(config: BotConfig) {
     super()
@@ -262,7 +263,7 @@ export class Bot extends EventEmitter {
       config,
       {
         state: this.state,
-        scheduler: this.scheduler,
+        scheduler: new Scheduler(),
         idle: this.idle,
         counters: this.counters,
         blacklist: this.blacklist,
@@ -278,26 +279,6 @@ export class Bot extends EventEmitter {
     this.routes = parts.routes
     this.plugins = parts.plugins
     this.ops = parts.ops
-    this.config = k.config
-    this.store = k.store
-    this.provider = k.provider
-    this.namespace = k.namespace
-    this.users = k.users
-    this.runtime = k.runtime
-    this.dispatcher = k.dispatcher
-    this.inboundDedupe = k.inboundDedupe
-    this.tools = k.tools
-    this.inflightSends = k.inflightSends
-    this.flowRoutes = k.flowRoutes
-    this.welcome = k.welcome
-    this.inflightEvents = k.inflightEvents
-    this.handoffs = k.handoffs
-    this.chatWrites = k.chatWrites
-    this.externalSends = k.externalSends
-    this.i18n = k.i18n
-    this.flowRegistry = k.flowRegistry
-    // `BotConfig.scheduler` builds a durable scheduler in compose (late-bound by `idle`).
-    this.scheduler = k.scheduler
   }
 
   /* =========================================================================
@@ -344,8 +325,7 @@ export class Bot extends EventEmitter {
    * pipeline; a `before('send')` hook may mutate `payload.content` or `abort()` to skip.
    */
   async send(chatId: ChatId, content: string | OutboundContent, options?: SendOptions): Promise<SentMessage> {
-    const normalized: OutboundContent = typeof content === 'string' ? { kind: 'text', text: content } : content
-    const r = await this.outbound.send(chatId, normalized, options)
+    const r = await this.outbound.send(chatId, toOutbound(content), options)
     return { ref: r.ref, id: r.ref.id, chatId: r.ref.chatId, raw: r.raw, skipped: r.skipped }
   }
 
@@ -375,7 +355,7 @@ export class Bot extends EventEmitter {
   async enqueue(chatId: ChatId, content: string | OutboundContent, options?: SendOptions): Promise<{ key: string; status: 'queued' | 'exists' | 'skipped' }> {
     const durable = this.kernel.durable
     if (!durable) throw new Error('bot.enqueue() needs BotConfig.durability')
-    return durable.enqueue(chatId, typeof content === 'string' ? { kind: 'text', text: content } : content, options)
+    return durable.enqueue(chatId, toOutbound(content), options)
   }
 
   /** Send plain text to a chat. Same as `send(chatId, text)`. */
@@ -669,19 +649,8 @@ export class Bot extends EventEmitter {
    * unknown, the subject is refused by the access lists (blacklist / whitelist) or the
    * chat is handed off; rejects when the bot is not started.
    */
-  async triggerFlow(id: string, target: FlowTriggerTarget, opts: FlowTriggerOptions = {}): Promise<boolean> {
-    if (!this.state.acceptingInbound) throw new Error('triggerFlow() needs a started bot')
-    if (!this.runtime.has(id)) return false
-    const result = await this.trigger(id, {
-      chatId: target.chatId,
-      ...(target.userId !== undefined ? { userId: target.userId } : {}),
-      isGroup: target.isGroup === true,
-      ...(opts.state ? { data: opts.state } : {}),
-      ...(opts.body !== undefined ? { body: opts.body } : {}),
-      ifActive: 'replace',
-    })
-    if (result.reason === 'stopped') throw new Error('triggerFlow() needs a started bot')
-    return result.started
+  triggerFlow(id: string, target: FlowTriggerTarget, opts: FlowTriggerOptions = {}): Promise<boolean> {
+    return this.ops.triggerFlow((name, o) => this.trigger(name, o), id, target, opts)
   }
 
   /** Snapshots of every live conversation (`key`, `state`, `waiting`, `queued`). */
@@ -692,8 +661,7 @@ export class Bot extends EventEmitter {
    * or a raw runtime key from {@link listConversations}). Returns `false` when none is live.
    */
   abortConversation(target: string | ConversationTarget): boolean {
-    if (typeof target !== 'string') return this.runtime.abort(this.runtime.keyFor(target))
-    return this.runtime.abort(target)
+    return this.runtime.abort(this.ops.conversationKey(target))
   }
 
   /**
@@ -727,7 +695,7 @@ export class Bot extends EventEmitter {
    * none is active. Diagnostics only — e.g. `bot-wa dev`'s `:state` command.
    */
   inspectConversation(target: ConversationTarget): ConversationSnapshot | undefined {
-    return this.runtime.inspect(this.runtime.keyFor(target))
+    return this.runtime.inspect(this.ops.conversationKey(target))
   }
 
   /**
@@ -739,7 +707,7 @@ export class Bot extends EventEmitter {
    * input is piped.
    */
   isBusy(): boolean {
-    return this.inflightEvents.size > 0 || this.runtime.hasRunning()
+    return this.ops.isBusy()
   }
 
   /* =========================================================================
@@ -971,7 +939,7 @@ export class Bot extends EventEmitter {
 
   /** Export normalized data associated with one subject in this bot namespace. */
   exportSubject(userId: UserId): Promise<SubjectDataExport> {
-    return exportSubjectData(this.subjectDeps(), userId)
+    return exportSubjectData(this.ops.subjectDeps(), userId)
   }
 
   /**
@@ -979,20 +947,7 @@ export class Bot extends EventEmitter {
    * `userId` and the subject's live or dormant conversations.
    */
   deleteSubject(userId: UserId): Promise<SubjectDeletionResult> {
-    return deleteSubjectData(this.subjectDeps(), userId)
-  }
-
-  private subjectDeps(): SubjectDataDeps {
-    return {
-      store: this.store,
-      namespace: this.namespace,
-      runtime: this.runtime,
-      handoffs: this.handoffs,
-      chatWrites: this.chatWrites,
-      i18n: this.i18n,
-      welcome: this.welcome,
-      users: this.users,
-    }
+    return deleteSubjectData(this.ops.subjectDeps(), userId)
   }
 
   /* =========================================================================
@@ -1004,13 +959,7 @@ export class Bot extends EventEmitter {
    * plus the bits of config the linter needs. Input of `describeFlows()`/`lintFlows()`.
    */
   flowInventory(): FlowInventory {
-    const timeout = this.config.conversation?.timeout
-    return {
-      registrations: this.runtime.listRegistrations(),
-      routes: this.flowRoutes.list(),
-      defaultTimeoutMs: timeout !== undefined ? parseTimerDuration(timeout, 'conversation.timeout') : undefined,
-      durableStore: isDurableStore(this.store),
-    }
+    return this.ops.flowInventory()
   }
 
   /**
