@@ -34,7 +34,10 @@ export interface MessengerProviderConfig {
 
 /* --- Graph API request/response shapes (subset used) --------------------- */
 
-export interface GraphErrorBody {
+/** Success shape of POST /{page-id}/messages. */
+export interface MessengerSendResponse {
+  recipient_id?: string
+  message_id?: string
   error?: {
     type?: string
     code?: number
@@ -42,11 +45,4 @@ export interface GraphErrorBody {
     error_subcode?: number
     fbtrace_id?: string
   }
-}
-
-/** Success shape of POST /{page-id}/messages. */
-export interface MessengerSendResponse {
-  recipient_id?: string
-  message_id?: string
-  error?: GraphErrorBody['error']
 }

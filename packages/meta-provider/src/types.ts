@@ -73,6 +73,14 @@ export interface CloudAPIProviderConfig {
 
 /* --- Graph API request/response shapes (subset used) --------------------- */
 
+/**
+ * Graph API error body.
+ *
+ * @deprecated No longer used by the provider: Graph responses are checked by
+ * `readGraphResponse()` from `@bot-wa/graph-core`, which maps errors to the core
+ * `ProviderError` subclasses. Will be removed in a future release; use
+ * `GraphSendMessageResponse['error']` or `GraphError` from `@bot-wa/graph-core`.
+ */
 export interface GraphErrorBody {
   error?: {
     code?: number
@@ -86,5 +94,10 @@ export interface GraphSendMessageResponse {
   messages?: Array<{ id: string }>
   /** `input` echoes `to`/`recipient`; `wa_id` is omitted for BSUID sends Meta can't map to a phone. */
   contacts?: Array<{ input?: string; wa_id?: string; user_id?: string }>
-  error?: GraphErrorBody['error']
+  error?: {
+    code?: number
+    message?: string
+    error_subcode?: number
+    fbtrace_id?: string
+  }
 }

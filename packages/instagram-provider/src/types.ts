@@ -33,17 +33,13 @@ export interface InstagramProviderConfig {
 
 /* --- Graph API request/response shapes (subset used) --------------------- */
 
-export interface GraphErrorBody {
+export interface GraphSendResponse {
+  recipient_id?: string
+  message_id?: string
   error?: {
     code?: number
     message?: string
     error_subcode?: number
     fbtrace_id?: string
   }
-}
-
-export interface GraphSendResponse {
-  recipient_id?: string
-  message_id?: string
-  error?: GraphErrorBody['error']
 }

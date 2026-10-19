@@ -342,6 +342,7 @@ Revisión de los 10 paquetes públicos, con hallazgos y decisiones en [`docs/api
 ---
 
 ### @bot-wa/core y canales (2026-10, ronda H)
+- **Tipos sin uso:** `GraphErrorBody` deja de exportarse en `@bot-wa/messenger` e `@bot-wa/instagram` (privados) y queda `@deprecated` en `@bot-wa/meta` (público); las respuestas Graph pasan por `readGraphResponse()` de `@bot-wa/graph-core`.
 - **Ubicaciones (integración ronda H):** `c.waitLocation(opts?)` en conversaciones (resuelve el `InboundLocation`; otra cosa vuelve a pedirla con `otherwise` o el texto `core.wait.location`), `RuntimeMessage.sharedLocation` y `StoredMessage.location` (opcional), que el bot rellena al persistir una ubicación entrante. Instagram, Evolution API, WPPConnect (también en tiempo real), Gupshup y Twilio (`Latitude`/`Longitude`, `Label`, `Address`) rellenan ahora `InboundMessage.location`; Discord y HighLevel no reciben ubicaciones.
 
 **Añadido**
