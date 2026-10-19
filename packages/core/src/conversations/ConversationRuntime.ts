@@ -213,6 +213,8 @@ interface ActiveConversation extends ConversationHandle {
   idle?: Array<(outcome: SettleOutcome) => void>
   /** Tracing: the conversation's turn spans (see {@link RuntimeConfig.tracing}). */
   trace?: ConversationTurnTrace
+  /** Tracing: the wait an idle turn was opened for (see {@link ConversationRuntime.runIdle}). */
+  idleTurn?: PendingWait
 }
 
 const INBOX_CAP = 10
@@ -612,8 +614,11 @@ export class ConversationRuntime {
         await this.endReply(entry, ctx, this.cfg.retriesMessage ?? translateFor(entry.latest ?? ctx, CORE_MESSAGES.retries))
       } else {
         outcome = 'error'
-        this.cfg.onError?.(e, ctx)
-        this.cfg.logger?.error?.('conversation error', e)
+        // Traced: reported from the conversation's own box, so the error lands on the turn that failed.
+        this.inBox(entry, () => {
+          this.cfg.onError?.(e, ctx)
+          this.cfg.logger?.error?.('conversation error', e)
+        })
         await this.endReply(entry, ctx, this.cfg.errorMessage ?? translateFor(entry.latest ?? ctx, CORE_MESSAGES.error))
       }
     } finally {
@@ -625,7 +630,9 @@ export class ConversationRuntime {
     }
     if (goto && !entry.cancelled) {
       try {
-        await this.run(goto.target, ctx, {}, entry.latest)
+        // Traced: the target's first turn starts under the turn that ran the goto (not
+        // under the handler that entered this conversation, possibly long gone).
+        await this.inBox(entry, () => this.run(goto.target, ctx, {}, entry.latest))
       } finally {
         // The target could not start (closed, unknown name) or has ended.
         if (this.settleWaiters.size > 0) this.notifySettled(key)
@@ -897,10 +904,34 @@ export class ConversationRuntime {
     const entry = handle as ActiveConversation
     if (this.active.get(entry.key) !== entry || entry.cancelled) return false
     if (entry.pending) {
-      if (entry.trace) this.cfg.tracing!.resume(entry.trace, 'idle')
+      // An idle callback already runs in its own turn (runIdle): the conversation unwinds in it.
+      if (entry.trace && entry.idleTurn !== entry.pending) this.cfg.tracing!.resume(entry.trace, 'idle')
       entry.pending.reject(error)
     } else entry.interrupted = error
     return true
+  }
+
+  /**
+   * Run out-of-band work of `handle`'s conversation (a `c.idle()` callback). Traced, it
+   * runs inside the conversation's box: while the conversation is parked on a wait it gets
+   * its own ROOT turn (`reason: idle`, linked to the first one), parked again afterwards
+   * unless the callback ended/redirected the conversation or a reply resumed it; while
+   * the conversation is busy, its work lands under the running turn. Untraced: `fn()`.
+   */
+  runIdle(handle: ConversationHandle, fn: () => Promise<void>): Promise<void> {
+    const entry = handle as ActiveConversation
+    const tracing = this.cfg.tracing
+    const trace = entry.trace
+    if (!tracing || !trace) return fn()
+    const pending = entry.pending
+    if (!pending || !this.isAlive(entry)) return tracing.run(trace, fn)
+    tracing.resume(trace, 'idle')
+    entry.idleTurn = pending
+    return tracing.run(trace, fn).finally(() => {
+      if (entry.idleTurn === pending) entry.idleTurn = undefined
+      // Still parked on the same wait (the callback only replied or re-prompted): park the idle turn.
+      if (entry.pending === pending && this.isAlive(entry)) tracing.park(trace)
+    })
   }
 
   /** Report an error raised outside a conversation's own flow (idle callbacks) via `onError`. */
@@ -962,8 +993,12 @@ export class ConversationRuntime {
    * untraced, it returns {@link safeReply}'s own promise.
    */
   private endReply(entry: ActiveConversation, ctx: RuntimeMessage, text: string): Promise<void> {
-    if (entry.trace) return this.cfg.tracing!.run(entry.trace, () => this.safeReply(ctx, text))
-    return this.safeReply(ctx, text)
+    return this.inBox(entry, () => this.safeReply(ctx, text))
+  }
+
+  /** Traced: run `fn` inside `entry`'s conversation box (its current turn); untraced: `fn()`. */
+  private inBox<T>(entry: ActiveConversation, fn: () => T): T {
+    return entry.trace ? this.cfg.tracing!.run(entry.trace, fn) : fn()
   }
 
   private async safeReply(ctx: RuntimeMessage, text: string): Promise<void> {

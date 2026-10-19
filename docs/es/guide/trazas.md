@@ -180,10 +180,11 @@ Todos los nombres se exportan como `TRACE_ATTR` / `SPAN_NAMES` desde `@bot-wa/co
 
 Una conversación puede durar días, así que no es un único span. Cada tramo de trabajo entre dos esperas es un `bot.conversation.turn`:
 
-- el primer turno empieza bajo el handler (o `bot.trigger`) que la inició: `reason: start`, `goto` o `dormant` (un flujo persistente retomado desde su checkpoint);
+- el primer turno empieza bajo el handler (o `bot.trigger`) que la inició: `reason: start` o `dormant` (un flujo persistente retomado desde su checkpoint); el destino de un `c.goto()` empieza bajo el turno que hizo el goto: `reason: goto`;
 - quedarse esperando en un `ask` cierra el turno con `bot.conversation.parked = true`;
 - una respuesta abre el siguiente turno bajo el span de dispatch del mensaje que respondió: `reason: reply`;
-- el timeout de una espera (o un watchdog de inactividad) abre un turno **raíz** enlazado al primero (`reason: timeout`/`idle`), porque ningún mensaje lo causó;
+- el timeout de una espera abre un turno **raíz** enlazado al primero (`reason: timeout`), porque ningún mensaje lo causó; un callback de `c.idle()` que salta mientras la conversación espera corre también en un turno raíz (`reason: idle`), que vuelve a quedar en espera si el callback solo respondió, o lleva el resultado si terminó o redirigió la conversación;
+- un error lanzado por la conversación (o por un callback de inactividad) se registra en el turno donde ocurrió;
 - el final de la conversación pone `bot.conversation.outcome` (`completed`, `ended`, `guarded`, `cancelled`, `timedOut`, `retriesExceeded`, `error`) en el turno abierto; una conversación abortada mientras esperaba (`/reset`, handoff, `stop()`) recibe un turno corto de cierre (`reason: end`).
 
 Los pasos de un flujo son eventos `flow.step` del turno (`bot.flow.step.index`, `bot.flow.step.kind`).

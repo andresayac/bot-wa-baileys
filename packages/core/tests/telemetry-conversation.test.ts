@@ -93,6 +93,114 @@ describe('telemetry: conversation turns', () => {
     await bot.stop()
   })
 
+  it('a goto target starts under the turn that ran the goto, not the entering handler', async () => {
+    const { rec, bot, provider } = await tracedBot()
+    bot.conversation('fin', async (c) => { await c.say('adiós') }, { trigger: '__fin__' })
+    bot.conversation('inicio', async (c) => { await c.ask('¿seguir?'); c.goto('fin') })
+    provider.incoming('inicio', { from: 'u1', id: 'm1' })
+    await tick()
+    provider.incoming('sí', { from: 'u1', id: 'm2' })
+    await tick()
+    const [, reply, target] = turns(rec)
+    expect(target!.attributes[TRACE_ATTR.conversationReason]).toBe('goto')
+    expect(rec.parentOf(target!)).toBe(reply)
+    expect(target!.traceId).toBe(dispatchOf(rec, 'm2').traceId)
+    expect(rec.childrenOf(target!).some((s) => s.name === 'bot.pace' || s.name === 'bot.send')).toBe(true)
+    await bot.stop()
+  })
+
+  it('a conversation error is recorded on the turn that failed, not on the entering handler', async () => {
+    const { rec, bot, provider } = await tracedBot()
+    bot.conversation('rota', async (c) => { await c.ask('¿?'); throw new TypeError('boom') })
+    provider.incoming('rota', { from: 'u1', id: 'm1' })
+    await tick()
+    provider.incoming('x', { from: 'u1', id: 'm2' })
+    await tick()
+    const [first, failed] = turns(rec)
+    expect(failed!.attributes).toMatchObject({ [TRACE_ATTR.conversationOutcome]: 'error', [TRACE_ATTR.errorType]: 'TypeError' })
+    const handler = rec.parentOf(first!)!
+    expect(handler.name).toBe('bot.handler')
+    expect(handler.attributes[TRACE_ATTR.errorType]).toBeUndefined()
+    expect(handler.status.code).not.toBe('error')
+    await bot.stop()
+  })
+
+  it('a c.idle() callback that only replies runs in its own root idle turn, parked again after', async () => {
+    const { rec, bot, provider } = await tracedBot()
+    bot.conversation('larga', async (c) => {
+      c.idle(30, async () => { await c.say('¿sigues ahí?') })
+      await c.ask('¿algo?', { timeout: 5000 })
+      await c.say('ok')
+    })
+    provider.incoming('larga', { from: 'u1', id: 'm1' })
+    await vi.waitFor(() => expect(provider.outbox.length).toBe(2))
+    await tick()
+    const [first, idle] = turns(rec)
+    expect(idle!.attributes).toMatchObject({ [TRACE_ATTR.conversationReason]: 'idle', [TRACE_ATTR.conversationParked]: true })
+    expect(idle!.parentId).toBeUndefined()
+    expect(idle!.links.map((l) => l.context.spanId)).toEqual([first!.spanId])
+    expect(idle!.ended).toBe(true)
+    expect(rec.childrenOf(idle!).some((s) => s.name === 'bot.pace' || s.name === 'bot.send')).toBe(true)
+    expect(rec.childrenOf(first!).filter((s) => s.name === 'bot.pace' || s.name === 'bot.send')).toHaveLength(1)
+    // The answer still opens a reply turn that completes the conversation.
+    provider.incoming('hola', { from: 'u1', id: 'm2' })
+    await tick()
+    const last = turns(rec).at(-1)!
+    expect(last.attributes).toMatchObject({ [TRACE_ATTR.conversationReason]: 'reply', [TRACE_ATTR.conversationOutcome]: 'completed' })
+    expect(turns(rec)).toHaveLength(3)
+    for (const s of rec.spans) expect(s.ended, s.name).toBe(true)
+    await bot.stop()
+  })
+
+  it('a c.idle() callback re-armed by an inbound message still runs in an idle turn', async () => {
+    const { rec, bot, provider } = await tracedBot()
+    bot.conversation('larga', async (c) => {
+      c.idle(40, async () => { await c.say('¿sigues ahí?') })
+      await c.ask('¿número?', { timeout: 5000, filter: (m) => /^\d+$/.test(m.body) })
+    })
+    provider.incoming('larga', { from: 'u1', id: 'm1' })
+    await tick(10)
+    provider.incoming('nope', { from: 'u1', id: 'm2' })   // filtered out by the wait, re-arms the watchdog
+    await vi.waitFor(() => expect(turns(rec).some((t) => t.attributes[TRACE_ATTR.conversationReason] === 'idle')).toBe(true))
+    await tick()
+    const idle = turns(rec).find((t) => t.attributes[TRACE_ATTR.conversationReason] === 'idle')!
+    expect(idle.parentId).toBeUndefined()
+    expect(rec.childrenOf(idle).some((s) => s.name === 'bot.pace' || s.name === 'bot.send')).toBe(true)
+    await bot.stop()
+  })
+
+  it('a c.idle() callback that ends the conversation does it in a single idle turn', async () => {
+    const { rec, bot, provider } = await tracedBot()
+    bot.conversation('larga', async (c) => {
+      c.idle(30, async () => { await c.say('cerrando'); c.end('adiós') })
+      await c.ask('¿algo?', { timeout: 5000 })
+    })
+    provider.incoming('larga', { from: 'u1', id: 'm1' })
+    await vi.waitFor(() => expect(turns(rec).at(-1)?.attributes[TRACE_ATTR.conversationOutcome]).toBe('ended'))
+    await tick()
+    const all = turns(rec)
+    expect(all.map((t) => t.attributes[TRACE_ATTR.conversationReason])).toEqual(['start', 'idle'])
+    const idle = all[1]!
+    expect(idle.attributes[TRACE_ATTR.conversationParked]).toBeUndefined()
+    expect(rec.childrenOf(idle).filter((s) => s.name === 'bot.pace' || s.name === 'bot.send').length).toBeGreaterThanOrEqual(2)
+    await bot.stop()
+  })
+
+  it('an idle callback error is recorded on the idle turn', async () => {
+    const { rec, bot, provider } = await tracedBot()
+    bot.conversation('larga', async (c) => {
+      c.idle(30, () => { throw new RangeError('x') })
+      await c.ask('¿algo?', { timeout: 5000 })
+    })
+    provider.incoming('larga', { from: 'u1', id: 'm1' })
+    await vi.waitFor(() => expect(turns(rec).some((t) => t.attributes[TRACE_ATTR.conversationReason] === 'idle')).toBe(true))
+    await tick()
+    const idle = turns(rec).find((t) => t.attributes[TRACE_ATTR.conversationReason] === 'idle')!
+    expect(idle.attributes[TRACE_ATTR.errorType]).toBe('RangeError')
+    expect(rec.find('bot.handler')!.attributes[TRACE_ATTR.errorType]).toBeUndefined()
+    await bot.stop()
+  })
+
   it('a conversation aborted while parked (/reset) gets a closing turn with outcome cancelled', async () => {
     const { rec, bot, provider } = await tracedBot()
     bot.command('reset', (ctx) => { bot.abortConversation(ctx) })

@@ -2,11 +2,14 @@
  * Conversation turns as spans. A conversation is not one span (it can last days): each
  * stretch of work between two waits is a `bot.conversation.turn` span.
  *
- * - the first turn starts under the handler that entered it (`reason: start|goto|dormant`);
+ * - the first turn starts under the handler that entered it (`reason: start|dormant`); a
+ *   `c.goto()` target's first turn starts under the turn that ran the goto (`reason: goto`);
  * - a reply re-opens it under the dispatch span of the message that answered the wait
  *   (`reason: reply`);
- * - a wait timeout or an outside interrupt (an idle watchdog) opens a ROOT turn linked
- *   to the first one (`reason: timeout|idle`): no message caused it;
+ * - a wait timeout, or a `c.idle()` callback firing while the conversation is parked
+ *   (`ConversationRuntime.runIdle`), opens a ROOT turn linked to the first one
+ *   (`reason: timeout|idle`): no message caused it. An idle turn parks again when the
+ *   callback leaves the conversation on the same wait;
  * - a conversation aborted while parked (`/reset`, handoff, stop) gets a closing turn
  *   (`reason: end`) under the active span, linked to the first one;
  * - parking on a wait ends the turn (`bot.conversation.parked = true`); the end of the

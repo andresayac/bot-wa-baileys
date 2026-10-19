@@ -180,10 +180,11 @@ Every name is exported as `TRACE_ATTR` / `SPAN_NAMES` from `@bot-wa/core`.
 
 A conversation can last days, so it is not one span. Each stretch of work between two waits is a `bot.conversation.turn`:
 
-- the first turn starts under the handler (or `bot.trigger`) that entered it — `reason: start`, `goto` or `dormant` (a persistent flow resumed from its checkpoint);
+- the first turn starts under the handler (or `bot.trigger`) that entered it — `reason: start` or `dormant` (a persistent flow resumed from its checkpoint); a `c.goto()` target starts under the turn that ran the goto — `reason: goto`;
 - parking on a wait ends the turn with `bot.conversation.parked = true`;
 - a reply opens the next turn under the dispatch span of the message that answered — `reason: reply`;
-- a wait timeout (or an idle watchdog) opens a **root** turn linked to the first one — `reason: timeout`/`idle`, since no message caused it;
+- a wait timeout opens a **root** turn linked to the first one — `reason: timeout`, since no message caused it; a `c.idle()` callback that fires while the conversation is parked runs in a root turn too (`reason: idle`), which parks again when the callback only replied, or carries the outcome when it ended or redirected the conversation;
+- an error thrown by the conversation (or by an idle callback) is recorded on the turn it happened in;
 - the end of the conversation sets `bot.conversation.outcome` (`completed`, `ended`, `guarded`, `cancelled`, `timedOut`, `retriesExceeded`, `error`) on the open turn; a conversation aborted while parked (`/reset`, handoff, `stop()`) gets a short closing turn (`reason: end`).
 
 Flow steps are `flow.step` events on the turn (`bot.flow.step.index`, `bot.flow.step.kind`).
