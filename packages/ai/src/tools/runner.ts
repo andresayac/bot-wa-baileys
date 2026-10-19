@@ -1,4 +1,5 @@
-import type { MessageContext } from '@bot-wa/core'
+import type { BotTracing, MessageContext } from '@bot-wa/core'
+import { activeTracing, ToolCallSpan } from '../tracing.js'
 import { AI_MESSAGES, aiOverride, aiText, type AITranslatable } from '../i18n.js'
 import type { AIChatMessage, GenerateInput, GenerateResult } from '../types.js'
 import { isTruncated } from '../stopReasons.js'
@@ -33,6 +34,8 @@ export interface ToolLoopOptions {
   signal?: AbortSignal
   /** Successful side-effecting runs of this chat (repeat notice in confirmations, `dedupe`). */
   ledger?: ChatToolLedger
+  /** Tracing: an `execute_tool {name}` span per tool call (outcome, no arguments or results). */
+  tracing?: BotTracing
 }
 
 export interface ToolLoopResult {
@@ -178,7 +181,11 @@ export async function runToolLoop(opts: ToolLoopOptions): Promise<ToolLoopResult
   let truncatedToolCalls = 0
   let last: GenerateResult | undefined
 
+  const tracing = activeTracing(opts.tracing)
+  /** Tracing: the open `execute_tool` span of each call, fed by the loop's own events. */
+  const callSpans = tracing ? new Map<string, ToolCallSpan>() : undefined
   const emit = (e: Omit<AIToolEvent, 'at' | 'chatKey'>): void => {
+    if (callSpans && e.callId !== undefined) callSpans.get(e.callId)?.event(e.type)
     if (!opts.onEvent) return
     try { opts.onEvent({ ...e, at: Date.now(), chatKey: opts.chatKey }) } catch { /* audit sinks must not break the turn */ }
   }
@@ -299,6 +306,20 @@ export async function runToolLoop(opts: ToolLoopOptions): Promise<ToolLoopResult
     }
   }
 
+  /** {@link runOne}, inside an `execute_tool` span when traced. */
+  const runCall = (call: AIToolCall, step: number): Promise<AIToolResult> => {
+    if (!tracing || !callSpans) return runOne(call, step)
+    const traced = ToolCallSpan.start(tracing, call, step)
+    callSpans.set(call.id, traced)
+    const done = (error?: unknown): void => {
+      if (callSpans.get(call.id) === traced) callSpans.delete(call.id)
+      traced.end(error)
+    }
+    const p = tracing.withSpan(traced.span, () => runOne(call, step))
+    p.then(() => done(), (error: unknown) => done(error))
+    return p
+  }
+
   for (let step = 1; step <= maxSteps; step++) {
     opts.signal?.throwIfAborted()
     const r = await opts.generate({ ...opts.base, messages, tools: definitions.length ? definitions : undefined })
@@ -340,7 +361,7 @@ export async function runToolLoop(opts: ToolLoopOptions): Promise<ToolLoopResult
       reportTruncated()
       for (const call of calls) results.push(truncatedResult(call, r.stopReason))
     } else {
-      for (const call of calls) results.push(await runOne(call, step))
+      for (const call of calls) results.push(await runCall(call, step))
     }
     toolResults.push(...results)
     messages.push({ role: 'tool', content: results.map((x) => x.content).join('\n'), results })

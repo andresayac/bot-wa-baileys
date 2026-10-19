@@ -40,7 +40,7 @@ export interface GeminiModelLike {
     response: GeminiResponse
   }>
   generateContentStream?(args: Record<string, unknown>, requestOptions?: GeminiRequestOptions): Promise<{
-    stream: AsyncIterable<Pick<GeminiResponse, 'text' | 'candidates' | 'promptFeedback'>>
+    stream: AsyncIterable<Pick<GeminiResponse, 'text' | 'candidates' | 'promptFeedback'> & { usageMetadata?: GeminiUsage }>
   }>
 }
 export interface GeminiLike {
@@ -140,12 +140,16 @@ export class GeminiProvider implements AIProvider {
     if (!model.generateContentStream) {
       const r = await this.generate(input)
       if (r.text) yield r.text
-      input.onStreamEnd?.({ stopReason: r.stopReason })
+      input.onStreamEnd?.({ stopReason: r.stopReason, ...(r.usage ? { usage: r.usage } : {}) })
       return
     }
     const { stream } = await model.generateContentStream(this.buildArgs(input, false), this.reqOpts(input))
     let stopReason: string | undefined
+    let usage: { input: number; output: number } | undefined
     for await (const chunk of stream) {
+      // Each chunk may carry the running usage; the last one is the total.
+      const u = chunk.usageMetadata
+      if (u) usage = { input: u.promptTokenCount ?? 0, output: u.candidatesTokenCount ?? 0 }
       if (blocked(chunk)) {
         // The rest of the answer was withheld: report a refusal (the SDK's text() would throw).
         stopReason = 'refusal'
@@ -155,7 +159,7 @@ export class GeminiProvider implements AIProvider {
       const t = chunk.text()
       if (t) yield t
     }
-    input.onStreamEnd?.({ stopReason })
+    input.onStreamEnd?.({ stopReason, ...(usage ? { usage } : {}) })
   }
 }
 

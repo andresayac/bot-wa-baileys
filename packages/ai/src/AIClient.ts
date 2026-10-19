@@ -26,6 +26,9 @@ import { runToolLoop, type ToolLoopResult } from './tools/runner.js'
 import { DEFAULT_DEDUPE_WINDOW_MS, DEFAULT_LEDGER_RETENTION_MS, ToolLedger, type ChatToolLedger } from './tools/ledger.js'
 import { argLines, summarizeValue, toolTitle } from './tools/present.js'
 import { AI_MESSAGES, aiText } from './i18n.js'
+import type { BotTracing } from '@bot-wa/core'
+import { TRACE_ATTR } from '@bot-wa/core'
+import { activeTracing, traceModelCall, traceStream, setResponseAttributes, recordModelError, startModelSpan, type ModelPurpose } from './tracing.js'
 
 /** Most recent side-effecting runs listed in the system prompt (`ai.tools.doneNote`). */
 const DONE_NOTE_MAX = 5
@@ -65,6 +68,15 @@ export interface AIClientOptions {
    * turns it off; a string replaces the confirm note. Default `true`.
    */
   toolNote?: boolean | string
+  /**
+   * Trace model calls (`chat {model}` spans with token usage, latency and stop reason),
+   * tool calls (`execute_tool {name}`) and retrieval (`bot.ai.retrieve`) through the
+   * bot's tracing — `aiPlugin` passes `bot.tracing`. No prompts, completions, tool
+   * arguments or results are recorded. Omitted: nothing is traced.
+   */
+  tracing?: BotTracing
+  /** `gen_ai.provider.name` on model spans. Default: the provider's `name`. */
+  providerName?: string
 }
 
 /** Per-call options of the tool-aware methods. */
@@ -172,6 +184,24 @@ export class AIClient {
     return !!this.opts.tools && Object.keys(this.opts.tools).length > 0
   }
 
+  /** `gen_ai.provider.name` of this client's spans. */
+  private get providerName(): string {
+    return this.opts.providerName ?? this.provider.name
+  }
+
+  /** One model call, traced as `chat {model}` when tracing is on (else `op()` itself). */
+  private callModel(
+    purpose: ModelPurpose,
+    input: Pick<GenerateInput, 'model' | 'maxTokens'>,
+    op: () => Promise<GenerateResult>,
+    step?: number,
+  ): Promise<GenerateResult> {
+    if (!activeTracing(this.opts.tracing)) return op()
+    return traceModelCall(this.opts.tracing, {
+      purpose, provider: this.providerName, model: input.model, maxTokens: input.maxTokens, ...(step !== undefined ? { step } : {}),
+    }, op)
+  }
+
   private base(messages: AIChatMessage[]): GenerateInput {
     return {
       system: this.opts.persona,
@@ -222,10 +252,10 @@ export class AIClient {
       const r = await this.runTools({ messages }, opts)
       return r.stopReason === 'refusal' ? (this.opts.refusalMessage ?? DEFAULT_REFUSAL) : r.text
     }
-    const r = await this.withTimeout(
+    const r = await this.callModel('ask', this.base(messages), () => this.withTimeout(
       (signal) => this.provider.generate({ ...this.base(messages), signal }),
       opts?.signal,
-    )
+    ))
     return r.stopReason === 'refusal' ? (this.opts.refusalMessage ?? DEFAULT_REFUSAL) : r.text
   }
 
@@ -233,16 +263,20 @@ export class AIClient {
     // `signal` (the internal timeout controller) MUST win over input.signal:
     // withTimeout already bridges the caller's input.signal into it, and only
     // this signal is aborted on timeout — so the provider socket gets cancelled.
-    return this.withTimeout(
+    return this.callModel('generate', { ...this.base(input.messages), ...input }, () => this.withTimeout(
       (signal) => this.provider.generate({ ...this.base(input.messages), ...input, signal }),
       input.signal,
-    )
+    ))
   }
 
   stream(input: Partial<GenerateInput> & { messages: AIChatMessage[] }): AsyncIterable<string> {
     // Streaming passes the caller's signal straight through; the timeout guard
     // applies to non-streaming calls (a stream's duration is legitimately open-ended).
-    return this.provider.stream({ ...this.base(input.messages), ...input })
+    const tracing = activeTracing(this.opts.tracing)
+    if (!tracing) return this.provider.stream({ ...this.base(input.messages), ...input })
+    const full = { ...this.base(input.messages), ...input }
+    return traceStream(tracing, { purpose: 'generate', provider: this.providerName, model: full.model, maxTokens: full.maxTokens }, (record) =>
+      this.provider.stream({ ...full, onStreamEnd: (info) => { record(info); input.onStreamEnd?.(info) } }))
   }
 
   /**
@@ -300,6 +334,7 @@ export class AIClient {
     let iterator: AsyncIterator<string> | undefined
     let citations: AIRetrievedChunk[] = []
     let epoch: string | undefined
+    let streamSpan: import('@bot-wa/core').BotSpan | undefined
     try {
       const userId = opts?.userId
       const [history, facts, retrieved, turnEpoch] = await Promise.all([
@@ -314,12 +349,20 @@ export class AIClient {
       const messages: AIChatMessage[] = [...history, { role: 'user', content: userText }]
       const system = this.composeSystem(facts, citations)
       let stopReason: string | undefined
-      iterator = this.provider.stream({
+      let usage: { input: number; output: number } | undefined
+      const tracing = activeTracing(this.opts.tracing)
+      if (tracing) {
+        // Tracing: the streamed model call is one `chat {model}` span (ended in `finally`).
+        const base = this.base(messages)
+        streamSpan = startModelSpan(tracing, { purpose: 'reply', provider: this.providerName, model: base.model, maxTokens: base.maxTokens, streamed: true })
+      }
+      const open = () => this.provider.stream({
         ...this.base(messages),
         ...(system !== undefined ? { system } : {}),
         signal: ctrl.signal,
-        onStreamEnd: (info) => { stopReason = info.stopReason },
+        onStreamEnd: (info) => { stopReason = info.stopReason; usage = info.usage },
       })[Symbol.asyncIterator]()
+      iterator = tracing && streamSpan ? tracing.withSpan(streamSpan, open) : open()
       while (!ctrl.signal.aborted) {
         const r = await this.nextWithIdleTimeout(iterator, ctrl)
         // Stopped while waiting: a chunk that arrives late was never seen.
@@ -329,6 +372,7 @@ export class AIClient {
         yield r.value
       }
       completed = !ctrl.signal.aborted
+      if (streamSpan) setResponseAttributes(streamSpan, { stopReason, usage })
       if (completed && stopReason === 'refusal') {
         refused = true
         yield (text ? '\n\n' : '') + (this.opts.refusalMessage ?? DEFAULT_REFUSAL)
@@ -339,8 +383,13 @@ export class AIClient {
       }
     } catch (error) {
       failed = true
+      if (streamSpan) recordModelError(this.opts.tracing!, streamSpan, error)
       throw error
     } finally {
+      if (streamSpan) {
+        if (!completed && !failed) streamSpan.setAttribute(TRACE_ATTR.aiCancelled, true)
+        streamSpan.end()
+      }
       if (opts?.signal) opts.signal.removeEventListener('abort', onUserAbort)
       if (!completed) {
         ctrl.abort()
@@ -400,9 +449,11 @@ export class AIClient {
     const base = { ...this.base([]), ...rest }
     const notes = this.toolNotes(opts, ledger)
     if (notes.length) base.system = [base.system, ...notes].filter(Boolean).join('\n\n')
+    let step = 0
     return runToolLoop({
       tools: this.opts.tools ?? {},
-      generate: (gi) => this.withTimeout((signal) => this.provider.generate({ ...gi, signal }), opts.signal ?? input.signal),
+      generate: (gi) => this.callModel('tool_step', gi, () => this.withTimeout((signal) => this.provider.generate({ ...gi, signal }), opts.signal ?? input.signal), ++step),
+      ...(activeTracing(this.opts.tracing) ? { tracing: this.opts.tracing } : {}),
       base,
       ...(ledger ? { ledger } : {}),
       messages,
@@ -446,10 +497,10 @@ export class AIClient {
     if (this.hasTools) {
       r = await this.runTools({ messages, ...withSystem }, { ...opts, chatKey: opts?.chatKey ?? chatKey })
     } else {
-      r = await this.withTimeout(
+      r = await this.callModel('reply', this.base(messages), () => this.withTimeout(
         (signal) => this.provider.generate({ ...this.base(messages), ...withSystem, signal }),
         opts?.signal,
-      )
+      ))
     }
     // Cancelled while the turn was running (e.g. `/reset` cleared the history meanwhile):
     // never write the stale turn back nor answer it.
@@ -481,6 +532,18 @@ export class AIClient {
   private async retrieveFor(query: string, signal?: AbortSignal): Promise<AIRetrievedChunk[]> {
     const rag = this.opts.rag
     if (!rag || !query.trim()) return []
+    const tracing = activeTracing(this.opts.tracing)
+    if (tracing) {
+      return tracing.trace('bot.ai.retrieve', {}, (span) => {
+        const hits = this.retrieveNow(rag, query, signal)
+        hits.then((h) => { span.setAttribute(TRACE_ATTR.aiRagChunks, h.length) }, () => {})
+        return hits
+      })
+    }
+    return this.retrieveNow(rag, query, signal)
+  }
+
+  private async retrieveNow(rag: AIRagConfig, query: string, signal?: AbortSignal): Promise<AIRetrievedChunk[]> {
     try {
       // Bounded: a slow retriever (or a first-time index build) must not hold the chat's queue.
       const hits = await this.withTimeout(
@@ -599,7 +662,8 @@ export class AIClient {
       maxLength: memory.maxFactLength,
       ...(cfg.instructions ? { instructions: cfg.instructions } : {}),
     })
-    const r = await this.withTimeout(
+    const extractModel = cfg.model ?? this.opts.model
+    const r = await this.callModel('memory', { model: extractModel, maxTokens: cfg.maxTokens }, () => this.withTimeout(
       (signal) =>
         this.provider.generate({
           system: prompt.system,
@@ -610,7 +674,7 @@ export class AIClient {
           signal,
         }),
       opts?.signal,
-    )
+    ))
     if (r.stopReason === 'refusal') return []
     const facts = parseFacts(r.text, maxItems, memory.maxFactLength)
     if (!facts) {

@@ -40,6 +40,13 @@ import { AIToolCancelledError, type AIToolEvent } from './tools/types.js'
 import { editsMessages, isConfirmButtonId, isLiveConfirmButton, suspendingConfirmer } from './tools/autoreplyConfirm.js'
 import { AI_MESSAGES, aiText } from './i18n.js'
 import { formatMarkdown, formatMarkdownStream, type TextFormat } from './format.js'
+import type { BotTracing } from '@bot-wa/core'
+
+/** `bot.tracing` when the core has it and it is enabled (an older core has no `tracing`). */
+function tracingOf(bot: unknown): BotTracing | undefined {
+  const tracing = (bot as { tracing?: BotTracing }).tracing
+  return tracing?.enabled ? tracing : undefined
+}
 
 /** Public config for {@link aiPlugin}. */
 export type AIPluginConfig = AIConfig & {
@@ -85,6 +92,9 @@ export function aiPlugin(config: AIPluginConfig = {}): PluginSpec<AIPluginConfig
         toolTimeoutMs: cfg.toolTimeoutMs,
         maxStepsMessage: cfg.maxStepsMessage,
         ...(cfg.toolConfirm?.systemNote !== undefined ? { toolNote: cfg.toolConfirm.systemNote } : {}),
+        // Tracing: model/tool spans join the bot's trace (no-op unless BotConfig.telemetry is set).
+        ...(tracingOf(bot) ? { tracing: tracingOf(bot) } : {}),
+        providerName: cfg.__provider?.name ?? cfg.provider ?? 'anthropic',
         onToolEvent: (event: AIToolEvent) => {
           // Audit trail: metadata only in the log (no args / results), full event to sinks.
           ctx.logger.debug({ tool: event.tool, type: event.type, step: event.step, durationMs: event.durationMs }, 'ai tool event')
