@@ -79,6 +79,7 @@ import { deleteSubjectData, exportSubjectData, type SubjectDataDeps, type Subjec
 import { type TriggerOptions, type TriggerResult } from '../ops/trigger.js'
 import type { I18n } from '../i18n/I18n.js'
 import type { CoordinatorEvents, Fence, LeaseLossReason } from '../coordination/types.js'
+import type { DurabilityControl } from '../durability/bind.js'
 import type { I18nConfig, LocaleMessages, TranslateParams } from '../i18n/types.js'
 import { composeBot } from './bot/compose.js'
 import { createLifecycleState, type BotKernel, type LifecycleState } from './bot/kernel.js'
@@ -136,6 +137,16 @@ export interface BotEvents {
   'coordination:follower': { name: string; reason?: LeaseLossReason }
   /** Multi-replica: a chat turn or leadership was lost before its release (pause, partition, backend down). */
   'coordination:lease-lost': CoordinatorEvents['lease-lost']
+  /**
+   * Durability (`BotConfig.durability`): an inbound event or a send was dead-lettered after its
+   * retries (`id` is the inbox record id or the outbox key). Replay/retry it through `bot.durability`.
+   */
+  'durability:dead': { kind: 'inbound' | 'outbound'; id: string; chatId?: ChatId; error: unknown }
+  /**
+   * Durability: a send's outcome is unknown after a crash (the provider was called, the result
+   * was never recorded). Handled per `durability.outbox.onAmbiguous`.
+   */
+  'durability:ambiguous': { key: string; chatId: ChatId }
 }
 
 export type BotEventArgs<K extends keyof BotEvents> = BotEvents[K] extends void ? [] : [BotEvents[K]]
@@ -336,6 +347,35 @@ export class Bot extends EventEmitter {
     const normalized: OutboundContent = typeof content === 'string' ? { kind: 'text', text: content } : content
     const r = await this.outbound.send(chatId, normalized, options)
     return { ref: r.ref, id: r.ref.id, chatId: r.ref.chatId, raw: r.raw, skipped: r.skipped }
+  }
+
+  /**
+   * Durable message processing controls — the inbox/outbox journals, operator replay/retry
+   * of dead-lettered records and counters. `undefined` unless `BotConfig.durability` is set.
+   *
+   * @example
+   * ```ts
+   * for (const r of await bot.durability!.outbox.list({ state: 'dead' })) await bot.durability!.retrySend(r.key)
+   * ```
+   */
+  get durability(): DurabilityControl | undefined { return this.kernel.durable ?? undefined }
+
+  /**
+   * Durable fire-and-forget send (needs `BotConfig.durability`): runs the `before('send')`
+   * hooks, journals the send and returns its outbox key at once; the background sweeper
+   * delivers it (retries, backoff, dead-letter queue). Enqueueing an `idempotencyKey` that
+   * already exists is a no-op (`status: 'exists'`) — use it for campaigns and scheduled
+   * jobs that may run twice.
+   *
+   * @example
+   * ```ts
+   * await bot.enqueue(chatId, 'Tu cita es mañana', { idempotencyKey: `reminder:${citaId}` })
+   * ```
+   */
+  async enqueue(chatId: ChatId, content: string | OutboundContent, options?: SendOptions): Promise<{ key: string; status: 'queued' | 'exists' | 'skipped' }> {
+    const durable = this.kernel.durable
+    if (!durable) throw new Error('bot.enqueue() needs BotConfig.durability')
+    return durable.enqueue(chatId, typeof content === 'string' ? { kind: 'text', text: content } : content, options)
   }
 
   /** Send plain text to a chat. Same as `send(chatId, text)`. */

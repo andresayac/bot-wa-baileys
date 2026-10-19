@@ -13,6 +13,9 @@ import { translateFor } from '../i18n/I18n.js'
 import { CORE_MESSAGES } from '../i18n/builtins.js'
 import type { TranslateParams } from '../i18n/types.js'
 import type { InboundLocation } from '../core/provider.js'
+import {
+  adoptCause, currentCause, forkCause, hasCause, restoreCause, trackSettle, type CauseBox, type CauseRef, type SettleOutcome,
+} from '../durability/causation.js'
 
 export interface RuntimeMessage {
   from: string; sender: string; body: string; type: string; isGroup: boolean
@@ -184,6 +187,10 @@ interface ActiveConversation extends ConversationHandle {
   waits?: number
   /** Checkpoint marker write in flight (`trackParked`); later writes and the final clear wait for it. */
   parking?: Promise<void>
+  /** Durability: the causation box this conversation runs in (see durability/causation.ts). */
+  cause?: CauseBox
+  /** Durability: settles of the steps fed to it, resolved when it next blocks on a wait or ends. */
+  idle?: Array<(outcome: SettleOutcome) => void>
 }
 
 const INBOX_CAP = 10
@@ -225,6 +232,8 @@ export class ConversationRuntime {
   private handovers = new Set<string>()
   /** Waking message of a handover resume, consumed by the entry {@link run} creates next for its key. */
   private handoverAnswers = new Map<string, RuntimeMessage>()
+  /** Durability: the cause of each buffered (not yet consumed) message. */
+  private bufferedCauses = new WeakMap<RuntimeMessage, CauseRef>()
 
   constructor(private cfg: RuntimeConfig = {}) {}
 
@@ -280,21 +289,30 @@ export class ConversationRuntime {
       const key = this.keyFor(ctx)
       const entry = this.active.get(key)
       if (entry && resumedFrom) { entry.cp = resumedFrom; entry.waits = 0 }
+      const save = async (step: number) => {
+        // A clear of the checkpoint this conversation replaced may still be in flight:
+        // let it land first, or it would wipe this conversation's fresh checkpoint.
+        await this.pendingClears.get(key)
+        await entry?.parking
+        const cause = currentCause()
+        const cp: FlowCheckpoint = {
+          flowId: flow.id,
+          step,
+          state: { ...(c as ConversationControls).state },
+          updatedAt: Date.now(),
+          // Durability: the inbound record whose effects this checkpoint captures (the message
+          // that entered the flow or that the step consumed — a replay of it is skipped) and
+          // where the next step's send keys continue (a re-run step re-derives the same keys).
+          ...(cause ? { inboundId: cause.id, cause: { id: cause.id, seq: cause.seq } } : {}),
+        }
+        await this.store!.setCheckpoint(key, cp)
+        if (entry) { entry.cp = cp; entry.waits = 0 }
+      }
       try {
-        await runSteps(flow, ctx, c as ConversationControls, startAt, async (stepIndex) => {
-          // A clear of the checkpoint this conversation replaced may still be in flight:
-          // let it land first, or it would wipe this conversation's fresh checkpoint.
-          await this.pendingClears.get(key)
-          await entry?.parking
-          const cp: FlowCheckpoint = {
-            flowId: flow.id,
-            step: stepIndex + 1,
-            state: { ...(c as ConversationControls).state },
-            updatedAt: Date.now(),
-          }
-          await this.store!.setCheckpoint(key, cp)
-          if (entry) { entry.cp = cp; entry.waits = 0 }
-        })
+        // Durability: checkpoint the entry too, so a crash before the first step completes
+        // can resume the flow when the answer that was in flight is replayed.
+        if (startAt === 0 && hasCause()) await save(0)
+        await runSteps(flow, ctx, c as ConversationControls, startAt, (stepIndex) => save(stepIndex + 1))
       } finally {
         await entry?.parking
         // On a graceful shutdown (abortAll) we KEEP the checkpoint so a restart can resume it.
@@ -335,11 +353,18 @@ export class ConversationRuntime {
     const handover = this.handovers.delete(key)
     const flow = this.compiled.get(cp.flowId)
     if (!flow) { await this.store?.clearCheckpoint(key).catch(() => {}); return false }
+    // Durability (a cause is active and the checkpoint recorded one): the pending step re-runs
+    // under the causation it had, so its prompt — already sent before the restart — is answered
+    // from the outbox instead of being repeated, and the waking message is its answer.
+    const cause = hasCause() ? cp.cause : undefined
     const resumed: ConversationFn = async (c, rctx) => {
+      if (cause) restoreCause(cause)
       Object.assign((c as ConversationControlsBase).state, cp.state)
       await this.wrapCompiled(flow, cp.step, cp)(c, rctx)
     }
-    if (handover) this.handoverAnswers.set(key, ctx)
+    // Durability: a replay of the message this checkpoint already captured is not an answer.
+    const replayOfCaptured = cause !== undefined && cp.inboundId === currentCause()?.id
+    if (handover && !replayOfCaptured) this.handoverAnswers.set(key, ctx)
     // enter() is fire-and-forget (it only resolves when the resumed flow ends); a rejection
     // here (e.g. a bad goto target) would otherwise become an unhandled rejection → crash.
     void this.enter(resumed, ctx, { name: cp.flowId }).catch((e) => {
@@ -347,6 +372,10 @@ export class ConversationRuntime {
       this.cfg.logger?.error?.('resume failed', e)
     })
     this.handoverAnswers.delete(key)   // consumed synchronously by run(); never left behind
+    // Durability: the waking message answers the re-run step (a handover already queued it as
+    // the parked wait's answer) — unless the checkpoint already captured this very message (a
+    // replay after the step that consumed it): the flow then only re-runs its pending steps.
+    if (cause && !handover && !replayOfCaptured) this.deliver(ctx)
     return true
   }
 
@@ -516,6 +545,7 @@ export class ConversationRuntime {
       entry.latest = answer
     }
     this.active.set(key, entry)
+    this.trackIdle(entry)
     const startInfo: ConversationStartInfo = { id: randomId('conv'), name, key, ctx }
     entry.life = { info: startInfo, startedAt: Date.now(), ended: false }
     this.notifyLifecycle(() => this.cfg.onConversationStart?.(startInfo))
@@ -525,7 +555,9 @@ export class ConversationRuntime {
     let goto: ConversationGoto | undefined
     let outcome: ConversationOutcome = 'completed'
     try {
-      await fn(controls as never, ctx)
+      const forked = forkCause(() => fn(controls as never, ctx))
+      entry.cause = forked.box
+      await forked.result
     } catch (e) {
       if (entry.cancelled) {
         // Conversación reemplazada/abortada: muere en silencio, sin efectos visibles.
@@ -575,8 +607,15 @@ export class ConversationRuntime {
     if (entry.observers) for (const o of [...entry.observers]) { try { o.inbound?.(ctx) } catch { /* observers must not break delivery */ } }
     if (entry.pending) {
       if (entry.pending.filter && !entry.pending.filter(ctx)) return false
+      adoptCause(entry.cause)
+      this.trackIdle(entry)
       entry.pending.resolve(ctx)
       return true
+    }
+    const cause = currentCause()
+    if (cause) {
+      this.bufferedCauses.set(ctx, cause)
+      this.trackIdle(entry)
     }
     entry.inbox.push(ctx)
     if (entry.inbox.length > INBOX_CAP) entry.inbox.shift()
@@ -589,6 +628,8 @@ export class ConversationRuntime {
     const cancel = new ConversationCancelled(true)
     entry.cancelled = cancel
     if (entry.pending) entry.pending.reject(cancel)
+    // A step still running is never resumed: its fed events settle now (as 'aborted' on stop()).
+    this.settleIdle(entry, this.closed ? 'aborted' : 'settled')
     this.active.delete(key)
     this.notifyEnd(entry)
     // Report the end now, synchronously: a replacing conversation's start must come
@@ -686,9 +727,12 @@ export class ConversationRuntime {
       queued = entry.inbox.shift()
     }
     if (queued) {
+      const cause = this.bufferedCauses.get(queued)
+      if (cause && entry.cause) entry.cause.ref = cause
       const marked = this.markParked(entry, false)
       return marked ? marked.then(() => queued) : Promise.resolve(queued)
     }
+    this.settleIdle(entry, 'settled')
 
     return new Promise<RuntimeMessage>((resolve, reject) => {
       const timeoutMs = opts.timeoutMs ?? this.cfg.defaultTimeoutMs ?? 300_000
@@ -844,7 +888,22 @@ export class ConversationRuntime {
     for (const o of observers ?? []) { try { o.end?.() } catch { /* observers must not break teardown */ } }
   }
 
+  /** Durability: the step now starting (entry or delivery) settles when the conversation next blocks or ends. */
+  private trackIdle(entry: ActiveConversation): void {
+    if (!hasCause()) return
+    trackSettle(new Promise<SettleOutcome>((resolve) => { (entry.idle ??= []).push(resolve) }))
+  }
+
+  private settleIdle(entry: ActiveConversation, outcome: SettleOutcome): void {
+    const idle = entry.idle
+    if (!idle) return
+    entry.idle = undefined
+    for (const resolve of idle) resolve(outcome)
+  }
+
   private cleanup(entry: ActiveConversation, settled = true): void {
+    // Torn down by stop(): the step did not complete — its inbound must be replayed, not acknowledged.
+    this.settleIdle(entry, this.closed ? 'aborted' : 'settled')
     if (entry.pending?.timer) clearTimeout(entry.pending.timer)
     if (this.active.get(entry.key) === entry) this.active.delete(entry.key)
     // A shutdown-preserve flag is consumed by a persistent flow's own unwind (wrapCompiled);

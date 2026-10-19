@@ -7,16 +7,18 @@
  * isolated: a throwing one is logged and the rest still run. The connection state becomes
  * `'closed'` and the original start error is rethrown.
  *
- * Stop: inbound off + broadcasts cancelled → the `stop()` of `quiesce` steps (reverse
- * order) → optional drain of in-flight sends → paced sends closed and conversations
+ * Stop: inbound off + broadcasts cancelled → the `stop()` of `quiesce` steps and the
+ * `pause()` of the others (reverse order) → optional drain of in-flight sends → paced sends closed and conversations
  * aborted (checkpoints kept) → the `stop()` of the remaining steps in reverse order (the
  * first error wins and is rethrown at the end).
  *
  * Default steps (see `defaultLifecycleSteps`): `storage` → (`coordination`, only with
- * `BotConfig.coordination`) → `restore` → `transport` → `jobs`.
+ * `BotConfig.coordination`) → `restore` → (`durability`, only with `BotConfig.durability`)
+ * → `transport` → `jobs`. A started bot runs every step's `afterStart()` before `'started'`.
  */
 import { parseTimerDuration } from '../../utils/timers.js'
 import type { BotCoordination } from '../../coordination/botCoordination.js'
+import type { DurableEngine } from '../../durability/bind.js'
 import type { BotKernel } from './kernel.js'
 
 /** Options of `Bot.stop()`. */
@@ -43,9 +45,20 @@ export interface LifecycleStep {
   stop?(): Promise<void>
   /** Stopped before the drain (stops producing new work), instead of after it. */
   readonly quiesce?: boolean
+  /**
+   * Runs once every step started and the bot accepts inbound (state flags set), right
+   * before `'started'` is emitted. Synchronous; must not throw.
+   */
+  afterStart?(): void
+  /**
+   * For a non-`quiesce` step: stop producing new work before the drain (called in the
+   * quiesce phase, in reverse step order); its `stop()` still runs after the drain.
+   * Synchronous; must not throw.
+   */
+  pause?(): void
 }
 
-/** Today's start order: storage → restore → transport → jobs. */
+/** Start order: storage → [coordination] → restore → [durability] → transport → jobs (bracketed: opt-in). */
 export function defaultLifecycleSteps(k: BotKernel): LifecycleStep[] {
   return [
     {
@@ -74,6 +87,9 @@ export function defaultLifecycleSteps(k: BotKernel): LifecycleStep[] {
       // No stop(): the runtime is closed by the lifecycle itself, right after the drain and
       // before the transport stops (see Lifecycle.stopOnce).
     },
+    // Durable inbox/outbox (`BotConfig.durability`) only: recovers unfinished records once
+    // the conversations are restored, before the transport delivers new events.
+    ...(k.durable ? [durabilityStep(k.durable, k)] : []),
     {
       name: 'transport',
       // With coordination, the transport is started only on the elected replica (or shared).
@@ -115,6 +131,26 @@ function coordinationStep(coordination: BotCoordination, k: BotKernel): Lifecycl
   }
 }
 
+/**
+ * The `durability` step: `recover()` on start (after `restore`, before `transport`);
+ * `resume()` (replay + sweeper) once the bot accepts inbound; `pause()` before the drain;
+ * `stop()` after the transport (in-flight sends stay journaled until then).
+ */
+function durabilityStep(durable: DurableEngine, k: BotKernel): LifecycleStep {
+  return {
+    name: 'durability',
+    start: () => durable.recover(),
+    afterStart: () => { durable.resume() },
+    pause: () => { durable.pause() },
+    rollback: async () => {
+      durable.pause()
+      try { await durable.stop() }
+      catch (rollbackError) { k.logger.error({ err: rollbackError }, 'durability start rollback failed') }
+    },
+    stop: () => durable.stop(),
+  }
+}
+
 export class Lifecycle {
   private queue: Promise<void> = Promise.resolve()
 
@@ -148,6 +184,7 @@ export class Lifecycle {
       state.isStarted = true
       state.acceptingInbound = true
       state.pacedSendsOpen = true
+      for (const step of this.steps) step.afterStart?.()
       this.k.counters.markStarted()
       this.k.events.emit('started')
     } catch (error) {
@@ -181,7 +218,10 @@ export class Lifecycle {
       try { await step.stop() }
       catch (error) { stopError ??= error }
     }
-    for (const step of reversed) if (step.quiesce) await stopStep(step)
+    for (const step of reversed) {
+      if (step.quiesce) await stopStep(step)
+      else step.pause?.()
+    }
     const inflight = this.k.inflightSends
     if (opts?.drain && inflight.size > 0) {
       const timeout = drainTimeout

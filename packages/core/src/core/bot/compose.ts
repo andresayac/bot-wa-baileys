@@ -15,6 +15,7 @@ import { NamespacedStore, type StoreNamespace } from '../../store/NamespacedStor
 import type { IStore } from '../../store/IStore.js'
 import { ConversationRuntime, type CheckpointStore, type RuntimeMessage } from '../../conversations/ConversationRuntime.js'
 import { BotCoordination } from '../../coordination/botCoordination.js'
+import { createDurability } from '../../durability/bind.js'
 import { createControls } from '../../conversations/controls.js'
 import { FlowRouteLog } from '../../flows/inventory.js'
 import type { AccessList, Whitelist } from '../../gates/accessList.js'
@@ -286,6 +287,23 @@ export function composeBot(host: ComposeHost, inputConfig: BotConfig, fields: Co
     logger: logger.child({ module: 'handoff' }),
   })
 
+  // Durable inbox/outbox (opt-in). Replays go through the inbound pipeline (built below:
+  // the closures only read it at call time).
+  let inbound!: InboundPipeline
+  k.durable = createDurability(config.durability, {
+    logger: logger.child({ module: 'durability' }),
+    namespace,
+    hooks: k.hooks,
+    messageLog: k.messageLog,
+    provider,
+    persistRaw: config.persistRaw === true,
+    admits: (ids) => inbound.admitsSender(ids),
+    handleInbound: (m) => inbound.handleInbound(m),
+    handleInteraction: (i) => inbound.handleInteraction(i),
+    emit: (event, payload) => { k.events.emit(event, payload) },
+    reportError: (error) => k.events.error({ error }),
+  })
+
   const ready = new Promise<void>((resolve) => {
     const off = provider.onEvent((e) => {
       if (e.kind === 'connection' && e.update.state === 'ready') { off(); resolve() }
@@ -295,7 +313,7 @@ export function composeBot(host: ComposeHost, inputConfig: BotConfig, fields: Co
   const kernel: BotKernel = k
   const outbound = new OutboundPipeline(kernel)
   const contextFor = createContextFactory(kernel, outbound, (chatId, opts) => host.handoff(chatId, opts))
-  const inbound = new InboundPipeline(kernel, contextFor, persistence)
+  inbound = new InboundPipeline(kernel, contextFor, persistence)
   // Subscribed after the `ready` listener: the `ready` promise resolves before 'ready' handlers run.
   kernel.disposables.add(inbound.attach())
 

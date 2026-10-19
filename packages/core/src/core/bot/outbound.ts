@@ -7,6 +7,7 @@ import { randomId } from '../../utils/timers.js'
 import { isEditableSend, messagingSupport, type ReplyOptions } from '../messaging.js'
 import type { BuildContextDeps, DraftOptions } from '../provider.js'
 import { toStoredError } from '../ledger.js'
+import { isSendDeferred } from '../../durability/bind.js'
 import type { ChatId, MessageRef, OutboundContent, SendOptions, SendResult, SentMessage } from '../types.js'
 import { assertCoordinated, type BotKernel } from './kernel.js'
 
@@ -25,6 +26,13 @@ export class OutboundPipeline {
    */
   async send(chatId: ChatId, content: OutboundContent, options?: SendOptions, origin: 'ctx' | 'api' = 'api', stream?: 'message'): Promise<SendResult> {
     const { hooks, provider, counters, inflightSends, messageLog, config } = this.k
+    // Durability: an idempotency key already sent is answered from the outbox (no hooks, no provider call).
+    const durable = this.k.durable?.prepareSend(options)
+    if (durable) {
+      const prior = await durable.prior(chatId, content)
+      if (prior) return prior
+      options = durable.options
+    }
     const payload: { chatId: ChatId; content: OutboundContent; options?: SendOptions; stream?: 'message' } = { chatId, content, options }
     if (stream) payload.stream = stream
     const proceed = await hooks.runBefore('send', payload as typeof payload & { abort(): void })
@@ -33,7 +41,9 @@ export class OutboundPipeline {
     }
     assertCoordinated(this.k)
     const localRef = { id: randomId('out'), chatId: payload.chatId }
-    const op = provider.send(payload.chatId, payload.content, payload.options)
+    const op = durable
+      ? durable.run(payload, () => provider.send(payload.chatId, payload.content, payload.options))
+      : provider.send(payload.chatId, payload.content, payload.options)
     inflightSends.add(op)
     try {
       let res: SendResult
@@ -53,6 +63,8 @@ export class OutboundPipeline {
       })
       return res
     } catch (error) {
+      // Deferred to the outbox sweeper: not failed (the ledger row is written when it goes out).
+      if (isSendDeferred(error)) throw error
       await messageLog.outbound({
         ref: localRef,
         chatId: payload.chatId,

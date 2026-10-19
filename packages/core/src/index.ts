@@ -457,3 +457,23 @@ export type {
   Fence, LeaseLossReason, LeaseInfo, Ticket, ChatTurn, Leadership, Coordinator, CoordinatorEvents,
   AcquireTurnOptions, CoordinationConfig, MemoryCoordinatorOptions,
 } from './coordination/index.js'
+
+// durability
+// Durable message processing (BotConfig.durability): inbox/outbox journal contract,
+// the in-memory + file backends, the KV seam store packages implement, and errors.
+export { MemoryDurability } from './durability/memory.js'
+export { FileDurability } from './durability/file.js'
+export type { FileDurabilityOptions } from './durability/file.js'
+export { KvDurability, KvInbox, KvOutbox } from './durability/journal.js'
+export type { KvDurabilityOptions } from './durability/journal.js'
+export { MemoryKv } from './durability/kv.js'
+export type { DurableKv, DurableKvEntry, DurableKvIndex, DurableTable, MemoryKvSnapshot } from './durability/kv.js'
+export { StaleLeaseError, SendDeferredError } from './durability/errors.js'
+export { computeBackoff, DEFAULT_BACKOFF } from './durability/backoff.js'
+export type { DurabilityControl, DurabilityMetrics } from './durability/engine.js'
+export type {
+  DurabilityConfig, DurabilityBackend, RetryBackoff,
+  InboxJournal, InboxRecord, InboxState, InboxAppend,
+  OutboxJournal, OutboxRecord, OutboxState, OutboxPut, OutboxError, ClaimedSend,
+  ClaimOptions, LeaseOptions,
+} from './durability/types.js'

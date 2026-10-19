@@ -114,6 +114,7 @@ export default defineConfig({
                 { text: 'Webhook server', link: '/guide/server' },
                 { text: 'WhatsApp 24h window', link: '/guide/session-window' },
                 { text: 'Operations', link: '/guide/operations' },
+                { text: 'Durable processing', link: '/guide/durability' },
               ],
             },
             {
@@ -207,6 +208,7 @@ export default defineConfig({
                 { text: 'Servidor de webhooks', link: '/es/guide/servidor' },
                 { text: 'Ventana de 24 h de WhatsApp', link: '/es/guide/ventana-24h' },
                 { text: 'Operación', link: '/es/guide/operations' },
+                { text: 'Procesamiento durable', link: '/es/guide/durabilidad' },
               ],
             },
             {

@@ -80,7 +80,7 @@ export class InboundPipeline {
    * so a blocked delivery is never recorded as seen (a redelivery after un-blocking is
    * processed), and before persistence, hooks and routing. Counts and debug-logs the drop.
    */
-  private admitsSender(ids: { chatId: ChatId; senderId: UserId }): boolean {
+  admitsSender(ids: { chatId: ChatId; senderId: UserId }): boolean {
     const access = checkAccess(this.k.access.blacklist, this.k.access.whitelist, ids)
     if (access === 'allowed') return true
     this.k.counters.blockedDropped()
@@ -93,6 +93,12 @@ export class InboundPipeline {
    * `handle` resolving `false` (dropped unprocessed because the bot stopped) forgets the key.
    */
   private async runInboundOnce(event: InboundEvent, handle: () => Promise<boolean>): Promise<void> {
+    // Durability: journal before dispatch (the in-memory deduper stays as a cheap first filter).
+    const durable = this.k.durable
+    if (durable) {
+      const journaled = handle
+      handle = () => durable.admit(event, journaled)
+    }
     const dedupe = this.k.inboundDedupe
     if (!dedupe) { await handle(); return }
     await dedupe.run(event, handle, () => {
@@ -102,7 +108,7 @@ export class InboundPipeline {
   }
 
   /** Persist and dispatch one inbound message; `false` when it was dropped because the bot stopped. */
-  private async handleInbound(inbound: InboundMessage, interaction?: InteractionInfo): Promise<boolean> {
+  async handleInbound(inbound: InboundMessage, interaction?: InteractionInfo): Promise<boolean> {
     const { config, namespace } = this.k
     // The access lists already admitted this sender (admitsSender, before dedupe).
     this.k.counters.inbound()
@@ -149,7 +155,7 @@ export class InboundPipeline {
   }
 
   /** Project an interaction (button/slash/callback) into a message-shaped context. */
-  private async handleInteraction(it: InboundInteraction): Promise<boolean> {
+  async handleInteraction(it: InboundInteraction): Promise<boolean> {
     const inbound: InboundMessage = {
       ref: it.ref,
       chat: it.chat,

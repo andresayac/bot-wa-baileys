@@ -47,7 +47,10 @@ flowchart TD
    [Handoff & access lists](./handoff#blacklist-and-whitelist).
 2. **Inbound dedupe**: a redelivered message or interaction (same `chatId`
    + id, from webhook retries or a Baileys offline resync) is dropped. On by
-   default; see [Inbound dedupe](#inbound-dedupe).
+   default; see [Inbound dedupe](#inbound-dedupe). With
+   [durable processing](./durability) on (opt-in), the event is then written
+   to the inbox journal before anything else runs, acknowledged once its
+   conversation steps settled, and replayed from step 1 after a crash.
 3. **Persistence**: the chat, contact and message are upserted in the store.
 4. **`groupMode` filter**: a group message the bot must ignore stops here
    (it is still persisted).

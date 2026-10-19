@@ -30,6 +30,7 @@ import type { WelcomeTracker } from '../welcome.js'
 import type { DynamicFlowRegistry } from '../flowRegistry.js'
 import type { MessageLog } from '../ledger.js'
 import type { BotCoordination } from '../../coordination/botCoordination.js'
+import type { DurableEngine } from '../../durability/bind.js'
 
 /** Mutable start/stop state of a bot (one object, shared by every module). */
 export interface LifecycleState {
@@ -122,6 +123,8 @@ export interface BotKernel {
   readonly isHandedOff: (chatId: ChatId) => boolean
   /** Multi-replica coordination (`BotConfig.coordination`); `undefined` for a single process. */
   readonly coordination?: BotCoordination
+  /** Durable inbox/outbox (`BotConfig.durability`); `null` when off — every durable branch checks it. */
+  readonly durable: DurableEngine | null
 }
 
 /**

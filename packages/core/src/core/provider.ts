@@ -14,6 +14,7 @@
 import type { HandoffConfig, HandoffOptions, StoredHandoff } from '../gates/handoff.js'
 import type { InboundDedupeOptions } from './dedupe.js'
 import type { CoordinationConfig } from '../coordination/types.js'
+import type { DurabilityConfig } from '../durability/types.js'
 import type { UserData } from '../user/types.js'
 import type { EditOptions, EditResult, MessagingFeature, MessagingSupport, ReplyOptions, TypingConfig } from './messaging.js'
 import type { I18nConfig, LangSource, TranslateParams } from '../i18n/types.js'
@@ -356,6 +357,14 @@ export interface ListSection {
 
 /** Options common to any send. */
 export interface SendOptions {
+  /**
+   * Durability (`BotConfig.durability`): idempotency key of this send in the outbox. A key
+   * that was already sent is answered from the outbox without sending again. Optional —
+   * sends made while handling an inbound message get a deterministic key automatically.
+   * With durability on, core strips it before calling the provider; with it off, it is
+   * passed through and providers ignore it.
+   */
+  idempotencyKey?: string
   quoted?: MessageRef
   mentions?: UserId[]
   /**
@@ -1048,6 +1057,19 @@ export interface FlowCheckpoint {
    * message as that wait's answer. Absent or `false`: the step re-runs from its start.
    */
   parked?: boolean
+  /**
+   * Durability (`BotConfig.durability`): id of the inbound journal record whose effects this
+   * checkpoint captures (the message that entered the flow or that the step consumed). A replay
+   * of that record after a crash resumes the flow's pending steps without delivering the message
+   * to it again. Stores persist it opaquely with the rest of the checkpoint.
+   */
+  inboundId?: string
+  /**
+   * Durability: the causation (inbound record id + send sequence) the next step's sends
+   * continue from. A step re-run on replay re-derives the same outbox keys, so a prompt
+   * that already went out is not sent twice.
+   */
+  cause?: { id: string; seq: number }
 }
 
 /**
@@ -1225,6 +1247,15 @@ export interface BotConfig {
    * processed. See `InboundDeduper`.
    */
   dedupe?: InboundDedupeOptions | false
+  /* --- durable message processing (opt-in) --------------------------------- */
+  /**
+   * Durable message processing: journal every admitted inbound event before dispatch
+   * (replayed after a crash) and every send in an outbox with idempotency keys, retries,
+   * backoff and a dead-letter queue. Omitted = off (in-memory, exactly as before);
+   * `{}` = on with the in-memory backend. See `DurabilityConfig` and the operations guide.
+   */
+  durability?: DurabilityConfig
+  /* ------------------------------------------------------------------------ */
   store?: StoreKind | IStore
   storeConfig?: Record<string, unknown>
   /** REQUIRED in v2: the constructed transport provider (BaileysProvider, ...). */

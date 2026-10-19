@@ -24,6 +24,7 @@ import {
   ACQUIRE_FENCED_LOCK_SCRIPT, DELETE_CHAT_SCRIPT, DROP_MESSAGE_SCRIPT, MERGE_CAS_SCRIPT, RELEASE_LOCK_SCRIPT, RENEW_LOCK_SCRIPT,
 } from '../src/scripts.js'
 import { FakeCoordState, evalCoordScript } from './fakeCoordScripts.js'
+import { DURABLE_WRITE_SCRIPT } from '../src/durabilityScripts.js'
 
 interface ZEntry {
   score: number
@@ -472,6 +473,25 @@ export class FakeRedisClient implements RedisLikeClient {
       if (members.length) this.delSync(members.map((m) => itemPrefix + m))
       this.delSync([setKey, chatKey])
       return members.length
+    }
+    if (script === DURABLE_WRITE_SCRIPT) {
+      const [docKey, dueKey, doneKey] = keys
+      const [mode, expected, next, member, due, done] = args
+      if (docKey == null || dueKey == null || doneKey == null || member == null) throw new Error('ERR durable-write script needs three keys and six arguments')
+      const current = this.readString(docKey)
+      if (mode === 'insert' ? current !== null : current !== expected) return 0
+      if (mode === 'remove') {
+        this.delSync(docKey)
+        this.zRemSync(dueKey, member)
+        this.zRemSync(doneKey, member)
+        return 1
+      }
+      this.setSync(docKey, next ?? '')
+      for (const [key, value] of [[dueKey, due], [doneKey, done]] as const) {
+        if (!value) this.zRemSync(key, member)
+        else this.zAddSync(key, { score: Number(value), value: member })
+      }
+      return 1
     }
     throw new Error('NOSCRIPT FakeRedisClient: unknown script (only the scripts RedisStore sends are modelled)')
   }
