@@ -96,6 +96,7 @@ export class TelegramProvider implements IProvider<unknown> {
     templates: false,
     interactionsRequireAck: false, // answerCallbackQuery stops the spinner; no hard deadline
     pushIngress: true,     // supports webhook; also owns a long-poll loop
+    exclusiveSession: true, // long polling: two getUpdates loops conflict (set to false in webhook mode, see constructor)
     streaming: 'draft',    // sendMessageDraft (private chats); edits elsewhere
     forms: 'degraded', // flow().form() asks field by field
     textFormat: 'plain', // sent without parse_mode: Markdown would show literally
@@ -131,6 +132,8 @@ export class TelegramProvider implements IProvider<unknown> {
       mediaDownload: config.mediaDownload,
     }
     if (config.selfId) this._selfId = config.selfId
+    // Webhook mode: every replica can take updates the host forwards; only polling is exclusive.
+    this.capabilities.exclusiveSession = this.config.polling
     this.webhookSecret = config.webhookSecret
     const edits = config.editedMessages ?? 'deliver'
     if (edits !== 'deliver' && edits !== 'ignore') {

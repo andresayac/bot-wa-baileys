@@ -28,6 +28,11 @@ describe('TelegramProvider streaming', () => {
     expect(p.capabilities.maxTextLength).toBe(4096)
   })
 
+  it('declares an exclusive session only in long-polling mode (multi-replica coordination)', () => {
+    expect(new TelegramProvider({ token: 'T' }).capabilities.exclusiveSession).toBe(true)
+    expect(new TelegramProvider({ token: 'T', polling: false, webhookSecret: 's' }).capabilities.exclusiveSession).toBe(false)
+  })
+
   it('sendDraft → sendMessageDraft with draft_id, text, can_stop, keep_on_stop and passthrough', async () => {
     const calls = mockFetch(() => ok())
     const p = new TelegramProvider({ token: 'T' })

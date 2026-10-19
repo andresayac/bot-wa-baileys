@@ -170,6 +170,7 @@ export class BaileysProvider implements IProvider<WAMessage> {
     buttons: false, lists: false, polls: true, reactions: true, edit: false,
     typing: true, presence: true, readReceipts: true, groups: true, templates: false,
     interactionsRequireAck: false, pushIngress: false,
+    exclusiveSession: true, // one WhatsApp Web socket per session: with N replicas only the elected one connects
     streaming: 'none', // no live preview: ctx.stream() sends sentence chunks with typing
     forms: 'degraded', // flow().form() asks field by field
     textFormat: 'whatsapp', // WhatsApp markup: *bold* _italic_ ~strike~
