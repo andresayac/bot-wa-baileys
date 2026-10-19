@@ -169,3 +169,17 @@ describe('aiPlugin — a failing typing indicator never kills the reply', () => 
     })
   }
 })
+
+describe('aiPlugin /reset reply', () => {
+  it('keeps the Spanish default without i18n', async () => {
+    const { chat } = await botWithAI()
+    await chat.send('/reset')
+    await chat.expectReply('✅ Conversación reiniciada.')
+  })
+  it('answers in English when the bot resolves English', async () => {
+    const { bot, chat } = await createTestBot({ i18n: { defaultLocale: 'en' } })
+    bot.plug(aiPlugin({ __provider: new MockAIProvider({ reply: 'AI' }), persona: 'ACME' }))
+    await chat.send('/reset')
+    await chat.expectReply('✅ Conversation restarted.')
+  })
+})

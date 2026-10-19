@@ -26,7 +26,7 @@
  * ```
  */
 
-import { definePlugin, type MessageContext, type PluginContext, type PluginSpec } from '@bot-wa/core'
+import { CORE_MESSAGES, definePlugin, type MessageContext, type PluginContext, type PluginSpec } from '@bot-wa/core'
 import type { AIConfig, AIProvider, AIStreamConfig } from './types.js'
 import { ContextManager } from './ContextManager.js'
 import { AIClient } from './AIClient.js'
@@ -46,7 +46,6 @@ export type AIPluginConfig = AIConfig & {
 }
 
 const DEFAULT_ERROR_MESSAGE = '⚠️ Ahora no puedo responder, intenta luego.'
-const DEFAULT_RESET_REPLY = '✅ Conversación reiniciada.'
 const DEFAULT_CONFIRM_TIMEOUT = '2m'
 
 interface InflightTurn {
@@ -207,7 +206,8 @@ export function aiPlugin(config: AIPluginConfig = {}): PluginSpec<AIPluginConfig
           client.clearToolHistory(key)
           await ctxMgr.clear(key)
           bot.abortConversation(mctx)
-          await mctx.reply(DEFAULT_RESET_REPLY)
+          // Localized like the core slash command (es default, en when the chat resolves to English).
+          await mctx.reply(mctx.t(CORE_MESSAGES.commandsReset))
         })
       }
 
