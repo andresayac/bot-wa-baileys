@@ -111,6 +111,20 @@ describe('PostgresStore', () => {
     expect(await store.getChat('chat@g.us')).toBeUndefined()
   })
 
+  it('deleteChat purges messages and the chat record in ONE statement (one implicit transaction)', async () => {
+    await store.saveMessage(msg('gone@x', 'g1', 'x', 1))
+    await store.upsertChat({ id: 'gone@x', name: 'Gone' })
+    const before = fake.executed.length
+    await store.deleteChat('gone@x')
+    const statements = fake.executed.slice(before)
+    // A pool hands each query() to any client: two statements were two
+    // transactions, so a failure between them left a chat without its log.
+    expect(statements).toHaveLength(1)
+    expect(statements[0]).toMatch(/^WITH .*DELETE FROM messages .*\) DELETE FROM chats /)
+    expect(await store.getChat('gone@x')).toBeUndefined()
+    expect(await store.getMessagesByChat('gone@x')).toEqual([])
+  })
+
   it('upserts and retrieves contacts', async () => {
     await store.upsertContact({ id: 'user@s.whatsapp.net', name: 'Alice', phoneNumber: '+123' })
     expect((await store.getContact('user@s.whatsapp.net'))?.name).toBe('Alice')

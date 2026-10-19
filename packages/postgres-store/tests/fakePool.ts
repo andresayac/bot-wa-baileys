@@ -29,7 +29,7 @@ interface TableDef {
   columns: Map<string, string>
   /** Primary-key column(s): a column-level PRIMARY KEY or a table-level `PRIMARY KEY (a, b)`. */
   pk: string[]
-  /** pk value(s) -> row */
+  /** pk value(s) -> row (replaced wholesale when a statement is rolled back) */
   rows: Map<string, Record<string, unknown>>
 }
 
@@ -46,6 +46,8 @@ export class FakePgError extends Error {
 }
 
 const RE = {
+  /** `WITH x AS (DELETE ...) <outer>` — a data-modifying CTE plus the outer statement. */
+  withDelete: /^WITH \w+ AS \((DELETE FROM .+?)\) ((?:DELETE|INSERT|SELECT) .+)$/,
   createTable: /^CREATE TABLE IF NOT EXISTS (\S+) \((.+)\)$/,
   createIndex: /^CREATE INDEX IF NOT EXISTS .+$/,
   insert:
@@ -55,6 +57,9 @@ const RE = {
   selectAll: /^SELECT (.+) FROM (\S+)$/,
   deleteWhere: /^DELETE FROM (\S+) WHERE (\w+) = \$1$/,
   deleteTrim: /^DELETE FROM (\S+) WHERE (\w+) = \$1 AND id NOT IN \(SELECT id FROM (\S+) WHERE (\w+) = \$1 ORDER BY (.+) LIMIT \$2\)$/,
+  /** Batched purge of expired user_data rows (PostgreSQL has no DELETE ... LIMIT). */
+  purgeBatch:
+    /^DELETE FROM (\S+) WHERE expires_at IS NOT NULL AND expires_at <= \$1 AND \(user_id, namespace, key\) IN \(SELECT user_id, namespace, key FROM (\S+) WHERE expires_at IS NOT NULL AND expires_at <= \$1 LIMIT \$2\)$/,
   /** Multi-predicate WHERE (user_data statements) — see {@link parseWhere}. */
   selectWhereAnd: /^SELECT (.+?) FROM (\S+) WHERE (.+)$/,
   deleteWhereAnd: /^DELETE FROM (\S+) WHERE (.+)$/,
@@ -292,6 +297,31 @@ export class FakePool extends EventEmitter implements PostgresPoolLike {
       throw new FakePgError('08P01', `bind message supplies ${values.length} parameters, but prepared statement "" requires ${required}`)
     }
 
+    // `WITH name AS (<DELETE ...>) <statement>`: a data-modifying CTE always runs
+    // to completion, and both parts commit (or fail) as ONE statement. The fake
+    // runs them back to back on a snapshot and restores it if either throws.
+    let m = RE.withDelete.exec(stmt)
+    if (m) return this.atomically(async () => {
+      await this.run(m![1]!, values)
+      return this.run(m![2]!, values)
+    })
+
+    return this.run(stmt, values)
+  }
+
+  /** Run `fn`, restoring every table's rows if it throws (statement atomicity). */
+  private async atomically(fn: () => Promise<PostgresQueryResult>): Promise<PostgresQueryResult> {
+    const snapshot = new Map([...this.tables].map(([name, def]) => [name, new Map(def.rows)]))
+    try {
+      return await fn()
+    } catch (err) {
+      for (const [name, rows] of snapshot) this.tables.get(name)!.rows = rows
+      throw err
+    }
+  }
+
+  /** One plain statement (already normalised and parameter-checked). */
+  private async run(stmt: string, values: unknown[]): Promise<PostgresQueryResult> {
     let m = RE.createTable.exec(stmt)
     if (m) return this.createTable(m[1], m[2])
     if (RE.createIndex.test(stmt)) return { rows: [], rowCount: 0 }
@@ -316,6 +346,12 @@ export class FakePool extends EventEmitter implements PostgresPoolLike {
 
     m = RE.deleteWhere.exec(stmt)
     if (m) return this.deleteWhere(m[1], m[2], values)
+
+    m = RE.purgeBatch.exec(stmt)
+    if (m) {
+      if (m[1] !== m[2]) throw new Error(`FakePool: unsupported purge statement: ${stmt}`)
+      return this.purgeBatch(m[1]!, values)
+    }
 
     m = RE.selectWhereAnd.exec(stmt)
     if (m) return this.selectWhereAnd(m[1], m[2], m[3], values)
@@ -478,6 +514,18 @@ export class FakePool extends EventEmitter implements PostgresPoolLike {
       }
     }
     return { rows: [], rowCount: removed }
+  }
+
+  /** DELETE up to `$2` rows with `expires_at <= $1` (the subquery's LIMIT picks an arbitrary subset). */
+  private purgeBatch(table: string, values: unknown[]): PostgresQueryResult {
+    const def = this.table(table)
+    const type = def.columns.get('expires_at')
+    const now = input(type, values[0])
+    const limit = limitInput(values[1])
+    const expired = [...def.rows.values()].filter(
+      (r) => r.expires_at != null && now != null && compare(type, r.expires_at, now) <= 0,
+    )
+    return this.deleteRows(def, expired.slice(0, limit))
   }
 
   /** Rows whose `col` equals the bound `$1` (typed like the column). */
