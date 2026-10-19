@@ -127,6 +127,8 @@ export class RedisCoordinator implements Coordinator {
   private readonly listeners = new Map<string, Set<Listener>>()
   private running = false
   private timer?: ReturnType<typeof setInterval>
+  /** Fires 90% of a lease after the last confirmed renewal: give every lease up locally. */
+  private deadline?: ReturnType<typeof setTimeout>
   private renewing = false
   /** performance.now() at which the last fully successful renewal round was SENT. */
   private lastRenewOk = 0
@@ -163,6 +165,7 @@ export class RedisCoordinator implements Coordinator {
     if (this.ownsClient && this.client.isOpen !== true) await this.client.connect?.()
     await this.run(HEARTBEAT_SCRIPT, [this.repKey(this.replicaId)], [this.leaseMs])
     this.lastRenewOk = performance.now()
+    this.armDeadline()
     this.running = true
     this.timer = setInterval(() => { void this.tick() }, Math.max(10, Math.floor(this.leaseMs / 3)))
     this.timer.unref?.()
@@ -173,6 +176,7 @@ export class RedisCoordinator implements Coordinator {
     this.running = false
     if (this.timer) clearInterval(this.timer)
     this.timer = undefined
+    if (this.deadline) clearTimeout(this.deadline)
     const releases: Array<Promise<unknown>> = []
     for (const t of [...this.turns]) {
       this.drop(t, 'stopped', false)
@@ -196,6 +200,7 @@ export class RedisCoordinator implements Coordinator {
     this.running = false
     if (this.timer) clearInterval(this.timer)
     this.timer = undefined
+    if (this.deadline) clearTimeout(this.deadline)
     for (const t of [...this.turns]) this.drop(t, 'expired', true)
     for (const l of [...this.leads]) this.dropLead(l, 'expired', true)
   }
@@ -356,14 +361,26 @@ export class RedisCoordinator implements Coordinator {
 
   /* watchdog --------------------------------------------------------------- */
 
+  /**
+   * If Redis has not confirmed our leases for 90% of a lease, give them all up locally,
+   * BEFORE the server-side PX can expire and hand them to another replica.
+   */
+  private armDeadline(): void {
+    if (this.deadline) clearTimeout(this.deadline)
+    const due = this.lastRenewOk + this.leaseMs * 0.9 - performance.now()
+    this.deadline = setTimeout(() => this.giveUpIfStale(), Math.max(0, due))
+    this.deadline.unref?.()
+  }
+
+  private giveUpIfStale(): void {
+    if (performance.now() - this.lastRenewOk < this.leaseMs * 0.9) return this.armDeadline()
+    for (const t of [...this.turns]) this.drop(t, 'coordinator-down', true)
+    for (const l of [...this.leads]) this.dropLead(l, 'coordinator-down', true)
+  }
+
   private async tick(): Promise<void> {
     if (!this.running) return
-    // Deadline first: if Redis has not confirmed our leases lately, give them up locally
-    // BEFORE the server-side PX can expire and hand them to another replica.
-    if (performance.now() - this.lastRenewOk > this.leaseMs * 0.9) {
-      for (const t of [...this.turns]) this.drop(t, 'coordinator-down', true)
-      for (const l of [...this.leads]) this.dropLead(l, 'coordinator-down', true)
-    }
+    if (performance.now() - this.lastRenewOk > this.leaseMs * 0.9) this.giveUpIfStale()
     if (this.renewing) return
     this.renewing = true
     const sentAt = performance.now()
@@ -378,6 +395,7 @@ export class RedisCoordinator implements Coordinator {
       turns.forEach((t, i) => { if (Number(results[i + 1]) !== 1 && this.turns.has(t)) this.drop(t, 'expired', true) })
       leads.forEach((l, i) => { if (Number(results[i + 1 + turns.length]) !== 1 && this.leads.has(l)) this.dropLead(l, 'expired', true) })
       this.lastRenewOk = sentAt
+      if (this.running) this.armDeadline()
     } catch (error) {
       this.logger?.warn?.({ err: error }, 'RedisCoordinator: lease renewal failed')
     } finally {
