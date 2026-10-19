@@ -131,11 +131,14 @@ se queda bloqueado detrás de una réplica viva.
   primer paso, así que empiézalo con un `.say()` si la primera pregunta debe
   sobrevivir a un cambio de réplica.
 - **El dedupe de entrada es por proceso.** Un reintento de webhook que llegue
-  a otra réplica se procesa otra vez. Haz los handlers idempotentes, o deja
-  el transporte en una sola réplica (`'leader'`).
+  a otra réplica se procesa otra vez. Haz los handlers idempotentes, deja el
+  transporte en una sola réplica (`'leader'`) o activa
+  [`durability`](./durabilidad.md) con un backend compartido: su journal de
+  entrada deduplica entre réplicas.
 - **Un mensaje que espera turno en una réplica que muere se pierde** (como en
-  un único proceso que se cae). El procesamiento de entrada durable es trabajo
-  planificado.
+  un único proceso que se cae), salvo con `durability` y un backend
+  compartido: el mensaje quedó anotado al llegar y otra réplica lo reprocesa
+  cuando vence su préstamo.
 - **Las tareas programadas (`bot.schedule/every`) corren en todas las
   réplicas.** Usa una tarea solo-líder con `coordinator.tryLead(nombre)` o el
   lock con fencing de abajo.

@@ -39,7 +39,7 @@ import { WelcomeTracker } from '../welcome.js'
 import { createContextFactory, type ContextFactory } from './contextFactory.js'
 import { createEventSink, dispatcherEmit, type EventHost } from './events.js'
 import { InboundPipeline } from './inbound.js'
-import { asMessage, DisposableList, type BotKernel, type LifecycleState } from './kernel.js'
+import { asMessage, assertCoordinated, DisposableList, type BotKernel, type LifecycleState } from './kernel.js'
 import { Lifecycle, defaultLifecycleSteps } from './lifecycle.js'
 import { BotOps, resolveLang } from './ops.js'
 import { OutboundPipeline } from './outbound.js'
@@ -288,7 +288,8 @@ export function composeBot(host: ComposeHost, inputConfig: BotConfig, fields: Co
   })
 
   // Durable inbox/outbox (opt-in). Replays go through the inbound pipeline (built below:
-  // the closures only read it at call time).
+  // the closures only read it at call time) and background sends through the transport,
+  // fenced like any send when coordination is on.
   let inbound!: InboundPipeline
   k.durable = createDurability(config.durability, {
     logger: logger.child({ module: 'durability' }),
@@ -296,6 +297,8 @@ export function composeBot(host: ComposeHost, inputConfig: BotConfig, fields: Co
     hooks: k.hooks,
     messageLog: k.messageLog,
     provider,
+    // Multi-replica: a background send needs this replica to hold the provider session.
+    assertSend: k.coordination ? () => assertCoordinated(k) : undefined,
     persistRaw: config.persistRaw === true,
     admits: (ids) => inbound.admitsSender(ids),
     handleInbound: (m) => inbound.handleInbound(m),

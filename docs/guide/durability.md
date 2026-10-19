@@ -204,6 +204,14 @@ replica that runs them. So:
   its handler takes.
 - Give every replica its own explicit `instanceId`.
 
+**With `coordination`** (see [Running N replicas](./replicas.md)), sticky routing is
+not needed: chat turns serialize each chat across replicas and `.persistent()` flows
+continue on whichever replica gets the next message. Bots of the same `botId` share one
+journal scope, so any replica can replay or deliver a record. With a leader-only
+transport session (`providerSession: 'leader'`, e.g. Baileys) a standby's outbox
+sweeper never calls the transport (the attempt is refused with `ProviderNotLeaderError`
+and retried); the leader delivers it.
+
 ## Testing crash recovery
 
 `@bot-wa/core/testing` exports `crashable(backend)`, which can "kill" a bot at a

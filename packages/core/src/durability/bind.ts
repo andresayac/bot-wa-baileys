@@ -22,6 +22,8 @@ export interface DurabilityHost {
   messageLog: MessageLog
   provider: IProvider
   persistRaw: boolean
+  /** Checked before every background (sweeper) send; throws to refuse it (multi-replica fence). */
+  assertSend?: () => void
   admits(ids: { chatId: ChatId; senderId: UserId }): boolean
   handleInbound(message: InboundMessage): Promise<boolean>
   handleInteraction(interaction: InboundInteraction): Promise<boolean>
@@ -47,7 +49,10 @@ export function createDurability(config: DurabilityConfig | undefined, host: Dur
       }
       return true
     },
-    transportSend: (chatId, content, options) => host.provider.send(chatId, content, options),
+    transportSend: async (chatId, content, options) => {
+      host.assertSend?.()
+      return host.provider.send(chatId, content, options)
+    },
     beforeSend: (payload) => host.hooks.runBefore('send', payload as typeof payload & { abort(): void }),
     afterSend: async (payload, result) => {
       await host.hooks.runAfter('send', payload)

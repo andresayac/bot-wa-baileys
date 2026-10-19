@@ -213,6 +213,15 @@ memoria de la réplica que las ejecuta. Por eso:
   tarde su handler.
 - Da a cada réplica su propio `instanceId` explícito.
 
+**Con `coordination`** (ver [Varias réplicas](./replicas.md)) no hace falta el enrutado
+fijo: los turnos por chat serializan cada chat entre réplicas y los flujos
+`.persistent()` siguen en la réplica que reciba el siguiente mensaje. Los bots con el
+mismo `botId` comparten un ámbito de journal, así que cualquier réplica puede
+reprocesar o entregar un registro. Con una sesión de transporte solo en la líder
+(`providerSession: 'leader'`, p. ej. Baileys), el barrido del outbox de una réplica en
+espera nunca llama al transporte (el intento se rechaza con `ProviderNotLeaderError` y
+se reintenta); lo entrega la líder.
+
 ## Probar la recuperación ante caídas
 
 `@bot-wa/core/testing` exporta `crashable(backend)`, que puede "matar" un bot en una

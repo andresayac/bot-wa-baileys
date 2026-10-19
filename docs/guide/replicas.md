@@ -125,10 +125,13 @@ replica.
   message. A persistent flow is only checkpointed after its first step, so
   start it with a `.say()` if the very first question must survive a handover.
 - **Inbound dedupe is per process.** A webhook retry that reaches another
-  replica is processed again. Make handlers idempotent, or keep the transport
-  on one replica (`'leader'`).
+  replica is processed again. Make handlers idempotent, keep the transport
+  on one replica (`'leader'`), or turn on [`durability`](./durability.md) with
+  a shared backend: its inbox journal deduplicates across the replicas.
 - **A message waiting for its turn on a replica that dies is lost** (as in a
-  single process that crashes). Durable inbound processing is planned work.
+  single process that crashes), unless `durability` is on with a shared
+  backend: the message was journaled on arrival and another replica replays
+  it once its lease expires.
 - **Scheduled jobs (`bot.schedule/every`) run on every replica.** Use a
   leader-only job with `coordinator.tryLead(name)` or the fenced lock below.
 - **A conversation step longer than `settleMs` is cut short** (see above):
