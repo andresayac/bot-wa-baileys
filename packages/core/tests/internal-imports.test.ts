@@ -2,8 +2,8 @@
  * Guard: inside the monorepo, engine internals are imported from `@bot-wa/core/internal`,
  * never through the deprecated main-entry re-exports (kept only for users until v3).
  * The names come from `internal.ts` itself, and the whole repo is scanned (packages,
- * examples, scripts, test utilities, READMEs and guides; see `SKIP_DIRS`) for named,
- * namespace, dynamic and `require` imports of them. `packages/core/tests` is exempt: its
+ * examples, scripts, test utilities, READMEs and guides; see `isSkipped`) for named,
+ * star re-export, namespace, dynamic and `require` imports of them. `packages/core/tests` is exempt: its
  * compatibility tests import the deprecated aliases on purpose (see internal-entry.test.ts).
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs'
@@ -31,28 +31,37 @@ export function exportedNames(source: string): string[] {
 const DEPRECATED = exportedNames(readFileSync(join(coreSrc, 'internal.ts'), 'utf8'))
 
 /**
- * Not scanned: generated output, dependencies, git and CI internals, third-party
- * reference repos (`terceros/`), WhatsApp session folders, historical design notes,
- * changesets and the TypeDoc output. Everything else in the repo is: every package's
- * sources, tests, test utilities, examples, scripts and README, the root `test-utils/`
- * and `scripts/`, the examples and the guides in both languages.
+ * Not scanned (AGENTS.md lists the same): `packages/core/tests` (its compatibility tests
+ * import the deprecated aliases on purpose, see internal-entry.test.ts), every
+ * `CHANGELOG.md` (release notes quote historical import lines), the historical design
+ * notes (`docs/superpowers/`), and what is not the project's own source: dependencies
+ * and generated output (`node_modules`, `lib`, `dist`, `coverage` at any depth; the
+ * TypeDoc output `docs/api/` and the VitePress cache/temp), git and CI internals,
+ * changesets, third-party reference repos (`terceros/`), local tool folders and the
+ * WhatsApp session folders. Everything else in the repo is: every package's sources,
+ * tests, test utilities, examples, scripts and README, the root `test-utils/` and
+ * `scripts/`, the examples and the guides in both languages.
  */
-const SKIP_DIRS = new Set([
-  'node_modules', 'lib', 'dist', '.git', '.github', 'cache', '.temp', 'api', 'superpowers',
-  'terceros', 'sessions', '.claude', '.playwright-mcp', '.changeset', 'coverage',
+/** Skipped wherever they appear (by folder or file name). */
+const SKIP_NAMES = new Set(['node_modules', 'lib', 'dist', 'coverage', '.git', 'sessions', 'CHANGELOG.md'])
+/** Skipped only at this exact repo-relative path (a `src/api/` folder is still scanned). */
+const SKIP_PATHS = new Set([
+  'packages/core/tests', 'docs/superpowers', 'docs/api', 'docs/.vitepress/cache', 'docs/.vitepress/.temp',
+  '.github', '.changeset', 'terceros', '.claude', '.playwright-mcp',
 ])
-/** Release notes quote historical import lines on purpose. */
-const SKIP_FILES = new Set(['CHANGELOG.md'])
-/** The compatibility tests import the deprecated aliases on purpose (see internal-entry.test.ts). */
-const EXEMPT = new Set([join(repo, 'packages', 'core', 'tests')])
 const EXTENSIONS = /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs|vue|md|txt)$/
 
+/** True when the repo-relative path `rel` (`/`-separated) is left out of the scan. */
+export function isSkipped(rel: string): boolean {
+  const name = rel.split('/').pop()!
+  return SKIP_NAMES.has(name) || name.endsWith('_sessions') || SKIP_PATHS.has(rel)
+}
+
 function walk(dir: string, out: string[] = []): string[] {
-  if (EXEMPT.has(dir)) return out
   let entries: string[]
   try { entries = readdirSync(dir) } catch { return out }
   for (const name of entries) {
-    if (SKIP_DIRS.has(name) || name.endsWith('_sessions') || SKIP_FILES.has(name)) continue
+    if (isSkipped(relative(repo, join(dir, name)).split(sep).join('/'))) continue
     const path = join(dir, name)
     const st = statSync(path)
     if (st.isDirectory()) walk(path, out)
@@ -75,13 +84,26 @@ function namesIn(list: string): string[] {
 }
 
 /**
+ * Stands for a star re-export of the main entry (`export * from '@bot-wa/core'` or
+ * `export * as ns from '@bot-wa/core'`): it re-exports every deprecated internal too.
+ */
+export const STAR = '*'
+
+/** True when a name reported by {@link mainEntryNames} reaches an internal through the main entry. */
+export function isOffending(name: string): boolean {
+  return name === STAR || DEPRECATED.includes(name)
+}
+
+/**
  * Names taken from exactly `'@bot-wa/core'` (not a subpath) in `source`: named imports
- * and re-exports (also next to a default import), namespace imports (`ns.X`), dynamic
- * imports and `require` (destructured, bound to a name, or `import('@bot-wa/core').X`
- * in a type position).
+ * and re-exports (also next to a default import), star re-exports ({@link STAR}),
+ * namespace imports (`ns.X`), dynamic imports and `require` (destructured, bound to a
+ * name, or `import('@bot-wa/core').X` in a type position).
  */
 export function mainEntryNames(source: string): string[] {
   const names: string[] = []
+  const star = new RegExp(String.raw`export\s+(?:type\s+)?\*\s*(?:as\s+[\w$]+\s+)?from\s*` + MAIN, 'g')
+  for (const _ of source.matchAll(star)) names.push(STAR)
   const named = new RegExp(String.raw`(?:import|export)\s+(?:type\s+)?(?:[\w$]+\s*,\s*)?\{([^}]*)\}\s*from\s*` + MAIN, 'g')
   for (const m of source.matchAll(named)) names.push(...namesIn(m[1]))
   const call = String.raw`(?:await\s+)?(?:import|require)\s*\(\s*` + MAIN + String.raw`\s*\)`
@@ -159,6 +181,33 @@ describe('deprecated main-entry re-exports', () => {
     ])
   })
 
+  it('the matcher flags star re-exports of the main entry (they re-export every internal)', () => {
+    const src = [
+      "export * from '@bot-wa/core'",
+      'export type * from "@bot-wa/core"',
+      "export * as core from '@bot-wa/core'",
+      "export * from '@bot-wa/core/internal'",
+      "export * as internal from '@bot-wa/core/internal'",
+      "export * from '@bot-wa/core/testing'",
+    ].join('\n')
+    expect(mainEntryNames(src)).toEqual([STAR, STAR, STAR])
+    expect(isOffending(STAR)).toBe(true)
+    expect(isOffending('Bot')).toBe(false)
+  })
+
+  it('skips exactly what the guard documents (AGENTS.md), anchored where it is generated', () => {
+    for (const rel of [
+      'node_modules', 'packages/ai/node_modules', 'packages/ai/lib', 'docs/dist', '.git', '.github', '.changeset',
+      'terceros', 'sessions', 'packages/core/sessions', 'bot_sessions', '.claude', '.playwright-mcp',
+      'docs/superpowers', 'docs/api', 'docs/.vitepress/cache', 'docs/.vitepress/.temp', 'packages/ai/coverage',
+      'packages/core/tests', 'CHANGELOG.md', 'packages/ai/CHANGELOG.md',
+    ]) expect(isSkipped(rel), rel).toBe(true)
+    for (const rel of [
+      'packages/manager/src/api', 'packages/ai/src/cache', 'packages/x/superpowers', 'docs/guide', 'docs/es/guide',
+      'docs/.vitepress/theme', 'packages/core/src', 'test-utils', 'scripts',
+    ]) expect(isSkipped(rel), rel).toBe(false)
+  })
+
   it('takes the deprecated names from internal.ts', () => {
     expect(DEPRECATED).toEqual(expect.arrayContaining(['createPacer', 'MetricsCollector', 'TYPING_REFRESH_MS', 'newFormToken', 'buildMessageContext']))
     expect(DEPRECATED.length).toBeGreaterThanOrEqual(15)
@@ -182,7 +231,7 @@ describe('deprecated main-entry re-exports', () => {
     const files = scannedFiles()
     expect(files.length).toBeGreaterThan(100)
     for (const file of files) {
-      const used = mainEntryNames(readFileSync(file, 'utf8')).filter((n) => DEPRECATED.includes(n))
+      const used = mainEntryNames(readFileSync(file, 'utf8')).filter(isOffending)
       if (used.length) offenders.push(`${relative(repo, file)}: ${used.join(', ')}`)
     }
     expect(offenders).toEqual([])
