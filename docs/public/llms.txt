@@ -25,6 +25,7 @@
 - [Installation](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/guide/getting-started.md)
 - [Your first bot](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/guide/first-bot.md)
 - [Core concepts: pipeline, dispatcher, identity, dedupe](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/guide/concepts.md)
+- [Architecture: core modules, inbound/outbound pipelines, where the opt-ins plug in](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/guide/architecture.md)
 - [Channels: one provider per transport, capabilities](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/guide/channels.md)
 - [Messages & media, broadcasts, bot.trigger()](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/guide/messages.md)
 - [Conversation flows (flow() DSL, bot.conversation)](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/guide/flows.md)
