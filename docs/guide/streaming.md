@@ -71,8 +71,8 @@ produced) or with the first send error.
 A stream stops when `signal` aborts or, on Telegram drafts with
 `canStop: true`, when the user presses the stop button (`stoppedByUser:
 true`). Reading stops and the source's `return()` is called, so an AI request
-is aborted too. `bot.stop()` cancels every running `ctx.stream()` the same way
-(after the `drain`, if any).
+is aborted too. `bot.stop()` also cancels every running `ctx.stream()` (after the `drain`, if
+any), but sends nothing more: no final flush, edit or deletion, whatever `onCancel` says.
 
 - `onCancel: 'flush'` (default) sends the text produced so far.
 - `onCancel: 'discard'` sends nothing more: a draft simply expires and, with

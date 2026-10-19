@@ -198,3 +198,46 @@ describe('soak regressions: subject erasure', () => {
     await bot.stop()
   })
 })
+
+describe('soak regressions: ctx.stream() cancelled by bot.stop()', () => {
+  async function streamingBot(provider: MockProvider) {
+    const calls: Array<[string, string]> = []
+    let stopped = false
+    const original = { send: provider.send.bind(provider), edit: provider.editMessage?.bind(provider), stop: provider.stop.bind(provider) }
+    provider.send = async (chatId, content, options) => {
+      if (stopped) calls.push(['send', (content as { text?: string }).text ?? ''])
+      return original.send(chatId, content, options)
+    }
+    if (original.edit) {
+      provider.editMessage = async (ref, content) => {
+        if (stopped) calls.push(['edit', (content as { text?: string }).text ?? ''])
+        return original.edit!(ref, content)
+      }
+    }
+    provider.stop = async () => { stopped = true; await original.stop() }
+    const bot = new Bot({ provider, logger: silent() as never })
+    bot.on('error', () => {})
+    let result: Promise<{ cancelled: boolean }> | undefined
+    bot.when('cuento', async (ctx) => {
+      async function* gen() { for (let i = 0; ; i++) { await new Promise((r) => setTimeout(r, 20)); yield `bla${i} ` } }
+      result = ctx.stream(gen(), { throttleMs: 30 })
+      await result.catch(() => {})
+    })
+    await bot.start()
+    return { bot, calls, result: () => result! }
+  }
+
+  for (const streaming of ['edit', 'none'] as const) {
+    it(`sends and edits nothing after provider.stop() (streaming: ${streaming})`, async () => {
+      const provider = new MockProvider({ streaming })
+      const { bot, calls, result } = await streamingBot(provider)
+      provider.incoming('cuento', { from: 'a' })
+      await new Promise((r) => setTimeout(r, 150))
+      await bot.stop()
+      const r = await result()
+      await new Promise((r) => setTimeout(r, 60))
+      expect(r.cancelled).toBe(true)
+      expect(calls).toEqual([])
+    })
+  }
+})

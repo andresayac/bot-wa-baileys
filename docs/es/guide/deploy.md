@@ -153,7 +153,7 @@ process.on('SIGTERM', async () => {
 | `drain` | `boolean` | `false` | Esperar a que los envíos en vuelo terminen |
 | `timeout` | `number` | `10000` | Máx ms a esperar por el drain antes de forzar el cierre |
 
-Tras el drain, `stop()` no deja nada corriendo: los mensajes que aún esperaban en la cola de un chat se descartan en vez de procesarse, no arranca ninguna conversación nueva hasta `start()`, las respuestas en pausa que seguían esperando se descartan (`{ skipped: true }`) y los `ctx.stream()` en curso se cancelan (como si su `signal` abortara). Ningún temporizador del bot mantiene vivo el proceso después; `pnpm bench:soak` lo comprueba bajo carga (ver `CONTRIBUTING.md`).
+Tras el drain, `stop()` no deja nada corriendo: los mensajes que aún esperaban en la cola de un chat se descartan en vez de procesarse, no arranca ninguna conversación nueva hasta `start()`, las respuestas en pausa que seguían esperando se descartan (`{ skipped: true }`) y los `ctx.stream()` en curso se cancelan sin volver a tocar el transporte (sin envío final, edición ni borrado; resuelven con `cancelled: true`). Ningún temporizador del bot mantiene vivo el proceso después; `pnpm bench:soak` lo comprueba bajo carga (ver `CONTRIBUTING.md`).
 
 ### Logging
 
