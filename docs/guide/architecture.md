@@ -145,9 +145,9 @@ code path described above without the dashed boxes.
 | Feature | Config | Stages it touches | Guide |
 | --- | --- | --- | --- |
 | Durable processing | `durability` | Inbound: journals each event in an **inbox** before dispatch and acknowledges it once the work it started settled; replays it after a crash. Outbound: idempotency lookup and an **outbox** journal per send, with retries and a dead-letter queue. Lifecycle: a `durability` step | [Durable processing](/guide/durability) |
-| Multi-replica coordination | `coordination` | Inbound: each chat is processed under a cross-replica **turn**, in ingress order. Outbound: a **fence** refuses sends from a replica that lost its turn or the provider session. Lifecycle: a `coordination` step and leader election for exclusive transports | [Running N replicas](/guide/replicas) |
+| Multi-replica coordination | `coordination` | Inbound: each chat is processed under a cross-replica **turn**, in ingress order. Outbound: a **fence** refuses sends from a replica that lost its turn or the provider session. Lifecycle: a `coordination` step and leader election for exclusive transports. With `coordination.handover`, flow checkpoints carry the cut-short answer and non-persistent flows can be forwarded | [Running N replicas](/guide/replicas) |
 | Durable scheduler | `scheduler` | Jobs: tasks with an `id` are stored, survive restarts with a missed-run policy and run on one replica per occurrence (a **lease**) | [Scheduler](/guide/scheduler) |
-| Tracing | — | An optional tracing integration, shipped outside the core with no new runtime dependency, observes the same stages (provider event, dispatch, send, scheduled job) without changing their order | [Operations](/guide/operations) |
+| Tracing | `telemetry` | Wraps the stages it observes in spans without changing their order or timing: provider event (`bot.inbound`), persistence, dispatch, handler, each conversation turn between waits, pacing and every send; `@bot-wa/ai` adds model and tool spans. `@bot-wa/otel` (outside the core, `@opentelemetry/api` as an optional peer) exports them. Scheduled jobs have no span of their own yet | [Tracing](/guide/tracing) |
 
 ## See also
 
