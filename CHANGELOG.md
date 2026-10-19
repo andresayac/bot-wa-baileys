@@ -356,6 +356,14 @@ Revisión de los 10 paquetes públicos, con hallazgos y decisiones en [`docs/api
 - **Cron (cambio de comportamiento)**: regla de días del cron estándar — si día del mes y día de la semana están restringidos a la vez, basta con que se cumpla **uno** (`0 9 13 * 5` = cada día 13 y cada viernes; antes, solo los viernes 13). Si uno empieza por `*`, se exigen ambos, como antes. Además, un paso sobre `*` cuenta desde el mínimo del campo: `*/3` en el mes es enero/abril/julio/octubre (antes marzo/junio/septiembre/diciembre) y `*/2` en el día del mes son los días impares (antes los pares).
 - La doc de `PluginSpec.install` decía que un `install` async que rechaza tumba el proceso; desde la ronda G va al evento `'error'` (sin revertir nada). Corregidos el TSDoc, la guía de plugins y `AGENTS.md`.
 
+### @bot-wa/core: arquitectura interna (2026-10, ronda I)
+- **`Bot.ts` dividido en módulos internos** (`packages/core/src/core/bot/`): `kernel` (estado compartido), `compose` (el cuerpo del constructor, en el mismo orden), `events`, `persistence`, `outbound`, `contextFactory`, `inbound`, `routes`, `pluginHost`, `ops` y un `lifecycle` por pasos (`storage` → `restore` → `transport` → `jobs`, con el mismo rollback). `Bot` queda como fachada: misma API pública, mismo `.d.ts` salvo la lista de miembros `private`, mismo orden de listeners y de eventos. Ningún archivo nuevo pasa de 300 líneas.
+- **Nuevo subpath `@bot-wa/core/internal`** con los internos del motor (punto 1 de la lista diferida de `docs/api-review.md`): `buildMessageContext`, `createControls`, `createPacer`, `runBroadcast`, `runFormStep`, `newFormToken`, `resolveFormMode`, `resolveReplyTyping`, `normalizeTypingConfig`, `typingDuration`, `parseReplyDelay`, `ExternalSendClock`, `MetricsCollector`, `formatUptime` y `TYPING_REFRESH_MS`. Sin garantía semver. La entrada principal los sigue reexportando (mismo valor, `instanceof` intacto) marcados `@deprecated`; se quitarán de ahí en v3.
+- `scripts/api-check.cjs deprecated` lista los nombres exportados con `@deprecated`.
+
+**Corregido**
+- `ctx.bot.start()` / `ctx.bot.stop()` llamados desde un plugin ahora arrancan o paran el bot real. Antes escribían el estado en el objeto con ámbito del plugin: tras `ctx.bot.stop()` el proveedor quedaba parado pero el bot real seguía aceptando mensajes.
+
 ## @bot-wa/ai
 
 ### [0.1.0] — Unreleased

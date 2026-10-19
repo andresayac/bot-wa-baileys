@@ -28,7 +28,10 @@ export type {
   StopOptions,
   ConversationTarget,
 } from './core/Bot.js'
-export { buildMessageContext } from './core/context.js'
+export {
+  /** @deprecated Import from '@bot-wa/core/internal' (engine internal; removed from the main entry in v3). */
+  buildMessageContext,
+} from './internal.js'
 export { Dispatcher } from './core/Dispatcher.js'
 export type {
   DispatchContext,
@@ -122,7 +125,10 @@ export type {
   ConversationHandle,
   CheckpointStore,
 } from './conversations/ConversationRuntime.js'
-export { createControls } from './conversations/controls.js'
+export {
+  /** @deprecated Import from '@bot-wa/core/internal' (engine internal; removed from the main entry in v3). */
+  createControls,
+} from './internal.js'
 export type { ConversationControls, WaitMediaType } from './conversations/controls.js'
 export {
   ConversationError,
@@ -157,6 +163,10 @@ export { sleep, parseDuration, humanTypingDelay, withTimeout, TimeoutError, rand
 
 // Scheduler
 export { Scheduler } from './scheduler/Scheduler.js'
+
+// Engine internals (buildMessageContext, createPacer, runBroadcast, MetricsCollector, …) live
+// under the "./internal" subpath (import from '@bot-wa/core/internal'). The main entry still
+// re-exports them, marked @deprecated, until v3.
 
 // Testing helpers live under the "./testing" subpath export
 // (import from '@bot-wa/core/testing') — not re-exported here to keep the entry lean.
@@ -315,18 +325,23 @@ export type { SchemaWaitOptions } from './conversations/controls.js'
 // messaging
 // Automatic typing indicator (BotConfig.typing), reply delays, ctx.edit / ctx.react
 // capability resolution (native / degraded / unsupported).
+export { DEFAULT_TYPING, messagingSupport, PacedSendCancelled } from './core/messaging.js'
 export {
-  DEFAULT_TYPING,
+  /** @deprecated Import from '@bot-wa/core/internal' (engine internal; removed from the main entry in v3). */
   TYPING_REFRESH_MS,
+  /** @deprecated Import from '@bot-wa/core/internal' (engine internal; removed from the main entry in v3). */
   ExternalSendClock,
+  /** @deprecated Import from '@bot-wa/core/internal' (engine internal; removed from the main entry in v3). */
   createPacer,
-  messagingSupport,
+  /** @deprecated Import from '@bot-wa/core/internal' (engine internal; removed from the main entry in v3). */
   normalizeTypingConfig,
+  /** @deprecated Import from '@bot-wa/core/internal' (engine internal; removed from the main entry in v3). */
   resolveReplyTyping,
+  /** @deprecated Import from '@bot-wa/core/internal' (engine internal; removed from the main entry in v3). */
   typingDuration,
+  /** @deprecated Import from '@bot-wa/core/internal' (engine internal; removed from the main entry in v3). */
   parseReplyDelay,
-  PacedSendCancelled,
-} from './core/messaging.js'
+} from './internal.js'
 export type {
   TypingConfig,
   ResolvedTypingConfig,
@@ -343,10 +358,18 @@ export type {
 // bot-ops
 // bot.broadcast() engine, bot.trigger() types, bot.metrics() snapshot + Prometheus exporter,
 // and the conversation lifecycle types behind the 'conversation:started'/'conversation:ended' events.
-export { runBroadcast } from './ops/broadcast.js'
+export {
+  /** @deprecated Import from '@bot-wa/core/internal' (engine internal; removed from the main entry in v3). */
+  runBroadcast,
+} from './internal.js'
 export type { BroadcastOptions, BroadcastFailure, BroadcastProgress, BroadcastDeps } from './ops/broadcast.js'
 export type { TriggerOptions, TriggerResult, TriggerSkipReason, TriggerRaw } from './ops/trigger.js'
-export { MetricsCollector, formatUptime } from './ops/metrics.js'
+export {
+  /** @deprecated Import from '@bot-wa/core/internal' (engine internal; removed from the main entry in v3). */
+  MetricsCollector,
+  /** @deprecated Import from '@bot-wa/core/internal' (engine internal; removed from the main entry in v3). */
+  formatUptime,
+} from './internal.js'
 export type { BotMetricsSnapshot, ConversationCounters, ConversationStartedEvent, ConversationEndedEvent } from './ops/metrics.js'
 export { toPrometheus, PROMETHEUS_CONTENT_TYPE } from './ops/prometheus.js'
 export type { PrometheusOptions } from './ops/prometheus.js'
@@ -381,8 +404,15 @@ export type { StreamingMode, TextFormat, DraftOptions } from './core/provider.js
 // wa-flows
 // Native forms: `flow().form(definition)` renders a WhatsApp Flow on providers with
 // `capabilities.forms === 'native'` (@bot-wa/meta) and asks field by field elsewhere.
-export { runFormStep, resolveFormMode } from './forms/runForm.js'
-export { formReplyBody, parseFormReply, newFormToken } from './forms/reply.js'
+export {
+  /** @deprecated Import from '@bot-wa/core/internal' (engine internal; removed from the main entry in v3). */
+  runFormStep,
+  /** @deprecated Import from '@bot-wa/core/internal' (engine internal; removed from the main entry in v3). */
+  resolveFormMode,
+  /** @deprecated Import from '@bot-wa/core/internal' (engine internal; removed from the main entry in v3). */
+  newFormToken,
+} from './internal.js'
+export { formReplyBody, parseFormReply } from './forms/reply.js'
 export { withFormDefaults } from './forms/defaults.js'
 export {
   assertFormDefinition, validateFormValues, parseFieldAnswer, parseFormDate,

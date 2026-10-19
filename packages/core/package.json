@@ -17,6 +17,10 @@
     "./dev": {
       "types": "./lib/dev/index.d.ts",
       "default": "./lib/dev/index.js"
+    },
+    "./internal": {
+      "types": "./lib/internal.d.ts",
+      "default": "./lib/internal.js"
     }
   },
   "bin": {
