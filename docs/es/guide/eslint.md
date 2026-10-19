@@ -97,9 +97,10 @@ el nombre del receptor (por defecto `runtime$`, sin distinguir mayúsculas).
 
 ### `bot-wa/no-async-plugin-install`
 
-`Plugin.install()` debe ser síncrono: `bot.plug()` no lo espera, así que un
-`install` async que rechace se convierte en un unhandled rejection que tumba el
-proceso. La regla revisa el objeto que se pasa a `definePlugin(...)`, cualquier
+`Plugin.install()` debe ser síncrono: `bot.plug()` no lo espera, así que el
+bot arranca antes de que un `install` async termine y su rechazo solo llega al
+evento `'error'` (en versiones anteriores del core era un unhandled rejection
+que tumbaba el proceso). La regla revisa el objeto que se pasa a `definePlugin(...)`, cualquier
 objeto literal con `name` e `install`, y las clases con un método `install`
 que declaran un campo `name` o `implements Plugin`. Para inicialización async
 usa el patrón lazy (resolver en el primer uso y reportar los errores de

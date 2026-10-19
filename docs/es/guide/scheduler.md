@@ -47,10 +47,17 @@ bot.schedule('*/15 * * * *', async () => { /* ... */ })
 │ ┌───── hora (0-23)
 │ │ ┌───── día del mes (1-31)
 │ │ │ ┌───── mes (1-12)
-│ │ │ │ ┌───── día de la semana (0-6, 0=domingo)
+│ │ │ │ ┌───── día de la semana (0-7, 0 y 7 = domingo)
 │ │ │ │ │
 * * * * *
 ```
+
+Cada campo acepta `*`, un número, un rango (`1-5`), un paso (`*/15`, `1-30/5`)
+o una lista separada por comas de esos. Tienen que cumplirse todos los campos
+(no se implementa la regla "O" entre día del mes y día de la semana del cron
+clásico). Los nombres (`mon`, `jan`) y las macros (`@daily`) no están
+soportados: `bot.schedule()` lanza un `TypeError` que nombra el campo inválido
+en lugar de crear una tarea que nunca se ejecuta.
 
 ## delay — una vez después de X tiempo
 

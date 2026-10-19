@@ -55,8 +55,6 @@ import type {
   StoredMessage,
   StoredChat,
   StoredContact,
-  AIMessage,
-  FlowCheckpoint,
   Trigger,
 } from './types.js'
 
@@ -90,9 +88,11 @@ import { DynamicFlowRegistry, type FlowTriggerOptions, type FlowTriggerTarget, t
 import { callToInbound, RecentIds } from './calls.js'
 import { UserDataService } from '../user/UserDataService.js'
 import type { UserData } from '../user/types.js'
-import type { DraftOptions, UserDataEntry } from './provider.js'
+import type { DraftOptions } from './provider.js'
 import { MetricsCollector, type BotMetricsSnapshot, type ConversationEndedEvent, type ConversationStartedEvent } from '../ops/metrics.js'
 import { runBroadcast, type BroadcastOptions, type BroadcastResult } from '../ops/broadcast.js'
+import { deleteSubjectData, exportSubjectData, type SubjectDataDeps, type SubjectDataExport, type SubjectDeletionResult } from './subjectData.js'
+import { MessageLog, receiveTimestamp, toStoredError } from './ledger.js'
 import { assertTriggerArgs, triggerInbound, type TriggerOptions, type TriggerResult } from '../ops/trigger.js'
 import { I18n } from '../i18n/I18n.js'
 import type { I18nConfig, LocaleMessages, TranslateParams } from '../i18n/types.js'
@@ -169,28 +169,7 @@ export interface ConversationTarget {
   isGroup: boolean
 }
 
-export interface SubjectDataExport {
-  namespace: Readonly<StoreNamespace>
-  userId: UserId
-  contact?: StoredContact
-  chats: StoredChat[]
-  messages: StoredMessage[]
-  conversation?: AIMessage[]
-  checkpoints: Array<[string, FlowCheckpoint]>
-  /** Live `ctx.user` profile entries (every namespace), sorted by namespace then key. */
-  userData: UserDataEntry[]
-  exportedAt: number
-}
-
-export interface SubjectDeletionResult {
-  contacts: number
-  chats: number
-  messages: number
-  conversations: number
-  checkpoints: number
-  /** Live `ctx.user` profile entries erased (every namespace). */
-  userData: number
-}
+export type { SubjectDataExport, SubjectDeletionResult } from './subjectData.js'
 
 export class Bot extends EventEmitter {
   readonly logger: Logger
@@ -249,6 +228,8 @@ export class Bot extends EventEmitter {
   private handoffs: HandoffRegistry
   /** Serializes this bot's chat upserts per chat (see {@link persistChat}). */
   private chatWrites = new KeyedQueue()
+  /** The outbound message log: ledger rows, edits and delivery receipts (see ledger.ts). */
+  private messageLog: MessageLog
   /** Sends outside a chat's own `ctx` replies — they invalidate `ctx.edit(content)` targets. */
   private externalSends = new ExternalSendClock()
   /** Delay + typing-indicator pacing for ctx text replies (`BotConfig.typing`). */
@@ -327,6 +308,13 @@ export class Bot extends EventEmitter {
     } else {
       this.store = new NamespacedStore(baseStore, this.namespace)
     }
+    this.messageLog = new MessageLog({
+      store: this.store,
+      namespace: this.namespace,
+      selfId: () => this.provider.selfId ?? undefined,
+      persistChat: (chat) => this.persistChat(chat),
+      reportError: (error) => this.emitError({ error }),
+    })
     this.users = new UserDataService(this.store, { logger: this.logger.child({ module: 'user-data' }) })
     this.i18n = new I18n({ logger: this.logger.child({ module: 'i18n' }) })
     if (this.config.i18n !== undefined) this.i18n.configure(this.config.i18n)
@@ -597,7 +585,7 @@ export class Bot extends EventEmitter {
         if (origin !== 'ctx') this.externalSends.mark(payload.chatId)
       }
       await this.hooks.runAfter('send', payload)
-      await this.persistOutbound({
+      await this.messageLog.outbound({
         ref: res.ref,
         chatId: payload.chatId,
         content: payload.content,
@@ -607,7 +595,7 @@ export class Bot extends EventEmitter {
       })
       return res
     } catch (error) {
-      await this.persistOutbound({
+      await this.messageLog.outbound({
         ref: localRef,
         chatId: payload.chatId,
         content: payload.content,
@@ -638,7 +626,7 @@ export class Bot extends EventEmitter {
     try {
       const res = await op
       await this.hooks.runAfter('send', payload)
-      await this.persistEdit(ref, payload.content, this.config.persistRaw ? res.raw : undefined)
+      await this.messageLog.edit(ref, payload.content, this.config.persistRaw ? res.raw : undefined)
       return res
     } finally {
       this.inflightSends.delete(op)
@@ -657,8 +645,8 @@ export class Bot extends EventEmitter {
    * `retryAfterMs` and retries that chat (up to `maxRetries`, default 3); other errors
    * are recorded and the broadcast goes on. Abort `signal` to stop early — never-attempted
    * chats come back in `pending`. `bot.stop()` cancels it the same way (with `drain`,
-   * stop waits for its in-flight sends), and a broadcast started on a stopped bot
-   * sends nothing. Duplicate ids are sent once. Each send takes the normal
+   * stop waits for its in-flight sends), and a broadcast started on a bot that is not
+   * started (never started, or stopped) sends nothing. Duplicate ids are sent once. Each send takes the normal
    * outbound path (send hooks, ledger, the provider's rate limiter) but not the
    * dispatcher's per-chat queues, so inbound handling is never blocked; still, launch it
    * with `void` (not `await`) from inside a handler so that chat's queue is not held.
@@ -676,7 +664,8 @@ export class Bot extends EventEmitter {
    */
   broadcast(chatIds: readonly ChatId[], content: string | OutboundContent, opts?: BroadcastOptions): Promise<BroadcastResult> {
     const outbound: OutboundContent = typeof content === 'string' ? { kind: 'text', text: content } : content
-    const stopSignal = this.lifecycleAbort.signal
+    // Not started yet (or stopped): nothing may go out through a provider that is not running.
+    const stopSignal = this.isStarted ? this.lifecycleAbort.signal : AbortSignal.abort()
     const signal = opts?.signal ? AbortSignal.any([opts.signal, stopSignal]) : stopSignal
     return runBroadcast(
       { send: (chatId, c, o) => this.send(chatId, c, o), reportError: (error) => this.emitError({ error }) },
@@ -720,17 +709,7 @@ export class Bot extends EventEmitter {
       this.counters.blockedDropped()
       return { ...base, started: false, reason: 'blocked' }
     }
-    const ctx = buildMessageContext({
-      inbound,
-      tools: this.tools,
-      send: (chatId, content, o) => this.dispatchSend(chatId, content, o, chatId === inbound.from ? 'ctx' : 'api'),
-      typing: (chatId, state) => this.indicateTyping(chatId, state),
-      handoff: (chatId, o) => this.handoff(chatId, o),
-      user: this.users.for(inbound.senderId),
-      i18n: this.i18n,
-      ...this.messagingDeps(),
-      ...this.streamDeps(),
-    })
+    const ctx = this.contextFor(inbound)
     return this.dispatcher.runExclusive(ctx, async (): Promise<TriggerResult> => {
       if (!this.acceptingInbound) return { ...base, started: false, reason: 'stopped' }
       if (!this.handoffs.admits(ctx)) {
@@ -1127,10 +1106,22 @@ export class Bot extends EventEmitter {
 
   /**
    * Install a plugin (optionally with `config`). Unlike {@link use}, returns an
-   * unsubscriber that removes everything the plugin registered.
+   * unsubscriber that removes everything the plugin registered through `ctx.bot`
+   * (commands, matchers, conversations, flows, hooks, nested plugins and `onDispose`
+   * callbacks) and then calls its `uninstall()`; calling it again is a no-op.
+   *
+   * `install()` should be synchronous. If it throws, whatever it registered so far is
+   * rolled back and the error is rethrown; if it returns a promise that rejects, the
+   * rejection goes to the `'error'` event instead of crashing the process.
    */
   plug(plugin: Plugin, config?: Record<string, unknown>): () => void {
     const spec = typeof plugin === 'function' ? plugin(config) : plugin
+    if (!spec || typeof spec !== 'object' || typeof spec.install !== 'function') {
+      throw new TypeError(
+        'plug() expects a plugin object { name, version, install(ctx) } or a factory returning one, ' +
+          `got ${spec === null ? 'null' : typeof spec}`,
+      )
+    }
     const disposables: Array<() => void> = []
     const track = <A extends unknown[]>(fn: (...a: A) => () => void) =>
       (...a: A): (() => void) => {
@@ -1152,22 +1143,19 @@ export class Bot extends EventEmitter {
     scopedBot.when = track(this.when.bind(this))
     scopedBot.onMessage = track(this.onMessage.bind(this))
     scopedBot.onType = track(this.onType.bind(this))
-    scopedBot.before = ((event: HookEvent, handler: HookHandler, priority = 0) => {
-      disposables.push(this.hooks.register(event, 'before', handler, priority))
-      return scopedBot
-    }) as Bot['before']
-    scopedBot.after = ((event: HookEvent, handler: HookHandler, priority = 0) => {
-      disposables.push(this.hooks.register(event, 'after', handler, priority))
-      return scopedBot
-    }) as Bot['after']
-    scopedBot.onError = ((event: HookEvent, handler: HookHandler, priority = 0) => {
-      disposables.push(this.hooks.register(event, 'error', handler, priority))
-      return scopedBot
-    }) as Bot['onError']
-    scopedBot.hook = ((event: HookEvent, phase: HookPhase, handler: HookHandler, priority = 0) => {
+    // `conversation()`, `use(flow)` and `when(trigger, flow)` all route through this one
+    // (called on scopedBot), so their trigger routes are disposed with the plugin too.
+    scopedBot.registerEnterMatcher = track(this.registerEnterMatcher.bind(this))
+    // `use(plugin)` calls `this.plug()`: a nested plugin is unplugged with its parent.
+    scopedBot.plug = track(this.plug.bind(this))
+    const hook = (event: HookEvent, phase: HookPhase, handler: HookHandler, priority = 0): Bot => {
       disposables.push(this.hooks.register(event, phase, handler, priority))
       return scopedBot
-    }) as Bot['hook']
+    }
+    scopedBot.before = ((event: HookEvent, handler: HookHandler, priority = 0) => hook(event, 'before', handler, priority)) as Bot['before']
+    scopedBot.after = ((event: HookEvent, handler: HookHandler, priority = 0) => hook(event, 'after', handler, priority)) as Bot['after']
+    scopedBot.onError = ((event: HookEvent, handler: HookHandler, priority = 0) => hook(event, 'error', handler, priority)) as Bot['onError']
+    scopedBot.hook = hook as Bot['hook']
 
     const ctx: PluginContext = {
       bot: scopedBot,
@@ -1176,8 +1164,30 @@ export class Bot extends EventEmitter {
       config: config ?? {},
       onDispose: (fn: () => void) => disposables.push(fn),
     }
-    spec.install(ctx, config)
-    return () => { while (disposables.length) disposables.pop()!() }
+    const reportAsync = (result: unknown) => {
+      if (isThenable(result)) result.then(undefined, (error: unknown) => this.emitError({ error }))
+    }
+    const disposeRegistrations = () => {
+      while (disposables.length) {
+        try { disposables.pop()!() } catch (error) { this.emitError({ error }) }
+      }
+    }
+
+    try {
+      reportAsync(spec.install(ctx, config))
+    } catch (error) {
+      disposeRegistrations()
+      throw error
+    }
+    let disposed = false
+    return () => {
+      if (disposed) return
+      disposed = true
+      if (spec.uninstall) {
+        try { reportAsync(spec.uninstall(ctx)) } catch (error) { this.emitError({ error }) }
+      }
+      disposeRegistrations()
+    }
   }
 
   /* =========================================================================
@@ -1326,77 +1336,29 @@ export class Bot extends EventEmitter {
   purgeExpiredUserData(): Promise<number> { return this.users.purgeExpired() }
 
   /** Export normalized data associated with one subject in this bot namespace. */
-  async exportSubject(userId: UserId): Promise<SubjectDataExport> {
-    const contact = await this.store.getContact(userId)
-    const chats = await this.store.listChats()
-    const messages: StoredMessage[] = []
-    for (const chat of chats) {
-      const history = await this.store.getMessagesByChat(chat.id, 2_147_483_647)
-      messages.push(...history.filter((message) => message.senderId === userId || message.chatId === userId))
-    }
-    const checkpoints = (await this.store.listCheckpoints())
-      .filter(([key]) => checkpointBelongsToSubject(key, userId))
-    return {
-      namespace: this.namespace,
-      userId,
-      contact,
-      chats: chats.filter((chat) => chat.id === userId || messages.some((message) => message.chatId === chat.id)),
-      messages,
-      conversation: await this.store.getConversation(userId),
-      checkpoints,
-      userData: await this.users.list(userId),
-      exportedAt: Date.now(),
-    }
+  exportSubject(userId: UserId): Promise<SubjectDataExport> {
+    return exportSubjectData(this.subjectDeps(), userId)
   }
 
-  /** Delete normalized subject data in this bot namespace, including the handoff of chat `userId`. */
-  async deleteSubject(userId: UserId): Promise<SubjectDeletionResult> {
-    const result: SubjectDeletionResult = {
-      contacts: 0,
-      chats: 0,
-      messages: 0,
-      conversations: 0,
-      checkpoints: 0,
-      userData: 0,
+  /**
+   * Delete normalized subject data in this bot namespace, including the handoff of chat
+   * `userId` and the subject's live or dormant conversations.
+   */
+  deleteSubject(userId: UserId): Promise<SubjectDeletionResult> {
+    return deleteSubjectData(this.subjectDeps(), userId)
+  }
+
+  private subjectDeps(): SubjectDataDeps {
+    return {
+      store: this.store,
+      namespace: this.namespace,
+      runtime: this.runtime,
+      handoffs: this.handoffs,
+      chatWrites: this.chatWrites,
+      i18n: this.i18n,
+      welcome: this.welcome,
+      users: this.users,
     }
-    // The subject's chat handoff (and its host meta) goes too — silently, without
-    // rewriting the chat record we are about to delete.
-    await this.handoffs.forget(userId)
-    if (await this.store.getContact(userId)) {
-      await this.store.deleteContact(userId)
-      result.contacts++
-    }
-    const chats = await this.store.listChats()
-    for (const chat of chats) {
-      if (chat.id === userId) {
-        result.messages += (await this.store.getMessagesByChat(chat.id, 2_147_483_647)).length
-        // Behind any upsert of this chat still queued, so none can recreate the record.
-        await this.chatWrites.run(chat.id, () => this.store.deleteChat(chat.id))
-        result.chats++
-        continue
-      }
-      const messages = await this.store.getMessagesByChat(chat.id, 2_147_483_647)
-      for (const message of messages) {
-        if (message.senderId !== userId) continue
-        await this.store.deleteMessage(message.ref)
-        result.messages++
-      }
-    }
-    if (await this.store.getConversation(userId)) {
-      await this.store.clearConversation(userId)
-      result.conversations++
-    }
-    for (const [key] of await this.store.listCheckpoints()) {
-      if (!checkpointBelongsToSubject(key, userId)) continue
-      await this.store.clearCheckpoint(key)
-      result.checkpoints++
-    }
-    // The language remembered from the provider's reports (in memory) goes as well.
-    this.i18n.forget(userId)
-    // WELCOME markers (hashed keys): a returning erased subject is a first contact again.
-    await this.welcome.forget(userId, chats.map((chat) => chat.id))
-    result.userData = await this.users.erase(userId)
-    return result
   }
 
   /* =========================================================================
@@ -1552,7 +1514,7 @@ export class Bot extends EventEmitter {
       case 'group': await this.dispatchHookEvent('group', event.event); return
       case 'presence': await this.dispatchHookEvent('presence', event.event); return
       case 'status':
-        await this.handleDeliveryStatus(event.status)
+        await this.messageLog.receipt(event.status)
         await this.dispatchHookEvent('status', event.status)
         return
     }
@@ -1649,96 +1611,6 @@ export class Bot extends EventEmitter {
     await this.handleInbound(inbound, { id: it.interactionId, data: it.data, respondBy: it.respondBy })
   }
 
-  private async persistOutbound(input: {
-    ref: MessageRef
-    chatId: ChatId
-    content: OutboundContent
-    options?: SendOptions
-    status: 'sent' | 'failed'
-    error?: { code?: string | number; message?: string }
-    raw?: unknown
-  }): Promise<void> {
-    const timestamp = Date.now()
-    try {
-      // A delivery/read receipt for this ref may already have landed during the
-      // after-send hook window. Don't regress a more-advanced status back to
-      // 'sent' — keep whichever is further along.
-      const existing = await this.store.getMessage(input.ref)
-      const status = higherDeliveryStatus(existing?.status, input.status)
-      await Promise.all([
-        this.persistChat({
-          id: input.chatId,
-          ...this.namespace,
-          lastMessageAt: timestamp,
-          updatedAt: timestamp,
-        }),
-        this.store.saveMessage({
-          ref: input.ref,
-          chatId: input.chatId,
-          senderId: this.provider.selfId ?? undefined,
-          ...this.namespace,
-          timestamp,
-          type: input.content.kind,
-          body: outboundBody(input.content),
-          fromMe: true,
-          direction: 'outbound',
-          status,
-          error: status === 'failed' ? input.error : existing?.error,
-          quoted: input.options?.quoted,
-          raw: input.raw,
-        }),
-      ])
-    } catch (error) {
-      // The provider may already have delivered the message. Reporting a false
-      // send failure would encourage a retry and duplicate it, so ledger errors
-      // travel through the bot error channel instead.
-      this.emitError({ error })
-    }
-  }
-
-  /** Update the ledger entry of an edited bot message (keeps its timestamp and status). */
-  private async persistEdit(ref: MessageRef, content: OutboundContent, raw?: unknown): Promise<void> {
-    try {
-      const existing = await this.store.getMessage(ref)
-      await this.store.saveMessage({
-        ...(existing ?? {
-          ref,
-          chatId: ref.chatId,
-          senderId: this.provider.selfId ?? undefined,
-          timestamp: Date.now(),
-          fromMe: true,
-          direction: 'outbound' as const,
-          status: 'sent' as const,
-        }),
-        ...this.namespace,
-        type: content.kind,
-        body: outboundBody(content),
-        raw: raw ?? existing?.raw,
-      })
-    } catch (error) {
-      // The provider already applied the edit: report the ledger failure, do not fail the edit.
-      this.emitError({ error })
-    }
-  }
-
-  private async handleDeliveryStatus(status: DeliveryStatus): Promise<void> {
-    const existing = await this.store.getMessage(status.ref)
-    await this.store.saveMessage({
-      ...(existing ?? {
-        ref: status.ref,
-        chatId: status.ref.chatId,
-        timestamp: normalizeTimestamp(status.timestamp),
-        type: 'unknown' as const,
-        fromMe: true,
-        direction: 'outbound' as const,
-      }),
-      ...this.namespace,
-      status: status.status,
-      error: status.error,
-      timestamp: existing?.timestamp ?? normalizeTimestamp(status.timestamp),
-    })
-  }
-
   /**
    * Best-effort typing indicator for `ctx.typing()` / `ctx.recording()` / streams: a
    * failing provider indicator (rejected or thrown) is logged at debug and swallowed,
@@ -1753,24 +1625,14 @@ export class Bot extends EventEmitter {
   }
 
   private async processMessage(inbound: InboundMessage, interaction?: { id: string; data: string; respondBy?: number }): Promise<void> {
-    const ctx = buildMessageContext({
-      inbound,
-      tools: this.tools,
-      send: (chatId, content, opts) => this.dispatchSend(chatId, content, opts, chatId === inbound.from ? 'ctx' : 'api'),
-      canRenderForm: this.provider.canRenderForm ? (d, o) => this.provider.canRenderForm!(d, o) : undefined,
+    const ctx = this.contextFor(inbound, {
       markRead: async (ref) => { await this.provider.markRead?.([ref]) },
-      typing: (chatId, state) => this.indicateTyping(chatId, state),
       deleteMessage: async (ref) => { await this.provider.deleteMessage?.(ref) },
       downloadMedia: this.provider.downloadMedia ? (ref) => this.provider.downloadMedia!(ref) : undefined,
       acknowledgeInteraction: this.provider.acknowledgeInteraction
         ? (id, text) => this.provider.acknowledgeInteraction!(id, { text })
         : undefined,
-      handoff: (chatId, opts) => this.handoff(chatId, opts),
       interaction,
-      user: this.users.for(inbound.senderId),
-      ...this.messagingDeps(),
-      ...this.streamDeps(),
-      i18n: this.i18n,
     })
 
     // Group mode filter.
@@ -1786,6 +1648,28 @@ export class Bot extends EventEmitter {
 
     this.logger.debug({ from: ctx.from, type: ctx.type }, 'dispatching message')
     await this.dispatcher.dispatch(ctx as unknown as DispatchContext)
+  }
+
+  /**
+   * The {@link MessageContext} of an inbound message — real, a projected call or the
+   * synthetic one of {@link trigger} — wired to every seam this bot offers (sends through
+   * the hook pipeline, typing, handoff, `ctx.user`, i18n, pacing, edits, streaming,
+   * native forms). `extra` adds the seams that only make sense for a real inbound message.
+   */
+  private contextFor(inbound: InboundMessage, extra: Partial<BuildContextDeps> = {}): MessageContext {
+    return buildMessageContext({
+      inbound,
+      tools: this.tools,
+      send: (chatId, content, opts) => this.dispatchSend(chatId, content, opts, chatId === inbound.from ? 'ctx' : 'api'),
+      canRenderForm: this.provider.canRenderForm ? (d, o) => this.provider.canRenderForm!(d, o) : undefined,
+      typing: (chatId, state) => this.indicateTyping(chatId, state),
+      handoff: (chatId, opts) => this.handoff(chatId, opts),
+      user: this.users.for(inbound.senderId),
+      i18n: this.i18n,
+      ...this.messagingDeps(),
+      ...this.streamDeps(),
+      ...extra,
+    })
   }
 
   /** Typing/delay pacing, edit and capability seams shared by every context this bot builds. */
@@ -1859,7 +1743,7 @@ export class Bot extends EventEmitter {
     const final = await this.runStreamSendHooks(ref.chatId, content, 'edit')
     if (!final) return undefined
     const res = await this.provider.editMessage!(ref, final)
-    await this.persistOutboundEdit(ref, final)
+    await this.messageLog.streamEdit(ref, final)
     return res
   }
 
@@ -1868,20 +1752,6 @@ export class Bot extends EventEmitter {
     const final = await this.runStreamSendHooks(chatId, { kind: 'text', text }, 'draft')
     if (!final || final.kind !== 'text') return
     await this.provider.sendDraft!(chatId, draftId, final.text, opts)
-  }
-
-  /** Keep the stored outbound message in sync with an in-place edit (body/type only). */
-  private async persistOutboundEdit(ref: MessageRef, content: OutboundContent): Promise<void> {
-    try {
-      const existing = await this.store.getMessage(ref)
-      if (!existing) {
-        await this.persistOutbound({ ref, chatId: ref.chatId, content, status: 'sent' })
-        return
-      }
-      await this.store.saveMessage({ ...existing, type: content.kind, body: outboundBody(content) })
-    } catch (error) {
-      this.emitError({ error })
-    }
   }
 
   /**
@@ -1929,18 +1799,7 @@ export class Bot extends EventEmitter {
     // A call can never mention the bot nor be a command: a restrictive groupMode keeps group calls out.
     if (call.isGroup === true && this.config.groupMode && this.config.groupMode !== 'all') return
     if (call.id && !this.seenCalls.add(call.id)) return
-    const ctx = buildMessageContext({
-      inbound,
-      tools: this.tools,
-      send: (chatId, content, opts) => this.dispatchSend(chatId, content, opts, chatId === inbound.from ? 'ctx' : 'api'),
-      canRenderForm: this.provider.canRenderForm ? (d, o) => this.provider.canRenderForm!(d, o) : undefined,
-      typing: (chatId, state) => this.indicateTyping(chatId, state),
-      handoff: (chatId, opts) => this.handoff(chatId, opts),
-      user: this.users.for(inbound.senderId),
-      ...this.messagingDeps(),
-      ...this.streamDeps(),
-      i18n: this.i18n,
-    })
+    const ctx = this.contextFor(inbound)
     ctx.call = call
     await this.dispatcher.dispatchEvent(ctx as unknown as DispatchContext)
   }
@@ -1950,70 +1809,11 @@ export class Bot extends EventEmitter {
  * TYPE GUARDS
  * ========================================================================== */
 
+function isThenable(x: unknown): x is PromiseLike<unknown> {
+  return typeof (x as { then?: unknown } | null | undefined)?.then === 'function'
+}
+
 function isPluginSpec(x: unknown): x is Plugin {
   if (typeof x === 'function') return true
   return typeof x === 'object' && x !== null && 'name' in x && 'install' in x
-}
-
-function normalizeTimestamp(timestamp: number): number {
-  return timestamp > 0 && timestamp < 1_000_000_000_000 ? timestamp * 1000 : timestamp
-}
-
-/**
- * Persisted timestamp of a live inbound message. Providers with second-precision
- * clocks (WhatsApp, Telegram) floor to the second, while outbound rows use
- * `Date.now()`; when the message is received within that same second, use the
- * receive time so the message log orders it correctly against the bot's replies.
- * Late deliveries (history sync, retries) keep the provider time.
- */
-function receiveTimestamp(timestamp: number, now = Date.now()): number {
-  const ms = normalizeTimestamp(timestamp)
-  const secondPrecision = timestamp > 0 && timestamp < 1_000_000_000_000
-  return secondPrecision && now >= ms && now - ms < 1000 ? now : ms
-}
-
-/**
- * Does a conversation checkpoint key belong to `userId`? Keys are `keyFor(ctx)`:
- * the bare subject id (DM) or `${chatJid}:${participantJid}` (group scope). Match
- * on boundaries — NOT substring — so `5511999...` does not falsely match
- * `15511999...` (one JID being a substring of another), which would leak/delete
- * an unrelated subject's data in the export/erasure APIs.
- */
-function checkpointBelongsToSubject(key: string, userId: string): boolean {
-  return key === userId || key.startsWith(`${userId}:`) || key.endsWith(`:${userId}`)
-}
-
-type StoredStatus = NonNullable<StoredMessage['status']>
-const DELIVERY_RANK: Record<StoredStatus, number> = {
-  received: 0, queued: 0, sent: 1, failed: 1, delivered: 2, read: 3,
-}
-/** Pick the further-along delivery status so a late 'sent' write can't regress a delivered/read receipt. */
-function higherDeliveryStatus(existing: StoredStatus | undefined, incoming: StoredStatus): StoredStatus {
-  if (!existing) return incoming
-  return (DELIVERY_RANK[existing] ?? 0) > (DELIVERY_RANK[incoming] ?? 0) ? existing : incoming
-}
-
-function outboundBody(content: OutboundContent): string | undefined {
-  switch (content.kind) {
-    case 'text': return content.text
-    case 'image':
-    case 'video':
-    case 'document': return content.caption
-    case 'location': return content.name ?? content.address
-    case 'contact': return content.displayName ?? content.phone
-    case 'poll': return content.question
-    case 'buttons':
-    case 'list': return content.text
-    case 'card': return content.title
-    case 'template': return content.name
-    case 'reaction': return content.emoji
-    case 'form': return content.form.title ?? content.form.id
-    default: return undefined
-  }
-}
-
-function toStoredError(error: unknown): { code?: string | number; message?: string } {
-  if (!(error instanceof Error)) return { message: String(error).slice(0, 500) }
-  const code = (error as Error & { code?: string | number }).code
-  return { code, message: error.message.slice(0, 500) }
 }

@@ -184,6 +184,8 @@ export class ConversationRuntime {
   private compiled = new Map<string, CompiledFlow>()
   private store?: CheckpointStore
   private dormant = new Map<string, FlowCheckpoint>()
+  /** Store clears of discarded dormant checkpoints still in flight, by key. */
+  private pendingClears = new Map<string, Promise<void>>()
   /** Keys whose persistent checkpoint must NOT be cleared on unwind (shutdown teardown). */
   private preserveOnAbort = new Set<string>()
   /** Registration history for introspection — see {@link listRegistrations}. */
@@ -245,6 +247,9 @@ export class ConversationRuntime {
       const key = this.keyFor(ctx)
       try {
         await runSteps(flow, ctx, c as ConversationControls, startAt, async (stepIndex) => {
+          // A clear of the checkpoint this conversation replaced may still be in flight:
+          // let it land first, or it would wipe this conversation's fresh checkpoint.
+          await this.pendingClears.get(key)
           await this.store!.setCheckpoint(key, {
             flowId: flow.id,
             step: stepIndex + 1,
@@ -264,10 +269,16 @@ export class ConversationRuntime {
     }
   }
 
-  /** Loads all persisted checkpoints into the dormant map; call once at startup (Bot.start()). */
+  /**
+   * Loads all persisted checkpoints into the dormant map (Bot.start()). The map is replaced,
+   * not merged: across a stop()/start() cycle the store is the source of truth, so a
+   * checkpoint cleared meanwhile (erasure, another replica) never resumes from memory.
+   */
   async loadDormant(): Promise<void> {
     if (!this.store) return
-    for (const [key, cp] of await this.store.listCheckpoints()) this.dormant.set(key, cp)
+    const checkpoints = await this.store.listCheckpoints()
+    this.dormant.clear()
+    for (const [key, cp] of checkpoints) this.dormant.set(key, cp)
   }
 
   /**
@@ -306,7 +317,15 @@ export class ConversationRuntime {
   /** Drop `key`'s dormant checkpoint (memory + store). Returns whether one existed. */
   discardDormant(key: string): boolean {
     if (!this.dormant.delete(key)) return false
-    void this.store?.clearCheckpoint(key).catch(() => {})
+    if (this.store) {
+      // Tracked per key so a persistent flow entered right after this waits for the clear
+      // before writing its own checkpoint (async stores do not order the two writes).
+      const clear: Promise<void> = Promise.resolve(this.pendingClears.get(key))
+        .then(() => this.store?.clearCheckpoint(key))
+        .catch(() => {})
+        .finally(() => { if (this.pendingClears.get(key) === clear) this.pendingClears.delete(key) })
+      this.pendingClears.set(key, clear)
+    }
     return true
   }
 
@@ -363,6 +382,10 @@ export class ConversationRuntime {
     // (relevant when the runtime is reused across a stop()/start() cycle).
     this.preserveOnAbort.delete(key)
     if (this.active.has(key)) this.abort(key)
+    // The new conversation replaces a dormant one too: left in place, the stale checkpoint
+    // would wake (and hijack) the subject's first message after this conversation ends.
+    // A resumed flow consumed its own checkpoint before entering, so this is a no-op there.
+    this.discardDormant(key)
 
     const entry: ActiveConversation = { key, state: opts.state ? { ...opts.state } : {}, inbox: [], ...(latest ? { latest } : {}) }
     this.active.set(key, entry)
@@ -480,15 +503,21 @@ export class ConversationRuntime {
    * Returns the number of active conversations aborted.
    */
   abortChat(chatId: string): number {
-    const inChat = (key: string) => key === chatId || key.startsWith(`${chatId}:`)
+    return this.abortWhere((key) => key === chatId || key.startsWith(`${chatId}:`))
+  }
+
+  /**
+   * Silently abort every active conversation whose key satisfies `match` and drop the
+   * matching dormant checkpoints (memory + store). Used by handoff ({@link abortChat})
+   * and subject erasure. Returns the number of active conversations aborted.
+   */
+  abortWhere(match: (key: string) => boolean): number {
     let n = 0
     for (const key of [...this.active.keys()]) {
-      if (inChat(key) && this.abort(key)) n++
+      if (match(key) && this.abort(key)) n++
     }
     for (const key of [...this.dormant.keys()]) {
-      if (!inChat(key)) continue
-      this.dormant.delete(key)
-      void this.store?.clearCheckpoint(key).catch(() => {})
+      if (match(key)) this.discardDormant(key)
     }
     return n
   }

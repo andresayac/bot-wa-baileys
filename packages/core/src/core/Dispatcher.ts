@@ -128,9 +128,14 @@ export class Dispatcher {
     })
   }
 
+  /**
+   * Copy-on-write: a handler may register (or remove) matchers while `run()` iterates the
+   * list — e.g. `bot.when()`/`registerFlow()` from inside a handler. Sorting the live array
+   * in place would shift entries under that iterator and run an already-visited matcher
+   * twice; a fresh array leaves the in-flight dispatch on its own snapshot.
+   */
   private addMatcher(entry: MatcherEntry): () => void {
-    this.matchers.push(entry)
-    this.matchers.sort((a, b) => b.specificity - a.specificity || a.seq - b.seq)
+    this.matchers = [...this.matchers, entry].sort((a, b) => b.specificity - a.specificity || a.seq - b.seq)
     return () => { this.matchers = this.matchers.filter((m) => m !== entry) }
   }
 
@@ -140,7 +145,7 @@ export class Dispatcher {
   }
 
   catchAll(handler: MessageHandler): () => void {
-    this.catchAlls.push(handler)
+    this.catchAlls = [...this.catchAlls, handler]   // copy-on-write, see addMatcher
     return () => { this.catchAlls = this.catchAlls.filter((h) => h !== handler) }
   }
 

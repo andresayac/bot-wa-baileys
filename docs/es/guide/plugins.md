@@ -21,7 +21,11 @@ await bot.start()
 ```
 
 `bot.plug(plugin, config?)` devuelve una función **unplug** que revierte
-cada handler/hook que el plugin registró.
+todo lo que el plugin registró vía `ctx.bot` (comandos, matchers,
+conversaciones, flows, hooks, plugins anidados y callbacks de `onDispose`) y
+después llama a su `uninstall(ctx)`, si lo tiene. Llamarla dos veces no hace
+nada. Si `install()` lanza, lo que alcanzó a registrar se revierte antes de
+que el error te llegue.
 
 ### Incluido: slashCommands
 
@@ -123,8 +127,9 @@ definePlugin({
 ```
 
 ::: warning `install()` debe ser síncrono
-`bot.plug()` no hace `await` de `install()`. Un `install` async que rechace
-se convierte en un unhandled rejection que puede tumbar el proceso. Si tu
+`bot.plug()` no hace `await` de `install()`: el bot sigue antes de que un
+`install` async termine y su rechazo solo llega al evento `'error'` (en
+versiones anteriores del core tumbaba el proceso). Si tu
 plugin necesita inicialización async (abrir una conexión, cargar un SDK),
 mantén `install` síncrono y resuelve de forma perezosa en el primer uso,
 reportando los errores de configuración sin tumbar el bot. Así carga
