@@ -47,10 +47,16 @@ bot.schedule('*/15 * * * *', async () => { /* ... */ })
 │ ┌───── hour (0-23)
 │ │ ┌───── day of month (1-31)
 │ │ │ ┌───── month (1-12)
-│ │ │ │ ┌───── day of week (0-6, 0=Sunday)
+│ │ │ │ ┌───── day of week (0-7, 0 and 7 = Sunday)
 │ │ │ │ │
 * * * * *
 ```
+
+Each field takes `*`, a number, a range (`1-5`), a step (`*/15`, `1-30/5`) or a
+comma-separated list of those. Every field must match (the day-of-month /
+day-of-week "OR" rule of classic cron is not implemented). Names (`mon`, `jan`)
+and macros (`@daily`) are not supported: `bot.schedule()` throws a `TypeError`
+naming the offending field instead of creating a task that never runs.
 
 ## delay — once after X time
 

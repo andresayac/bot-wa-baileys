@@ -11,6 +11,8 @@ import { parseDuration, randomId } from '../utils/timers.js'
 interface InternalTask extends ScheduledTask {
   handler: () => void | Promise<void>
   timer?: NodeJS.Timeout
+  /** Bumped by every schedule(): a run whose generation is stale must not reschedule. */
+  generation: number
   nextRunDate: Date | null
   computeNextRun(): Date | null
 }
@@ -56,6 +58,7 @@ export class Scheduler {
     once: string | number | undefined,
     handler: () => void | Promise<void>
   ): ScheduledTask {
+    if (cronExpr !== undefined) assertCron(cronExpr)
     const id = randomId('task')
     const runAt = once !== undefined
       ? new Date(Date.now() + parseDuration(once))
@@ -77,6 +80,7 @@ export class Scheduler {
       runAt,
       isRecurring: cronExpr !== undefined || interval !== undefined,
       handler,
+      generation: 0,
       nextRunDate: computeNextRun(),
       get nextRun() { return this.nextRunDate },
       computeNextRun,
@@ -99,30 +103,55 @@ export class Scheduler {
     if (!next) return
     task.nextRunDate = next
     const delayMs = Math.max(0, next.getTime() - Date.now())
+    const generation = ++task.generation
     task.timer = setTimeout(async () => {
+      task.timer = undefined
+      // A one-shot task is done the moment it fires: a stop()/start() cycle while its
+      // handler runs must not schedule it again (start() only reschedules known tasks).
+      if (!task.isRecurring) this.tasks.delete(task.id)
       try {
         await task.handler()
       } catch (err) {
         this.logger?.error?.({ err, taskId: task.id }, 'scheduled task failed')
       }
-      task.timer = undefined
-      if (task.isRecurring) {
-        // Reschedule while running; if stop() landed mid-handler, KEEP the
-        // definition (pause-not-delete) so start() resumes it — deleting here
-        // permanently dropped the recurring task.
-        if (this.isRunning && this.tasks.has(task.id)) this.schedule(task)
-      } else {
-        this.tasks.delete(task.id) // one-shot: done
-      }
+      // stop()/start() while the handler ran already gave this task a new timer
+      // (a newer generation): rescheduling here as well would fork a second chain.
+      if (!task.isRecurring || task.generation !== generation) return
+      // Reschedule while running; if stop() landed mid-handler, KEEP the definition
+      // (pause-not-delete) so start() resumes it.
+      if (this.isRunning && this.tasks.has(task.id)) this.schedule(task)
     }, delayMs)
   }
 }
 
 /* =============================================================================
- * MINIMAL CRON PARSER — supports: minute hour day month weekday
- * Supports the '*' wildcard and a single numeric value per field.
+ * MINIMAL CRON PARSER — five fields: minute hour day-of-month month weekday.
+ * Each field takes '*', a number, a range (1-5), a step (`*` + `/15`, 1-30/5, 5/15) or a
+ * comma list of those; weekday 0 and 7 are Sunday. Every field must match (the
+ * day-of-month/weekday OR rule of classic cron is not implemented). Names (mon, jan)
+ * and macros (@daily) are rejected when the task is created.
  * (For full cron support, swap to a real parser like `cron-parser`.)
  * ========================================================================== */
+
+const CRON_FIELDS = ['minute', 'hour', 'day-of-month', 'month', 'weekday'] as const
+const CRON_FIELD = /^(\*|\d+(-\d+)?)(\/\d+)?(,(\*|\d+(-\d+)?)(\/\d+)?)*$/
+
+/** Throw an actionable `TypeError` for an expression the minimal parser cannot run. */
+function assertCron(expr: string): void {
+  const parts = typeof expr === 'string' ? expr.trim().split(/\s+/) : []
+  if (parts.length !== 5) {
+    throw new TypeError(
+      `Invalid cron expression "${String(expr)}": expected 5 fields (minute hour day-of-month month weekday), e.g. '0 9 * * 1-5'`,
+    )
+  }
+  parts.forEach((part, i) => {
+    if (!CRON_FIELD.test(part)) {
+      throw new TypeError(
+        `Invalid cron expression "${expr}": the ${CRON_FIELDS[i]} field "${part}" must use numbers, '*', ranges (1-5), steps (*/15) or lists (1,15)`,
+      )
+    }
+  })
+}
 
 function cronNextRun(expr: string): Date | null {
   const parts = expr.trim().split(/\s+/)
@@ -141,30 +170,39 @@ function cronNextRun(expr: string): Date | null {
         matchesField(candidate.getHours(), h) &&
         matchesField(candidate.getDate(), dom) &&
         matchesField(candidate.getMonth() + 1, mon) &&
-        matchesField(candidate.getDay(), dow)) {
+        matchesWeekday(candidate.getDay(), dow)) {
       return candidate
     }
   }
   return null
 }
 
+/** Weekday field: `0` and `7` both mean Sunday (standard cron). */
+function matchesWeekday(day: number, expr: string): boolean {
+  return matchesField(day, expr) || (day === 0 && matchesField(7, expr))
+}
+
 function matchesField(actual: number, expr: string): boolean {
   if (expr === '*') return true
   // ranges & lists
   for (const part of expr.split(',')) {
-    if (part.includes('/')) {
-      const [base, step] = part.split('/')
-      const stepN = parseInt(step, 10)
-      if (!Number.isInteger(stepN) || stepN <= 0) continue
-      let min = base === '*' ? 0 : parseInt(base, 10)
-      if (isNaN(min)) min = 0
-      if (actual >= min && (actual - min) % stepN === 0) return true
-    } else if (part.includes('-')) {
-      const [lo, hi] = part.split('-').map((n) => parseInt(n, 10))
-      if (actual >= lo && actual <= hi) return true
+    const [range, stepText] = part.split('/')
+    const step = stepText === undefined ? 1 : parseInt(stepText, 10)
+    if (!Number.isInteger(step) || step <= 0) continue
+    let lo: number
+    let hi: number
+    if (range === '*') {
+      lo = 0
+      hi = Number.POSITIVE_INFINITY
+    } else if (range.includes('-')) {
+      ;[lo, hi] = range.split('-').map((n) => parseInt(n, 10))
     } else {
-      if (actual === parseInt(part, 10)) return true
+      lo = parseInt(range, 10)
+      // `5/15` (start/step without a range) runs from 5 to the end of the field.
+      hi = stepText === undefined ? lo : Number.POSITIVE_INFINITY
     }
+    if (Number.isNaN(lo) || Number.isNaN(hi)) continue
+    if (actual >= lo && actual <= hi && (actual - lo) % step === 0) return true
   }
   return false
 }

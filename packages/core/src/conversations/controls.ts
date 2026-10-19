@@ -164,7 +164,10 @@ export function createControls(rt: ConversationRuntime, handle: ConversationHand
     }),
 
     choose: async (prompt, options, opts) => {
-      const keys = Object.keys(options)
+      const keys = Object.keys(options ?? {})
+      if (keys.length === 0) {
+        throw new TypeError('c.choose() needs at least one option: c.choose(prompt, { key: "Label", ... })')
+      }
       const render = (header: string) => `${header}\n\n${keys.map((k, i) => `${i + 1}) ${options[k]}`).join('\n')}`
       const menu = render(prompt)
       return loopWait<string>(opts, 'any', async (m) => {
