@@ -32,7 +32,7 @@
     "typecheck": "tsc -p tsconfig.test.json"
   },
   "dependencies": {
-    "@bot-wa/core": "workspace:*"
+    "@bot-wa/core": "workspace:^"
   },
   "peerDependencies": {
     "better-sqlite3": "^11.7.0"

@@ -1,8 +1,8 @@
 # @bot-wa/baileys
 
-Transporte **WhatsApp vía [Baileys 7](https://github.com/WhiskeySockets/Baileys)** ([`IProvider` v2](../core/src/core/provider.ts)) para [`@bot-wa/core`](../core). Vincula el bot como un dispositivo de WhatsApp Web (QR o código de emparejamiento) y abre un WebSocket propio: no hace falta servidor público ni webhook.
+Transporte **WhatsApp vía [Baileys 7](https://github.com/WhiskeySockets/Baileys)** ([`IProvider` v2](https://github.com/andresayac/bot-wa-baileys/blob/main/packages/core/src/core/provider.ts)) para [`@bot-wa/core`](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/core). Vincula el bot como un dispositivo de WhatsApp Web (QR o código de emparejamiento) y abre un WebSocket propio: no hace falta servidor público ni webhook.
 
-> **Cliente no oficial.** Baileys implementa el protocolo de WhatsApp Web por ingeniería inversa; ni WhatsApp ni Meta lo respaldan. Automatizar una cuenta puede infringir los [Términos de servicio de WhatsApp](https://www.whatsapp.com/legal/terms-of-service) y acabar en **bloqueo del número**. Usa un número dedicado, escribe solo a quien te lo pidió (opt-in), no hagas envíos masivos y deja el rate limiter activado. Si necesitas una vía oficial y sin riesgo de baneo, usa [`@bot-wa/meta`](../meta-provider) (WhatsApp Cloud API).
+> **Cliente no oficial.** Baileys implementa el protocolo de WhatsApp Web por ingeniería inversa; ni WhatsApp ni Meta lo respaldan. Automatizar una cuenta puede infringir los [Términos de servicio de WhatsApp](https://www.whatsapp.com/legal/terms-of-service) y acabar en **bloqueo del número**. Usa un número dedicado, escribe solo a quien te lo pidió (opt-in), no hagas envíos masivos y deja el rate limiter activado. Si necesitas una vía oficial y sin riesgo de baneo, usa [`@bot-wa/meta`](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/meta-provider) (WhatsApp Cloud API).
 
 - **Ingress:** socket propio con reconexión y backoff; los eventos de Baileys se traducen a `InboundEvent` neutros: mensajes, reacciones, votos de encuestas (descifrados por el provider), cambios de grupo, llamadas y presencia.
 - **Outbound:** texto, imagen, video, audio, nota de voz (transcodifica a Opus), documento, sticker (conversión con `sharp`), ubicación, contacto, **encuestas nativas** y reacciones. Botones, listas y tarjetas se degradan a texto numerado.
@@ -122,7 +122,7 @@ new BaileysProvider({
 })
 ```
 
-Más detalle en la guía [Rate limiting](../../docs/es/guide/rate-limiting.md).
+Más detalle en la guía [Rate limiting](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/es/guide/rate-limiting.md).
 
 ### Reconexión y backoff
 

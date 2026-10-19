@@ -32,9 +32,9 @@
     "typecheck": "tsc -p tsconfig.test.json"
   },
   "dependencies": {
-    "@bot-wa/core": "workspace:*",
-    "@bot-wa/graph-core": "workspace:*",
-    "@bot-wa/http": "workspace:*",
+    "@bot-wa/core": "workspace:^",
+    "@bot-wa/graph-core": "workspace:^",
+    "@bot-wa/http": "workspace:^",
     "pino": "^10.3.1"
   },
   "devDependencies": {

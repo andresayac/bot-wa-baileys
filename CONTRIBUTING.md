@@ -101,9 +101,15 @@ Las versiones se gestionan con [Changesets](https://changesets.dev) (CLI v3) y s
 pnpm version-packages      # changeset version: sube versiones y escribe los CHANGELOG de cada paquete
 git commit -am "chore(release): version packages"
 pnpm changeset publish-plan   # revisa qué se va a publicar
+pnpm pack:smoke            # empaqueta e instala los tarballs en un proyecto limpio (no publica nada)
+pnpm test:scripts          # tests de los helpers de scripts/ (semver del smoke test)
 pnpm release               # pnpm build && changeset publish: publica y crea los tags <paquete>@<versión>
 git push --follow-tags
 ```
+
+### Smoke test de empaquetado
+
+`pnpm pack:smoke` (`scripts/pack-smoke.mjs`) simula instalar desde npm **sin publicar**: compila, ejecuta `pnpm pack` en cada paquete público hacia un directorio temporal fuera del repo, revisa cada tarball (archivos de `main`/`types`/`exports`/`bin`, README y LICENSE; nada de `src`, tests, source maps, configs ni credenciales; salida de `lib/` sin fuente; `engines`; dependencias privadas o con `workspace:`; tamaños) y luego, en un proyecto npm limpio, instala los tarballs y comprueba que cada subpath de `exports` se importa, que un consumidor TypeScript compila con `moduleResolution` `nodenext` y `bundler`, que los SDKs opcionales de IA ausentes solo fallan al usarse, que los bins `bot-wa` y `create-bot-wa` funcionan y que cada plantilla de `create-bot-wa` resuelve sus versiones contra los tarballs, se instala y arranca en `bot-wa dev`. Necesita red para las dependencias de terceros y tarda unos minutos. Opciones: `--no-build`, `--no-scaffold-install` (más rápido), `--keep` (conserva el directorio temporal). Es un script local: no hay workflow de CI para él.
 
 ### Modo prerelease `alpha`
 

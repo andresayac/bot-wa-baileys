@@ -1,6 +1,6 @@
 # @bot-wa/meta
 
-Transporte **WhatsApp Cloud API (oficial de Meta)** para [`@bot-wa/core`](../core). A diferencia de Baileys (WhatsApp Web, no oficial), la Cloud API es **oficial: sin riesgo de baneo**, con **botones, listas y plantillas nativos**. Es webhook-based (no abre socket).
+Transporte **WhatsApp Cloud API (oficial de Meta)** para [`@bot-wa/core`](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/core). A diferencia de Baileys (WhatsApp Web, no oficial), la Cloud API es **oficial: sin riesgo de baneo**, con **botones, listas y plantillas nativos**. Es webhook-based (no abre socket).
 
 ## Instalación
 

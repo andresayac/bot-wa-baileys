@@ -27,7 +27,7 @@ Solo 10 paquetes son **públicos**: `core`, `baileys`, `meta`, `telegram`, `sqli
 - Plugins e infra: `server`, `rag`, `voice`, `nlu`, `dialogflow`, `chatwoot`, `tickets`, `moderation`, `manager`, `events`.
 - Tooling: `eslint-plugin-bot-wa`.
 - Prototipos: `inbox`, `crm`, `hub`, `campaigns`, `deployments`.
- Un paquete público no puede depender de uno privado.
+ Un paquete público no puede depender de uno privado, y sus dependencias internas se declaran como `"workspace:^"` (al empaquetar salen como `^x.y.z`, así npm deduplica `@bot-wa/core`).
 
 ## Comandos
 
@@ -43,6 +43,8 @@ pnpm --filter @bot-wa/core exec vitest run tests/dispatcher.test.ts   # un solo 
 pnpm --filter "./packages/*-store" test   # los stores (con BOTWA_TEST_*_URL, también contra servidores reales)
 
 pnpm changeset                            # añade un changeset (todo cambio visible de un paquete público)
+pnpm pack:smoke                           # empaqueta los paquetes públicos y los prueba instalados desde tarballs (no publica)
+pnpm test:scripts                         # tests de los helpers de scripts/ (semver del smoke test)
 
 pnpm docs:dev                             # sitio VitePress en local (http://localhost:5173/)
 pnpm docs                                 # TypeDoc + VitePress (CI lo compila en Node 24; no se publica en ningún hosting)
@@ -151,7 +153,7 @@ Son los errores que más caro han salido. Respétalos aunque un cambio "parezca"
 
 - Versionado y publicación con [Changesets](https://changesets.dev) (CLI v3, `.changeset/config.json`: `access: public`, `baseBranch: main`, los paquetes privados no se versionan ni se publican).
 - Flujo **manual** (sin workflow de release): cada PR trae su changeset; para publicar, el mantenedor ejecuta en `main` `pnpm version-packages` → commit → `pnpm release` (`pnpm build && changeset publish`, crea los tags) → `git push --follow-tags`.
-- El repo está en **modo prerelease `alpha`** (`.changeset/pre.json`): `changeset version` genera `core@2.0.0-alpha.N` y, en el resto, `x.y.z-alpha.N`, y `changeset publish` publica con el dist-tag `alpha`. Se sale con `pnpm changeset pre exit` (decisión del mantenedor; no lo hagas por tu cuenta). Antes de publicar, revisa `pnpm changeset status --verbose` y `pnpm changeset publish-plan`.
+- El repo está en **modo prerelease `alpha`** (`.changeset/pre.json`): `changeset version` genera `core@2.0.0-alpha.N` y, en el resto, `x.y.z-alpha.N`, y `changeset publish` publica con el dist-tag `alpha`. Se sale con `pnpm changeset pre exit` (decisión del mantenedor; no lo hagas por tu cuenta). Antes de publicar, revisa `pnpm changeset status --verbose` y `pnpm changeset publish-plan`, y pasa `pnpm pack:smoke`.
 - **No** ejecutes `changeset version`, `changeset publish` ni `pnpm release` salvo que te lo pidan: publicar en npm no tiene vuelta atrás.
 - Detalles (prereleases, scope de npm, promover un paquete privado) en [`CONTRIBUTING.md`](CONTRIBUTING.md#publicar-una-versión) y [`.changeset/README.md`](.changeset/README.md).
 

@@ -48,7 +48,7 @@ bot.conversation('soporte', async (c, ctx) => {
 await bot.start()   // escanea el QR
 ```
 
-Un ejemplo completo (comandos, media, hooks, DI, scheduler) vive en [`packages/baileys-provider/examples/bot.ts`](../baileys-provider/examples/bot.ts).
+Un ejemplo completo (comandos, media, hooks, DI, scheduler) vive en [`packages/baileys-provider/examples/bot.ts`](https://github.com/andresayac/bot-wa-baileys/blob/main/packages/baileys-provider/examples/bot.ts).
 
 ¿Sin cámara? Configura `pairingCode: '+57300XXXXXXX'` en el `BaileysProvider` (formato internacional completo) y escucha `bot.on('qr', ...)` — el código de emparejamiento llega por ahí también.
 

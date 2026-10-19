@@ -70,7 +70,7 @@ importers:
   packages/ai:
     dependencies:
       '@bot-wa/core':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../core
       '@google/generative-ai':
         specifier: ^0.21.0
@@ -80,7 +80,7 @@ importers:
         specifier: ^0.68.0
         version: 0.68.0
       '@bot-wa/telegram':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../telegram-provider
       '@types/node':
         specifier: ^26.1.1
@@ -95,7 +95,7 @@ importers:
   packages/baileys-provider:
     dependencies:
       '@bot-wa/core':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../core
       '@cacheable/node-cache':
         specifier: ^1.5.0
@@ -434,7 +434,7 @@ importers:
   packages/graph-core:
     dependencies:
       '@bot-wa/core':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../core
     devDependencies:
       '@types/node':
@@ -609,13 +609,13 @@ importers:
   packages/meta-provider:
     dependencies:
       '@bot-wa/core':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../core
       '@bot-wa/graph-core':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../graph-core
       '@bot-wa/http':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../http
       pino:
         specifier: ^10.3.1
@@ -772,7 +772,7 @@ importers:
   packages/redis-store:
     dependencies:
       '@bot-wa/core':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../core
       redis:
         specifier: ^4.7.0
@@ -830,7 +830,7 @@ importers:
   packages/sqlite-store:
     dependencies:
       '@bot-wa/core':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../core
     devDependencies:
       '@types/better-sqlite3':
@@ -852,10 +852,10 @@ importers:
   packages/telegram-provider:
     dependencies:
       '@bot-wa/core':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../core
       '@bot-wa/http':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../http
       pino:
         specifier: ^10.3.1
