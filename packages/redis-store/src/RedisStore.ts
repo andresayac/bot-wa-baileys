@@ -42,6 +42,8 @@ import { legacyMessageKey, messageKey, parseDuration } from '@bot-wa/core'
 import { RedisUserData } from './userData.js'
 import { escapeGlob } from './glob.js'
 import { matchKeys } from './keys.js'
+import { RedisScheduleStore } from './schedules.js'
+import { RedisLeaseProvider } from './lease.js'
 import { DELETE_CHAT_SCRIPT, DROP_MESSAGE_SCRIPT, MERGE_CAS_SCRIPT, RELEASE_LOCK_SCRIPT } from './scripts.js'
 
 /**
@@ -615,6 +617,26 @@ export class RedisStore implements IStore {
   }
 
   /* Distributed lock (building block; the core does not use it yet) -------- */
+
+  private scheduleStore?: RedisScheduleStore
+  private leaseProvider?: RedisLeaseProvider
+
+  /**
+   * The durable scheduler's store on this client and prefix (`{prefix}:sched:{id}`):
+   * `new Bot({ store, scheduler: { store: store.schedules() } })`. Always the same instance.
+   */
+  schedules(): RedisScheduleStore {
+    return (this.scheduleStore ??= new RedisScheduleStore({ client: this.client, prefix: this.prefix }))
+  }
+
+  /**
+   * A fenced {@link RedisLeaseProvider} on this client and prefix (`{prefix}:lease:{key}`),
+   * e.g. for `BotConfig.scheduler.lease`. Unlike {@link acquireLock}, its grants carry a
+   * monotonic fencing token. Always the same instance.
+   */
+  leases(): RedisLeaseProvider {
+    return (this.leaseProvider ??= new RedisLeaseProvider({ client: this.client, prefix: this.prefix }))
+  }
 
   /**
    * Try to acquire a distributed lock at `{prefix}:lock:{key}`.
