@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { createHash } from 'node:crypto'
 import {
+  Bot,
   OutsideSessionWindowError,
   PayloadTooLargeError,
   ProviderError,
@@ -53,6 +54,33 @@ describe('TwilioProvider — construction & lifecycle', () => {
     await provider.start()
     await provider.stop()
     expect(events.map((e) => e.kind === 'connection' && e.update.state)).toEqual(['ready', 'closed'])
+  })
+})
+
+describe('TwilioProvider — per-chat text format', () => {
+  it('WhatsApp chats (phone or BSUID) render WhatsApp markup, SMS chats are plain', () => {
+    const { provider } = make()
+    expect(provider.capabilities.textFormat).toBeUndefined()
+    expect(provider.textFormatFor('whatsapp:+573001112233')).toBe('whatsapp')
+    expect(provider.textFormatFor('whatsapp:CO.2132056440717202')).toBe('whatsapp')
+    expect(provider.textFormatFor('WhatsApp:+573001112233')).toBe('whatsapp')
+    expect(provider.textFormatFor('+15005550006')).toBe('plain')
+    expect(provider.textFormatFor('messenger:1234')).toBeUndefined()
+  })
+
+  it('reaches the bot as ctx.textFormat', async () => {
+    const { provider } = make()
+    const bot = new Bot({ provider })
+    const seen: Array<string | undefined> = []
+    bot.onMessage((ctx) => { seen.push(ctx.textFormat) })
+    await bot.start()
+    for (const params of [WA_TEXT, SMS_TEXT]) {
+      const { body, headers } = signed(params)
+      expect(provider.ingest(body, headers)).toBe(200)
+      await new Promise((r) => setTimeout(r, 10))
+    }
+    await bot.stop()
+    expect(seen).toEqual(['whatsapp', 'plain'])
   })
 })
 

@@ -128,7 +128,12 @@ pasan a un menú de texto numerado, `ctx.edit` envía un mensaje nuevo,
   `'whatsapp'` (`*negrita*`, `_cursiva_`, `~tachado~`): Baileys, Cloud API,
   Evolution, WPPConnect, Gupshup. `'plain'` (sin formato): Telegram (se envía
   sin `parse_mode`), Messenger, Instagram, TikTok. `'markdown'`: Discord. Sin
-  declarar: Twilio, HighLevel, Email.
+  declarar: Email. Los providers que sirven varios canales deciden por chat con
+  el método opcional `textFormatFor(chatId)`, que gana a
+  `capabilities.textFormat` y llega a los handlers como `ctx.textFormat`:
+  Twilio devuelve `'whatsapp'` en los chats `whatsapp:` y `'plain'` en SMS;
+  HighLevel sigue el canal de respuesta del contacto (`'whatsapp'` en WhatsApp,
+  `'plain'` en SMS, Email, FB, IG, Live chat, GMB y custom).
 - **Plantillas** es el tipo de contenido `template`: plantillas de la Cloud
   API, Content Templates de Twilio (`ContentSid`), `templateId` de HighLevel,
   plantillas de Gupshup. El resto de providers lo rechaza con

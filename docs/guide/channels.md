@@ -123,7 +123,12 @@ text menu, `ctx.edit` sends a new message, `ctx.react` resolves
   (`*bold*`, `_italic_`, `~strike~`): Baileys, Cloud API, Evolution,
   WPPConnect, Gupshup. `'plain'` (no markup): Telegram (sent without
   `parse_mode`), Messenger, Instagram, TikTok. `'markdown'`: Discord. Not
-  declared: Twilio, HighLevel, Email.
+  declared: Email. Providers that serve several channels decide per chat with
+  the optional `textFormatFor(chatId)`, which wins over `capabilities.textFormat`
+  and reaches handlers as `ctx.textFormat`: Twilio returns `'whatsapp'` for
+  `whatsapp:` chats and `'plain'` for SMS; HighLevel follows the contact's
+  reply channel (`'whatsapp'` for WhatsApp, `'plain'` for SMS, Email, FB, IG,
+  Live chat, GMB and custom).
 - **Templates** is the `template` content kind: Cloud API templates, Twilio
   Content Templates (`ContentSid`), HighLevel `templateId`, Gupshup templates.
   Other providers reject it with `UnsupportedContentError`.

@@ -322,15 +322,16 @@ Turns with tools are not streamed. Full guide:
 
 Models write Markdown (`**bold**`, `# heading`, `[link](url)`, `- item`), but
 most chat apps do not render it. The autoresponder converts each reply (also
-when streaming) to the format the provider declares in
+when streaming) to the format of the chat, `ctx.textFormat`: the provider's
+per-chat `textFormatFor(chatId)` when it serves several channels, else its
 `capabilities.textFormat`:
 
 | `textFormat` | Providers | Result |
 |---|---|---|
-| `'whatsapp'` | `baileys`, `meta`, evolution, wppconnect, gupshup | `*bold*`, `_italic_`, `~strike~`, `•` bullets, headings in bold, links as `text (url)` |
-| `'plain'` | `telegram` (sent without `parse_mode`), messenger, instagram, tiktok | markers stripped |
+| `'whatsapp'` | `baileys`, `meta`, evolution, wppconnect, gupshup; twilio `whatsapp:` chats; highlevel WhatsApp contacts | `*bold*`, `_italic_`, `~strike~`, `•` bullets, headings in bold, links as `text (url)` |
+| `'plain'` | `telegram` (sent without `parse_mode`), messenger, instagram, tiktok; twilio SMS chats; highlevel SMS, Email, FB, IG, Live chat, GMB contacts | markers stripped |
 | `'markdown'` | discord | unchanged |
-| not declared | other providers | unchanged |
+| not declared | other providers (email) | unchanged |
 
 Code spans and fenced blocks are never touched, and neither are `snake_case`
 words or `2 * 3`. The stored history keeps the model's original text.

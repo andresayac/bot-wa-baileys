@@ -170,6 +170,30 @@ describe('GoHighLevelProvider — inbound normalization', () => {
   })
 })
 
+describe('GoHighLevelProvider — per-chat text format', () => {
+  it('follows the channel replies go out on: WhatsApp markup, plain elsewhere', () => {
+    const { provider } = make()
+    expect(provider.capabilities.textFormat).toBeUndefined()
+    // Unknown contact → defaultChannel (SMS).
+    expect(provider.textFormatFor('nobody')).toBe('plain')
+    const { raw, headers } = signed(WHATSAPP_IMAGE)
+    expect(provider.ingest(raw, headers)).toBe(200)
+    expect(provider.textFormatFor(WHATSAPP_IMAGE.contactId)).toBe('whatsapp')
+    const sms = signed(SMS_INBOUND)
+    expect(provider.ingest(sms.raw, sms.headers)).toBe(200)
+    expect(provider.textFormatFor(SMS_INBOUND.contactId)).toBe('plain')
+  })
+
+  it('maps every channel; an unknown one is left to the caller', () => {
+    for (const [channel, format] of [
+      ['WhatsApp', 'whatsapp'], ['SMS', 'plain'], ['Email', 'plain'], ['FB', 'plain'], ['IG', 'plain'],
+      ['Live_Chat', 'plain'], ['GMB', 'plain'], ['Custom', 'plain'], ['Telepathy', undefined],
+    ] as const) {
+      expect(make(undefined, { defaultChannel: channel }).provider.textFormatFor('x')).toBe(format)
+    }
+  })
+})
+
 describe('GoHighLevelProvider — config defaults', () => {
   it('an explicit undefined in the config keeps the defaults', async () => {
     const { provider, calls } = make(undefined, { apiVersion: undefined, baseUrl: undefined, defaultChannel: undefined })

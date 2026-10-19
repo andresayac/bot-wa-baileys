@@ -30,6 +30,7 @@ import type {
   ProviderCapabilities,
   SendOptions,
   SendResult,
+  TextFormat,
   UserId,
 } from '@bot-wa/core'
 import { PayloadTooLargeError, ProviderError } from '@bot-wa/core'
@@ -224,6 +225,19 @@ export class TwilioProvider implements IProvider<TwilioWebhookParams> {
     const user = this.config.apiKeySid && this.config.apiKeySecret ? this.config.apiKeySid : this.config.accountSid
     const pass = this.config.apiKeySid && this.config.apiKeySecret ? this.config.apiKeySecret : this.config.authToken
     return `Basic ${Buffer.from(`${user}:${pass}`).toString('base64')}`
+  }
+
+  /**
+   * Text markup per chat (no provider-wide `capabilities.textFormat`: one instance
+   * serves two dialects). `whatsapp:` chats (phone or BSUID) render WhatsApp markup
+   * (`*bold*`, `_italic_`); SMS/MMS chats (bare E.164) render none, so Markdown is
+   * stripped. Other address prefixes (`messenger:`, `rcs:`…) are unknown → undefined.
+   */
+  textFormatFor(chatId: ChatId): TextFormat | undefined {
+    const channel = channelOf(chatId)
+    if (channel === 'whatsapp') return 'whatsapp'
+    if (channel === 'sms') return 'plain'
+    return undefined
   }
 
   /** The sender for a chat: the number it wrote to, else the per-channel default, else the service. */

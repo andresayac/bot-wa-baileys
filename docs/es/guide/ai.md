@@ -327,15 +327,16 @@ transmiten. Guía completa:
 
 Los modelos escriben Markdown (`**negrita**`, `# título`, `[enlace](url)`,
 `- elemento`), pero la mayoría de las apps de chat no lo muestran. El
-autoresponder convierte cada respuesta (también en streaming) al formato que
-declara el provider en `capabilities.textFormat`:
+autoresponder convierte cada respuesta (también en streaming) al formato del
+chat, `ctx.textFormat`: el `textFormatFor(chatId)` del provider cuando sirve
+varios canales y, si no, su `capabilities.textFormat`:
 
 | `textFormat` | Providers | Resultado |
 |---|---|---|
-| `'whatsapp'` | `baileys`, `meta`, evolution, wppconnect, gupshup | `*negrita*`, `_cursiva_`, `~tachado~`, viñetas `•`, títulos en negrita, enlaces como `texto (url)` |
-| `'plain'` | `telegram` (se envía sin `parse_mode`), messenger, instagram, tiktok | sin marcas |
+| `'whatsapp'` | `baileys`, `meta`, evolution, wppconnect, gupshup; chats `whatsapp:` de twilio; contactos de WhatsApp en highlevel | `*negrita*`, `_cursiva_`, `~tachado~`, viñetas `•`, títulos en negrita, enlaces como `texto (url)` |
+| `'plain'` | `telegram` (se envía sin `parse_mode`), messenger, instagram, tiktok; chats SMS de twilio; contactos de SMS, Email, FB, IG, Live chat y GMB en highlevel | sin marcas |
 | `'markdown'` | discord | sin cambios |
-| sin declarar | el resto | sin cambios |
+| sin declarar | el resto (email) | sin cambios |
 
 Nunca se tocan los bloques ni los spans de código, ni las palabras con
 `snake_case` o un `2 * 3`. El historial guarda el texto original del modelo.

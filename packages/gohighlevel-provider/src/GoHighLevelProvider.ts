@@ -29,6 +29,7 @@ import type {
   ProviderCapabilities,
   SendOptions,
   SendResult,
+  TextFormat,
   UserId,
 } from '@bot-wa/core'
 import { ProviderError } from '@bot-wa/core'
@@ -43,6 +44,9 @@ import type { GhlChannel, GhlErrorBody, GhlSendResponse, GhlWebhookBody, GoHighL
 function escapeHtml(text: string): string {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>')
 }
+
+/** Channels (lower-cased {@link GhlChannel}) that render no text markup. */
+const PLAIN_CHANNELS = new Set(['sms', 'email', 'fb', 'ig', 'live_chat', 'gmb', 'custom'])
 
 export class GoHighLevelProvider implements IProvider<GhlWebhookBody> {
   readonly id = 'gohighlevel'
@@ -170,6 +174,19 @@ export class GoHighLevelProvider implements IProvider<GhlWebhookBody> {
 
   private url(path: string): string {
     return `${this.config.baseUrl.replace(/\/$/, '')}${path}`
+  }
+
+  /**
+   * Text markup of a contact's chat: that of the channel a reply goes out on
+   * (the contact's last inbound channel, else `defaultChannel`). WhatsApp renders
+   * `*bold*` / `_italic_`; SMS, Email, FB, IG, Live chat, GMB and custom (SMS)
+   * providers show Markdown literally → `'plain'`. An unknown channel → undefined.
+   * A per-send `platformData.type` override is not visible here.
+   */
+  textFormatFor(chatId: ChatId): TextFormat | undefined {
+    const channel = (this.channels.get(chatId) ?? this.config.defaultChannel).toLowerCase()
+    if (channel === 'whatsapp') return 'whatsapp'
+    return PLAIN_CHANNELS.has(channel) ? 'plain' : undefined
   }
 
   /**
