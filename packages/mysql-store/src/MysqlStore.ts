@@ -43,6 +43,7 @@ import type {
 import { legacyMessageKey, messageKey } from '@bot-wa/core'
 import { MysqlUserData } from './userData.js'
 import { toJson } from './json.js'
+import { MysqlScheduleStore } from './schedules.js'
 
 /** The native mysql2/promise pool type produced by `createPool`. */
 export type NativeMysqlPool = NativePool
@@ -468,6 +469,30 @@ export class MysqlStore implements IStore {
   /** Delete every expired user-data row (all users); resolves with the count. */
   async purgeExpiredUserData(now: number = Date.now()): Promise<number> {
     return this.userData.purge(now)
+  }
+
+  /* Durable scheduler ------------------------------------------------------- */
+
+  private scheduleStore?: MysqlScheduleStore
+
+  /**
+   * The durable scheduler's store on this store's pool and `tablePrefix` (table
+   * `{prefix}schedules`, created by its own `start()`, which the scheduler calls):
+   * `new Bot({ store, scheduler: { store: store.schedules() } })`. Always the same
+   * instance. Its calls fail with the "pool is not available" error until this store is
+   * started (the bot starts its store before the scheduler).
+   */
+  schedules(): MysqlScheduleStore {
+    return (this.scheduleStore ??= new MysqlScheduleStore({
+      pool: {
+        query: (sql: string, params?: readonly unknown[]) => this.query(sql, params),
+        getConnection: () => {
+          if (this.pool == null) throw new Error('MysqlStore: pool is not available — call start() first')
+          return this.pool.getConnection()
+        },
+      },
+      tablePrefix: this.t.messages.slice(0, -'messages'.length),
+    }))
   }
 
   /* Lifecycle -------------------------------------------------------------- */
