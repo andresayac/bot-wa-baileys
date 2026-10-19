@@ -43,15 +43,61 @@ import { extractDrafts, resolveDrafts, type GraphWebhookBody, type InboundDraft 
 import { IdentityResolver, MemoryIdentityMap, isPromiseLike, type MaybePromise } from './identity.js'
 import { SessionWindowManager } from './sessionWindow.js'
 import { UsageTracker, pricingOf } from './pricing.js'
-import { verifyChallenge, checkGraphSignature, parseGraphBody, type ChallengeQuery } from '@bot-wa/graph-core'
+import { verifyChallenge, checkGraphSignature, tryParseGraphBody, type ChallengeQuery } from '@bot-wa/graph-core'
 
 /** Content kinds that carry a `media` source. */
 const MEDIA_KINDS: ReadonlySet<OutboundContent['kind']> = new Set(['image', 'video', 'audio', 'voice', 'document', 'sticker'])
 
 const EXT_MIME: Record<string, string> = {
   jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp',
-  mp4: 'video/mp4', mp3: 'audio/mpeg', ogg: 'audio/ogg', aac: 'audio/aac',
-  pdf: 'application/pdf', doc: 'application/msword', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  mp4: 'video/mp4', '3gp': 'video/3gpp', mp3: 'audio/mpeg', ogg: 'audio/ogg', opus: 'audio/ogg', aac: 'audio/aac', m4a: 'audio/mp4', amr: 'audio/amr',
+  pdf: 'application/pdf', txt: 'text/plain', csv: 'text/csv',
+  doc: 'application/msword', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  xls: 'application/vnd.ms-excel', xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  ppt: 'application/vnd.ms-powerpoint', pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+}
+
+/**
+ * MIME type sent for an upload of a kind when nothing better is known. The
+ * Cloud API rejects `application/octet-stream` for every kind but documents.
+ */
+const KIND_MIME: Partial<Record<OutboundContent['kind'], string>> = {
+  image: 'image/jpeg', video: 'video/mp4', audio: 'audio/mpeg', voice: 'audio/ogg', sticker: 'image/webp', document: 'application/octet-stream',
+}
+
+/** MIME type from a file name's extension, if known. */
+function mimeOfName(name: string | undefined): string | undefined {
+  const ext = name?.split('.').pop()?.toLowerCase()
+  return ext ? EXT_MIME[ext] : undefined
+}
+
+/** MIME type from well-known magic bytes, if recognised. */
+function sniffMime(buf: Buffer): string | undefined {
+  const at = (offset: number, ...bytes: number[]) => bytes.every((b, i) => buf[offset + i] === b)
+  if (at(0, 0xff, 0xd8, 0xff)) return 'image/jpeg'
+  if (at(0, 0x89, 0x50, 0x4e, 0x47)) return 'image/png'
+  if (at(0, 0x47, 0x49, 0x46, 0x38)) return 'image/gif'
+  if (at(0, 0x52, 0x49, 0x46, 0x46) && at(8, 0x57, 0x45, 0x42, 0x50)) return 'image/webp'
+  if (at(0, 0x25, 0x50, 0x44, 0x46)) return 'application/pdf'
+  if (at(0, 0x4f, 0x67, 0x67, 0x53)) return 'audio/ogg'
+  if (at(0, 0x49, 0x44, 0x33) || at(0, 0xff, 0xfb)) return 'audio/mpeg'
+  if (at(4, 0x66, 0x74, 0x79, 0x70)) return 'video/mp4'
+  return undefined
+}
+
+/** What the uploader knows about a media item besides its bytes. */
+interface MediaHints {
+  kind: OutboundContent['kind']
+  mimetype?: string
+  filename?: string
+}
+
+/** Upload hints a content item carries (documents name their file and type). */
+function mediaHints(content: OutboundContent): MediaHints {
+  if (content.kind === 'document') {
+    return { kind: 'document', ...(content.mimetype ? { mimetype: content.mimetype } : {}), ...(content.filename ? { filename: content.filename } : {}) }
+  }
+  return { kind: content.kind }
 }
 
 export class CloudAPIProvider implements IProvider<unknown> {
@@ -192,6 +238,9 @@ export class CloudAPIProvider implements IProvider<unknown> {
    * signature check will fail on legitimate requests. When `appSecret` is set
    * and a non-string body is received, a warning is logged.
    *
+   * Returns the HTTP status to answer: 200 accepted, 400 not a JSON object (or a
+   * parsed body while `appSecret` is set), 403 bad/missing signature.
+   *
    * Identity: users are keyed by phone number (wa_id) when known, otherwise by
    * their business-scoped user id (BSUID — username users). Phone ↔ BSUID pairs
    * are learned across webhooks (see `identityMap`). Events are emitted
@@ -201,8 +250,12 @@ export class CloudAPIProvider implements IProvider<unknown> {
   ingest(body: unknown, headers?: Record<string, string | string[] | undefined>): number {
     const sig = checkGraphSignature(body, headers, this.config.appSecret, this.logger)
     if (!sig.ok) return sig.status
-    const parsed = parseGraphBody<GraphWebhookBody>(body)
-    this.dispatch(extractDrafts(parsed, this.logger))
+    const parsed = tryParseGraphBody<GraphWebhookBody>(body)
+    if (!parsed.ok) {
+      this.logger.warn('Cloud API webhook rejected: body is not a JSON object')
+      return parsed.status
+    }
+    this.dispatch(extractDrafts(parsed.body, this.logger))
     return 200
   }
 
@@ -241,22 +294,31 @@ export class CloudAPIProvider implements IProvider<unknown> {
 
   /* Outbound -------------------------------------------------------------- */
 
-  private async resolveMedia(source: MediaSource, fallbackMime = 'application/octet-stream'): Promise<ResolvedMedia> {
-    if (typeof source === 'string') return source.startsWith('http') ? { link: source } : { id: await this.graph.uploadMedia(await readFile(source), fallbackMime) }
-    if (Buffer.isBuffer(source)) return { id: await this.graph.uploadMedia(source, fallbackMime) }
-    if ('url' in source) return { link: source.url }
-    if ('buffer' in source) return { id: await this.graph.uploadMedia(source.buffer, fallbackMime) }
-    if ('path' in source) {
-      const ext = source.path.split('.').pop()?.toLowerCase() ?? ''
-      return { id: await this.graph.uploadMedia(await readFile(source.path), EXT_MIME[ext] ?? fallbackMime) }
+  /**
+   * Upload bytes (or pass a URL through as `link`). The upload's MIME type is the
+   * explicit one (documents), else the file name's extension, else the bytes'
+   * signature, else the kind's default: never a blanket octet-stream, which the
+   * Cloud API rejects for images, audio, video and stickers.
+   */
+  private async resolveMedia(source: MediaSource, hints: MediaHints): Promise<ResolvedMedia> {
+    const upload = async (buffer: Buffer, name?: string): Promise<ResolvedMedia> => {
+      const filename = hints.filename ?? name
+      const mime = hints.mimetype ?? mimeOfName(filename) ?? sniffMime(buffer) ?? KIND_MIME[hints.kind] ?? 'application/octet-stream'
+      return { id: await this.graph.uploadMedia(buffer, mime, filename) }
     }
+    const baseName = (path: string): string | undefined => path.split(/[\\/]/).pop()
+    if (typeof source === 'string') return /^https?:\/\//i.test(source) ? { link: source } : upload(await readFile(source), baseName(source))
+    if (Buffer.isBuffer(source)) return upload(source)
+    if ('url' in source) return { link: source.url }
+    if ('buffer' in source) return upload(source.buffer)
+    if ('path' in source) return upload(await readFile(source.path), baseName(source.path))
     if ('stream' in source) {
       const chunks: Buffer[] = []
       for await (const c of source.stream as AsyncIterable<Buffer | string>) chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c))
-      return { id: await this.graph.uploadMedia(Buffer.concat(chunks), fallbackMime) }
+      return upload(Buffer.concat(chunks))
     }
     if ('native' in source) return typeof source.native === 'string' ? { id: source.native } : (source.native as ResolvedMedia)
-    throw new UnsupportedContentError('image', 'Unsupported MediaSource for Cloud API')
+    throw new UnsupportedContentError(hints.kind, 'Unsupported MediaSource for Cloud API')
   }
 
   /**
@@ -278,12 +340,12 @@ export class CloudAPIProvider implements IProvider<unknown> {
     if (!MEDIA_KINDS.has(content.kind)) return content
     const media = (content as { media: MediaSource }).media
     if (typeof media === 'object' && media !== null && !Buffer.isBuffer(media) && 'native' in media) return content
-    return { ...content, media: { native: await this.resolveMedia(media) } } as OutboundContent
+    return { ...content, media: { native: await this.resolveMedia(media, mediaHints(content)) } } as OutboundContent
   }
 
   private async sendNow(chatId: ChatId, content: OutboundContent, options?: SendOptions): Promise<SendResult<unknown>> {
     const needsMedia = MEDIA_KINDS.has(content.kind)
-    const media = needsMedia ? await this.resolveMedia((content as { media: MediaSource }).media) : undefined
+    const media = needsMedia ? await this.resolveMedia((content as { media: MediaSource }).media, mediaHints(content)) : undefined
     const message = content.kind === 'form'
       ? toFlowMessage(content, content.nativeId !== undefined ? flowRefOf(content.nativeId) : this.flowRefs.get(content.form.id))
       : toOutbound(content, media)

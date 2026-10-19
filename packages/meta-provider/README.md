@@ -51,18 +51,21 @@ app.listen(3000)
 > (HMAC-SHA256 en tiempo constante) y rechaza cuerpos falsificados con `403`.
 > Pasale el **body crudo** (no el ya parseado) para que la firma calcule igual.
 > Solo para desarrollo local se puede usar `allowUnsignedWebhooks: true` de forma explícita.
+> Un body que no es un objeto JSON se responde con `400` (nunca lanza).
 
 ## Qué soporta
 
 | Feature | Cloud API |
 |---|---|
-| Texto, imagen, video, audio, documento, sticker, ubicación, contacto | ✅ |
+| Texto, imagen, video, audio, documento, sticker, ubicación, contacto | ✅ (al subir un `Buffer`, el tipo MIME sale del `mimetype` del documento, la extensión, los bytes o el tipo de contenido; nunca `application/octet-stream` para imagen, audio, video o sticker) |
 | **Botones de respuesta** (`ctx.buttons`, máx 3) | ✅ nativo |
 | **Listas** (`OutboundContent` list) | ✅ nativo |
 | **Plantillas** (kind `template`, p. ej. fuera de la ventana 24h) | ✅ |
 | Reacciones, confirmaciones de lectura | ✅ |
 | Usuarios con **username** de WhatsApp (BSUID): recibir y enviar | ✅ (ver [Usernames y BSUID](#usernames-y-bsuid)) |
 | Clics de botón/lista → interacciones (`type: 'buttons'` + `ctx.acknowledge`) | ✅ |
+| Botones de respuesta rápida de **plantillas** (`type: 'button'`) → interacción con el `payload` | ✅ |
+| Respuestas citando un mensaje → `ctx.quoted.ref.id` (el `wamid` citado) | ✅ |
 | **Formularios** (`flow().form()` → WhatsApp Flows estáticos) | ✅ nativo (ver [WhatsApp Flows](#whatsapp-flows-formularios)) |
 | Encuestas (poll) | ❌ (Graph 131051 — usá botones o WhatsApp Flows) |
 | Grupos, typing/presence, editar/borrar mensajes | ❌ (no existe en la API) |

@@ -57,6 +57,10 @@ export interface GraphMessage {
   document?: GraphMedia
   sticker?: GraphMedia
   location?: { latitude?: number; longitude?: number; name?: string; address?: string }
+  /** Shared contact cards (`type: 'contacts'`). */
+  contacts?: Array<{ name?: { formatted_name?: string } }>
+  /** Template quick-reply button click (`type: 'button'`). */
+  button?: { payload?: string; text?: string }
   reaction?: { message_id?: string; emoji?: string }
   interactive?: {
     type?: string
@@ -139,6 +143,8 @@ export type InboundDraft =
   | { kind: 'learn'; party: Party }
   | { kind: 'alias'; previous: Party; next: Party }
 
+const str = (v: unknown): string | undefined => (typeof v === 'string' && v.length > 0 ? v : undefined)
+
 const mediaFields = { image: 'image', video: 'video', audio: 'audio', document: 'document', sticker: 'sticker' } as const
 
 function mediaOf(msg: GraphMessage): { type: MessageType; body: string; ref?: MediaRef } {
@@ -171,6 +177,8 @@ function senderInfoOf(who: ResolvedParty): SenderInfo {
 
 function toMessage(msg: GraphMessage, id: string, who: ResolvedParty): InboundMessage<GraphMessage> {
   const chatId = who.id
+  // A reply names the message it answers (ours or the user's) by its wamid.
+  const quotedId = str(msg.context?.id)
   let type: MessageType = 'unknown'
   let body = ''
   let media: MediaRef | undefined
@@ -180,8 +188,11 @@ function toMessage(msg: GraphMessage, id: string, who: ResolvedParty): InboundMe
     body = msg.text?.body ?? ''
   } else if (msg.type === 'location') {
     type = 'location'
+    body = [str(msg.location?.name), str(msg.location?.address)].filter(Boolean).join(', ')
   } else if (msg.type === 'contacts') {
     type = 'contact'
+    const cards = Array.isArray(msg.contacts) ? msg.contacts : []
+    body = cards.map((c) => str(c?.name?.formatted_name)).filter(Boolean).join(', ')
   } else if (msg.type !== undefined && msg.type in mediaFields) {
     const parsed = mediaOf(msg)
     type = parsed.type
@@ -204,6 +215,7 @@ function toMessage(msg: GraphMessage, id: string, who: ResolvedParty): InboundMe
     body,
     timestamp: msg.timestamp ? Number(msg.timestamp) : 0,
     mentions: [],
+    ...(quotedId !== undefined ? { quoted: { ref: { id: quotedId, chatId } } } : {}),
     media,
     raw: msg,
   }
@@ -218,8 +230,6 @@ function flowReplyOf(responseJson: unknown): FormReply | undefined {
   const { flow_token: token, ...values } = parsed as Record<string, unknown>
   return typeof token === 'string' ? { token, values } : { values }
 }
-
-const str = (v: unknown): string | undefined => (typeof v === 'string' && v.length > 0 ? v : undefined)
 
 /** Build a party from raw webhook id fields; a BSUID-shaped `from` counts as a BSUID. */
 function partyOf(phoneField: unknown, bsuidField: unknown, parentField: unknown, contact?: GraphContact): Party {
@@ -351,10 +361,13 @@ export function extractDrafts(body: GraphWebhookBody, logger: IdentityLogger): I
           continue
         }
 
-        // Interactive replies (button/list clicks) → interaction events.
-        if (msg.type === 'interactive' && msg.interactive) {
-          const reply = msg.interactive.button_reply ?? msg.interactive.list_reply
-          const kind = msg.interactive.type === 'list_reply' ? 'list' : 'button'
+        // Interactive replies (button/list clicks) and template quick-reply
+        // buttons (`type: 'button'`) → interaction events.
+        if ((msg.type === 'interactive' && msg.interactive) || (msg.type === 'button' && msg.button)) {
+          const data = msg.type === 'button'
+            ? str(msg.button?.payload) ?? str(msg.button?.text) ?? ''
+            : (msg.interactive?.button_reply ?? msg.interactive?.list_reply)?.id ?? ''
+          const kind = msg.type === 'interactive' && msg.interactive?.type === 'list_reply' ? 'list' : 'button'
           pendingEvents.push({
             kind: 'event',
             party,
@@ -368,7 +381,7 @@ export function extractDrafts(body: GraphWebhookBody, logger: IdentityLogger): I
                 from: who.id, sender: who.id, chatId: who.id, senderId: who.id,
                 isGroup: false,
                 kind,
-                data: reply?.id ?? '',
+                data,
                 timestamp: msg.timestamp ? Number(msg.timestamp) : 0,
                 raw: msg,
               },
@@ -398,8 +411,9 @@ export function extractDrafts(body: GraphWebhookBody, logger: IdentityLogger): I
 
       const singleStatus = statuses.length === 1
       for (const st of statuses) {
-        const status = st.status as 'sent' | 'delivered' | 'read' | 'failed' | undefined
-        if (!status) continue
+        const status = st.status
+        // Other values (`deleted`, `warning`…) are not delivery outcomes: never report them as failed.
+        if (status !== 'sent' && status !== 'delivered' && status !== 'read' && status !== 'failed') continue
         const id = str(st.id)
         const contact = contactFor(st.recipient_id, st.recipient_user_id, singleStatus)
         const party = partyOf(st.recipient_id, st.recipient_user_id, st.recipient_parent_user_id, contact)
@@ -415,7 +429,7 @@ export function extractDrafts(body: GraphWebhookBody, logger: IdentityLogger): I
             kind: 'status',
             status: {
               ref: { id, chatId: who.id },
-              status: status === 'sent' || status === 'delivered' || status === 'read' ? status : 'failed',
+              status,
               recipient: who.id,
               error,
               timestamp,
