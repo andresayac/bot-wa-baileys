@@ -134,6 +134,8 @@ Inbox durable ──► cola particionada por conversación ──► Bot runtim
 
 El orden por conversación se conserva con particiones o leases. Los reintentos no deben duplicar mensajes ni acciones externas.
 
+Estado (2026-10): los turnos por chat entre réplicas ya existen como opción (`BotConfig.coordination`, `RedisCoordinator`; guía «Varias réplicas»). Falta el inbox/outbox durable: un mensaje que espera turno en una réplica que muere se pierde.
+
 ### Contratos que desbloquean la plataforma
 
 #### Event envelope
@@ -404,7 +406,7 @@ MCP se evalúa después de tener permisos, secretos y auditoría; no debe abrirs
 
 - Completar normalización, receipts, edit/revoke, replies, mentions y media en providers actuales.
 - Auth state centralizado y cifrado para Baileys.
-- Lease por sesión para evitar dos procesos propietarios.
+- Lease por sesión para evitar dos procesos propietarios. Hecho para el arranque del provider (`exclusiveSession` + `providerSession: 'leader'`); falta el fencing del auth state de Baileys.
 - Matriz de capacidades y límites por canal.
 - Scaffolder y suite de conformidad para terceros.
 - Trust tiers: official, verified y community.

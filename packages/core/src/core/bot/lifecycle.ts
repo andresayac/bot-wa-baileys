@@ -12,9 +12,11 @@
  * aborted (checkpoints kept) → the `stop()` of the remaining steps in reverse order (the
  * first error wins and is rethrown at the end).
  *
- * Default steps (see `defaultLifecycleSteps`): `storage` → `restore` → `transport` → `jobs`.
+ * Default steps (see `defaultLifecycleSteps`): `storage` → (`coordination`, only with
+ * `BotConfig.coordination`) → `restore` → `transport` → `jobs`.
  */
 import { parseTimerDuration } from '../../utils/timers.js'
+import type { BotCoordination } from '../../coordination/botCoordination.js'
 import type { BotKernel } from './kernel.js'
 
 /** Options of `Bot.stop()`. */
@@ -55,6 +57,9 @@ export function defaultLifecycleSteps(k: BotKernel): LifecycleStep[] {
       },
       stop: () => k.store.stop(),
     },
+    // Multi-replica coordination (`BotConfig.coordination`) only: the coordinator starts
+    // right after the store and stops right before it (after the transport).
+    ...(k.coordination ? [coordinationStep(k.coordination, k)] : []),
     {
       name: 'restore',
       start: async () => {
@@ -71,12 +76,13 @@ export function defaultLifecycleSteps(k: BotKernel): LifecycleStep[] {
     },
     {
       name: 'transport',
-      start: () => k.provider.start(),
+      // With coordination, the transport is started only on the elected replica (or shared).
+      start: () => (k.coordination ? k.coordination.startProvider() : k.provider.start()),
       rollback: async () => {
-        try { await k.provider.stop() }
+        try { await (k.coordination ? k.coordination.stopProvider() : k.provider.stop()) }
         catch (rollbackError) { k.logger.error({ err: rollbackError }, 'provider start rollback failed') }
       },
-      stop: () => k.provider.stop(),
+      stop: () => (k.coordination ? k.coordination.stopProvider() : k.provider.stop()),
     },
     {
       name: 'jobs',
@@ -88,6 +94,20 @@ export function defaultLifecycleSteps(k: BotKernel): LifecycleStep[] {
       alwaysRollback: true,
     },
   ]
+}
+
+/** The `coordination` step: the multi-replica coordinator (heartbeat, turns, leadership). */
+function coordinationStep(coordination: BotCoordination, k: BotKernel): LifecycleStep {
+  return {
+    name: 'coordination',
+    start: () => coordination.start(),
+    // Only when its start() was attempted (it releases leases): no alwaysRollback.
+    rollback: async () => {
+      try { await coordination.stop() }
+      catch (rollbackError) { k.logger.error({ err: rollbackError }, 'coordination start rollback failed') }
+    },
+    stop: () => coordination.stop(),
+  }
 }
 
 export class Lifecycle {

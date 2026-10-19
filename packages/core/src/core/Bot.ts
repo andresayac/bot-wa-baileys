@@ -76,6 +76,7 @@ import { type BroadcastOptions, type BroadcastResult } from '../ops/broadcast.js
 import { deleteSubjectData, exportSubjectData, type SubjectDataDeps, type SubjectDataExport, type SubjectDeletionResult } from './subjectData.js'
 import { type TriggerOptions, type TriggerResult } from '../ops/trigger.js'
 import type { I18n } from '../i18n/I18n.js'
+import type { CoordinatorEvents, Fence, LeaseLossReason } from '../coordination/types.js'
 import type { I18nConfig, LocaleMessages, TranslateParams } from '../i18n/types.js'
 import { composeBot } from './bot/compose.js'
 import { createLifecycleState, type BotKernel, type LifecycleState } from './bot/kernel.js'
@@ -127,6 +128,12 @@ export interface BotEvents {
   'conversation:started': ConversationStartedEvent
   /** A conversation/flow ended — completed, cancelled, timed out, out of retries or errored. */
   'conversation:ended': ConversationEndedEvent
+  /** Multi-replica (`coordination`): this replica was elected for a singleton (`provider:<id>`) and starts it. */
+  'coordination:leader': { name: string; fence: Fence }
+  /** Multi-replica: this replica lost (or gave up) a singleton leadership and stands by. */
+  'coordination:follower': { name: string; reason?: LeaseLossReason }
+  /** Multi-replica: a chat turn or leadership was lost before its release (pause, partition, backend down). */
+  'coordination:lease-lost': CoordinatorEvents['lease-lost']
 }
 
 export type BotEventArgs<K extends keyof BotEvents> = BotEvents[K] extends void ? [] : [BotEvents[K]]

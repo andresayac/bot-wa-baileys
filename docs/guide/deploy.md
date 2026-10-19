@@ -169,5 +169,6 @@ Pass `debug: true` for debug logs, or inject your own `logger`.
 
 ## Next steps
 
+- [Running N replicas](./replicas) — several processes of one bot (failover, webhook throughput)
 - [FAQ](./faq) — common problems
 - [API Reference](/api/) — technical docs

@@ -77,6 +77,7 @@ export class DiscordProvider implements IProvider<unknown> {
     templates: false,
     interactionsRequireAck: true,
     pushIngress: false,
+    exclusiveSession: true, // one gateway connection per bot token (no sharding): one replica connects
     streaming: 'edit', // ctx.stream(): send once, then throttled message edits
     forms: 'degraded', // flow().form() asks field by field
     textFormat: 'markdown', // Discord renders Markdown natively

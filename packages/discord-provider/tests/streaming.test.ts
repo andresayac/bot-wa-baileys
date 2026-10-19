@@ -30,6 +30,7 @@ describe('DiscordProvider streaming', () => {
     const p = new DiscordProvider({ token: 'TOK', socketFactory: fakeSocketFactory().factory } as never)
     expect(p.capabilities.streaming).toBe('edit')
     expect(p.capabilities.maxTextLength).toBe(2000)
+    expect(p.capabilities.exclusiveSession).toBe(true)   // one gateway connection: one replica connects
   })
 
   it('streamText → one POST, then PATCH edits of that message, final text intact; long text split ≤ 2000', async () => {

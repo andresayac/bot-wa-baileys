@@ -43,6 +43,7 @@ describe('BaileysProvider logs errors under the pino `err` key', () => {
   it('reconnect retry and give-up lines carry the start() failure message', async () => {
     const { logger, lines } = capturingLogger()
     const p = new BaileysProvider({ session: 'log-test', logger })
+    expect(p.capabilities.exclusiveSession).toBe(true)   // one WhatsApp Web socket: multi-replica elects one
     vi.useFakeTimers()
     ;(p as unknown as Internals).start = vi.fn(async () => { throw new Error('dns lookup failed') })
 

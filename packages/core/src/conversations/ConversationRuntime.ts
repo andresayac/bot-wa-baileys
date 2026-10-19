@@ -92,6 +92,20 @@ export interface RuntimeConfig {
   onConversationStart?: (info: ConversationStartInfo) => void
   /** A conversation ended, whatever the reason (metrics / `'conversation:ended'`). Must not throw. */
   onConversationEnd?: (info: ConversationEndInfo) => void
+  /**
+   * Multi-replica coordination: run a conversation's timer-driven work (a wait timeout, a
+   * `c.idle()` callback) under the chat's turn instead of directly. `fire` must run only
+   * once the turn is held (it re-checks that the conversation is still live). Omitted:
+   * timers fire directly (single process).
+   */
+  timerGate?: (key: string, ctx: RuntimeMessage, fire: () => unknown) => void
+  /**
+   * Multi-replica coordination: keep {@link FlowCheckpoint.parked} accurate on persistent
+   * flows (one extra checkpoint write when a step parks on its first wait, one when that
+   * wait is answered), so another replica resuming the flow knows whether the waking
+   * message answers that wait. Off (default): checkpoints are written once per step.
+   */
+  trackParked?: boolean
 }
 
 /**
@@ -160,6 +174,16 @@ interface ActiveConversation extends ConversationHandle {
   life?: { info: ConversationStartInfo; startedAt: number; ended: boolean }
   /** Most recent inbound message routed to this conversation (drives c.t / built-in messages). */
   latest?: RuntimeMessage
+  /** Resolves once the conversation function has fully unwound (see {@link ConversationRuntime.suspend}). */
+  unwound?: Promise<void>
+  /** Multi-replica handover: the first wait skips its prompt (see {@link ConversationRuntime.refreshDormant}). */
+  handover?: boolean
+  /** Persistent flows: the checkpoint as last written by (or resumed into) this conversation. */
+  cp?: FlowCheckpoint
+  /** Waits started since {@link cp} was written (`trackParked`). */
+  waits?: number
+  /** Checkpoint marker write in flight (`trackParked`); later writes and the final clear wait for it. */
+  parking?: Promise<void>
 }
 
 const INBOX_CAP = 10
@@ -195,6 +219,12 @@ export class ConversationRuntime {
   private registrations: ConversationRegistration[] = []
   /** Set by {@link close} (bot stopped): no conversation starts until {@link open}. */
   private closed = false
+  /** Callers of {@link whenSettled}, per key. */
+  private settleWaiters = new Map<string, Set<() => void>>()
+  /** Keys whose dormant checkpoint was handed over by another replica (see {@link refreshDormant}). */
+  private handovers = new Set<string>()
+  /** Waking message of a handover resume, consumed by the entry {@link run} creates next for its key. */
+  private handoverAnswers = new Map<string, RuntimeMessage>()
 
   constructor(private cfg: RuntimeConfig = {}) {}
 
@@ -240,7 +270,7 @@ export class ConversationRuntime {
     this.define({ name: flow.id, flow }, this.wrapCompiled(flow))
   }
 
-  private wrapCompiled(flow: CompiledFlow, startAt = 0): ConversationFn {
+  private wrapCompiled(flow: CompiledFlow, startAt = 0, resumedFrom?: FlowCheckpoint): ConversationFn {
     if (!flow.opts.persistent || !this.store) {
       return startAt === 0
         ? flowToConversation(flow)
@@ -248,19 +278,25 @@ export class ConversationRuntime {
     }
     return async (c, ctx) => {
       const key = this.keyFor(ctx)
+      const entry = this.active.get(key)
+      if (entry && resumedFrom) { entry.cp = resumedFrom; entry.waits = 0 }
       try {
         await runSteps(flow, ctx, c as ConversationControls, startAt, async (stepIndex) => {
           // A clear of the checkpoint this conversation replaced may still be in flight:
           // let it land first, or it would wipe this conversation's fresh checkpoint.
           await this.pendingClears.get(key)
-          await this.store!.setCheckpoint(key, {
+          await entry?.parking
+          const cp: FlowCheckpoint = {
             flowId: flow.id,
             step: stepIndex + 1,
             state: { ...(c as ConversationControls).state },
             updatedAt: Date.now(),
-          })
+          }
+          await this.store!.setCheckpoint(key, cp)
+          if (entry) { entry.cp = cp; entry.waits = 0 }
         })
       } finally {
+        await entry?.parking
         // On a graceful shutdown (abortAll) we KEEP the checkpoint so a restart can resume it.
         // Every other exit (completion, error, timeout, user /reset) clears it.
         if (this.preserveOnAbort.delete(key)) {
@@ -281,6 +317,7 @@ export class ConversationRuntime {
     if (!this.store) return
     const checkpoints = await this.store.listCheckpoints()
     this.dormant.clear()
+    this.handovers.clear()
     for (const [key, cp] of checkpoints) this.dormant.set(key, cp)
   }
 
@@ -295,18 +332,21 @@ export class ConversationRuntime {
     const cp = this.dormant.get(key)
     if (!cp) return false
     this.dormant.delete(key)
+    const handover = this.handovers.delete(key)
     const flow = this.compiled.get(cp.flowId)
     if (!flow) { await this.store?.clearCheckpoint(key).catch(() => {}); return false }
     const resumed: ConversationFn = async (c, rctx) => {
       Object.assign((c as ConversationControlsBase).state, cp.state)
-      await this.wrapCompiled(flow, cp.step)(c, rctx)
+      await this.wrapCompiled(flow, cp.step, cp)(c, rctx)
     }
+    if (handover) this.handoverAnswers.set(key, ctx)
     // enter() is fire-and-forget (it only resolves when the resumed flow ends); a rejection
     // here (e.g. a bad goto target) would otherwise become an unhandled rejection → crash.
     void this.enter(resumed, ctx, { name: cp.flowId }).catch((e) => {
       this.cfg.onError?.(e, ctx)
       this.cfg.logger?.error?.('resume failed', e)
     })
+    this.handoverAnswers.delete(key)   // consumed synchronously by run(); never left behind
     return true
   }
 
@@ -319,6 +359,7 @@ export class ConversationRuntime {
 
   /** Drop `key`'s dormant checkpoint (memory + store). Returns whether one existed. */
   discardDormant(key: string): boolean {
+    this.handovers.delete(key)
     if (!this.dormant.delete(key)) return false
     if (this.store) {
       // Tracked per key so a persistent flow entered right after this waits for the clear
@@ -330,6 +371,79 @@ export class ConversationRuntime {
       this.pendingClears.set(key, clear)
     }
     return true
+  }
+
+  /**
+   * Multi-replica: re-read `key`'s checkpoint from the store into the dormant map (or
+   * drop the dormant entry when the store has none). Another replica may have advanced
+   * or finished the flow since this one loaded it.
+   */
+  async refreshDormant(key: string): Promise<void> {
+    this.handovers.delete(key)
+    if (!this.store) return
+    await this.pendingClears.get(key)
+    const cp = await this.store.getCheckpoint(key)
+    if (cp) {
+      this.dormant.set(key, cp)
+      // Parked on the step's first wait with its prompt sent (`trackParked`): the waking
+      // message is that wait's ANSWER. Otherwise (parked on a later wait of the step, a
+      // step cut short, a crash before the prompt went out) the step re-runs from its start.
+      if (cp.parked === true) this.handovers.add(key)
+    } else {
+      this.dormant.delete(key)
+    }
+  }
+
+  /** Consume the handover flag of `handle`'s conversation: its first wait then skips its prompt (once). */
+  takeHandover(handle: ConversationHandle): boolean {
+    const entry = handle as ActiveConversation
+    if (!entry.handover) return false
+    entry.handover = false
+    return true
+  }
+
+  /**
+   * Multi-replica: silently abort `key`'s live conversation KEEPING its persistent
+   * checkpoint (like a shutdown), because another replica now owns the key and resumes
+   * it from the store. Resolves once the aborted conversation has unwound (bounded by
+   * `maxWaitMs`), so its cleanup cannot clear a checkpoint written afterwards.
+   */
+  async suspend(key: string, maxWaitMs = 5_000): Promise<boolean> {
+    const entry = this.active.get(key)
+    if (!entry) return false
+    this.preserveOnAbort.add(key)
+    if (!this.abort(key)) { this.preserveOnAbort.delete(key); return false }
+    let timer: ReturnType<typeof setTimeout> | undefined
+    await Promise.race([
+      entry.unwound ?? Promise.resolve(),
+      new Promise<void>((resolve) => { timer = setTimeout(resolve, maxWaitMs) }),
+    ])
+    if (timer) clearTimeout(timer)
+    return true
+  }
+
+  /**
+   * Resolves when `key` has no running conversation step: no live conversation, or the
+   * live one is blocked waiting for the next message. Multi-replica coordination holds
+   * the chat's turn until then, so no other replica processes the chat mid-step.
+   */
+  whenSettled(key: string): Promise<void> {
+    const entry = this.active.get(key)
+    if (!entry || (entry.pending && !entry.parking)) return Promise.resolve()
+    return new Promise<void>((resolve) => {
+      let set = this.settleWaiters.get(key)
+      if (!set) this.settleWaiters.set(key, (set = new Set()))
+      set.add(resolve)
+    })
+  }
+
+  private notifySettled(key: string): void {
+    const set = this.settleWaiters.get(key)
+    if (!set) return
+    const entry = this.active.get(key)
+    if (entry && (!entry.pending || entry.parking)) return
+    this.settleWaiters.delete(key)
+    for (const resolve of set) resolve()
   }
 
   /** Number of live conversations (every key). */
@@ -391,6 +505,16 @@ export class ConversationRuntime {
     this.discardDormant(key)
 
     const entry: ActiveConversation = { key, state: opts.state ? { ...opts.state } : {}, inbox: [], ...(latest ? { latest } : {}) }
+    let markUnwound!: () => void
+    entry.unwound = new Promise<void>((resolve) => { markUnwound = resolve })
+    const answer = this.handoverAnswers.get(key)
+    if (answer) {
+      // Multi-replica handover resume: the waking message answers the parked wait.
+      this.handoverAnswers.delete(key)
+      entry.handover = true
+      entry.inbox.push(answer)
+      entry.latest = answer
+    }
     this.active.set(key, entry)
     const startInfo: ConversationStartInfo = { id: randomId('conv'), name, key, ctx }
     entry.life = { info: startInfo, startedAt: Date.now(), ended: false }
@@ -428,11 +552,20 @@ export class ConversationRuntime {
         await this.safeReply(ctx, this.cfg.errorMessage ?? translateFor(entry.latest ?? ctx, CORE_MESSAGES.error))
       }
     } finally {
-      this.cleanup(entry)
+      // A goto hands the key straight to its target: not settled until the target is.
+      this.cleanup(entry, !(goto && !entry.cancelled))
+      markUnwound()
       // An aborted conversation already reported its end (as cancelled) from abort().
       this.reportEnd(entry, entry.cancelled ? 'cancelled' : outcome, entry.cancelled ? undefined : goto?.target)
     }
-    if (goto && !entry.cancelled) await this.run(goto.target, ctx, {}, entry.latest)
+    if (goto && !entry.cancelled) {
+      try {
+        await this.run(goto.target, ctx, {}, entry.latest)
+      } finally {
+        // The target could not start (closed, unknown name) or has ended.
+        if (this.settleWaiters.size > 0) this.notifySettled(key)
+      }
+    }
   }
 
   deliver(ctx: RuntimeMessage): boolean {
@@ -538,6 +671,9 @@ export class ConversationRuntime {
     if (entry.pending) return Promise.reject(new ConcurrentWaitError())
     const interrupted = takeInterrupt(entry)
     if (interrupted) return Promise.reject(interrupted)
+    // A handover prompt-skip applies to the first wait only, whichever control started it.
+    entry.handover = false
+    if (entry.cp) entry.waits = (entry.waits ?? 0) + 1
     // A buffered message that already satisfies the filter must be consumed —
     // previously a filtered wait skipped the inbox entirely and only looked at
     // FUTURE messages, silently dropping an in-flight answer. With no filter it
@@ -549,7 +685,10 @@ export class ConversationRuntime {
     } else {
       queued = entry.inbox.shift()
     }
-    if (queued) return Promise.resolve(queued)
+    if (queued) {
+      const marked = this.markParked(entry, false)
+      return marked ? marked.then(() => queued) : Promise.resolve(queued)
+    }
 
     return new Promise<RuntimeMessage>((resolve, reject) => {
       const timeoutMs = opts.timeoutMs ?? this.cfg.defaultTimeoutMs ?? 300_000
@@ -562,12 +701,61 @@ export class ConversationRuntime {
       const pending: PendingWait = {
         filter: opts.filter,
         accepts: opts.accepts,
-        resolve: (ctx) => { release(); resolve(ctx) },
+        resolve: (ctx) => {
+          release()
+          // The answered wait no longer parks the flow: its marker must not outlive it.
+          const marked = this.markParked(entry, false)
+          if (marked) void marked.then(() => resolve(ctx))
+          else resolve(ctx)
+        },
         reject: (err) => { release(); reject(err) },
       }
-      if (timeoutMs > 0) pending.timer = setTimeout(() => pending.reject(new ConversationTimeout()), timeoutMs)
+      if (timeoutMs > 0) {
+        pending.timer = setTimeout(() => {
+          this.runTimer(entry, () => { if (entry.pending === pending) pending.reject(new ConversationTimeout()) })
+        }, timeoutMs)
+      }
       entry.pending = pending
+      this.markParked(entry, entry.waits === 1)
+      if (this.settleWaiters.size > 0) this.notifySettled(entry.key)
     })
+  }
+
+  /**
+   * Run timer-driven work of `handle`'s conversation (a wait timeout, a `c.idle()`
+   * callback): directly, or under the chat's turn with {@link RuntimeConfig.timerGate}.
+   * `fire` is skipped when the conversation is no longer live by then.
+   */
+  runTimer(handle: ConversationHandle, fire: () => unknown): void {
+    const entry = handle as ActiveConversation
+    const gate = this.cfg.timerGate
+    if (!gate) { void fire(); return }
+    const ctx = entry.latest ?? entry.life?.info.ctx
+    if (!ctx) { void fire(); return }
+    gate(entry.key, ctx, () => (this.isAlive(entry) ? fire() : undefined))
+  }
+
+  /**
+   * `trackParked`: write {@link FlowCheckpoint.parked} = `parked` when it differs from the
+   * stored checkpoint. Writes of one conversation are chained, and the turn is not
+   * released (see {@link whenSettled}) until they landed. Resolves when this one did.
+   */
+  private markParked(entry: ActiveConversation, parked: boolean): Promise<void> | undefined {
+    const store = this.store
+    if (!this.cfg.trackParked || !store || !entry.cp) return undefined
+    if ((entry.cp.parked === true) === parked) return undefined
+    const cp: FlowCheckpoint = { ...entry.cp, parked }
+    entry.cp = cp
+    const write: Promise<void> = Promise.resolve(entry.parking)
+      .then(() => store.setCheckpoint(entry.key, cp))
+      .catch((error: unknown) => { this.cfg.logger?.warn?.('checkpoint marker write failed', error) })
+      .finally(() => {
+        if (entry.parking !== write) return
+        entry.parking = undefined
+        if (this.settleWaiters.size > 0) this.notifySettled(entry.key)
+      })
+    entry.parking = write
+    return write
   }
 
   /**
@@ -656,7 +844,7 @@ export class ConversationRuntime {
     for (const o of observers ?? []) { try { o.end?.() } catch { /* observers must not break teardown */ } }
   }
 
-  private cleanup(entry: ActiveConversation): void {
+  private cleanup(entry: ActiveConversation, settled = true): void {
     if (entry.pending?.timer) clearTimeout(entry.pending.timer)
     if (this.active.get(entry.key) === entry) this.active.delete(entry.key)
     // A shutdown-preserve flag is consumed by a persistent flow's own unwind (wrapCompiled);
@@ -664,6 +852,7 @@ export class ConversationRuntime {
     // already owns the key (one started after the abort deleted the flag itself anyway).
     if (!this.active.has(entry.key)) this.preserveOnAbort.delete(entry.key)
     this.notifyEnd(entry)
+    if (settled && this.settleWaiters.size > 0) this.notifySettled(entry.key)
   }
 
   private async safeReply(ctx: RuntimeMessage, text: string): Promise<void> {

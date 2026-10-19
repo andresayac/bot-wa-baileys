@@ -8,7 +8,7 @@ import { isEditableSend, messagingSupport, type ReplyOptions } from '../messagin
 import type { BuildContextDeps, DraftOptions } from '../provider.js'
 import { toStoredError } from '../ledger.js'
 import type { ChatId, MessageRef, OutboundContent, SendOptions, SendResult, SentMessage } from '../types.js'
-import type { BotKernel } from './kernel.js'
+import { assertCoordinated, type BotKernel } from './kernel.js'
 
 export type ContextStreamDeps = Pick<BuildContextDeps, 'capabilities' | 'textFormatFor' | 'streamSend' | 'streamEdit' | 'sendDraft' | 'deleteStreamMessage' | 'stopSignal'>
 export type ContextMessagingDeps = Pick<BuildContextDeps, 'pace' | 'editMessage' | 'sendClock' | 'supports'>
@@ -31,6 +31,7 @@ export class OutboundPipeline {
     if (!proceed) {
       return { ref: { id: 'skipped', chatId: payload.chatId }, skipped: true }
     }
+    assertCoordinated(this.k)
     const localRef = { id: randomId('out'), chatId: payload.chatId }
     const op = provider.send(payload.chatId, payload.content, payload.options)
     inflightSends.add(op)
@@ -79,6 +80,7 @@ export class OutboundPipeline {
     }
     const proceed = await hooks.runBefore('send', payload as typeof payload & { abort(): void })
     if (!proceed) return { ref, skipped: true }
+    assertCoordinated(this.k)
     const op = provider.editMessage!(ref, payload.content)
     inflightSends.add(op)
     try {
@@ -117,6 +119,7 @@ export class OutboundPipeline {
    */
   async typing(chatId: ChatId, state: 'typing' | 'recording' | 'paused'): Promise<void> {
     try {
+      assertCoordinated(this.k)
       await this.k.provider.typing?.(chatId, state)
     } catch (error) {
       this.k.logger.debug({ chatId, state, err: error instanceof Error ? error.message : String(error) }, 'typing indicator failed (ignored)')
@@ -157,6 +160,7 @@ export class OutboundPipeline {
 
   /** A discarded `ctx.stream()` message: gone from the chat and from the message log. */
   private async deleteStreamMessage(ref: MessageRef): Promise<void> {
+    assertCoordinated(this.k)
     await this.k.provider.deleteMessage!(ref)
     try {
       await this.k.store.deleteMessage(ref)
@@ -176,6 +180,7 @@ export class OutboundPipeline {
   private async streamEdit(ref: MessageRef, content: OutboundContent): Promise<unknown> {
     const final = await this.runStreamSendHooks(ref.chatId, content, 'edit')
     if (!final) return undefined
+    assertCoordinated(this.k)
     const res = await this.k.provider.editMessage!(ref, final)
     await this.k.messageLog.streamEdit(ref, final)
     return res
@@ -185,6 +190,7 @@ export class OutboundPipeline {
   private async streamDraft(chatId: ChatId, draftId: number, text: string, opts?: DraftOptions): Promise<void> {
     const final = await this.runStreamSendHooks(chatId, { kind: 'text', text }, 'draft')
     if (!final || final.kind !== 'text') return
+    assertCoordinated(this.k)
     await this.k.provider.sendDraft!(chatId, draftId, final.text, opts)
   }
 }

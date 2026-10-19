@@ -20,7 +20,10 @@
  * interleave, like requests from several connections.
  */
 import type { RedisLikeClient, RedisMulti, RedisZRangeOptions } from '../src/RedisStore.js'
-import { DELETE_CHAT_SCRIPT, DROP_MESSAGE_SCRIPT, MERGE_CAS_SCRIPT, RELEASE_LOCK_SCRIPT } from '../src/scripts.js'
+import {
+  ACQUIRE_FENCED_LOCK_SCRIPT, DELETE_CHAT_SCRIPT, DROP_MESSAGE_SCRIPT, MERGE_CAS_SCRIPT, RELEASE_LOCK_SCRIPT, RENEW_LOCK_SCRIPT,
+} from '../src/scripts.js'
+import { FakeCoordState, evalCoordScript } from './fakeCoordScripts.js'
 
 interface ZEntry {
   score: number
@@ -413,9 +416,31 @@ export class FakeRedisClient implements RedisLikeClient {
   }
 
   /** Runs exactly the scripts RedisStore sends (atomically); any other script is rejected. */
-  async eval(script: string, options?: { keys?: string[]; arguments?: string[] }): Promise<number> {
+  /** State of the RedisCoordinator scripts (modelled separately, see fakeCoordScripts.ts). */
+  readonly coord = new FakeCoordState()
+
+  async eval(script: string, options?: { keys?: string[]; arguments?: string[] }): Promise<unknown> {
     const keys = options?.keys ?? []
     const args = options?.arguments ?? []
+    const coord = evalCoordScript(this.coord, script, keys, args)
+    if (coord !== undefined) return coord
+    if (script === ACQUIRE_FENCED_LOCK_SCRIPT) {
+      const [lockKey, fenceKey] = keys
+      const [token, ttl] = args
+      if (lockKey == null || fenceKey == null || token == null || ttl == null) throw new Error('ERR fenced-lock script needs two keys and two arguments')
+      if (this.setSync(lockKey, token, { NX: true, PX: Number(ttl) }) !== 'OK') return 0
+      const next = Number(this.readString(fenceKey) ?? '0') + 1
+      this.setSync(fenceKey, String(next))
+      return next
+    }
+    if (script === RENEW_LOCK_SCRIPT) {
+      const [lockKey] = keys
+      const [token, ttl] = args
+      if (lockKey == null || token == null || ttl == null) throw new Error('ERR renew-lock script needs one key and two arguments')
+      if (this.readString(lockKey) !== token) return 0
+      this.expires.set(lockKey, Date.now() + Number(ttl))
+      return 1
+    }
     if (script === RELEASE_LOCK_SCRIPT) {
       const [key] = keys
       if (key == null) throw new Error('ERR release-lock script needs one key')

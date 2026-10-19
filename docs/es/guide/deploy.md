@@ -171,5 +171,6 @@ inyecta tu propio `logger`.
 
 ## Siguientes pasos
 
+- [Varias réplicas](./replicas) — varios procesos del mismo bot (relevo ante caídas, más capacidad de webhooks)
 - [Preguntas frecuentes](./faq) — problemas comunes
 - [API Reference](/api/) — documentación técnica

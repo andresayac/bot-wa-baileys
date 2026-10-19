@@ -80,6 +80,12 @@ export interface MockProviderOptions {
    * override of the method is never hidden; an explicit `false` hides it too.
    */
   supports?: MockProviderSupports
+  /**
+   * `capabilities.exclusiveSession` to simulate: a transport that allows one live
+   * connection (Baileys). Multi-replica coordination then starts the mock on the elected
+   * replica only. Default: unset.
+   */
+  exclusiveSession?: boolean
 }
 
 /** {@link MockProviderOptions.supports}. */
@@ -138,6 +144,7 @@ export class MockProvider implements IProvider {
       forms: 'degraded',
       ...(options.maxTextLength !== undefined ? { maxTextLength: options.maxTextLength } : {}),
       ...(options.textFormat !== undefined ? { textFormat: options.textFormat } : {}),
+      ...(options.exclusiveSession !== undefined ? { exclusiveSession: options.exclusiveSession } : {}),
     }
     if (options.textFormatFor) this.textFormatFor = options.textFormatFor
     hideSeam(this, 'editMessage', supports.edit, edit)
@@ -176,10 +183,16 @@ export class MockProvider implements IProvider {
   }
   private listeners = new Set<(e: InboundEvent) => void | Promise<void>>()
 
+  /** `start()` calls so far. */
+  starts = 0
+  /** `stop()` calls so far. */
+  stops = 0
+
   async start(): Promise<void> {
+    this.starts++
     this.emitEvent({ kind: 'connection', update: { state: 'ready' } })
   }
-  async stop(): Promise<void> {}
+  async stop(): Promise<void> { this.stops++ }
 
   async send(chatId: ChatId, content: OutboundContent, options?: SendOptions): Promise<SendResult> {
     this.outbox.push({ chatId, content, options })

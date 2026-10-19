@@ -6,3 +6,5 @@ export type {
   NativeRedisClient,
   RedisMulti,
 } from './RedisStore.js'
+export { RedisCoordinator } from './RedisCoordinator.js'
+export type { RedisCoordinatorOptions, CoordinatorClient } from './RedisCoordinator.js'

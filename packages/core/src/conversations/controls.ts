@@ -125,6 +125,7 @@ export function createControls(rt: ConversationRuntime, handle: ConversationHand
       const timer = setTimeout(() => { unsubscribe(); resolve() }, ms)
       unsubscribe = rt.observe(handle, { end: () => { clearTimeout(timer); resolve() } })
     }),
+    skipPrompt: () => rt.takeHandover(handle),
   })
 
   /** `promptFor(message?)`: text sent before waiting (and re-sent by c.retry()); default: just the retry message. */

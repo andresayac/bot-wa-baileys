@@ -13,7 +13,8 @@ import { HookSystem } from '../../hooks/HookSystem.js'
 import { MemoryStore } from '../../store/MemoryStore.js'
 import { NamespacedStore, type StoreNamespace } from '../../store/NamespacedStore.js'
 import type { IStore } from '../../store/IStore.js'
-import { ConversationRuntime, type CheckpointStore } from '../../conversations/ConversationRuntime.js'
+import { ConversationRuntime, type CheckpointStore, type RuntimeMessage } from '../../conversations/ConversationRuntime.js'
+import { BotCoordination } from '../../coordination/botCoordination.js'
 import { createControls } from '../../conversations/controls.js'
 import { FlowRouteLog } from '../../flows/inventory.js'
 import type { AccessList, Whitelist } from '../../gates/accessList.js'
@@ -187,6 +188,16 @@ export function composeBot(host: ComposeHost, inputConfig: BotConfig, fields: Co
       if (goto !== undefined) event.goto = goto
       k.events.safely('conversation:ended', event)
     },
+    // Multi-replica: timers of a conversation act only under the chat's turn (a stale
+    // replica's timer refreshes instead of messaging the user or clearing the checkpoint).
+    ...(config.coordination
+      ? {
+          trackParked: true,
+          timerGate: (_key: string, ctx: RuntimeMessage, fire: () => unknown) => {
+            void k.dispatcher.runExclusive(ctx, async () => { await fire() }).catch(() => {})
+          },
+        }
+      : {}),
   })
   if (typeof (store as Partial<CheckpointStore>).setCheckpoint === 'function') {
     k.runtime.attachStore(store as CheckpointStore)
@@ -199,6 +210,17 @@ export function composeBot(host: ComposeHost, inputConfig: BotConfig, fields: Co
 
   k.welcome = new WelcomeTracker({ store, onError: (error) => k.events.error({ error }) })
 
+  if (config.coordination) {
+    k.coordination = new BotCoordination({
+      config: config.coordination,
+      provider,
+      runtime: k.runtime,
+      logger: logger.child({ module: 'coordination' }),
+      emit: (event, payload) => { k.events.emit(event, payload) },
+      reportError: (error, ctx) => k.events.error({ error, ctx: ctx as unknown as MessageContext | undefined }),
+    })
+  }
+
   /** `ctx.lang` as `prepare` resolved it, to tell whether a hook overrode it. */
   const preparedLang = new WeakMap<object, string>()
   k.dispatcher = new Dispatcher({
@@ -208,6 +230,7 @@ export function composeBot(host: ComposeHost, inputConfig: BotConfig, fields: Co
     firstContact: (ctx) => k.welcome.isFirstContact(ctx),
     // A message queued before stop() is dropped when its turn comes after it.
     isOpen: () => k.state.acceptingInbound,
+    turns: k.coordination?.turns,
     logger: logger.child({ module: 'dispatcher' }),
     emit: dispatcherEmit(k.events),
     gate: (ctx) => {

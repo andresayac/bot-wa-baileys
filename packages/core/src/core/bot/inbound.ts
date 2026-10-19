@@ -12,7 +12,7 @@ import { callToInbound, RecentIds } from '../calls.js'
 import { receiveTimestamp } from '../ledger.js'
 import type { CallEvent, ChatId, HookEvent, InboundEvent, InboundInteraction, InboundMessage, UserId } from '../types.js'
 import type { ContextFactory } from './contextFactory.js'
-import type { BotKernel } from './kernel.js'
+import { assertCoordinated, type BotKernel } from './kernel.js'
 import type { Persistence } from './persistence.js'
 
 type InteractionInfo = { id: string; data: string; respondBy?: number }
@@ -57,6 +57,7 @@ export class InboundPipeline {
       case 'connection': {
         const u = event.update
         state.connState = u.state
+        this.k.coordination?.onConnection(u.state)
         this.k.events.emit('connection', u)
         if (typeof u.authPayload === 'string') this.k.events.emit('qr', u.authPayload)
         if (u.state === 'ready') this.k.events.emit('ready')
@@ -173,8 +174,8 @@ export class InboundPipeline {
   private async processMessage(inbound: InboundMessage, interaction?: InteractionInfo): Promise<boolean> {
     const { provider, config } = this.k
     const ctx = this.contextFor(inbound, {
-      markRead: async (ref) => { await provider.markRead?.([ref]) },
-      deleteMessage: async (ref) => { await provider.deleteMessage?.(ref) },
+      markRead: async (ref) => { assertCoordinated(this.k); await provider.markRead?.([ref]) },
+      deleteMessage: async (ref) => { assertCoordinated(this.k); await provider.deleteMessage?.(ref) },
       downloadMedia: provider.downloadMedia ? (ref) => provider.downloadMedia!(ref) : undefined,
       acknowledgeInteraction: provider.acknowledgeInteraction
         ? (id, text) => provider.acknowledgeInteraction!(id, { text })

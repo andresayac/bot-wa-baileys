@@ -29,6 +29,7 @@ import type { ChatIdleWatchers } from '../idle.js'
 import type { WelcomeTracker } from '../welcome.js'
 import type { DynamicFlowRegistry } from '../flowRegistry.js'
 import type { MessageLog } from '../ledger.js'
+import type { BotCoordination } from '../../coordination/botCoordination.js'
 
 /** Mutable start/stop state of a bot (one object, shared by every module). */
 export interface LifecycleState {
@@ -119,6 +120,18 @@ export interface BotKernel {
   readonly events: BotEventSink
   /** Late-bound handoff check (`bot.isHandedOff`, a subclass may override it). */
   readonly isHandedOff: (chatId: ChatId) => boolean
+  /** Multi-replica coordination (`BotConfig.coordination`); `undefined` for a single process. */
+  readonly coordination?: BotCoordination
+}
+
+/**
+ * Multi-replica fence for anything that reaches the transport (sends, edits, stream
+ * previews, deletes, read receipts, typing): throws when this replica's turn on the chat
+ * being worked on was lost, or it does not hold the provider session. No-op without
+ * `coordination`.
+ */
+export function assertCoordinated(k: BotKernel): void {
+  k.coordination?.assertSend(k.dispatcher.currentKey())
 }
 
 /** The dispatcher's context type is the full `MessageContext` the bot built. */

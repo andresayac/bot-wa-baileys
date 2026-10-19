@@ -58,6 +58,17 @@ export interface DispatcherDeps {
    * the final text before routing. Must not reject.
    */
   reprepare?: (ctx: DispatchContext) => Promise<void>
+  /**
+   * Multi-replica coordination (`BotConfig.coordination`). When set, every queued job
+   * also reserves a place in its key's cross-replica FIFO at enqueue time (`schedule`,
+   * called synchronously in arrival order) and runs only while holding the key's turn.
+   * A job whose turn cannot be had is dropped unprocessed and `onDrop` reports it.
+   * Omitted (the default): jobs only use the in-process queue.
+   */
+  turns?: {
+    schedule(key: string): (job: () => Promise<void>) => Promise<void>
+    onDrop(error: unknown, ctx: DispatchContext): void
+  }
 }
 
 interface MatcherEntry {
@@ -160,6 +171,15 @@ export class Dispatcher {
   }
 
   /**
+   * Key of the queue slot whose job (or work it started) is on the current async call
+   * stack, or `undefined` outside any. Used by multi-replica coordination to check a
+   * send against the chat's turn.
+   */
+  currentKey(): string | undefined {
+    return this.slot.getStore()?.key
+  }
+
+  /**
    * Run `job` in `ctx`'s per-chat FIFO slot (after messages already queued for that
    * key, before later ones) and resolve/reject with its result. No hooks or routing
    * run — used by `bot.trigger()` to start a conversation in order with the chat.
@@ -174,16 +194,25 @@ export class Dispatcher {
     return new Promise<T>((resolve, reject) => {
       void this.enqueue(ctx as DispatchContext, async () => {
         try { resolve(await job()) } catch (error) { reject(error) }
-      })
+      }, reject)
     })
   }
 
-  private enqueue(ctx: DispatchContext, job: () => Promise<void>): Promise<void> {
+  private enqueue(ctx: DispatchContext, job: () => Promise<void>, onDrop?: (error: unknown) => void): Promise<void> {
     const key = this.deps.runtime.keyFor(ctx)
     const tail = this.queues.get(key) ?? Promise.resolve()
+    const turns = this.deps.turns
+    // Reserved now, synchronously: the cross-replica FIFO follows arrival order.
+    const gated = turns?.schedule(key)
+    const body = gated
+      ? () => gated(job).catch((error: unknown) => {
+          turns!.onDrop(error, ctx)
+          onDrop?.(error)
+        })
+      : job
     const run = () => {
       const slot = { key, running: true }
-      return this.slot.run(slot, job).finally(() => { slot.running = false })
+      return this.slot.run(slot, body).finally(() => { slot.running = false })
     }
     const next = tail.then(run).catch(() => {})
     this.queues.set(key, next)
@@ -203,6 +232,11 @@ export class Dispatcher {
    *  Dispatcher (per-chat FIFO queue, this method) — a job whose turn comes after
    *  `bot.stop()` is dropped here (`isOpen`), before anything runs, and its dedupe key is
    *  released (a redelivery after a restart is processed)
+   *  4b. coordination (only with `BotConfig.coordination`): the job reserved a ticket in its
+   *      key's cross-replica FIFO when it was queued and waits here for the key's turn, so
+   *      replicas process a chat in ingress order and never at the same time; a job whose
+   *      turn cannot be had is dropped (reported as 'error', dedupe key released). The turn
+   *      is held until the conversation the job fed settles, then released
    *   5. language resolution (`prepare`: `ctx.lang` from ctx.user → provider → detector
    *      → default, only while i18n is on), then before('message') hooks — may abort;
    *      if a hook rewrote `ctx.body` (voice transcript) the language is re-resolved
