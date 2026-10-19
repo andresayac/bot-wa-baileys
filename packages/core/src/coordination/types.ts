@@ -17,6 +17,7 @@
  * parses them. Backends live outside the core: {@link MemoryCoordinator} (one process,
  * reference implementation) here, `RedisCoordinator` in `@bot-wa/redis-store`.
  */
+import type { CheckpointTrace } from '../telemetry/w3c.js'
 
 /** Strictly increasing number per key (a ticket's sequence, a leadership term). Usable as a fencing token. */
 export type Fence = number
@@ -261,6 +262,11 @@ export interface InterruptedConversation {
   startedAt?: number
   /** Its initial `c.state`, when that was plain JSON. */
   startState?: Record<string, unknown>
+  /**
+   * Tracing (`BotConfig.telemetry`): W3C trace context of its last turn on the previous
+   * replica, to link a migrated conversation's spans to it (`'restart'` does it itself).
+   */
+  trace?: CheckpointTrace
 }
 
 /** Payload of the `'coordination:handover'` bot event. */

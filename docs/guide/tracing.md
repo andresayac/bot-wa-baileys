@@ -156,6 +156,7 @@ The user's answer arrives as another message: its own `bot.inbound` → `bot.dis
 | `chat {model}` | client | A model call from `@bot-wa/ai` (OpenTelemetry GenAI conventions). |
 | `execute_tool {name}` | internal | A tool call of the AI tool loop. |
 | `bot.ai.retrieve` | internal | RAG retrieval (`bot.ai.rag.chunks`). |
+| `bot.task` | internal | One run of a scheduled task (`bot.schedule`/`every`/`delay`, plain or durable). Always a **root** span; the task's sends nest under it. See [Scheduled tasks](#scheduled-tasks). |
 
 ### Attributes
 
@@ -172,6 +173,9 @@ The user's answer arrives as another message: its own `bot.inbound` → `bot.dis
 | `bot.flow.id` | handler | The flow/conversation a matcher enters. |
 | `bot.conversation.id`, `.name`, `.reason`, `.parked`, `.outcome`, `.goto` | turn | See below. |
 | `bot.send.outcome`, `bot.content.kind`, `bot.send.origin`, `bot.send.edit` | send | `ok`, `failed`, `skipped`, `deduplicated` (durable outbox), `deferred`; `text`, `image`…; `ctx`/`api`. |
+| `bot.task.id`, `.kind`, `.durable`, `.cron`, `.interval_ms`, `.time_zone` | task | Task id (through the [ids policy](#personal-data)), `cron`/`interval`/`once`, durable or not, its spec. |
+| `bot.task.scheduled_at`, `.missed`, `.fencing_token`, `bot.scheduler.role`, `bot.scheduler.owner` | task (durable) | The slot (ISO 8601), whether it runs late, the claim's fencing token, `leader`/`follower`/`single`, the replica's scheduler owner. |
+| `bot.link.reason` | span link | `resume`: the link of a conversation resumed from a checkpoint to the turn that wrote it. |
 | `error.type` | any failed span | The error class name (`RateLimitedError`, `timeout`…). |
 
 Every name is exported as `TRACE_ATTR` / `SPAN_NAMES` from `@bot-wa/core`.
@@ -185,9 +189,28 @@ A conversation can last days, so it is not one span. Each stretch of work betwee
 - a reply opens the next turn under the dispatch span of the message that answered — `reason: reply`;
 - a wait timeout opens a **root** turn linked to the first one — `reason: timeout`, since no message caused it; a `c.idle()` callback that fires while the conversation is parked runs in a root turn too (`reason: idle`), which parks again when the callback only replied, or carries the outcome when it ended or redirected the conversation;
 - an error thrown by the conversation (or by an idle callback) is recorded on the turn it happened in;
+- a conversation resumed from a checkpoint written by **another replica or an earlier process** (a persistent flow after a restart, a flow forwarded by `coordination.handover`, a hand-over stub restarted with `fallback: 'restart'`) starts under the dispatch of the waking message and is **linked** to the turn that wrote the checkpoint — see [Across replicas and restarts](#across-replicas-and-restarts);
 - the end of the conversation sets `bot.conversation.outcome` (`completed`, `ended`, `guarded`, `cancelled`, `timedOut`, `retriesExceeded`, `error`) on the open turn; a conversation aborted while parked (`/reset`, handoff, `stop()`) gets a short closing turn (`reason: end`).
 
 Flow steps are `flow.step` events on the turn (`bot.flow.step.index`, `bot.flow.step.kind`).
+
+### Across replicas and restarts
+
+With telemetry on, every checkpoint a conversation writes (persistent flows, ephemeral checkpoints of `handover.flows: 'forward'`, hand-over stubs) also stores the **W3C trace context** of the turn that wrote it, in `FlowCheckpoint.trace` (`{ traceparent, tracestate? }`; stores keep it opaquely, like the rest of the checkpoint). The replica — or the restarted process — that resumes the conversation gives its first turn (`reason: dormant`, or `start` for a stub restarted by `fallback: 'restart'`) a **span link** to that context, marked `bot.link.reason = resume` and `isRemote`, with the `tracestate` restored.
+
+**Link, not parent** (deliberate): the resumed turn's parent stays the `bot.dispatch` of the message that woke it, so that message's trace (inbound → dispatch → turn → sends) is whole; making the previous replica's span its parent would cut the waking message's trace in two, and a conversation parked for hours would stretch one trace across processes and exports that were flushed long ago. Your backend shows the link as "follows from" and lets you jump to the earlier trace.
+
+Notes:
+
+- Only W3C-shaped ids are carried (32/16 lowercase hex, which OpenTelemetry produces). A tracer with other ids stores nothing and the turn simply has no link. A malformed stored value is ignored.
+- A custom `handover.fallback` function receives the context in `info.trace`, to link spans of its own.
+- `formatTraceparent(spanContext)` and `parseTraceparent(traceparent, tracestate?)` are exported from `@bot-wa/core` for your own propagation.
+
+### Scheduled tasks
+
+Each run of a task registered with `bot.schedule()`, `bot.every()` or `bot.delay()` is a `bot.task` span: plain in-memory tasks per run, durable tasks per occurrence (one span per slot of a catch-up). The span is always a **root** span — a task has no causing message, even when it was registered inside a handler — and the handler's sends and AI calls nest under it. A throwing handler sets status error with `error.type`, as anywhere else.
+
+Durable occurrences add the slot (`bot.task.scheduled_at`), `bot.task.missed`, the claim's `bot.task.fencing_token`, and leadership: `bot.scheduler.role` is `leader` (this replica holds the scheduler lease), `follower` (it stepped in for an occurrence the leader left overdue) or `single` (no lease configured), plus `bot.scheduler.owner` (`scheduler.owner`, a random id per process by default). Task ids go through the [ids policy](#personal-data) (hashed by default), since durable ids often embed a user or chat id. The bot's internal timers (per-chat `onIdle` watchers) are not task spans.
 
 ### AI spans
 
@@ -282,7 +305,6 @@ expect(rec.parentOf(rec.find('bot.send')!)?.name).toBe('bot.pace')
 ## Limitations
 
 - **Durable replays**: an inbound record replayed by the durability engine (after a crash or a retry) has no `bot.inbound` span; its `bot.dispatch` is a root span.
-- **Multi-replica**: a conversation resumed on another replica starts a fresh `dormant` turn; there is no trace link across replicas yet.
+- **Multi-replica**: a conversation resumed on another replica (or after a restart) starts a new trace **linked** to the previous one, not a continuation of it (see [Across replicas and restarts](#across-replicas-and-restarts)). A conversation handed over before telemetry was enabled, or by a replica without it, has no link.
 - **Third-party OpenTelemetry spans inside a resumed conversation** (code after `await c.ask()`) parent to OpenTelemetry's own context, which is still the first turn's; the bot's own spans parent correctly.
-- **Scheduled tasks** (`bot.schedule`) have no span of their own; their sends are root `bot.send` spans.
 - Flushing is the SDK's job: call `sdk.shutdown()` after `bot.stop()`.

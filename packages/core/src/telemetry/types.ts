@@ -27,6 +27,13 @@ export interface SpanContextRef {
   readonly traceId: string
   readonly spanId: string
   readonly traceFlags?: number
+  /** W3C `tracestate` (serialized), when the tracer reports one; carried across replicas with the ids. */
+  readonly traceState?: string
+  /**
+   * `true` for a context that came from another process (a checkpoint resumed after a
+   * hand-over or a restart, see `FlowCheckpoint.trace`). Adapters map it to their own flag.
+   */
+  readonly isRemote?: boolean
 }
 
 /** A causal link to another span (e.g. a conversation's later turn → its first turn). */

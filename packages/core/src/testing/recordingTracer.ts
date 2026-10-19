@@ -46,6 +46,13 @@ export interface RecordingTracerOptions {
   sampled?: boolean
   /** Implement `withSpan` (the backend-context bridge). Default true. */
   withSpan?: boolean
+  /**
+   * W3C-shaped ids (32/16 lowercase hex, deterministic) instead of the short `t…`/`s…`
+   * ones, so span contexts can be carried as a `traceparent` (checkpoints). Default false.
+   */
+  w3c?: boolean
+  /** A W3C `tracestate` every span context reports (e.g. to test that it is carried). */
+  traceState?: string
 }
 
 /** What {@link createRecordingTracer} returns. */
@@ -65,7 +72,12 @@ export interface RecordingTracer {
 }
 
 class RecSpan implements BotSpan {
-  constructor(readonly rec: RecordedSpan & { ended: boolean }, private readonly sampled: boolean, private readonly nextEnd: () => number) {}
+  constructor(
+    readonly rec: RecordedSpan & { ended: boolean },
+    private readonly sampled: boolean,
+    private readonly nextEnd: () => number,
+    private readonly traceState?: string,
+  ) {}
   setAttribute(key: string, value: TraceAttributeValue | undefined): this {
     if (value !== undefined) this.rec.attributes[key] = value
     return this
@@ -92,7 +104,9 @@ class RecSpan implements BotSpan {
     this.rec.endOrder = this.nextEnd()
   }
   isRecording(): boolean { return this.sampled && !this.rec.ended }
-  spanContext(): SpanContextRef { return { traceId: this.rec.traceId, spanId: this.rec.spanId } }
+  spanContext(): SpanContextRef {
+    return { traceId: this.rec.traceId, spanId: this.rec.spanId, ...(this.traceState !== undefined ? { traceState: this.traceState } : {}) }
+  }
 }
 
 /** Create an in-memory tracer for tests (see {@link RecordingTracer}). */
@@ -108,11 +122,12 @@ export function createRecordingTracer(options: RecordingTracerOptions = {}): Rec
       const parent = opts.parent === null
         ? undefined
         : opts.parent instanceof RecSpan ? opts.parent : als.getStore()
-      const spanId = `s${++ids}`
+      const n = ++ids
+      const spanId = options.w3c ? n.toString(16).padStart(16, '0') : `s${n}`
       const rec: RecordedSpan & { ended: boolean } = {
         name,
         kind: opts.kind ?? 'internal',
-        traceId: parent?.rec.traceId ?? `t${spanId}`,
+        traceId: parent?.rec.traceId ?? (options.w3c ? n.toString(16).padStart(32, 'a') : `t${spanId}`),
         spanId,
         ...(parent ? { parentId: parent.rec.spanId } : {}),
         attributes: {},
@@ -124,7 +139,7 @@ export function createRecordingTracer(options: RecordingTracerOptions = {}): Rec
         ended: false,
       }
       spans.push(rec)
-      const span = new RecSpan(rec, sampled, nextEnd)
+      const span = new RecSpan(rec, sampled, nextEnd, options.traceState)
       if (opts.attributes) span.setAttributes(opts.attributes)
       return span
     },

@@ -12,6 +12,12 @@
  *   callback leaves the conversation on the same wait;
  * - a conversation aborted while parked (`/reset`, handoff, stop) gets a closing turn
  *   (`reason: end`) under the active span, linked to the first one;
+ * - a conversation resumed from a checkpoint written by another replica or an earlier
+ *   process (`reason: dormant`, or `start` for a hand-over stub restarted) starts under the
+ *   waking message's dispatch and LINKS to the turn that wrote the checkpoint
+ *   (`FlowCheckpoint.trace`, W3C trace context; link attribute `bot.link.reason = resume`).
+ *   A link, not a parent: the waking message's own trace stays whole, and a conversation
+ *   parked for hours does not stretch one trace across processes and exports;
  * - parking on a wait ends the turn (`bot.conversation.parked = true`); the end of the
  *   conversation ends the open turn with `bot.conversation.outcome`.
  *
@@ -22,7 +28,8 @@
 import { TRACE_ATTR, SPAN_NAMES } from './attributes.js'
 import type { TraceBox } from './context.js'
 import type { TracingImpl } from './tracing.js'
-import type { SpanContextRef } from './types.js'
+import type { SpanContextRef, SpanLink } from './types.js'
+import { fromCheckpointTrace, toCheckpointTrace, type CheckpointTrace } from './w3c.js'
 import type { ConversationTraceHooks, ConversationTurnTrace } from '../conversations/ConversationRuntime.js'
 
 /** Why a turn span started. */
@@ -43,8 +50,13 @@ export class ConversationTracing implements ConversationTraceHooks {
   constructor(private readonly t: TracingImpl) {}
 
   /** A conversation was entered: its first turn starts under the active span. */
-  begin(info: { id: string; name: string }, reason: 'start' | 'goto' | 'dormant'): ConversationTraceBox {
+  begin(info: { id: string; name: string }, reason: 'start' | 'goto' | 'dormant', from?: CheckpointTrace): ConversationTraceBox {
+    const previous = fromCheckpointTrace(from)
+    const links: SpanLink[] | undefined = previous
+      ? [{ context: previous, attributes: { [TRACE_ATTR.linkReason]: 'resume' } }]
+      : undefined
     const span = this.t.startSpan(SPAN_NAMES.conversationTurn, {
+      ...(links ? { links } : {}),
       attributes: {
         [TRACE_ATTR.conversationId]: info.id,
         [TRACE_ATTR.conversationName]: info.name,
@@ -53,6 +65,11 @@ export class ConversationTracing implements ConversationTraceHooks {
     })
     const first = span.spanContext()
     return { span, conversation: true, open: true, id: info.id, name: info.name, ...(first ? { first } : {}) }
+  }
+
+  /** The W3C context of the conversation's current (or last parked) turn, for its checkpoints. */
+  carry(trace: ConversationTurnTrace): CheckpointTrace | undefined {
+    return toCheckpointTrace((trace as ConversationTraceBox).span.spanContext())
   }
 
   /** Run the conversation function inside its box (synchronous start; returns its promise unchanged). */

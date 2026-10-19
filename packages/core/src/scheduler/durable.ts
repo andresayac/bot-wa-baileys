@@ -38,6 +38,7 @@ import {
   type ScheduleStore,
   type SchedulerOptions,
 } from './ScheduleStore.js'
+import type { TaskTraceHooks } from './tracing.js'
 
 /** Longest delay `setTimeout` honours (2^31-1 ms); longer ones fire after 1 ms. */
 const MAX_TIMER_MS = 2 ** 31 - 1
@@ -71,6 +72,8 @@ interface DurableEntry {
   failures: number
   retryAt: number
   running?: AbortController
+  /** How this replica came to run the current occurrence (task spans). */
+  role?: 'leader' | 'follower' | 'single'
   readonly facade: ScheduledTask
 }
 
@@ -102,6 +105,8 @@ export class DurableScheduler {
   /** The held leadership when {@link lease} is a `Coordinator` (renewed by the coordinator). */
   private leadership?: Leadership
   private warnedMemory = false
+  /** Task spans (`BotConfig.telemetry`); unset: occurrences run untouched. */
+  private tracing?: TaskTraceHooks
   private readonly orphansLogged = new Set<string>()
 
   constructor(opts: DurableSchedulerOptions = {}) {
@@ -223,6 +228,11 @@ export class DurableScheduler {
       void this.activate(entry, epoch).catch((err: unknown) => this.reportFailure(entry, err, 'registering'))
     }
     return entry.facade
+  }
+
+  /** Trace every occurrence through `hooks` (see `Scheduler.trace`). */
+  trace(hooks: TaskTraceHooks | undefined): void {
+    this.tracing = hooks
   }
 
   /** Has anything to start: durable tasks, or an explicit store (orphans are listed). */
@@ -370,6 +380,9 @@ export class DurableScheduler {
         if (!this.overdue(entry, this.leaderTtlMs)) return
         await this.follow(entry)
         if (!this.overdue(entry, this.leaderTtlMs)) return
+        entry.role = 'follower'
+      } else {
+        entry.role = this.lease ? 'leader' : 'single'
       }
       // An overdue slot still leased (expired) to someone is a runner that died mid-run.
       let interrupted: number | undefined
@@ -477,15 +490,33 @@ export class DurableScheduler {
         lastRunAt = this.now()
         status = 'ok'
         const scheduledAt = new Date(slot)
+        const run = () => entry.handler({
+          taskId: entry.id,
+          scheduledAt,
+          occurrenceKey: `${entry.id}@${scheduledAt.toISOString()}`,
+          fencingToken: token,
+          missed,
+          signal: ac.signal,
+        })
         try {
-          await entry.handler({
-            taskId: entry.id,
-            scheduledAt,
-            occurrenceKey: `${entry.id}@${scheduledAt.toISOString()}`,
-            fencingToken: token,
-            missed,
-            signal: ac.signal,
-          })
+          const tracing = this.tracing
+          if (!tracing) {
+            await run()
+          } else {
+            await tracing.run({
+              id: entry.id,
+              kind: entry.kind,
+              durable: true,
+              ...(entry.cron !== undefined ? { cron: entry.cron } : {}),
+              ...(entry.kind === 'interval' ? { intervalMs: entry.ms } : {}),
+              ...(entry.timeZone !== undefined ? { timeZone: entry.timeZone } : {}),
+              scheduledAt: slot,
+              missed,
+              fencingToken: token,
+              ...(entry.role ? { role: entry.role } : {}),
+              owner: this.owner,
+            }, run)
+          }
         } catch (err) {
           status = 'error'
           this.logger?.error?.({ err, taskId: entry.id }, 'scheduled task failed')

@@ -156,6 +156,7 @@ La respuesta del usuario llega como otro mensaje: su propio `bot.inbound` → `b
 | `chat {model}` | client | Una llamada al modelo de `@bot-wa/ai` (convenciones GenAI de OpenTelemetry). |
 | `execute_tool {name}` | internal | Una llamada a herramienta del bucle de herramientas de la IA. |
 | `bot.ai.retrieve` | internal | Recuperación RAG (`bot.ai.rag.chunks`). |
+| `bot.task` | internal | Una ejecución de una tarea programada (`bot.schedule`/`every`/`delay`, simple o durable). Siempre es un span **raíz**; los envíos de la tarea cuelgan de él. Ver [Tareas programadas](#tareas-programadas). |
 
 ### Atributos
 
@@ -172,6 +173,9 @@ La respuesta del usuario llega como otro mensaje: su propio `bot.inbound` → `b
 | `bot.flow.id` | handler | El flujo/conversación en el que entra un matcher. |
 | `bot.conversation.id`, `.name`, `.reason`, `.parked`, `.outcome`, `.goto` | turno | Ver abajo. |
 | `bot.send.outcome`, `bot.content.kind`, `bot.send.origin`, `bot.send.edit` | send | `ok`, `failed`, `skipped`, `deduplicated` (outbox durable), `deferred`; `text`, `image`…; `ctx`/`api`. |
+| `bot.task.id`, `.kind`, `.durable`, `.cron`, `.interval_ms`, `.time_zone` | tarea | Id de la tarea (según la [política de ids](#datos-personales)), `cron`/`interval`/`once`, si es durable, su especificación. |
+| `bot.task.scheduled_at`, `.missed`, `.fencing_token`, `bot.scheduler.role`, `bot.scheduler.owner` | tarea (durable) | El slot (ISO 8601), si corre con retraso, el fencing token del claim, `leader`/`follower`/`single`, el owner del scheduler de la réplica. |
+| `bot.link.reason` | enlace de span | `resume`: el enlace de una conversación retomada desde un checkpoint al turno que lo escribió. |
 | `error.type` | cualquier span fallido | El nombre de la clase de error (`RateLimitedError`, `timeout`…). |
 
 Todos los nombres se exportan como `TRACE_ATTR` / `SPAN_NAMES` desde `@bot-wa/core`.
@@ -185,9 +189,28 @@ Una conversación puede durar días, así que no es un único span. Cada tramo d
 - una respuesta abre el siguiente turno bajo el span de dispatch del mensaje que respondió: `reason: reply`;
 - el timeout de una espera abre un turno **raíz** enlazado al primero (`reason: timeout`), porque ningún mensaje lo causó; un callback de `c.idle()` que salta mientras la conversación espera corre también en un turno raíz (`reason: idle`), que vuelve a quedar en espera si el callback solo respondió, o lleva el resultado si terminó o redirigió la conversación;
 - un error lanzado por la conversación (o por un callback de inactividad) se registra en el turno donde ocurrió;
+- una conversación retomada desde un checkpoint que escribió **otra réplica o un proceso anterior** (un flujo persistente tras un reinicio, un flujo reenviado por `coordination.handover`, un stub de hand-over reiniciado con `fallback: 'restart'`) empieza bajo el dispatch del mensaje que la despertó y queda **enlazada** al turno que escribió el checkpoint; ver [Entre réplicas y reinicios](#entre-replicas-y-reinicios);
 - el final de la conversación pone `bot.conversation.outcome` (`completed`, `ended`, `guarded`, `cancelled`, `timedOut`, `retriesExceeded`, `error`) en el turno abierto; una conversación abortada mientras esperaba (`/reset`, handoff, `stop()`) recibe un turno corto de cierre (`reason: end`).
 
 Los pasos de un flujo son eventos `flow.step` del turno (`bot.flow.step.index`, `bot.flow.step.kind`).
+
+### Entre réplicas y reinicios
+
+Con telemetría activa, cada checkpoint que escribe una conversación (flujos persistentes, checkpoints efímeros de `handover.flows: 'forward'`, stubs de hand-over) guarda también el **contexto de traza W3C** del turno que lo escribió, en `FlowCheckpoint.trace` (`{ traceparent, tracestate? }`; los stores lo guardan de forma opaca, como el resto del checkpoint). La réplica (o el proceso reiniciado) que retoma la conversación le da a su primer turno (`reason: dormant`, o `start` para un stub reiniciado con `fallback: 'restart'`) un **enlace de span** a ese contexto, marcado con `bot.link.reason = resume` e `isRemote`, con el `tracestate` restaurado.
+
+**Enlace, no padre** (a propósito): el padre del turno retomado sigue siendo el `bot.dispatch` del mensaje que lo despertó, así que la traza de ese mensaje (inbound → dispatch → turno → envíos) queda completa; colgarlo del span de la réplica anterior partiría en dos la traza del mensaje que lo despertó, y una conversación en espera durante horas estiraría una sola traza entre procesos y exportaciones vaciadas hace mucho. Tu backend muestra el enlace como "follows from" y te deja saltar a la traza anterior.
+
+Notas:
+
+- Solo se transportan ids con forma W3C (32/16 hex en minúsculas, lo que produce OpenTelemetry). Un tracer con otros ids no guarda nada y el turno simplemente no tiene enlace. Un valor guardado mal formado se ignora.
+- Una función `handover.fallback` propia recibe el contexto en `info.trace`, para enlazar sus propios spans.
+- `formatTraceparent(spanContext)` y `parseTraceparent(traceparent, tracestate?)` se exportan desde `@bot-wa/core` para tu propia propagación.
+
+### Tareas programadas
+
+Cada ejecución de una tarea registrada con `bot.schedule()`, `bot.every()` o `bot.delay()` es un span `bot.task`: las tareas simples en memoria, por ejecución; las durables, por ocurrencia (un span por slot en un catch-up). El span es siempre **raíz** (una tarea no la causa ningún mensaje, aunque se haya registrado dentro de un handler) y los envíos y llamadas de IA del handler cuelgan de él. Un handler que lanza pone el estado en error con `error.type`, como en cualquier otro sitio.
+
+Las ocurrencias durables añaden el slot (`bot.task.scheduled_at`), `bot.task.missed`, el `bot.task.fencing_token` del claim y el liderazgo: `bot.scheduler.role` es `leader` (esta réplica tiene el lease del scheduler), `follower` (cubrió una ocurrencia que el líder dejó vencer) o `single` (sin lease configurado), más `bot.scheduler.owner` (`scheduler.owner`; por defecto, un id aleatorio por proceso). Los ids de tarea pasan por la [política de ids](#datos-personales) (hash por defecto), porque los ids durables suelen llevar dentro un id de usuario o de chat. Los temporizadores internos del bot (los vigilantes `onIdle` por chat) no son spans de tarea.
 
 ### Spans de IA
 
@@ -282,7 +305,6 @@ expect(rec.parentOf(rec.find('bot.send')!)?.name).toBe('bot.pace')
 ## Límites
 
 - **Reproducciones durables**: un registro entrante que reproduce el motor de durabilidad (tras una caída o un reintento) no tiene span `bot.inbound`; su `bot.dispatch` es un span raíz.
-- **Varias réplicas**: una conversación que se retoma en otra réplica empieza un turno `dormant` nuevo; todavía no hay enlace de traza entre réplicas.
+- **Varias réplicas**: una conversación retomada en otra réplica (o tras un reinicio) empieza una traza nueva **enlazada** a la anterior, no una continuación (ver [Entre réplicas y reinicios](#entre-replicas-y-reinicios)). Una conversación traspasada antes de activar la telemetría, o por una réplica sin ella, no tiene enlace.
 - **Spans de OpenTelemetry de terceros dentro de una conversación retomada** (código después de `await c.ask()`) cuelgan del contexto propio de OpenTelemetry, que sigue siendo el del primer turno; los spans del bot sí cuelgan bien.
-- **Las tareas programadas** (`bot.schedule`) no tienen span propio; sus envíos son spans `bot.send` raíz.
 - Vaciar el buffer es cosa del SDK: llama a `sdk.shutdown()` después de `bot.stop()`.

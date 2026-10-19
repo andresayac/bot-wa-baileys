@@ -1,0 +1,5 @@
+---
+"@bot-wa/core": minor
+---
+
+Tracing across replicas and for scheduled tasks (opt-in, `BotConfig.telemetry`). Checkpoints and hand-over stubs written while tracing store the W3C trace context of the turn that wrote them (`FlowCheckpoint.trace`); the replica or restarted process that resumes the conversation links its first turn to it (`bot.link.reason = resume`, remote context with its `tracestate`), keeping the waking message's dispatch as the parent. `InterruptedConversation.trace` exposes it to custom fallbacks. Each scheduled task run (plain or durable occurrence) is a root `bot.task` span with task id/kind/spec attributes, and for durable tasks the slot, missed flag, fencing token, leader role and owner. New: `formatTraceparent()`, `parseTraceparent()`, `CheckpointTrace`, `TaskTraceHooks`, `TaskRunInfo`, `Scheduler.trace()`, `SpanContextRef.traceState` / `isRemote`, and `createRecordingTracer({ w3c, traceState })`. Without telemetry nothing changes.

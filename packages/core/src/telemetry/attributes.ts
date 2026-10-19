@@ -40,6 +40,20 @@ export const TRACE_ATTR = {
   sendEdit: 'bot.send.edit',
   sendStream: 'bot.send.stream',
   errorType: 'error.type',
+  /** Attribute of a span LINK: why it was linked (`'resume'`: a checkpoint carried from another process). */
+  linkReason: 'bot.link.reason',
+  // ---- scheduled tasks (bot.task) ----
+  taskId: 'bot.task.id',
+  taskKind: 'bot.task.kind',
+  taskDurable: 'bot.task.durable',
+  taskCron: 'bot.task.cron',
+  taskIntervalMs: 'bot.task.interval_ms',
+  taskTimeZone: 'bot.task.time_zone',
+  taskScheduledAt: 'bot.task.scheduled_at',
+  taskMissed: 'bot.task.missed',
+  taskFencingToken: 'bot.task.fencing_token',
+  schedulerRole: 'bot.scheduler.role',
+  schedulerOwner: 'bot.scheduler.owner',
   // ---- AI (OpenTelemetry GenAI conventions + bot.ai.*) ----
   genAiOperation: 'gen_ai.operation.name',
   genAiProvider: 'gen_ai.provider.name',
@@ -72,4 +86,5 @@ export const SPAN_NAMES = {
   send: 'bot.send',
   streamUpdate: 'bot.stream.update',
   aiRetrieve: 'bot.ai.retrieve',
+  task: 'bot.task',
 } as const

@@ -63,6 +63,7 @@ import type { ConversationHandler } from '../conversations/handler.js'
 import { ChatIdleWatchers, type IdleHandler } from './idle.js'
 import { FlowBuilder, type CompiledFlow } from '../flows/FlowBuilder.js'
 import { Scheduler } from '../scheduler/Scheduler.js'
+import { untracedTask } from '../scheduler/tracing.js'
 import type { FlowInventory, FlowRouteLog } from '../flows/inventory.js'
 import { describeFlows, type DescribeOptions, type FlowGraph } from '../flows/describe.js'
 import { lintFlows, type LintDiagnostic, type LintOptions } from '../flows/lint.js'
@@ -197,7 +198,8 @@ export class Bot extends EventEmitter {
   /** Per-chat inactivity watchers ({@link onIdle}); backed by the scheduler. */
   private idle = new ChatIdleWatchers({
     events: this,
-    delay: (ms, fn) => this.scheduler.delay(ms, fn),
+    // An internal timer: never traced as a scheduled task run.
+    delay: (ms, fn) => this.scheduler.delay(ms, untracedTask(fn)),
     isActive: () => this.state.acceptingInbound,
     isSuspended: (chatId) => this.isChatHandedOff(chatId),
     onError: (error, ctx) => this.kernel.events.error({ error, ctx }),

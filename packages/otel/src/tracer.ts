@@ -91,7 +91,8 @@ class OtelBotSpan implements BotSpan {
   isRecording(): boolean { return this.otel.isRecording() }
   spanContext(): SpanContextRef | undefined {
     const c = this.otel.spanContext()
-    return { traceId: c.traceId, spanId: c.spanId, traceFlags: c.traceFlags }
+    const traceState = c.traceState?.serialize()
+    return { traceId: c.traceId, spanId: c.spanId, traceFlags: c.traceFlags, ...(traceState ? { traceState } : {}) }
   }
 }
 
@@ -118,7 +119,14 @@ export function otelTracer(opts: OtelTracingOptions & { api: OtelApi }): BotTrac
   return {
     startSpan(name: string, options: SpanOptions = {}): BotSpan {
       const links: Link[] | undefined = options.links?.map((l) => ({
-        context: { traceId: l.context.traceId, spanId: l.context.spanId, traceFlags: l.context.traceFlags ?? 1, isRemote: false },
+        context: {
+          traceId: l.context.traceId,
+          spanId: l.context.spanId,
+          traceFlags: l.context.traceFlags ?? 1,
+          // A context carried from another process (a resumed checkpoint) is remote.
+          isRemote: l.context.isRemote === true,
+          ...(l.context.traceState ? { traceState: api.createTraceState(l.context.traceState) } : {}),
+        },
         ...(l.attributes ? { attributes: toAttributes(l.attributes) } : {}),
       }))
       const span = tracer.startSpan(name, {
