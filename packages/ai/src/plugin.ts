@@ -31,6 +31,7 @@ import type { AIConfig, AIProvider, AIStreamConfig } from './types.js'
 import { ContextManager } from './ContextManager.js'
 import { AIClient } from './AIClient.js'
 import { resolveProvider } from './providers/resolve.js'
+import { assertThinking } from './providers/anthropicModels.js'
 import { LazyProvider } from './providers/LazyProvider.js'
 import { chatKeyOf } from './chatKey.js'
 import { createMemory } from './memory/createMemory.js'
@@ -56,6 +57,8 @@ interface InflightTurn {
 }
 
 export function aiPlugin(config: AIPluginConfig = {}): PluginSpec<AIPluginConfig> {
+  // Fail at config time (the caller's own stack), never inside the lazy provider.
+  assertThinking(config.thinking)
   return definePlugin<AIPluginConfig>({
     name: 'ai',
     version: '0.1.0',

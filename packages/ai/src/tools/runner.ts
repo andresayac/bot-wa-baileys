@@ -44,12 +44,18 @@ export interface ToolLoopResult {
   /** Every tool result produced during the turn, in order. */
   toolResults: AIToolResult[]
   usage?: { input: number; output: number }
-  /** True when the loop stopped because of `maxSteps`. */
+  /**
+   * True when the loop stopped because of `maxSteps`. When the last step's tool calls
+   * were cut off by the output-token cap, `stopReason` is the provider's truncation
+   * reason (e.g. `'max_tokens'`), `text` is the localized `ai.tools.truncated` reply and
+   * no `loop.max_steps` event is emitted.
+   */
   maxStepsReached: boolean
   /**
    * Tool calls NOT run because the model was cut off by the output-token cap while
    * writing them (their arguments may be incomplete). Each one was reported back to
-   * the model as a failed call and emitted as a `tool.truncated` event. Raise
+   * the model as a failed call (on the last step, where the model gets no further
+   * turn, only reported) and emitted as a `tool.truncated` event. Raise
    * `maxTokens` if this is not 0.
    */
   truncatedToolCalls: number
@@ -302,19 +308,37 @@ export async function runToolLoop(opts: ToolLoopOptions): Promise<ToolLoopResult
     if (calls.length === 0) {
       return { text: r.text, model: r.model, stopReason: r.stopReason, steps: step, toolResults, usage: sawUsage ? usage : undefined, maxStepsReached: false, truncatedToolCalls }
     }
-    // Last step: running these calls would be pointless (the model never sees their
-    // results) and harmful for side-effecting / `confirm: true` tools — stop here.
-    if (step === maxSteps) break
-    messages.push({ role: 'assistant', content: r.text, toolCalls: calls, providerData: r.providerData })
-    const results: AIToolResult[] = []
-    if (isTruncated(r.stopReason)) {
-      // Cut off by the output-token cap: the arguments may be partial JSON the provider
-      // patched up. Never run (nor confirm) them; tell the model so it can retry.
+    const truncated = isTruncated(r.stopReason)
+    const reportTruncated = (): void => {
       for (const call of calls) {
         truncatedToolCalls++
         emit({ step, tool: call.name, callId: call.id, type: 'tool.truncated', error: `arguments cut off by the output token limit (${r.stopReason})` })
-        results.push(truncatedResult(call, r.stopReason))
       }
+    }
+    // Last step: running these calls would be pointless (the model never sees their
+    // results) and harmful for side-effecting / `confirm: true` tools — stop here.
+    if (step === maxSteps) {
+      if (!truncated) break
+      // The turn ran out of output room, not of steps: report it as such.
+      reportTruncated()
+      return {
+        text: aiText(opts.ctx, AI_MESSAGES.truncated),
+        model: r.model,
+        stopReason: r.stopReason,
+        steps: step,
+        toolResults,
+        usage: sawUsage ? usage : undefined,
+        maxStepsReached: true,
+        truncatedToolCalls,
+      }
+    }
+    messages.push({ role: 'assistant', content: r.text, toolCalls: calls, providerData: r.providerData })
+    const results: AIToolResult[] = []
+    if (truncated) {
+      // Cut off by the output-token cap: the arguments may be partial JSON the provider
+      // patched up. Never run (nor confirm) them; tell the model so it can retry.
+      reportTruncated()
+      for (const call of calls) results.push(truncatedResult(call, r.stopReason))
     } else {
       for (const call of calls) results.push(await runOne(call, step))
     }

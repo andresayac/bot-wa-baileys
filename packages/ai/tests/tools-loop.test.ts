@@ -176,6 +176,24 @@ describe('tool loop (AIClient)', () => {
     }
   })
 
+  it('reports cut-off tool calls on the last step as truncated, not as a generic max_steps', async () => {
+    const mock = new MockAIProvider({ reply: { toolCalls: [{ name: 'pay', args: { amount: 1 } }, { name: 'pay', args: {} }], stopReason: 'max_tokens' } })
+    let runs = 0
+    const { c, events } = client(mock, { pay: { description: 'p', handler: () => { runs++; return 'paid' } } }, { maxSteps: 1 })
+    const r = await c.runTools({ messages: [{ role: 'user', content: 'x' }] })
+    expect(runs).toBe(0)
+    expect(r.truncatedToolCalls).toBe(2)
+    expect(r.stopReason).toBe('max_tokens')
+    expect(r.maxStepsReached).toBe(true)
+    expect(r.text).toMatch(/cut off|cortó/i)
+    expect(r.text).not.toBe((await (async () => {
+      const m2 = new MockAIProvider({ reply: { toolCalls: [{ name: 'pay', args: {} }] } })
+      return (await client(m2, { pay: { description: 'p', handler: () => 1 } }, { maxSteps: 1 }).c.runTools({ messages: [{ role: 'user', content: 'x' }] })).text
+    })()))
+    expect(events.map((e) => e.type)).toEqual(['tool.truncated', 'tool.truncated'])
+    expect(events[0]).toMatchObject({ tool: 'pay', step: 1 })
+  })
+
   it('reports truncatedToolCalls: 0 on a normal turn', async () => {
     const { c } = client(callOnce('buscar', {}), { buscar: { description: 'b', handler: () => 1 } })
     expect((await c.runTools({ messages: [{ role: 'user', content: 'x' }] })).truncatedToolCalls).toBe(0)

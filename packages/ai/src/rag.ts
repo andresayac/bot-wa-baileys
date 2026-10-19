@@ -113,16 +113,23 @@ const isCited = (x: AIRetrievedChunk | AICitedPassage): x is AICitedPassage =>
  * Default `appendSources: true` rendering: the localized `ai.rag.sources` message
  * (`ctx`'s language; Spanish `Fuentes: …` without a context). Cited passages
  * ({@link citedPassages}) keep their original number — `[1][3] faq.md, [2] pagos.md`,
- * one entry per label; plain chunks are listed as unique labels without numbers.
+ * one entry per label (a cited passage with no `citation`/`source` is listed by its
+ * number alone); plain chunks are listed as unique labels without numbers.
  */
 export function formatSources(passages: readonly AIRetrievedChunk[] | readonly AICitedPassage[], ctx?: AITranslatable): string {
   const groups = new Map<string, number[]>()
   passages.forEach((p: AIRetrievedChunk | AICitedPassage, i: number) => {
-    const label = isCited(p) ? labelOf(p.chunk, p.n - 1) : labelOf(p, i)
+    // A cited passage already shows its `[n]`: without a citation/source it gets no
+    // label at all (not the positional `#n` fallback, which would repeat the number).
+    const label = isCited(p) ? (p.chunk.citation ?? p.chunk.source ?? '') : labelOf(p, i)
     const nums = groups.get(label) ?? []
     if (isCited(p)) nums.push(p.n)
     groups.set(label, nums)
   })
-  const entries = [...groups].map(([label, nums]) => (nums.length ? `${nums.map((n) => `[${n}]`).join('')} ${label}` : label))
+  const entries = [...groups].map(([label, nums]) => {
+    if (!nums.length) return label
+    const refs = nums.map((n) => `[${n}]`).join('')
+    return label ? `${refs} ${label}` : refs
+  })
   return entries.length ? aiText(ctx, AI_MESSAGES.sources, { sources: entries.join(', ') }) : ''
 }

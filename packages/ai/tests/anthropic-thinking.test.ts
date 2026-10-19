@@ -3,6 +3,7 @@ import { AnthropicProvider } from '../src/providers/anthropic.js'
 import type { AnthropicLike, AnthropicMessage, AnthropicStreamEvent } from '../src/providers/anthropic.js'
 import { anthropicModelSupport } from '../src/providers/anthropicModels.js'
 import type { AIConfig } from '../src/types.js'
+import { aiPlugin } from '../src/plugin.js'
 
 type Args = Record<string, unknown>
 
@@ -80,6 +81,16 @@ describe('AnthropicProvider thinking', () => {
     const small = await argsFor({ model: 'claude-haiku-4-5', maxTokens: 4096, thinking: { budgetTokens: 10 } })
     expect(small.thinking).toEqual({ type: 'enabled', budget_tokens: 1024 })
     expect(small.max_tokens).toBe(4096)
+  })
+
+  it('rejects a budgetTokens that is not a positive integer at config time', () => {
+    const { client } = fake()
+    for (const bad of [Number.NaN, Number.POSITIVE_INFINITY, -Infinity, 1500.5, 0, -1, '2048' as unknown as number]) {
+      expect(() => new AnthropicProvider(client, { thinking: { budgetTokens: bad } }), String(bad)).toThrow(RangeError)
+      expect(() => aiPlugin({ provider: 'anthropic', thinking: { budgetTokens: bad } }), String(bad)).toThrow(/thinking\.budgetTokens/)
+    }
+    expect(() => new AnthropicProvider(client, { thinking: { budgetTokens: 2048 } })).not.toThrow()
+    expect(() => aiPlugin({ thinking: 'auto' })).not.toThrow()
   })
 
   it('budgetTokens falls back to adaptive on models that only take adaptive thinking', async () => {

@@ -26,15 +26,21 @@ export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 
 /**
  * Extended thinking of the Anthropic provider (other providers ignore it):
- * - `'auto'` (default): adaptive thinking on the models that support it (Opus /
- *   Sonnet 4.6+, Haiku 5+, Fable, Mythos and unknown ids), no `thinking` parameter
- *   on older models such as Claude Haiku 4.5.
+ * - `'auto'` (default): adaptive thinking (`{ type: 'adaptive' }`) on the models that
+ *   support it (Opus / Sonnet 4.6+, Haiku 5+, Fable, Mythos and unknown ids); no
+ *   `thinking` parameter on older models (Haiku 4.5, Sonnet 4.5, Opus 4.5, Claude 3.x).
  * - `'adaptive'`: always send `{ type: 'adaptive' }`.
- * - `'off'`: never send the parameter (models that always think, such as Claude
- *   Opus 5.5 or Fable, keep thinking; lower `effort` to make them think less).
- * - `{ budgetTokens }`: budgeted thinking (`{ type: 'enabled', budget_tokens }`, min 1024)
- *   on models without adaptive thinking; adaptive on the others, which reject budgets.
- *   `max_tokens` is raised to `budgetTokens + maxTokens` when it would leave no room for the answer.
+ * - `'off'`: never send the parameter. Models that always think (Fable, Mythos,
+ *   Opus 5.5) keep thinking, and Opus 5 / Sonnet 5.5 / Haiku 5.5 think by default
+ *   when it is omitted; lower `effort` to make them think less.
+ * - `{ budgetTokens }`: a positive integer (anything else throws a `RangeError` when
+ *   the config is built); raised to the API minimum of 1024. Sent as budgeted thinking
+ *   (`{ type: 'enabled', budget_tokens }`) only to the models without adaptive thinking
+ *   (Haiku 4.5, Sonnet 4.5, Opus 4.5 and older), the ones that need it. Every adaptive
+ *   model gets adaptive thinking instead: Opus / Sonnet 4.6 still accept budgets but
+ *   deprecate them, and Opus 4.7+, Sonnet 5+, Haiku 5+, Fable and Mythos reject them
+ *   with a 400. `max_tokens` is raised to `budgetTokens + maxTokens` when it would
+ *   leave no room for the answer.
  *
  * Whatever the setting, a 400 whose message names `thinking` (or `effort`) is
  * retried once without that parameter, and the model is remembered so later

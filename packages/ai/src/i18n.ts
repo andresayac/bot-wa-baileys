@@ -51,6 +51,11 @@ export const AI_MESSAGES = {
   doneNote: 'ai.tools.doneNote',
   /** Reply when the tool loop reaches `maxSteps` without a final answer. */
   maxSteps: 'ai.tools.maxSteps',
+  /**
+   * Reply when the last allowed step ends with tool calls cut off by the output-token cap
+   * (they are never run): the turn ran out of room, not of steps.
+   */
+  truncated: 'ai.tools.truncated',
   /** `rag.appendSources: true` line (`{sources}`: comma-separated labels). */
   sources: 'ai.rag.sources',
 } as const
@@ -82,6 +87,7 @@ export const AI_LOCALES: Readonly<Record<'es' | 'en', LocaleMessages>> = {
         doneNote:
           'Acciones ya ejecutadas en esta conversación (no las repitas salvo que el usuario lo pida explícitamente):\n{actions}',
         maxSteps: 'No pude completar la solicitud. Intenta de nuevo con más detalle.',
+        truncated: 'Mi respuesta se cortó antes de terminar y no ejecuté ninguna acción. Intenta de nuevo con una petición más corta.',
       },
       rag: { sources: 'Fuentes: {sources}' },
     },
@@ -108,6 +114,7 @@ export const AI_LOCALES: Readonly<Record<'es' | 'en', LocaleMessages>> = {
           'Do not compute amounts or totals yourself: use the values returned by tools.',
         doneNote: 'Actions already run in this conversation (do not repeat them unless the user explicitly asks):\n{actions}',
         maxSteps: "I couldn't complete the request. Please try again with more detail.",
+        truncated: 'My reply was cut off before I could finish, so no action was taken. Please try again with a shorter request.',
       },
       rag: { sources: 'Sources: {sources}' },
     },

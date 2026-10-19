@@ -290,9 +290,13 @@ aiPlugin({ provider: 'anthropic', model: 'claude-haiku-4-5', thinking: { budgetT
 - `'adaptive'` envía siempre pensamiento adaptativo; `'off'` no envía nunca el
   parámetro (los modelos que siempre piensan, como Claude Opus 5.5, lo siguen
   haciendo: baja `effort` en su lugar).
-- `{ budgetTokens }` activa el pensamiento con presupuesto (`budget_tokens`,
-  mínimo 1024) en modelos antiguos; en los que solo aceptan pensamiento
-  adaptativo se usa el adaptativo. Si `maxTokens` no deja sitio para la
+- `{ budgetTokens }` (un entero positivo; cualquier otro valor lanza un
+  `RangeError` al construir la configuración) activa el pensamiento con
+  presupuesto (`budget_tokens`, elevado al mínimo de 1024) en los modelos sin
+  pensamiento adaptativo (Haiku 4.5, Sonnet 4.5, Opus 4.5 y anteriores). Los
+  modelos adaptativos reciben pensamiento adaptativo: Opus / Sonnet 4.6 aún
+  aceptan presupuestos pero los marcan como obsoletos, y Opus 4.7+, Sonnet 5+,
+  Haiku 5+, Fable y Mythos los rechazan. Si `maxTokens` no deja sitio para la
   respuesta, pasa a ser `budgetTokens + maxTokens`.
 - Si aun así la API rechaza la petición con un 400 que menciona `thinking` (o
   `effort`), la llamada se reintenta una vez sin ese parámetro y el modelo

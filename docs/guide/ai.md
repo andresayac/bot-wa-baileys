@@ -287,10 +287,13 @@ aiPlugin({ provider: 'anthropic', model: 'claude-haiku-4-5', thinking: { budgetT
 - `'adaptive'` always sends adaptive thinking; `'off'` never sends the
   parameter (models that always think, such as Claude Opus 5.5, keep doing so:
   lower `effort` instead).
-- `{ budgetTokens }` enables budgeted thinking (`budget_tokens`, minimum 1024)
-  on older models; on models that only take adaptive thinking it falls back to
-  adaptive. When `maxTokens` would leave no room for the answer it becomes
-  `budgetTokens + maxTokens`.
+- `{ budgetTokens }` (a positive integer; anything else throws a `RangeError`
+  when the config is built) enables budgeted thinking (`budget_tokens`, raised to
+  the minimum of 1024) on the models without adaptive thinking (Haiku 4.5,
+  Sonnet 4.5, Opus 4.5 and older). Adaptive models get adaptive thinking
+  instead: Opus / Sonnet 4.6 still accept budgets but deprecate them, and Opus
+  4.7+, Sonnet 5+, Haiku 5+, Fable and Mythos reject them. When `maxTokens`
+  would leave no room for the answer it becomes `budgetTokens + maxTokens`.
 - If the API still rejects the request with a 400 that names `thinking` (or
   `effort`), the call is retried once without that parameter and the model is
   remembered, so the next calls skip it. `anthropicModelSupport(model)` exposes

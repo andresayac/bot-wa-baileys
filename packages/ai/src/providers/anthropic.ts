@@ -1,6 +1,6 @@
 import type { AIProvider, GenerateInput, GenerateResult, AIConfig, AIChatMessage } from '../types.js'
 import type { AIToolCall } from '../tools/types.js'
-import { anthropicModelSupport } from './anthropicModels.js'
+import { anthropicModelSupport, assertThinking } from './anthropicModels.js'
 
 export interface AnthropicContentBlock {
   type: string
@@ -67,7 +67,9 @@ export class AnthropicProvider implements AIProvider {
   constructor(
     private client: AnthropicLike,
     private cfg: AIConfig,
-  ) {}
+  ) {
+    assertThinking(cfg.thinking)
+  }
 
   private buildArgs(input: GenerateInput): { args: Record<string, unknown>; sent: Set<Droppable> } {
     const model = input.model ?? this.cfg.model ?? DEFAULT_MODEL
@@ -85,7 +87,7 @@ export class AnthropicProvider implements AIProvider {
         args.thinking = { type: 'adaptive' }
         sent.add('thinking')
       } else if (typeof thinking === 'object') {
-        const budget = Math.max(MIN_BUDGET_TOKENS, Math.floor(thinking.budgetTokens))
+        const budget = Math.max(MIN_BUDGET_TOKENS, thinking.budgetTokens)
         // budget_tokens must stay below max_tokens; keep the answer's own budget on top.
         if (maxTokens <= budget) maxTokens = budget + maxTokens
         args.thinking = { type: 'enabled', budget_tokens: budget }

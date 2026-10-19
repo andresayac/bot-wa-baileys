@@ -50,6 +50,14 @@ describe('rag helpers', () => {
       .toBe('Fuentes: [1][3] faq.md › Envíos, [2] faq.md › Pagos')
   })
 
+  it('formatSources does not repeat the number of a cited passage that has no label', () => {
+    const bare = { text: 'sin etiqueta' }
+    expect(formatSources([{ n: 2, chunk: bare }])).toBe('Fuentes: [2]')
+    expect(formatSources([{ n: 1, chunk: PASSAGES[0]! }, { n: 3, chunk: bare }])).toBe('Fuentes: [1] faq.md › Envíos, [3]')
+    // Uncited chunks have no [n] of their own, so their positional fallback stays.
+    expect(formatSources([PASSAGES[0]!, bare])).toBe('Fuentes: faq.md › Envíos, #2')
+  })
+
   it('toRagConfig accepts a retriever or { retriever }, rejects garbage', () => {
     const r = fakeRetriever()
     expect(toRagConfig(r)).toEqual({ retriever: r })

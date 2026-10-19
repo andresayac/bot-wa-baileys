@@ -15,6 +15,24 @@
  * 400 that names thinking.
  */
 
+import type { AIThinking } from '../types.js'
+
+/**
+ * Validate an {@link AIThinking} setting, throwing a `RangeError` for a
+ * `{ budgetTokens }` that is not a positive integer (NaN, ±Infinity, fractions,
+ * zero, negatives or a non-number). Budgets below the API minimum (1024) are
+ * accepted and raised to it when sent. Called when the config is built
+ * (`aiPlugin()`, `new AnthropicProvider()`), so a typo fails at startup instead
+ * of on the first message.
+ */
+export function assertThinking(thinking: AIThinking | undefined): void {
+  if (typeof thinking !== 'object' || thinking === null) return
+  const n: unknown = thinking.budgetTokens
+  if (typeof n !== 'number' || !Number.isSafeInteger(n) || n < 1) {
+    throw new RangeError(`thinking.budgetTokens must be a positive integer (got ${typeof n === 'number' ? String(n) : typeof n})`)
+  }
+}
+
 export interface AnthropicModelSupport {
   /** Accepts `thinking: { type: 'adaptive' }`. */
   adaptiveThinking: boolean
