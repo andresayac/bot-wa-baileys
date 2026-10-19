@@ -165,4 +165,60 @@ describe('EventWorker with two workers and a clock', () => {
     // e2 was never run here; it is claimable again by anyone.
     expect(await journal.claim(5, { now: clock.now() })).toMatchObject([{ envelope: { eventId: 'e2' } }])
   })
+
+  it('a skipped record does not use up an attempt', async () => {
+    const clock = manualClock()
+    const journal = new MemoryEventJournal()
+    for (const id of ['e1', 'e2']) {
+      await journal.append(createEnvelope({ eventId: id, eventType: 'job', context, payload: id, occurredAt: 0 }))
+    }
+    // A high limit keeps the slow e1 retrying in every batch below.
+    const worker = new EventWorker(journal, { clock: clock.now, leaseMs: 1_000, maxAttempts: 10, retryDelayMs: 0 })
+    let e2Runs = 0
+    worker.on('job', (e) => {
+      if (e.payload === 'e1') { clock.advance(2_000); throw new Error('slow e1') }
+      e2Runs++
+      throw new Error('e2 boom')
+    })
+    // Every batch: e1 runs slowly and fails, e2 is skipped because its lease ran out.
+    for (let i = 0; i < 3; i++) await worker.runBatch()
+    expect(e2Runs).toBe(0)
+    expect(await journal.get('e2')).toMatchObject({ state: 'pending', attempts: 0 })
+    // e2 still gets its full maxAttempts real tries.
+    const solo = new EventWorker(journal, { clock: clock.now, leaseMs: 1_000, maxAttempts: 2, retryDelayMs: 0 })
+    solo.on('job', (e) => { if (e.payload === 'e2') e2Runs++; throw new Error('boom') })
+    await solo.runBatch()
+    expect(await journal.get('e2')).toMatchObject({ state: 'failed', attempts: 1 })
+    await solo.runBatch()
+    expect(await journal.get('e2')).toMatchObject({ state: 'dead', attempts: 2 })
+    expect(e2Runs).toBe(2)
+  })
+
+  it('release returns a claim without charging the attempt and is fenced', async () => {
+    const journal = new MemoryEventJournal()
+    await journal.append(createEnvelope({ eventId: 'e1', eventType: 'x', context, payload: 1, occurredAt: 0 }))
+    const [a] = await journal.claim(1, { now: 10, leaseMs: 5 })
+    const [b] = await journal.claim(1, { now: 16, leaseMs: 5 })
+    await expect(journal.release('e1', { now: 17, fencingToken: a!.fencingToken })).rejects.toBeInstanceOf(StaleLeaseError)
+    expect(await journal.get('e1')).toMatchObject({ state: 'processing', attempts: 2 })
+    await journal.release('e1', { now: 17, fencingToken: b!.fencingToken })
+    expect(await journal.get('e1')).toMatchObject({ state: 'pending', attempts: 1, leaseUntil: undefined })
+    const [c] = await journal.claim(1, { now: 18, leaseMs: 5 })
+    expect(c!.fencingToken).toBe(3)
+  })
+
+  it('FileEventJournal persists a release', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'botwa-release-'))
+    try {
+      const file = join(dir, 'events.json')
+      const journal = await FileEventJournal.open(file)
+      await journal.append(createEnvelope({ eventId: 'e1', eventType: 'x', context, payload: 1, occurredAt: 0 }))
+      const [a] = await journal.claim(1, { now: 10, leaseMs: 5 })
+      await journal.release('e1', { now: 11, fencingToken: a!.fencingToken })
+      const reopened = await FileEventJournal.open(file)
+      expect(await reopened.get('e1')).toMatchObject({ state: 'pending', attempts: 0 })
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
 })

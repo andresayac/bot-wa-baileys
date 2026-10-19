@@ -142,6 +142,11 @@ export interface EventJournal {
   ack(eventId: string, options?: AckEventOptions): Promise<void>
   /** Schedule a retry or dead-letter the event. Fenced like `ack`. */
   fail(eventId: string, error: unknown, options?: FailEventOptions): Promise<void>
+  /**
+   * Hand back a claim whose handler never ran: the event becomes due again
+   * right away and the claim's attempt is not charged. Fenced like `ack`.
+   */
+  release(eventId: string, options?: AckEventOptions): Promise<void>
   replay(eventId: string, now?: number): Promise<void>
   list(options?: { state?: EventRecordState; limit?: number }): Promise<EventRecord[]>
 }
@@ -212,6 +217,15 @@ export class MemoryEventJournal implements EventJournal {
     record.nextAttemptAt = now + (options.retryDelayMs ?? exponentialBackoff(record.attempts))
   }
 
+  async release(eventId: string, options: AckEventOptions = {}): Promise<void> {
+    const record = this.fenced(eventId, options.fencingToken)
+    if (record.state !== 'processing') return
+    record.state = record.lastError === undefined ? 'pending' : 'failed'
+    record.attempts = Math.max(0, record.attempts - 1)
+    record.leaseUntil = undefined
+    record.nextAttemptAt = Math.min(record.nextAttemptAt, options.now ?? Date.now())
+  }
+
   async replay(eventId: string, now = Date.now()): Promise<void> {
     const record = this.required(eventId)
     record.state = 'pending'
@@ -280,6 +294,7 @@ export class FileEventJournal implements EventJournal {
   async claim(limit: number, options?: ClaimEventOptions): Promise<EventRecord[]> { const records = await this.memory.claim(limit, options); if (records.length) await this.persist(); return records }
   async ack(eventId: string, options?: AckEventOptions): Promise<void> { await this.memory.ack(eventId, options); await this.persist() }
   async fail(eventId: string, error: unknown, options?: FailEventOptions): Promise<void> { await this.memory.fail(eventId, error, options); await this.persist() }
+  async release(eventId: string, options?: AckEventOptions): Promise<void> { await this.memory.release(eventId, options); await this.persist() }
   async replay(eventId: string, now?: number): Promise<void> { await this.memory.replay(eventId, now); await this.persist() }
   list(options?: { state?: EventRecordState; limit?: number }): Promise<EventRecord[]> { return this.memory.list(options) }
   private persist(): Promise<void> {
@@ -354,8 +369,14 @@ export class EventWorker {
       const fencingToken = record.fencingToken
       // Records run one after another, so a later lease can run out while
       // earlier handlers work. Running it then would race whoever re-claims
-      // it; leave it to them instead.
+      // it; hand it back instead, so the skip does not use up an attempt.
       if (record.leaseUntil !== undefined && clock() >= record.leaseUntil) {
+        try {
+          await this.journal.release(eventId, { now: clock(), fencingToken })
+        } catch (error) {
+          // Already re-claimed by another worker: nothing to hand back.
+          if (!(error instanceof StaleLeaseError)) throw error
+        }
         result.stale++
         continue
       }
