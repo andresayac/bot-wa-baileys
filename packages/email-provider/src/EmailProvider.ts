@@ -66,7 +66,7 @@ import { loadModule } from './loadModule.js'
 import { detectAutomated, SenderFloodGuard, type AutomatedReason } from './loop.js'
 import { parseEmail, type ParsedAttachment, type ParsedEmail } from './mime.js'
 import { stripQuotedReply } from './reply.js'
-import { baseSubject, MemoryThreadStore, ThreadTracker, threadOwner } from './threading.js'
+import { baseSubject, MemoryThreadStore, ThreadTracker, threadOwner, type EmailMailboxCursor } from './threading.js'
 import type {
   EmailMediaToken,
   EmailProviderConfig,
@@ -150,6 +150,8 @@ export class EmailProvider implements IProvider<EmailRaw> {
   private transport?: SmtpTransportLike
   private transportPromise?: Promise<SmtpTransportLike>
   private running = false
+  /** Last IMAP UID cursor of this instance, reused by the next start(). */
+  private imapCursor?: EmailMailboxCursor
 
   constructor(config: EmailProviderConfig) {
     this.config = config
@@ -219,9 +221,26 @@ export class EmailProvider implements IProvider<EmailRaw> {
         await transport.verify?.()
       }
       if (this.config.imap || this.config.createImapClient) {
+        const mailbox = this.config.imap?.mailbox ?? 'INBOX'
+        // The UID cursor survives stop()/start(), and a restart when the thread store keeps it.
+        const store = this.tracker.store
+        const cursorKey = `${this.self}/${mailbox}`
+        let resumeFrom = this.imapCursor
+        if (!resumeFrom && store.getMailboxCursor) {
+          try {
+            resumeFrom = await store.getMailboxCursor(cursorKey)
+          } catch (err) {
+            this.logger.warn({ err }, 'imap cursor could not be loaded; using processExisting')
+          }
+        }
         this.ingress = new ImapIngress({
           createClient: () => this.createImapClient(),
-          mailbox: this.config.imap?.mailbox ?? 'INBOX',
+          mailbox,
+          resumeFrom,
+          onCursor: async (cursor) => {
+            this.imapCursor = cursor
+            await store.setMailboxCursor?.(cursorKey, cursor)
+          },
           markSeen: this.config.markSeen ?? true,
           processExisting: this.config.processExisting ?? 'unseen',
           maxMessageBytes: this.maxInboundBytes,
@@ -265,6 +284,8 @@ export class EmailProvider implements IProvider<EmailRaw> {
       secure: imap.secure ?? port !== 143,
       auth: imap.accessToken ? { user: imap.user, accessToken: imap.accessToken } : { user: imap.user, pass: imap.pass },
       logger: false,
+      // imapflow re-enters IDLE only after this much inactivity (default 15 s): new mail would wait that long.
+      autoIdleDelay: 1000,
       ...imap.options,
     })
   }

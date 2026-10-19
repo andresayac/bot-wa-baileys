@@ -52,6 +52,22 @@ docker rm -f botwa-it-postgres botwa-it-mysql botwa-it-mongo botwa-it-redis
 
 En PowerShell, las variables se definen con `$env:BOTWA_TEST_POSTGRES_URL = 'postgres://postgres:postgres@127.0.0.1:55432/botwa'` (y así con las demás). Puedes definir solo las que te interesen: el resto de suites se salta.
 
+### Email (`@bot-wa/email`) contra GreenMail
+
+`packages/email-provider/tests/integration.test.ts` prueba el provider de email con `imapflow` y `nodemailer` reales contra [GreenMail](https://greenmail-mail-test.github.io/greenmail/) (IMAP IDLE, SMTP, hilos, adjuntos, protección contra bucles, reinicios y un flujo del `Bot`). Se activa con `BOTWA_TEST_EMAIL`:
+
+```bash
+docker run -d --name botwa-it-greenmail \
+  -e GREENMAIL_OPTS="-Dgreenmail.setup.test.all -Dgreenmail.hostname=0.0.0.0 -Dgreenmail.auth.disabled" \
+  -p 127.0.0.1:3025:3025 -p 127.0.0.1:3143:3143 greenmail/standalone:2.1.3
+
+BOTWA_TEST_EMAIL=1 pnpm --filter @bot-wa/email test
+
+docker rm -f botwa-it-greenmail
+```
+
+Host y puertos: `BOTWA_TEST_EMAIL_HOST`, `BOTWA_TEST_EMAIL_SMTP_PORT` y `BOTWA_TEST_EMAIL_IMAP_PORT` (por defecto `127.0.0.1`, `3025` y `3143`). Más detalles en el [README del paquete](packages/email-provider/README.md#tests-de-integración). Si tocas `email-provider`, córrelo en local: CI no lo ejecuta.
+
 ## Carga, soak y fugas (`pnpm bench:soak`)
 
 `scripts/soak/soak.mjs` mete carga en el runtime de `@bot-wa/core` (y en `@bot-wa/ai` con `MockAIProvider`) sobre `MockProvider`: miles de chats y participantes de grupo con flows (`ask`/validación/reintentos/timeouts/`delay`), conversaciones con `c.idle`, `bot.onIdle`, dedupe de entrada, handoff, idioma "pegajoso", `ctx.user`, broadcast, métricas, pacer de typing, streaming y confirmaciones de herramientas de IA (botones, respuestas escritas, timeouts, `/reset`, pulsaciones viejas). Tras cada ronda espera a que los bots queden ociosos, fuerza GC y mide heap, handles activos (`process.getActiveResourcesInfo()`), tamaño de los mapas internos, lag del event loop y throughput. Al final hace `stop({ drain: true })` **bajo carga** y falla (código 2) si queda algún temporizador vivo. No forma parte de `pnpm test`.

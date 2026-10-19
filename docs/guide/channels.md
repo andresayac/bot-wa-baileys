@@ -424,6 +424,9 @@ const provider = new EmailProvider({
 
 - `threading: 'thread'` (default, one chat per thread) or `'sender'` (one
   chat per address); persist threads with `threadStore: cursorThreadStore(store)`.
+  That store also keeps the mailbox UID cursor, so after a restart the bot
+  resumes after the last message it processed and never redelivers mail
+  (even with `markSeen: false`).
 - Loop protection against auto-replies and mailing lists, bounce handling
   (`status: 'failed'` events, suppression of hard-bounced addresses).
 - `From` is not authenticated by email itself: use

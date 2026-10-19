@@ -23,10 +23,16 @@ export class FakeImapServer {
     return uid
   }
 
-  /** New mail arrives while the client IDLEs: store it and notify connected clients. */
+  /**
+   * New mail arrives while the client IDLEs: store it and notify connected clients.
+   * Like imapflow >= 1.7, a client never IDLEs while it holds a mailbox lock,
+   * so such a client is not told about the new mail.
+   */
   deliver(raw: string | Buffer): number {
     const uid = this.add(raw)
-    for (const c of this.clients) if (c.connected) c.emit('exists', { path: 'INBOX', count: this.messages.length, prevCount: this.messages.length - 1 })
+    for (const c of this.clients) {
+      if (c.connected && c.locks === 0) c.emit('exists', { path: 'INBOX', count: this.messages.length, prevCount: this.messages.length - 1 })
+    }
     return uid
   }
 
@@ -43,6 +49,8 @@ export class FakeImapServer {
 
 export class FakeImapClient implements ImapClientLike {
   connected = false
+  /** Mailbox locks currently held (imapflow does not auto-IDLE while one is held). */
+  locks = 0
   mailbox: { path: string; uidNext: number; uidValidity: bigint } | false = false
   private readonly listeners = new Map<string, Array<(...args: unknown[]) => void>>()
 
@@ -59,7 +67,9 @@ export class FakeImapClient implements ImapClientLike {
 
   async getMailboxLock(path: string): Promise<{ release(): void }> {
     this.mailbox = { path, uidNext: this.server.uidNext, uidValidity: this.server.uidValidity }
-    return { release: () => undefined }
+    this.locks++
+    let released = false
+    return { release: () => { if (!released) { released = true; this.locks-- } } }
   }
 
   async search(query: Record<string, unknown>): Promise<number[]> {

@@ -37,6 +37,8 @@ describe('optional peers (lazy)', () => {
       secure: true,
       auth: { user: 'bot@acme.test', pass: 'secret' },
       logger: false,
+      // imapflow waits this long after the last command before it IDLEs again (its default, 15 s, delays new mail).
+      autoIdleDelay: 1000,
       tls: { rejectUnauthorized: true },
     })
     expect(provider.selfId).toBe('bot@acme.test') // derived from imap.user

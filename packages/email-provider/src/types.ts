@@ -96,7 +96,7 @@ export interface ImapConnectionOptions {
   accessToken?: string
   /** Mailbox to watch. Default `INBOX`. */
   mailbox?: string
-  /** Extra options forwarded verbatim to `new ImapFlow(...)`. */
+  /** Extra options forwarded verbatim to `new ImapFlow(...)` (the provider defaults `autoIdleDelay` to 1000 ms). */
   options?: Record<string, unknown>
 }
 

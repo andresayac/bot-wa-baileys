@@ -50,12 +50,33 @@ export interface EmailThreadState {
   updatedAt: number
 }
 
+/** Last IMAP UID the provider processed in a mailbox, valid only for that UIDVALIDITY. */
+export interface EmailMailboxCursor {
+  uidValidity: string
+  uid: number
+  /**
+   * Set while the first UNSEEN backlog scan is unfinished: it still covers the
+   * UNSEEN mail after `uid` up to this UID (mail already read there is skipped).
+   */
+  scanUntil?: number
+}
+
+const copyCursor = (c: EmailMailboxCursor): EmailMailboxCursor =>
+  c.scanUntil === undefined ? { uidValidity: c.uidValidity, uid: c.uid } : { uidValidity: c.uidValidity, uid: c.uid, scanUntil: c.scanUntil }
+
 /** Persistence seam for thread state and the Message-ID -> chatId index. */
 export interface EmailThreadStore {
   getThread(chatId: ChatId): Promise<EmailThreadState | undefined>
   setThread(chatId: ChatId, state: EmailThreadState): Promise<void>
   getChatIdForMessage(messageId: string): Promise<ChatId | undefined>
   setChatIdForMessage(messageId: string, chatId: ChatId): Promise<void>
+  /**
+   * Optional: the IMAP UID cursor of a mailbox (`key` is `<bot address>/<mailbox>`).
+   * When the store keeps it, a restarted provider resumes after the last UID it
+   * processed instead of re-scanning UNSEEN mail, so `markSeen: false` never replays.
+   */
+  getMailboxCursor?(key: string): Promise<EmailMailboxCursor | undefined>
+  setMailboxCursor?(key: string, cursor: EmailMailboxCursor): Promise<void>
 }
 
 export interface MemoryThreadStoreOptions {
@@ -67,6 +88,7 @@ export interface MemoryThreadStoreOptions {
 export class MemoryThreadStore implements EmailThreadStore {
   private readonly threads = new Map<ChatId, EmailThreadState>()
   private readonly index = new Map<string, ChatId>()
+  private readonly cursors = new Map<string, EmailMailboxCursor>()
   private readonly max: number
 
   constructor(opts: MemoryThreadStoreOptions = {}) {
@@ -94,6 +116,13 @@ export class MemoryThreadStore implements EmailThreadStore {
   }
   async setChatIdForMessage(messageId: string, chatId: ChatId): Promise<void> {
     this.put(this.index, messageId, chatId)
+  }
+  async getMailboxCursor(key: string): Promise<EmailMailboxCursor | undefined> {
+    const c = this.cursors.get(key)
+    return c ? { ...c } : undefined
+  }
+  async setMailboxCursor(key: string, cursor: EmailMailboxCursor): Promise<void> {
+    this.put(this.cursors, key, copyCursor(cursor))
   }
 }
 
@@ -138,6 +167,20 @@ export function cursorThreadStore(
     },
     async setChatIdForMessage(messageId, chatId) {
       await set(`${prefix}msg:${hashKey(messageId)}`, chatId)
+    },
+    async getMailboxCursor(key) {
+      const raw = await get(`${prefix}imap:${hashKey(key)}`)
+      if (!raw) return undefined
+      try {
+        const c = JSON.parse(raw) as Partial<EmailMailboxCursor>
+        if (typeof c.uidValidity !== 'string' || typeof c.uid !== 'number') return undefined
+        return copyCursor({ uidValidity: c.uidValidity, uid: c.uid, scanUntil: typeof c.scanUntil === 'number' ? c.scanUntil : undefined })
+      } catch {
+        return undefined
+      }
+    },
+    async setMailboxCursor(key, cursor) {
+      await set(`${prefix}imap:${hashKey(key)}`, JSON.stringify(copyCursor(cursor)))
     },
   }
 }
