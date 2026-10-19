@@ -216,6 +216,7 @@ export type AIToolEventType =
   | 'tool.timeout'
   | 'tool.invalid_args'
   | 'tool.unknown'
+  | 'tool.truncated'
   | 'loop.max_steps'
 
 /** One audit event of the tool loop (also emitted on the bot as `'ai.tool'`). */
@@ -232,7 +233,7 @@ export interface AIToolEvent {
   args?: unknown
   /** Tool duration in ms (`tool.result`, `tool.error`, `tool.timeout`). */
   durationMs?: number
-  /** Error message (`tool.error`, `tool.timeout`, `tool.invalid_args`, `tool.unknown`). */
+  /** Error message (`tool.error`, `tool.timeout`, `tool.invalid_args`, `tool.unknown`, `tool.truncated`). */
   error?: string
 }
 

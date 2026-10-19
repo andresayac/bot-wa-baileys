@@ -1,6 +1,7 @@
 import type { MessageContext } from '@bot-wa/core'
 import { AI_MESSAGES, aiOverride, aiText, type AITranslatable } from '../i18n.js'
 import type { AIChatMessage, GenerateInput, GenerateResult } from '../types.js'
+import { isTruncated } from '../stopReasons.js'
 import { toolDefinitions, validateArgs } from './schema.js'
 import { DEFAULT_DEDUPE_WINDOW_MS, type ChatToolLedger } from './ledger.js'
 import { agoText, argLines, summarizeValue, toolTitle } from './present.js'
@@ -45,6 +46,13 @@ export interface ToolLoopResult {
   usage?: { input: number; output: number }
   /** True when the loop stopped because of `maxSteps`. */
   maxStepsReached: boolean
+  /**
+   * Tool calls NOT run because the model was cut off by the output-token cap while
+   * writing them (their arguments may be incomplete). Each one was reported back to
+   * the model as a failed call and emitted as a `tool.truncated` event. Raise
+   * `maxTokens` if this is not 0.
+   */
+  truncatedToolCalls: number
 }
 
 /** Thrown inside the loop when a tool exceeds its timeout. */
@@ -117,6 +125,18 @@ function notExecuted(reason: 'user_replied' | 'duplicate', extra: Record<string,
   return JSON.stringify({ executed: false, reason, ...extra })
 }
 
+/** Tool result of a call whose arguments were cut off by the output-token cap. */
+function truncatedResult(call: AIToolCall, stopReason: string | undefined): AIToolResult {
+  return {
+    callId: call.id,
+    name: call.name,
+    isError: true,
+    content: `Error: your reply was cut off by the output token limit (stop reason "${stopReason}") while writing this call, ` +
+      'so its arguments may be incomplete. It was NOT run and the user was not asked. ' +
+      'Call it again with complete arguments (keep them short, one call at a time), or answer the user without it.',
+  }
+}
+
 function dedupeWindow(tool: AITool<unknown>): number | undefined {
   if (!tool.dedupe) return undefined
   return tool.dedupe === 'args' ? DEFAULT_DEDUPE_WINDOW_MS : Math.max(0, tool.dedupe.windowMs)
@@ -149,6 +169,7 @@ export async function runToolLoop(opts: ToolLoopOptions): Promise<ToolLoopResult
   const toolResults: AIToolResult[] = []
   const usage = { input: 0, output: 0 }
   let sawUsage = false
+  let truncatedToolCalls = 0
   let last: GenerateResult | undefined
 
   const emit = (e: Omit<AIToolEvent, 'at' | 'chatKey'>): void => {
@@ -279,14 +300,24 @@ export async function runToolLoop(opts: ToolLoopOptions): Promise<ToolLoopResult
     if (r.usage) { sawUsage = true; usage.input += r.usage.input; usage.output += r.usage.output }
     const calls = r.toolCalls ?? []
     if (calls.length === 0) {
-      return { text: r.text, model: r.model, stopReason: r.stopReason, steps: step, toolResults, usage: sawUsage ? usage : undefined, maxStepsReached: false }
+      return { text: r.text, model: r.model, stopReason: r.stopReason, steps: step, toolResults, usage: sawUsage ? usage : undefined, maxStepsReached: false, truncatedToolCalls }
     }
     // Last step: running these calls would be pointless (the model never sees their
     // results) and harmful for side-effecting / `confirm: true` tools — stop here.
     if (step === maxSteps) break
     messages.push({ role: 'assistant', content: r.text, toolCalls: calls, providerData: r.providerData })
     const results: AIToolResult[] = []
-    for (const call of calls) results.push(await runOne(call, step))
+    if (isTruncated(r.stopReason)) {
+      // Cut off by the output-token cap: the arguments may be partial JSON the provider
+      // patched up. Never run (nor confirm) them; tell the model so it can retry.
+      for (const call of calls) {
+        truncatedToolCalls++
+        emit({ step, tool: call.name, callId: call.id, type: 'tool.truncated', error: `arguments cut off by the output token limit (${r.stopReason})` })
+        results.push(truncatedResult(call, r.stopReason))
+      }
+    } else {
+      for (const call of calls) results.push(await runOne(call, step))
+    }
     toolResults.push(...results)
     messages.push({ role: 'tool', content: results.map((x) => x.content).join('\n'), results })
   }
@@ -300,5 +331,6 @@ export async function runToolLoop(opts: ToolLoopOptions): Promise<ToolLoopResult
     toolResults,
     usage: sawUsage ? usage : undefined,
     maxStepsReached: true,
+    truncatedToolCalls,
   }
 }

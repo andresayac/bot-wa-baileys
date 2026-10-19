@@ -29,7 +29,7 @@ bot.plug(aiPlugin({
   rag: { retriever: rag, appendSources: true },   // o simplemente `rag`
 }))
 // Usuario: "¿cuánto tarda el envío?"
-// Bot:     "Tardan 3 días hábiles [1].\n\nFuentes: docs/faq.md › Envíos"
+// Bot:     "Tardan 3 días hábiles [1].\n\nFuentes: [1] docs/faq.md › Envíos"
 ```
 
 `createRag()` es síncrono: los documentos se cargan y embeben en el primer `retrieve()`; `aiPlugin` llama a `warmup()` al instalarse (un error se registra en el log, no tumba el proceso).

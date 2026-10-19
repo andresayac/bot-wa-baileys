@@ -85,6 +85,9 @@ export function aiPlugin(config: AIPluginConfig = {}): PluginSpec<AIPluginConfig
         onToolEvent: (event: AIToolEvent) => {
           // Audit trail: metadata only in the log (no args / results), full event to sinks.
           ctx.logger.debug({ tool: event.tool, type: event.type, step: event.step, durationMs: event.durationMs }, 'ai tool event')
+          if (event.type === 'tool.truncated') {
+            ctx.logger.warn({ tool: event.tool, step: event.step }, 'ai tool call cut off by the output token limit: not run (raise maxTokens)')
+          }
           bot.emit('ai.tool', event)
           cfg.onToolEvent?.(event)
         },

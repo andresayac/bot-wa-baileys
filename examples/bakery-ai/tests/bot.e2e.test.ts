@@ -212,4 +212,34 @@ describe('bakery bot (end to end)', () => {
     await group.send('/help')
     await group.expectReply(GREETING)
   })
+
+  it('passes the AI tuning options to the model and remembers facts when memory is on', async () => {
+    const provider = new MockProvider({ buttons: false })
+    const model = new MockAIProvider({
+      reply: (input: GenerateInput) => (input.system?.includes('long-term memory') ? '{"facts":["Prefers decaf"]}' : 'Noted!'),
+    })
+    bot = createBakeryBot(provider, {
+      aiProvider: model,
+      ai: { memory: { maxFacts: 3, ttl: '30d' }, maxTokens: 900, effort: 'low', maxSteps: 2 },
+    })
+    await bot.start()
+    const alice = chat(provider, ALICE)
+    await alice.send('I always drink decaf')
+    await alice.expectReply('Noted!')
+    expect(model.calls[0]).toMatchObject({ maxTokens: 900, effort: 'low' })
+    // The fact extraction runs in the background after the reply.
+    const deadline = Date.now() + 1000
+    while (!model.calls.some((c) => c.system?.includes('long-term memory')) && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 5))
+    }
+    expect(model.calls.some((c) => c.system?.includes('long-term memory'))).toBe(true)
+  })
+
+  it('makes no memory extraction call with memory off', async () => {
+    const { model, alice } = await startBakery()
+    await alice.send('hello there')
+    await alice.expectReply('I can only help with the bakery.')
+    await new Promise((r) => setTimeout(r, 50))
+    expect(model.calls).toHaveLength(1)
+  })
 })

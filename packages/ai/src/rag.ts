@@ -20,6 +20,12 @@ export interface AIRetrievedChunk {
   score?: number
 }
 
+/** A passage the reply cited, with the number `n` it had in the context block (`[n]`). */
+export interface AICitedPassage {
+  n: number
+  chunk: AIRetrievedChunk
+}
+
 /** Anything that can fetch passages relevant to a query. */
 export interface AIRetriever {
   retrieve(query: string, options?: { topK?: number; minScore?: number; signal?: AbortSignal }): Promise<readonly AIRetrievedChunk[]>
@@ -35,12 +41,15 @@ export interface AIRagConfig {
   /** Minimum score (default: the retriever's own default). */
   minScore?: number
   /**
-   * Append the sources to the reply: `true` → `"\n\nFuentes: a.md, b.md"`
-   * (the localized `ai.rag.sources` message, which follows `ctx.lang`)
-   * (only the passages the model cited as `[n]`, or all retrieved when it
-   * cited none), or a function to render them yourself. Default false.
+   * Append the sources to the reply: `true` → `"\n\nFuentes: [2] b.md"`
+   * (the localized `ai.rag.sources` message, which follows `ctx.lang`): the
+   * passages the model cited, with the same `[n]` it used in the text; when it
+   * cited none, every retrieved source, unnumbered (`"Fuentes: a.md, b.md"`).
+   * A function renders them yourself: it gets the passages (cited, or all) and
+   * the cited ones with their original number (empty when none was cited).
+   * Default false.
    */
-  appendSources?: boolean | ((citations: readonly AIRetrievedChunk[]) => string)
+  appendSources?: boolean | ((citations: readonly AIRetrievedChunk[], cited: readonly AICitedPassage[]) => string)
   /** Replace the default instructions that precede the context block. */
   instructions?: string
   /**
@@ -76,23 +85,44 @@ export function ragContextBlock(chunks: readonly AIRetrievedChunk[], instruction
 }
 
 /**
+ * The passages a reply cites as `[n]`, in order of `n`, each with its original
+ * number. Numbers outside the context block are ignored.
+ */
+export function citedPassages(text: string, chunks: readonly AIRetrievedChunk[]): AICitedPassage[] {
+  const cited = new Set<number>()
+  for (const m of text.matchAll(/\[(\d{1,3})\]/g)) {
+    const n = Number(m[1])
+    if (n >= 1 && n <= chunks.length) cited.add(n)
+  }
+  return [...cited].sort((a, b) => a - b).map((n) => ({ n, chunk: chunks[n - 1]! }))
+}
+
+/**
  * The passages a reply refers to: those cited as `[n]` in `text`, or all of
  * them when the reply cites none.
  */
 export function citedChunks(text: string, chunks: readonly AIRetrievedChunk[]): AIRetrievedChunk[] {
-  const cited = new Set<number>()
-  for (const m of text.matchAll(/\[(\d{1,3})\]/g)) {
-    const n = Number(m[1])
-    if (n >= 1 && n <= chunks.length) cited.add(n - 1)
-  }
-  return cited.size ? [...cited].sort((a, b) => a - b).map((i) => chunks[i]!) : [...chunks]
+  const cited = citedPassages(text, chunks)
+  return cited.length ? cited.map((p) => p.chunk) : [...chunks]
 }
 
+const isCited = (x: AIRetrievedChunk | AICitedPassage): x is AICitedPassage =>
+  typeof (x as AICitedPassage).n === 'number' && typeof (x as AICitedPassage).chunk === 'object'
+
 /**
- * Default `appendSources: true` rendering: the unique labels in the localized
- * `ai.rag.sources` message (`ctx`'s language; Spanish `Fuentes: …` without a context).
+ * Default `appendSources: true` rendering: the localized `ai.rag.sources` message
+ * (`ctx`'s language; Spanish `Fuentes: …` without a context). Cited passages
+ * ({@link citedPassages}) keep their original number — `[1][3] faq.md, [2] pagos.md`,
+ * one entry per label; plain chunks are listed as unique labels without numbers.
  */
-export function formatSources(chunks: readonly AIRetrievedChunk[], ctx?: AITranslatable): string {
-  const labels = [...new Set(chunks.map((c, i) => labelOf(c, i)))]
-  return labels.length ? aiText(ctx, AI_MESSAGES.sources, { sources: labels.join(', ') }) : ''
+export function formatSources(passages: readonly AIRetrievedChunk[] | readonly AICitedPassage[], ctx?: AITranslatable): string {
+  const groups = new Map<string, number[]>()
+  passages.forEach((p: AIRetrievedChunk | AICitedPassage, i: number) => {
+    const label = isCited(p) ? labelOf(p.chunk, p.n - 1) : labelOf(p, i)
+    const nums = groups.get(label) ?? []
+    if (isCited(p)) nums.push(p.n)
+    groups.set(label, nums)
+  })
+  const entries = [...groups].map(([label, nums]) => (nums.length ? `${nums.map((n) => `[${n}]`).join('')} ${label}` : label))
+  return entries.length ? aiText(ctx, AI_MESSAGES.sources, { sources: entries.join(', ') }) : ''
 }

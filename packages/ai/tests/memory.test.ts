@@ -159,7 +159,7 @@ describe('AIClient memory', () => {
     // the extraction call saw the exchange and is not part of the chat history
     const extractCall = mock.calls.find((c) => c.system?.includes('long-term memory'))!
     expect(extractCall.messages[0]!.content).toContain('USER: Soy de Bogotá')
-    expect(extractCall.defaultMaxTokens).toBe(300)
+    expect(extractCall.defaultMaxTokens).toBe(1024)
   })
 
   it('invalid extraction output is ignored and reported, never stored', async () => {

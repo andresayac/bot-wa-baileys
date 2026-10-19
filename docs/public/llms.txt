@@ -141,7 +141,7 @@ Prototypes (private, in-memory, minimal): @bot-wa/inbox, @bot-wa/crm, @bot-wa/hu
 
 ## @bot-wa/ai (separate package)
 - Install (once published): pnpm add @bot-wa/ai + the chosen provider's SDK (@anthropic-ai/sdk, openai, or @google/generative-ai; ollama needs none, it talks plain HTTP via fetch; the 9 presets need only openai)
-- bot.plug(aiPlugin({ provider, model, apiKey, baseUrl, persona, maxTokens, effort, timeoutMs, context: { maxMessages }, autoReply, resetCommand, errorMessage, refusalMessage, humanizeTyping })) — catch-all text autoresponder with per-chat history + a /reset command (install after slashCommandsPlugin so its /reset wins)
+- bot.plug(aiPlugin({ provider, model, apiKey, baseUrl, persona, maxTokens, effort, thinking, timeoutMs, context: { maxMessages }, autoReply, resetCommand, errorMessage, refusalMessage, humanizeTyping })) — catch-all text autoresponder with per-chat history + a /reset command (install after slashCommandsPlugin so its /reset wins)
 - Providers: 'anthropic' (default; default model claude-opus-4-8), 'openai' and 'ollama' (both require `model` explicitly), 'gemini' (default gemini-2.0-flash), and OpenAI-compatible presets 'deepseek'|'qwen'|'glm'|'kimi'|'groq'|'openrouter'|'mistral'|'grok'|'together' (each with its conventional env var, e.g. DEEPSEEK_API_KEY, and a default model)
 - timeoutMs (default 60000) aborts a hung non-streaming call so it cannot block the chat queue
 - ctx.tools.ai (AIClient, via bot.provide('ai', client)): ask(prompt), generate(input), stream(input)

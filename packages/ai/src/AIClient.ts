@@ -4,7 +4,8 @@ import type { AIChatMessage, AIProvider, GenerateInput, GenerateResult, Effort }
 import type { ContextManager } from './ContextManager.js'
 import type { MemoryFact, MemoryManager, RememberOptions } from './memory/MemoryManager.js'
 import { extractionPrompt, parseFacts } from './memory/extract.js'
-import { citedChunks, formatSources, ragContextBlock, DEFAULT_RAG_INSTRUCTIONS, type AIRagConfig, type AIRetrievedChunk } from './rag.js'
+import { isTruncated } from './stopReasons.js'
+import { citedPassages, formatSources, ragContextBlock, DEFAULT_RAG_INSTRUCTIONS, type AIRagConfig, type AIRetrievedChunk } from './rag.js'
 
 /** Where a non-fatal augmentation error happened (see {@link AIClientOptions.onError}). */
 export type AIAugmentStage = 'rag' | 'memory' | 'memory-extract'
@@ -85,12 +86,9 @@ const NO_MEMORY = 'AI memory is not available: build the AIClient with `memory` 
 const DEFAULT_TIMEOUT_MS = 60_000
 const DEFAULT_RAG_TIMEOUT_MS = 10_000
 const DEFAULT_REFUSAL = 'No puedo ayudar con eso.'
-/** Soft output cap of a memory-extraction call when `autoExtract.maxTokens` is not set. */
-const DEFAULT_EXTRACT_MAX_TOKENS = 300
+/** Soft output cap of a memory-extraction call when `autoExtract.maxTokens` is not set (room for reasoning models). */
+const DEFAULT_EXTRACT_MAX_TOKENS = 1024
 
-/** Stop reasons meaning the answer hit the output-token cap (Anthropic, OpenAI-compatible, Ollama, Gemini). */
-const TRUNCATED = new Set(['max_tokens', 'length', 'MAX_TOKENS'])
-const isTruncated = (stopReason: string | undefined): boolean => stopReason !== undefined && TRUNCATED.has(stopReason)
 
 /** Options of {@link AIClient.streamReplyInChat}. */
 export interface AIStreamReplyOptions {
@@ -505,8 +503,10 @@ export class AIClient {
   private withSources(text: string, citations: readonly AIRetrievedChunk[], ctx?: MessageContext): string {
     const append = this.opts.rag?.appendSources
     if (!append || citations.length === 0) return text
-    const used = citedChunks(text, citations)
-    const sources = typeof append === 'function' ? append(used) : formatSources(used, ctx)
+    const cited = citedPassages(text, citations)
+    const sources = typeof append === 'function'
+      ? append(cited.length ? cited.map((p) => p.chunk) : [...citations], cited)
+      : formatSources(cited.length ? cited : citations, ctx)
     return sources ? `${text}\n\n${sources}` : text
   }
 
@@ -605,7 +605,7 @@ export class AIClient {
           system: prompt.system,
           messages: [{ role: 'user', content: prompt.user }],
           model: cfg.model ?? this.opts.model,
-          // An explicit cap is binding; the 300 default is soft (Ollama ignores it).
+          // An explicit cap is binding; the 1024 default is soft (Ollama ignores it).
           ...(cfg.maxTokens !== undefined ? { maxTokens: cfg.maxTokens } : { defaultMaxTokens: DEFAULT_EXTRACT_MAX_TOKENS }),
           signal,
         }),

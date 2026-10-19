@@ -286,11 +286,11 @@ describe('memory extraction — default token cap', () => {
     return new AIClient(provider, new ContextManager(store), { memory })
   }
 
-  it('the 300-token default is a soft default (defaultMaxTokens), an explicit cap is maxTokens', async () => {
+  it('the 1024-token default is a soft default (defaultMaxTokens), an explicit cap is maxTokens', async () => {
     const mock = new MockAIProvider({ reply: '{"facts":[]}' })
     await memoryClient(mock).extractMemory('u', 'hola', 'hola')
     expect(mock.calls[0]!.maxTokens).toBeUndefined()
-    expect(mock.calls[0]!.defaultMaxTokens).toBe(300)
+    expect(mock.calls[0]!.defaultMaxTokens).toBe(1024)
     const capped = new MockAIProvider({ reply: '{"facts":[]}' })
     await memoryClient(capped, { maxTokens: 80 }).extractMemory('u', 'hola', 'hola')
     expect(capped.calls[0]!.maxTokens).toBe(80)

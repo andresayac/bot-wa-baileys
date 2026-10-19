@@ -66,7 +66,7 @@ an extraction is running, its facts are dropped: erased data never comes back.
 | Field | Default | Description |
 |---|---|---|
 | `model` | the plugin's `model` | Model for the extraction call. |
-| `maxTokens` | `300` | Token budget of the extraction call. |
+| `maxTokens` | `1024` | Token budget of the extraction call (reasoning models spend part of it thinking; Ollama gets no cap unless you set it). |
 | `maxFactsPerTurn` | `5` | Max new facts accepted per turn. |
 | `instructions` | — | Extra guidance appended to the extraction prompt. |
 | `filter` | — | `(fact) => boolean`: return `false` to drop a candidate (e.g. a PII filter). |
@@ -134,11 +134,11 @@ bot.plug(aiPlugin({
   model: 'gpt-5-mini',
   rag: {
     retriever: createRag({ documents: ['./docs/faq.md', './docs/products.pdf'], embeddings: 'openai' }),
-    appendSources: true, // adds "Fuentes: docs/faq.md › Shipping" to the reply
+    appendSources: true, // adds "Fuentes: [1] docs/faq.md › Shipping" to the reply
   },
 }))
 // User: "how long does shipping take?"
-// Bot:  "It takes 3 business days [1].\n\nFuentes: docs/faq.md › Shipping"
+// Bot:  "It takes 3 business days [1].\n\nFuentes: [1] docs/faq.md › Shipping"
 ```
 
 On every turn the plugin retrieves passages for the user's message and
@@ -152,7 +152,7 @@ instructions.
 | `retriever` | — | The retriever (required in the object form). |
 | `topK` | the retriever's default | Passages per question. |
 | `minScore` | the retriever's default | Minimum score. |
-| `appendSources` | `false` | `true` appends `"\n\nFuentes: a, b"` with the passages the model cited as `[n]` (all of them when it cited none); a function `(citations) => string` renders the line yourself. |
+| `appendSources` | `false` | `true` appends `"\n\nFuentes: [2] b"` with the passages the model cited, keeping the `[n]` it used in the text (several passages with the same label share one entry: `[1][3] faq.md`); when it cited none, every retrieved source, unnumbered (`Fuentes: a, b`). A function `(citations, cited) => string` renders the line yourself: `cited` holds `{ n, chunk }` for each cited passage. |
 | `instructions` | built-in | Replaces the instructions that precede the context block. |
 | `timeoutMs` | `10000` | Max wait for retrieval, including a first-time index build. Past it the retriever is aborted and the reply goes on without context. `0` disables. |
 
@@ -273,7 +273,7 @@ const ai = new AIClient(mock, new ContextManager(bot.getStore()), {
 
 await ai.remember('user-1', 'Prefers Spanish')
 const r = await ai.replyInChatDetailed('chat-1', 'shipping?', { userId: 'user-1' })
-r.text  // 'It takes 3 days [1].\n\nFuentes: faq'
+r.text  // 'It takes 3 days [1].\n\nFuentes: [1] faq'
 r.facts // ['Prefers Spanish']
 mock.calls[0]?.system // contains the facts and the numbered context
 ```

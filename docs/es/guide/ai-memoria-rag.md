@@ -70,7 +70,7 @@ descartan: los datos borrados nunca vuelven.
 | Campo | Por defecto | Descripción |
 |---|---|---|
 | `model` | el `model` del plugin | Modelo de la llamada de extracción. |
-| `maxTokens` | `300` | Presupuesto de tokens de la extracción. |
+| `maxTokens` | `1024` | Presupuesto de tokens de la extracción (los modelos de razonamiento gastan parte pensando; Ollama no recibe tope salvo que lo fijes). |
 | `maxFactsPerTurn` | `5` | Máximo de hechos nuevos aceptados por turno. |
 | `instructions` | — | Indicaciones extra que se añaden al prompt de extracción. |
 | `filter` | — | `(fact) => boolean`: devuelve `false` para descartar un candidato (p. ej. un filtro de datos personales). |
@@ -138,11 +138,11 @@ bot.plug(aiPlugin({
   model: 'gpt-5-mini',
   rag: {
     retriever: createRag({ documents: ['./docs/faq.md', './docs/productos.pdf'], embeddings: 'openai' }),
-    appendSources: true, // adds "Fuentes: docs/faq.md › Envíos" to the reply
+    appendSources: true, // adds "Fuentes: [1] docs/faq.md › Envíos" to the reply
   },
 }))
 // Usuario: "¿cuánto tarda el envío?"
-// Bot:     "Tarda 3 días hábiles [1].\n\nFuentes: docs/faq.md › Envíos"
+// Bot:     "Tarda 3 días hábiles [1].\n\nFuentes: [1] docs/faq.md › Envíos"
 ```
 
 En cada turno el plugin recupera pasajes para el mensaje del usuario y los
@@ -156,7 +156,7 @@ contexto como datos, no como instrucciones.
 | `retriever` | — | El retriever (obligatorio en la forma de objeto). |
 | `topK` | el del retriever | Pasajes por pregunta. |
 | `minScore` | el del retriever | Puntuación mínima. |
-| `appendSources` | `false` | `true` añade `"\n\nFuentes: a, b"` con los pasajes que el modelo citó como `[n]` (todos si no citó ninguno); una función `(citations) => string` dibuja la línea a tu manera. |
+| `appendSources` | `false` | `true` añade `"\n\nFuentes: [2] b"` con los pasajes que el modelo citó, conservando el `[n]` que usó en el texto (varios pasajes con la misma etiqueta comparten entrada: `[1][3] faq.md`); si no citó ninguno, todas las fuentes recuperadas, sin numerar (`Fuentes: a, b`). Una función `(citations, cited) => string` dibuja la línea a tu manera: `cited` trae `{ n, chunk }` por cada pasaje citado. |
 | `instructions` | integradas | Sustituye las instrucciones que preceden al bloque de contexto. |
 | `timeoutMs` | `10000` | Espera máxima de la recuperación, incluida la primera construcción del índice. Al vencer se aborta el retriever y la respuesta sigue sin contexto. `0` lo desactiva. |
 
@@ -279,7 +279,7 @@ const ai = new AIClient(mock, new ContextManager(bot.getStore()), {
 
 await ai.remember('user-1', 'Prefiere español')
 const r = await ai.replyInChatDetailed('chat-1', '¿envío?', { userId: 'user-1' })
-r.text  // 'Tarda 3 días [1].\n\nFuentes: faq'
+r.text  // 'Tarda 3 días [1].\n\nFuentes: [1] faq'
 r.facts // ['Prefiere español']
 mock.calls[0]?.system // contains the facts and the numbered context
 ```
