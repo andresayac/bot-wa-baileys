@@ -199,9 +199,16 @@ function toMessage(msg: TelegramMessage, updateId: number, selfId?: string): Inb
       }
     : undefined
 
+  // updateId is passed, so messageRef always returns a ref here.
+  const ref = messageRef(msg, chatId, updateId) as MessageRef
+  // An edit keeps the original id (so reply/react/edit still target the message;
+  // the core deduper tells the edit apart by its content) and carries edit_date.
+  if (typeof msg.edit_date === 'number' && ref.native && typeof ref.native === 'object') {
+    ref.native = { ...(ref.native as Record<string, unknown>), edit_date: msg.edit_date }
+  }
+
   return {
-    // updateId is passed, so messageRef always returns a ref here.
-    ref: messageRef(msg, chatId, updateId) as MessageRef,
+    ref,
     chat,
     senderInfo: sender,
     from: chatId,
@@ -263,6 +270,22 @@ function toInteraction(cb: TelegramCallbackQuery, updateId: number): InboundInte
     timestamp: msg?.date ? msg.date * 1000 : Date.now(),
     raw: cb,
   }
+}
+
+/**
+ * Whether `message` (emitted by this provider) is an edit of an earlier message
+ * (an `edited_message` update). An edit keeps the original `ref.id`, so
+ * `ctx.reply`/`ctx.react`/`ctx.edit` target the edited message; its `body` is
+ * the new text and `raw.edit_date` (seconds) is when it was edited.
+ *
+ * @example
+ * ```ts
+ * bot.on('message', (m) => { if (isEditedMessage(m)) audit.log('edited', m.ref.id) })
+ * ```
+ */
+export function isEditedMessage(message: { raw?: unknown }): boolean {
+  const raw = message.raw
+  return typeof raw === 'object' && raw !== null && typeof (raw as { edit_date?: unknown }).edit_date === 'number'
 }
 
 /**

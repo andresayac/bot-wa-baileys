@@ -21,7 +21,7 @@ import { readFile } from 'node:fs/promises'
 import { basename } from 'node:path'
 import { timingSafeEqual } from 'node:crypto'
 import pino, { type Logger } from 'pino'
-import { secureFetch } from '@bot-wa/http'
+import { SecureHttpError, secureFetch } from '@bot-wa/http'
 import type {
   ChatId,
   ConnectionState,
@@ -103,6 +103,8 @@ export class TelegramProvider implements IProvider<unknown> {
 
   private readonly config: Required<Pick<TelegramProviderConfig, 'token' | 'baseUrl' | 'polling' | 'pollTimeout' | 'errorBackoffMs' | 'maxBackoffMs' | 'pollIdleMs'>> & Pick<TelegramProviderConfig, 'mediaDownload'>
   private readonly webhookSecret?: string
+  /** Whether `edited_message` updates reach the bot (`editedMessages` config). */
+  private readonly deliverEdits: boolean
   /** Consecutive getUpdates failures — drives the exponential backoff; reset on success. */
   private pollErrors = 0
   private readonly logger: Logger
@@ -130,6 +132,11 @@ export class TelegramProvider implements IProvider<unknown> {
     }
     if (config.selfId) this._selfId = config.selfId
     this.webhookSecret = config.webhookSecret
+    const edits = config.editedMessages ?? 'deliver'
+    if (edits !== 'deliver' && edits !== 'ignore') {
+      throw new Error(`TelegramProvider: editedMessages must be 'deliver' or 'ignore' (got ${JSON.stringify(edits)})`)
+    }
+    this.deliverEdits = edits === 'deliver'
     this.logger = config.logger ?? pino({ level: config.debug ? 'debug' : 'error' })
     if (config.polling === false && !config.webhookSecret && !config.allowUnsignedWebhooks) {
       throw new Error(
@@ -229,7 +236,9 @@ export class TelegramProvider implements IProvider<unknown> {
    * the token was revoked → sessionInvalid, stop).
    */
   private async pollLoop(): Promise<void> {
-    const allowedUpdates = ['message', 'edited_message', 'callback_query', 'stopped_message_generation']
+    const allowedUpdates = this.deliverEdits
+      ? ['message', 'edited_message', 'callback_query', 'stopped_message_generation']
+      : ['message', 'callback_query', 'stopped_message_generation']
     while (!this.stopped) {
       this.pollAbort = new AbortController()
       try {
@@ -242,8 +251,7 @@ export class TelegramProvider implements IProvider<unknown> {
         for (const u of updates ?? []) {
           if (typeof u.update_id === 'number') this.offset = u.update_id + 1
           if (this.handleDraftStopped(u)) continue
-          const ev = parseUpdate(u, this._selfId ?? undefined)
-          if (ev) this.fan(ev)
+          this.dispatchUpdate(u)
         }
         if (!this.readyEmitted) {
           this.readyEmitted = true
@@ -305,9 +313,15 @@ export class TelegramProvider implements IProvider<unknown> {
     }
     if (!update || typeof update !== 'object' || typeof update.update_id !== 'number') return 400
     if (this.handleDraftStopped(update)) return 200
+    this.dispatchUpdate(update)
+    return 200
+  }
+
+  /** Normalize one Update and emit it; `edited_message` is dropped under `editedMessages: 'ignore'`. */
+  private dispatchUpdate(update: TelegramUpdate): void {
+    if (!this.deliverEdits && update.edited_message && !update.message) return
     const ev = parseUpdate(update, this._selfId ?? undefined)
     if (ev) this.fan(ev)
-    return 200
   }
 
   /* Outbound -------------------------------------------------------------- */
@@ -402,7 +416,22 @@ export class TelegramProvider implements IProvider<unknown> {
     if (!fileId) throw new ProviderError('downloadMedia requires a Telegram file_id (MediaRef.token)')
     const info = await this.callApi<{ file_path?: string }>('getFile', { file_id: fileId })
     if (!info.file_path) throw new ProviderError(`getFile returned no file_path for ${fileId}`)
-    const { response: res, body } = await secureFetch(`${this.config.baseUrl}/file/bot${this.config.token}/${info.file_path}`, this.config.mediaDownload)
+    if (/^(\/|[a-z]:[\\/])/i.test(info.file_path)) {
+      // A self-hosted Bot API server started with --local answers with a path on
+      // ITS disk, which is not served over HTTP.
+      throw new ProviderError(
+        'getFile returned a local file path: the self-hosted Bot API server runs with --local, which does not serve ' +
+          'files over HTTP. Run it without --local, or read the file from the server disk yourself.',
+      )
+    }
+    const url = `${this.config.baseUrl}/file/bot${this.config.token}/${info.file_path}`
+    let res: Response
+    let body: Buffer
+    try {
+      ;({ response: res, body } = await secureFetch(url, this.config.mediaDownload))
+    } catch (err) {
+      throw downloadError(err)
+    }
     if (!res.ok) throw new ProviderError(`Media download failed: HTTP ${res.status}`)
     return body
   }
@@ -494,4 +523,26 @@ export class TelegramProvider implements IProvider<unknown> {
     const cutoff = Date.now() - DRAFT_STOP_TTL_MS
     for (const [k, v] of this.draftStops) if (v.at < cutoff) this.draftStops.delete(k)
   }
+}
+
+/**
+ * Map a `secureFetch` failure of a file download to a typed provider error (the
+ * original as `cause`). Messages never include the URL, which carries the bot
+ * token; a policy refusal names the `mediaDownload` option that lifts it.
+ */
+function downloadError(err: unknown): ProviderError {
+  const detail = err instanceof Error ? err.message : String(err)
+  let wrapped: ProviderError
+  if (err instanceof SecureHttpError && err.code === 'RESPONSE_TOO_LARGE') {
+    wrapped = new PayloadTooLargeError(`Media download too large: ${detail} (raise mediaDownload.maxBytes)`)
+  } else if (err instanceof SecureHttpError && (err.code === 'UNSAFE_URL' || err.code === 'UNSAFE_HOST')) {
+    wrapped = new ProviderError(
+      `Media download refused: ${detail}. For a self-hosted Bot API server on plain HTTP or a private network, ` +
+        'set mediaDownload.allowHttp / mediaDownload.allowPrivateHosts.',
+    )
+  } else {
+    wrapped = new ProviderError(`Media download failed: ${detail}`)
+  }
+  ;(wrapped as { cause?: unknown }).cause = err
+  return wrapped
 }

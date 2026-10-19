@@ -220,6 +220,26 @@ const hooked = new TelegramProvider({
   resto.
 - En modo webhook `ingest()` parsea un **string** JSON (o un objeto): con
   `@bot-wa/server` móntalo con `body: 'text'`.
+- **Mensajes editados**: llegan al bot como mensajes con el texto nuevo y el
+  `ref.id` original (respuestas, reacciones y ediciones apuntan al mensaje
+  editado). `isEditedMessage(ctx)` los distingue; el dedupe del core deja pasar
+  la edición porque su contenido cambió. `editedMessages: 'ignore'` los desactiva.
+- **Servidor Bot API propio (self-hosted)**: apunta `baseUrl` a él. Si va por
+  HTTP plano o en una red privada, las descargas de media necesitan además
+  `mediaDownload: { allowHttp: true, allowPrivateHosts: true }` (y un `maxBytes`
+  mayor). Arráncalo sin `--local`: en ese modo las rutas de archivo no se sirven
+  por HTTP.
+
+```ts
+import { TelegramProvider, isEditedMessage } from '@bot-wa/telegram'
+
+const selfHosted = new TelegramProvider({
+  token: process.env.TELEGRAM_TOKEN!,
+  baseUrl: 'http://telegram-bot-api:8081',
+  mediaDownload: { allowHttp: true, allowPrivateHosts: true, maxBytes: 200 * 1024 * 1024 },
+})
+bot.before('message', async (ctx, next) => { if (!isEditedMessage(ctx)) await next() }) // ignora ediciones
+```
 
 [README](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/telegram-provider)
 
