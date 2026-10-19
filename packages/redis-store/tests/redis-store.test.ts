@@ -5,7 +5,7 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { RedisStore } from '../src/RedisStore.js'
-import { FakeRedisClient } from './fakeRedis.js'
+import { FakeRedisClient, ScanningFakeRedisClient } from './fakeRedis.js'
 import type { FlowCheckpoint, StoredMessage } from '@bot-wa/core'
 
 // Mock the 'redis' module so `new RedisStore({ url })` (no injected client)
@@ -413,5 +413,32 @@ describe('RedisStore — sessionTtl (duration, same unit convention as core)', (
     expect(() => new RedisStore({ client: fake, sessionTtl: 'soon' })).toThrow(/Invalid duration/)
     expect(() => new RedisStore({ client: fake, sessionTtl: 0 })).toThrow(RangeError)
     expect(() => new RedisStore({ client: fake, sessionTtl: '1m', ttl: 60 })).toThrow(RangeError)
+  })
+})
+
+describe('RedisStore — key enumeration', () => {
+  it('uses incremental SCAN instead of the blocking KEYS when the client offers scanIterator', async () => {
+    const client = new ScanningFakeRedisClient()
+    const store = new RedisStore({ client, prefix: 'sc' })
+    for (const id of ['a', 'b', 'c', 'd', 'e']) await store.upsertChat({ id, name: id.toUpperCase() })
+    await store.setCheckpoint('k1', { flowId: 'f', step: 1, state: {}, updatedAt: 1 })
+    await store.setUserData({ userId: 'u', namespace: 'ns', key: 'k', value: 1, updatedAt: 1 })
+
+    // De-duplicated although the scan reports the first key again on every step.
+    expect((await store.listChats()).map((c) => c.id).sort()).toEqual(['a', 'b', 'c', 'd', 'e'])
+    expect(await store.listCheckpoints()).toHaveLength(1)
+    expect(await store.listUserData('u')).toHaveLength(1)
+    await store.deleteUserData('u')
+    expect(await store.listUserData('u')).toEqual([])
+    expect(client.keysCalls).toBe(0)
+    expect(client.scanCalls).toBeGreaterThan(0)
+  })
+
+  it('falls back to KEYS for a client without scanIterator', async () => {
+    const client = new FakeRedisClient()
+    const store = new RedisStore({ client, prefix: 'kf' })
+    await store.upsertChat({ id: 'a' })
+    expect(await store.listChats()).toEqual([{ id: 'a' }])
+    expect(client.keysCalls).toBe(1)
   })
 })

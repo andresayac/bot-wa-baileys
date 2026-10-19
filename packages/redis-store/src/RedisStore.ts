@@ -41,6 +41,7 @@ import type {
 import { messageKey, parseDuration } from '@bot-wa/core'
 import { RedisUserData } from './userData.js'
 import { escapeGlob } from './glob.js'
+import { matchKeys } from './keys.js'
 import { MERGE_CAS_SCRIPT, RELEASE_LOCK_SCRIPT } from './scripts.js'
 
 /**
@@ -77,6 +78,12 @@ export interface RedisLikeClient {
   ): Promise<string | null>
   del(key: string | string[]): Promise<number>
   keys(pattern: string): Promise<string[]>
+  /**
+   * Incremental SCAN over keys matching `MATCH` (node-redis). Optional: when
+   * present, the store enumerates keys with it instead of the blocking `KEYS`.
+   * node-redis v4 yields one key per step, v5 an array of keys; both work.
+   */
+  scanIterator?(options?: { MATCH?: string; COUNT?: number }): AsyncIterable<string | string[]>
   zAdd(
     key: string,
     members: { score: number; value: string } | Array<{ score: number; value: string }>,
@@ -305,10 +312,25 @@ export class RedisStore implements IStore {
     return this.ttlMs != null ? this.client.set(key, value, { PX: this.ttlMs }) : this.client.set(key, value)
   }
 
-  /** KEYS scan + prefix strip. Fine at bot scale; swap for SCAN if keyspace is huge. */
+  /** Keys under `namespace` (SCAN when the client supports it, else KEYS) + prefix strip. */
   private async scanIds(namespace: string): Promise<Array<{ key: string; id: string }>> {
-    const keys = await this.client.keys(`${escapeGlob(namespace)}*`)
+    const keys = await matchKeys(this.client, `${escapeGlob(namespace)}*`)
     return keys.map((key) => ({ key, id: key.slice(namespace.length) }))
+  }
+
+  /**
+   * GET every JSON record under `namespace` in parallel (node-redis pipelines
+   * concurrent commands), skipping keys deleted or expired since the scan.
+   * The former one-GET-per-await loop cost one round trip per record.
+   */
+  private async listRecords<T>(namespace: string): Promise<Array<{ id: string; value: T }>> {
+    const ids = await this.scanIds(namespace)
+    const raws = await Promise.all(ids.map(({ key }) => this.client.get(key)))
+    const out: Array<{ id: string; value: T }> = []
+    raws.forEach((raw, i) => {
+      if (raw != null) out.push({ id: ids[i]!.id, value: JSON.parse(toStr(raw)) as T })
+    })
+    return out
   }
 
   /**
@@ -354,7 +376,13 @@ export class RedisStore implements IStore {
 
   /* Messages -------------------------------------------------------------- */
 
+  /**
+   * Upsert keyed by `messageKey(ref)`. A message without `ref.id` or `chatId`
+   * is ignored, like MemoryStore: providers send `''` when they have no stable
+   * id, and keying those would make them overwrite each other.
+   */
   async saveMessage(msg: StoredMessage): Promise<void> {
+    if (!msg.ref?.id || !msg.chatId) return
     const member = messageKey(msg.ref)
     // Atomic: the item write and the ZSET index entry commit together, so a
     // failure can never leave a ZSET member without its item (which would make
@@ -393,6 +421,7 @@ export class RedisStore implements IStore {
   }
 
   async getMessage(ref: MessageRef): Promise<StoredMessage | undefined> {
+    if (!ref.id || !ref.chatId) return undefined
     const raw = await this.client.get(this.msgItemKey(messageKey(ref)))
     return raw == null ? undefined : (JSON.parse(toStr(raw)) as StoredMessage)
   }
@@ -440,12 +469,7 @@ export class RedisStore implements IStore {
     return raw == null ? undefined : (JSON.parse(toStr(raw)) as StoredChat)
   }
   async listChats(): Promise<StoredChat[]> {
-    const out: StoredChat[] = []
-    for (const { key } of await this.scanIds(`${this.prefix}:chat:`)) {
-      const raw = await this.client.get(key)
-      if (raw != null) out.push(JSON.parse(toStr(raw)) as StoredChat)
-    }
-    return out
+    return (await this.listRecords<StoredChat>(`${this.prefix}:chat:`)).map((r) => r.value)
   }
   /**
    * Removes the chat record AND purges its entire message log — the ZSET index
@@ -471,12 +495,7 @@ export class RedisStore implements IStore {
     return raw == null ? undefined : (JSON.parse(toStr(raw)) as StoredContact)
   }
   async listContacts(): Promise<StoredContact[]> {
-    const out: StoredContact[] = []
-    for (const { key } of await this.scanIds(`${this.prefix}:contact:`)) {
-      const raw = await this.client.get(key)
-      if (raw != null) out.push(JSON.parse(toStr(raw)) as StoredContact)
-    }
-    return out
+    return (await this.listRecords<StoredContact>(`${this.prefix}:contact:`)).map((r) => r.value)
   }
 
   async deleteContact(userId: string): Promise<void> {
@@ -505,12 +524,7 @@ export class RedisStore implements IStore {
     await this.client.del(this.checkpointKey(key))
   }
   async listCheckpoints(): Promise<Array<[string, FlowCheckpoint]>> {
-    const out: Array<[string, FlowCheckpoint]> = []
-    for (const { key, id } of await this.scanIds(`${this.prefix}:cp:`)) {
-      const raw = await this.client.get(key)
-      if (raw != null) out.push([id, JSON.parse(toStr(raw)) as FlowCheckpoint])
-    }
-    return out
+    return (await this.listRecords<FlowCheckpoint>(`${this.prefix}:cp:`)).map((r) => [r.id, r.value])
   }
 
   /* AI conversation history (ttl-aware) ------------------------------------ */
@@ -531,6 +545,7 @@ export class RedisStore implements IStore {
   async getUserData(userId: UserId, namespace: string, key: string): Promise<UserDataEntry | undefined> {
     return this.userData.get(userId, namespace, key, Date.now())
   }
+  /** Upsert one entry; rejects with a `TypeError` when `value` is not JSON-serialisable. */
   async setUserData(entry: UserDataEntry): Promise<void> {
     await this.userData.set(entry, Date.now())
   }
