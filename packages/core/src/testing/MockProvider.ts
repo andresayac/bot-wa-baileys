@@ -59,6 +59,11 @@ export interface MockProviderOptions {
   /** `capabilities.textFormat` to simulate (e.g. `'whatsapp'`). Default: unset. */
   textFormat?: TextFormat
   /**
+   * Per-chat text format to simulate (`IProvider.textFormatFor`), e.g. a provider that
+   * serves WhatsApp and SMS chats. Default: unset (the mock has no `textFormatFor`).
+   */
+  textFormatFor?: (chatId: ChatId) => TextFormat | undefined
+  /**
    * Which optional seams the mock exposes. A disabled seam is hidden (the instance
    * property reads `undefined`), so the bot treats it exactly like a provider that
    * lacks the method. Defaults follow `streaming`: `edit` and `delete` when it is not
@@ -104,6 +109,8 @@ export class MockProvider implements IProvider {
   drafts: MockDraft[] = []
   /** Messages deleted through {@link deleteMessage} (enabled by `streaming` not `'none'` or `supports.delete`). */
   deleted: MessageRef[] = []
+  /** Per-chat text format — present only when {@link MockProviderOptions.textFormatFor} is given. */
+  declare textFormatFor?: (chatId: ChatId) => TextFormat | undefined
 
   constructor(options: MockProviderOptions = {}) {
     const streaming = options.streaming ?? 'none'
@@ -119,6 +126,7 @@ export class MockProvider implements IProvider {
       ...(options.maxTextLength !== undefined ? { maxTextLength: options.maxTextLength } : {}),
       ...(options.textFormat !== undefined ? { textFormat: options.textFormat } : {}),
     }
+    if (options.textFormatFor) this.textFormatFor = options.textFormatFor
     hideSeam(this, 'editMessage', supports.edit, edit)
     hideSeam(this, 'deleteMessage', supports.delete, supports.delete ?? streaming !== 'none')
     hideSeam(this, 'sendDraft', supports.drafts, supports.drafts ?? streaming === 'draft')

@@ -617,6 +617,17 @@ export interface IProvider<TRaw = unknown> {
   canRenderForm?(form: FormDefinition, opts?: { nativeId?: string }): boolean
 
   /**
+   * Rich-text dialect of one chat, for providers that serve several channels
+   * with different markup through one instance (e.g. Twilio: `whatsapp:` chats
+   * render WhatsApp markup, SMS chats render none). Return `undefined` when the
+   * chat's format is unknown; the core then falls back to
+   * `capabilities.textFormat`. Exposed as `ctx.textFormat`. Must be synchronous
+   * and cheap (it runs once per inbound message). Absent = every chat uses
+   * `capabilities.textFormat`.
+   */
+  textFormatFor?(chatId: ChatId): TextFormat | undefined
+
+  /**
    * A single primary connection handle for DEBUGGING ONLY. Not a structural
    * guarantee of exactly one connection (Discord may hold many shard sockets).
    * Core must NOT reach through this for behavior.
@@ -731,6 +742,12 @@ export interface MessageContext<TTools extends object = DefaultTools, TRaw = unk
   canRenderForm?(definition: FormDefinition, opts?: { nativeId?: string }): boolean
   /** Capabilities of the provider this message came from (set on contexts built by a Bot). */
   capabilities?: ProviderCapabilities
+  /**
+   * Rich-text dialect of THIS chat: the provider's `textFormatFor(chatId)`, else
+   * `capabilities.textFormat`. Unset = unknown (send Markdown untouched). Use it,
+   * not `capabilities.textFormat`, to format text for the chat (`@bot-wa/ai` does).
+   */
+  textFormat?: TextFormat
 
   /* Actions — degrade to no-op when the provider lacks the capability */
   markRead(): Promise<void>
@@ -846,6 +863,8 @@ export interface BuildContextDeps<TRaw = unknown> {
   user?: UserData
   /** Backs `ctx.canRenderForm()` (see `IProvider.canRenderForm`). */
   canRenderForm?(definition: FormDefinition, opts?: { nativeId?: string }): boolean
+  /** Per-chat text format (see `IProvider.textFormatFor`); `ctx.textFormat` falls back to `capabilities.textFormat`. */
+  textFormatFor?(chatId: ChatId): TextFormat | undefined
   /**
    * Paces text replies (delay + typing indicator) around `send`; omitted → sent immediately.
    * May resolve a `skipped` result instead of sending when the reply is cancelled during the wait.

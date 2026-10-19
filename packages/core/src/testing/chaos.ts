@@ -414,6 +414,7 @@ export class ChaosProvider<P extends IProvider = IProvider> implements IProvider
   sendDraft?: IProvider['sendDraft']
   acknowledgeInteraction?: IProvider['acknowledgeInteraction']
   canRenderForm?: IProvider['canRenderForm']
+  textFormatFor?: IProvider['textFormatFor']
 
   private readonly opts: ResolvedOptions
   private readonly rngInbound: () => number
@@ -458,6 +459,7 @@ export class ChaosProvider<P extends IProvider = IProvider> implements IProvider
     if (inner.sendDraft) this.sendDraft = inner.sendDraft.bind(inner)
     if (inner.acknowledgeInteraction) this.acknowledgeInteraction = inner.acknowledgeInteraction.bind(inner)
     if (inner.canRenderForm) this.canRenderForm = inner.canRenderForm.bind(inner)
+    if (inner.textFormatFor) this.textFormatFor = inner.textFormatFor.bind(inner)
 
     inner.onEvent((event) => this.receive(event))
   }

@@ -35,7 +35,14 @@ import type {
   OutboundContent,
   SendOptions,
   SentMessage,
+  TextFormat,
 } from './provider.js'
+
+/** `ctx.textFormat`: the chat's own format, else the provider-wide one; omitted when neither is known. */
+function textFormatOf(deps: BuildContextDeps, chatId: ChatId): { textFormat?: TextFormat } {
+  const format = deps.textFormatFor?.(chatId) ?? deps.capabilities?.textFormat
+  return format !== undefined ? { textFormat: format } : {}
+}
 
 /** Build the canonical MessageContext from a normalized inbound message. */
 export function buildMessageContext(deps: BuildContextDeps): IMessageContext {
@@ -195,6 +202,7 @@ export function buildMessageContext(deps: BuildContextDeps): IMessageContext {
       return sendOut({ kind: 'form', form, token, ...(opts?.nativeId !== undefined ? { nativeId: opts.nativeId } : {}) })
     },
     capabilities: deps.capabilities,
+    ...textFormatOf(deps, from),
     ...(deps.canRenderForm ? { canRenderForm: deps.canRenderForm } : {}),
 
     /* Actions — degrade to no-op when the provider lacks the capability -- */
