@@ -144,8 +144,11 @@ export class Scheduler {
 /* =============================================================================
  * MINIMAL CRON PARSER — five fields: minute hour day-of-month month weekday.
  * Each field takes '*', a number, a range (1-5), a step (`*` + `/15`, 1-30/5, 5/15) or a
- * comma list of those; weekday 0 and 7 are Sunday. Every field must match (the
- * day-of-month/weekday OR rule of classic cron is not implemented). Names (mon, jan)
+ * comma list of those; weekday 0 and 7 are Sunday. A `*` step counts from the field's
+ * minimum (`*` + `/2` in day-of-month = 1, 3, 5…; `*` + `/3` in month = Jan, Apr, Jul, Oct).
+ * Day rule of standard (Vixie) cron: when BOTH day-of-month and weekday are restricted,
+ * a day matches if EITHER does (`0 9 13 * 5` = every 13th and every Friday); when one
+ * of them starts with `*` (including a `*` step), both must match. Names (mon, jan)
  * and macros (@daily) are rejected when the task is created.
  * (For full cron support, swap to a real parser like `cron-parser`.)
  * ========================================================================== */
@@ -183,26 +186,29 @@ function cronNextRun(expr: string): Date | null {
   next.setSeconds(0, 0)
   next.setMinutes(next.getMinutes() + 1)
 
+  // Standard cron: a day field starting with '*' (even a step such as '*/2') is "unrestricted".
+  const orDays = !dom.startsWith('*') && !dow.startsWith('*')
+
   // Search far enough to cover monthly and annual expressions.
   for (let i = 0; i < 366 * 24 * 60; i++) {
     const candidate = new Date(next.getTime() + i * 60_000)
-    if (matchesField(candidate.getMinutes(), m) &&
-        matchesField(candidate.getHours(), h) &&
-        matchesField(candidate.getDate(), dom) &&
-        matchesField(candidate.getMonth() + 1, mon) &&
-        matchesWeekday(candidate.getDay(), dow)) {
-      return candidate
-    }
+    if (!matchesField(candidate.getMinutes(), m, 0) ||
+        !matchesField(candidate.getHours(), h, 0) ||
+        !matchesField(candidate.getMonth() + 1, mon, 1)) continue
+    const domOk = matchesField(candidate.getDate(), dom, 1)
+    const dowOk = matchesWeekday(candidate.getDay(), dow)
+    if (orDays ? domOk || dowOk : domOk && dowOk) return candidate
   }
   return null
 }
 
 /** Weekday field: `0` and `7` both mean Sunday (standard cron). */
 function matchesWeekday(day: number, expr: string): boolean {
-  return matchesField(day, expr) || (day === 0 && matchesField(7, expr))
+  return matchesField(day, expr, 0) || (day === 0 && matchesField(7, expr, 0))
 }
 
-function matchesField(actual: number, expr: string): boolean {
+/** Does `actual` match one cron field? `min` is the field's lowest value (where a `*` step starts). */
+function matchesField(actual: number, expr: string, min: number): boolean {
   if (expr === '*') return true
   // ranges & lists
   for (const part of expr.split(',')) {
@@ -212,7 +218,7 @@ function matchesField(actual: number, expr: string): boolean {
     let lo: number
     let hi: number
     if (range === '*') {
-      lo = 0
+      lo = min
       hi = Number.POSITIVE_INFINITY
     } else if (range.includes('-')) {
       ;[lo, hi] = range.split('-').map((n) => parseInt(n, 10))
