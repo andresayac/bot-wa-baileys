@@ -99,6 +99,8 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/). Versionado po
 - `bot-wa dev`: una factory que usa otro provider se detiene y nunca se vuelve a llamar; la entrada por pipe espera a que el bot termine de responder.
 - `ProviderCapabilities.textFormat` (opcional, tipo `TextFormat`: `'whatsapp' | 'markdown' | 'html' | 'plain'`): el formato de texto enriquecido que muestra el canal, para que quien genere Markdown (p. ej. `@bot-wa/ai`) lo convierta. `MockProvider` acepta `textFormat`. Lo declaran baileys, meta, evolution, wppconnect y gupshup (`'whatsapp'`), telegram, messenger, instagram y tiktok (`'plain'`) y discord (`'markdown'`).
 - El `Bot` omite los campos `undefined` en sus upserts de chats y contactos, así que un mensaje sin nombre visible ya no borra el nombre guardado. `IStore.upsertChat`/`upsertContact` documentan el contrato: un campo propio a `undefined` lo elimina.
+- `ctx.typing()`, `ctx.recording()`, `ctx.replyWithTyping()` y el indicador de `ctx.stream()` son *best-effort*: si `provider.typing()` rechaza o lanza, se registra en `debug` y se sigue (igual que el pacer de `BotConfig.typing`), así que un indicador fallido ya no tumba la respuesta que lo sigue.
+- El logger por defecto del `Bot` (sin `logger` ni `debug`) pasa de nivel `error` a `warn`: los fallos que plugins y handlers registran en `warn` (p. ej. una autorespuesta de IA fallida) ya se ven sin `debug: true`.
 
 ### @bot-wa/baileys (2026-10)
 

@@ -178,6 +178,9 @@ await ctx.delete()     // delete the inbound message (if allowed)
 ```
 
 Actions degrade to a no-op on providers that lack the capability.
+`ctx.typing()` and `ctx.recording()` are best-effort: they never reject. If the
+provider fails to show the indicator, the error is logged at `debug` and your
+handler continues, so a failing indicator never costs the reply after it.
 
 ## Receive media
 

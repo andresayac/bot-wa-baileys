@@ -43,6 +43,15 @@ describe('Bot lifecycle', () => {
     expect(() => new Bot({ provider: new MockProvider(), debug: true })).not.toThrow()
   })
 
+  it('default logger shows warn/error (plugin failures stay visible); debug: true lowers it to debug', () => {
+    const quiet = new Bot({ provider: new MockProvider() })
+    expect((quiet.logger as unknown as { level: string }).level).toBe('warn')
+    expect((quiet.logger as unknown as { isLevelEnabled(l: string): boolean }).isLevelEnabled('warn')).toBe(true)
+    expect((quiet.logger as unknown as { isLevelEnabled(l: string): boolean }).isLevelEnabled('info')).toBe(false)
+    const verbose = new Bot({ provider: new MockProvider(), debug: true })
+    expect((verbose.logger as unknown as { level: string }).level).toBe('debug')
+  })
+
   it('turns inbound persistence failures into bot error events', async () => {
     const provider = new MockProvider()
     const store = new MemoryStore()

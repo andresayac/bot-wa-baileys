@@ -157,8 +157,13 @@ process.on('SIGTERM', async () => {
 ```ts
 const bot = new Bot({
   provider: new BaileysProvider({ session: 'my-bot', debug: false }), // true for verbose logs
+  debug: false, // Bot logger: `warn` by default, `debug` with true
 })
 ```
+
+Without `logger` or `debug`, the Bot's built-in pino logger runs at `warn`, so
+warnings from plugins and handlers (e.g. a failed AI autoreply) are visible.
+Pass `debug: true` for debug logs, or inject your own `logger`.
 
 ## Next steps
 

@@ -734,7 +734,9 @@ export interface MessageContext<TTools extends object = DefaultTools, TRaw = unk
 
   /* Actions — degrade to no-op when the provider lacks the capability */
   markRead(): Promise<void>
+  /** Show the typing indicator. Best-effort: never rejects (a provider failure is logged at debug). */
   typing(): Promise<void>
+  /** Show the recording-audio indicator. Best-effort like {@link typing}. */
   recording(): Promise<void>
   delete(): Promise<void>
 
@@ -1123,6 +1125,7 @@ export interface BotConfig {
   typing?: boolean | TypingConfig
   /** Pluggable pacing policy; a transport may also own its own limiter. */
   rateLimit?: unknown
+  /** Built-in logger at `debug` level. Without it (and without `logger`) the default level is `warn`. */
   debug?: boolean
   logger?: LoggerLike
 }

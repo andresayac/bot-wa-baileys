@@ -199,8 +199,9 @@ export function buildMessageContext(deps: BuildContextDeps): IMessageContext {
 
     /* Actions — degrade to no-op when the provider lacks the capability -- */
     async markRead() { await deps.markRead?.(inbound.ref) },
-    async typing() { await deps.typing?.(from, 'typing') },
-    async recording() { await deps.typing?.(from, 'recording') },
+    // Best-effort: a failing indicator never rejects (it must not abort the reply it precedes).
+    async typing() { try { await deps.typing?.(from, 'typing') } catch { /* ignored */ } },
+    async recording() { try { await deps.typing?.(from, 'recording') } catch { /* ignored */ } },
     async delete() { await deps.deleteMessage?.(inbound.ref) },
 
     /* Human handoff — resolves false when built without a bot (no `deps.handoff`) */

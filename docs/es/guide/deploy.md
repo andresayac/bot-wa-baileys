@@ -158,8 +158,14 @@ process.on('SIGTERM', async () => {
 ```ts
 const bot = new Bot({
   provider: new BaileysProvider({ session: 'mi-bot', debug: false }), // true para logs detallados
+  debug: false, // logger del Bot: `warn` por defecto, `debug` con true
 })
 ```
+
+Sin `logger` ni `debug`, el logger pino integrado del Bot trabaja en nivel
+`warn`, así que se ven los avisos de plugins y handlers (p. ej. una
+autorespuesta de IA fallida). Usa `debug: true` para los logs de depuración o
+inyecta tu propio `logger`.
 
 ## Siguientes pasos
 

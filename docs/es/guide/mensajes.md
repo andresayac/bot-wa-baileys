@@ -181,6 +181,9 @@ await ctx.delete()     // elimina el mensaje entrante (si está permitido)
 ```
 
 Las acciones se degradan a no-op en providers que no tienen la capacidad.
+`ctx.typing()` y `ctx.recording()` son *best-effort*: nunca rechazan. Si el
+provider no puede mostrar el indicador, el error se registra en `debug` y el
+handler sigue, así que un indicador fallido nunca cuesta la respuesta siguiente.
 
 ## Recibir media
 

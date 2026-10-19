@@ -274,6 +274,27 @@ describe('automatic typing on ctx replies', () => {
     expect(provider2.outbox).toHaveLength(1)
   })
 
+  it('ctx.typing() / ctx.recording() / replyWithTyping never reject when the provider indicator fails', async () => {
+    const debug: unknown[] = []
+    const logger = { trace() {}, debug: (...a: unknown[]) => { debug.push(a[0]) }, info() {}, warn() {}, error() {}, fatal() {}, child() { return logger } }
+    const provider = new MessagingMock()
+    provider.typingError = new Error('400: Request input may be invalid')
+    const bot = await makeBot(provider, { logger })
+    await runHandler(bot, provider, async (ctx) => {
+      await ctx.typing()
+      await ctx.recording()
+      await ctx.replyWithTyping('ok', 0)
+    })
+    expect(provider.outbox.map((m) => m.content)).toEqual([{ kind: 'text', text: 'ok' }])
+    expect(debug).toContainEqual(expect.objectContaining({ chatId: 'chat-1', state: 'typing' }))
+
+    const provider2 = new MessagingMock()
+    provider2.typingThrowsSync = true
+    const bot2 = await makeBot(provider2)
+    await runHandler(bot2, provider2, async (ctx) => { await ctx.typing(); await ctx.reply('sigue') })
+    expect(provider2.outbox).toHaveLength(1)
+  })
+
   it('skips indicator and wait on providers without typing capability', async () => {
     const provider = new MessagingMock({ typing: false })
     const bot = await makeBot(provider, { typing: { enabled: true, minMs: 5000, maxMs: 5000 } })

@@ -267,7 +267,8 @@ export class Bot extends EventEmitter {
     this.inboundDedupe = createInboundDeduper(config.dedupe)
 
     this.logger = config.logger as Logger ?? pino({
-      level: config.debug ? 'debug' : 'error',
+      // 'warn' by default so plugin/handler failures logged at warn stay visible.
+      level: config.debug ? 'debug' : 'warn',
     })
 
     this.hooks = new HookSystem(this.logger.child({ module: 'hooks' }))
@@ -682,7 +683,7 @@ export class Bot extends EventEmitter {
       inbound,
       tools: this.tools,
       send: (chatId, content, o) => this.dispatchSend(chatId, content, o, chatId === inbound.from ? 'ctx' : 'api'),
-      typing: async (chatId, state) => { await this.provider.typing?.(chatId, state) },
+      typing: (chatId, state) => this.indicateTyping(chatId, state),
       handoff: (chatId, o) => this.handoff(chatId, o),
       user: this.users.for(inbound.senderId),
       i18n: this.i18n,
@@ -1656,6 +1657,19 @@ export class Bot extends EventEmitter {
     })
   }
 
+  /**
+   * Best-effort typing indicator for `ctx.typing()` / `ctx.recording()` / streams: a
+   * failing provider indicator (rejected or thrown) is logged at debug and swallowed,
+   * so it never aborts the reply it decorates — same policy as the BotConfig.typing pacer.
+   */
+  private async indicateTyping(chatId: ChatId, state: 'typing' | 'recording' | 'paused'): Promise<void> {
+    try {
+      await this.provider.typing?.(chatId, state)
+    } catch (error) {
+      this.logger.debug({ chatId, state, err: error instanceof Error ? error.message : String(error) }, 'typing indicator failed (ignored)')
+    }
+  }
+
   private async processMessage(inbound: InboundMessage, interaction?: { id: string; data: string; respondBy?: number }): Promise<void> {
     const ctx = buildMessageContext({
       inbound,
@@ -1663,7 +1677,7 @@ export class Bot extends EventEmitter {
       send: (chatId, content, opts) => this.dispatchSend(chatId, content, opts, chatId === inbound.from ? 'ctx' : 'api'),
       canRenderForm: this.provider.canRenderForm ? (d, o) => this.provider.canRenderForm!(d, o) : undefined,
       markRead: async (ref) => { await this.provider.markRead?.([ref]) },
-      typing: async (chatId, state) => { await this.provider.typing?.(chatId, state) },
+      typing: (chatId, state) => this.indicateTyping(chatId, state),
       deleteMessage: async (ref) => { await this.provider.deleteMessage?.(ref) },
       downloadMedia: this.provider.downloadMedia ? (ref) => this.provider.downloadMedia!(ref) : undefined,
       acknowledgeInteraction: this.provider.acknowledgeInteraction
@@ -1835,7 +1849,7 @@ export class Bot extends EventEmitter {
       tools: this.tools,
       send: (chatId, content, opts) => this.dispatchSend(chatId, content, opts, chatId === inbound.from ? 'ctx' : 'api'),
       canRenderForm: this.provider.canRenderForm ? (d, o) => this.provider.canRenderForm!(d, o) : undefined,
-      typing: async (chatId, state) => { await this.provider.typing?.(chatId, state) },
+      typing: (chatId, state) => this.indicateTyping(chatId, state),
       handoff: (chatId, opts) => this.handoff(chatId, opts),
       user: this.users.for(inbound.senderId),
       ...this.messagingDeps(),
