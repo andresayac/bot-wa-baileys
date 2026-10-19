@@ -379,8 +379,12 @@ export class TikTokProvider implements IProvider<unknown> {
     else if ('path' in source) {
       bytes = await readFile(source.path)
       filename = basename(source.path)
+    } else if ('stream' in source) {
+      const chunks: Buffer[] = []
+      for await (const c of source.stream as AsyncIterable<Buffer | string>) chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c))
+      bytes = Buffer.concat(chunks)
     } else {
-      throw new UnsupportedContentError('image', 'TikTok does not accept stream image sources; pass a Buffer, path or URL')
+      throw new UnsupportedContentError('image', 'Unsupported TikTok image source; pass a Buffer, path, URL, stream or { native: media_id }')
     }
     const form = new FormData()
     form.append('business_id', this.config.businessId)
