@@ -153,7 +153,7 @@ Son los errores que más caro han salido. Respétalos aunque un cambio "parezca"
 ## Publicar una versión
 
 - Versionado y publicación con [Changesets](https://changesets.dev) (CLI v3, `.changeset/config.json`: `access: public`, `baseBranch: main`, los paquetes privados no se versionan ni se publican).
-- Flujo **manual** (sin workflow de release): cada PR trae su changeset; para publicar, el mantenedor ejecuta en `main` `pnpm version-packages` → commit → `pnpm release` (`pnpm build && changeset publish`, crea los tags) → `git push --follow-tags`.
+- Flujo **manual** (sin workflow de release): cada PR trae su changeset; para publicar, el mantenedor ejecuta en `main` `pnpm version-packages` → commit → `pnpm release` (`pnpm clean && pnpm build && changeset publish`, crea los tags) → `git push --follow-tags`.
 - El repo está en **modo prerelease `alpha`** (`.changeset/pre.json`): `changeset version` genera `core@2.0.0-alpha.N` y, en el resto, `x.y.z-alpha.N`, y `changeset publish` publica con el dist-tag `alpha`. Se sale con `pnpm changeset pre exit` (decisión del mantenedor; no lo hagas por tu cuenta). Antes de publicar, revisa `pnpm changeset status --verbose` y `pnpm changeset publish-plan`, y pasa `pnpm pack:smoke`.
 - **No** ejecutes `changeset version`, `changeset publish` ni `pnpm release` salvo que te lo pidan: publicar en npm no tiene vuelta atrás.
 - Detalles (prereleases, scope de npm, promover un paquete privado) en [`CONTRIBUTING.md`](CONTRIBUTING.md#publicar-una-versión) y [`.changeset/README.md`](.changeset/README.md).
