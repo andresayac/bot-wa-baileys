@@ -23,8 +23,9 @@ Cero dependencias extra: solo `@bot-wa/core` y `crypto` nativo de Node ≥ 22.
 |---|---|
 | `verifyChallenge(query, verifyToken)` | Handshake `GET` del webhook. Devuelve el `hub.challenge` a responder (HTTP 200) o `null` si el token no coincide (responde 403). |
 | `verifySignature(rawBody, header, appSecret)` | Verifica `X-Hub-Signature-256` = HMAC-SHA256 del body con el app secret, en tiempo constante. `false` si falta el secret, el header o no coincide. |
-| `checkGraphSignature(body, headers, appSecret, logger?)` | Guard de ingest: `{ ok: true }` o `{ ok: false, status }`. Con `appSecret` exige el body **crudo** (`string`/`Buffer`) y rechaza uno ya parseado con `400`; una firma inválida da `403`. |
-| `parseGraphBody<T>(body)` | Convierte el body (string, `Buffer` u objeto ya parseado) en `T`. |
+| `checkGraphSignature(body, headers, appSecret, logger?)` | Guard de ingest: `{ ok: true }` o `{ ok: false, status }`. Con `appSecret` exige el body **crudo** (`string`/`Buffer`/`Uint8Array`) y rechaza uno ya parseado con `400`; una firma inválida da `403`. |
+| `tryParseGraphBody<T>(body)` | Como `parseGraphBody`, pero sin lanzar: `{ ok: true, body }` o `{ ok: false, status: 400 }` si el body no es un objeto JSON. Úsalo en `ingest()` para responder 400 a un body malformado. |
+| `parseGraphBody<T>(body)` | Convierte el body (string, `Buffer`/`Uint8Array` u objeto ya parseado) en `T`. Lanza `SyntaxError` si el body crudo no es JSON. |
 | `toGraphError(err, { chatId?, retryAfterMs?, contentKind? })` | Traduce un error de Graph a las subclases de `ProviderError` del core. |
 
 ## Uso
@@ -32,7 +33,7 @@ Cero dependencias extra: solo `@bot-wa/core` y `crypto` nativo de Node ≥ 22.
 Así lo usa un provider en su `ingest()`:
 
 ```ts
-import { checkGraphSignature, parseGraphBody, verifyChallenge } from '@bot-wa/graph-core'
+import { checkGraphSignature, tryParseGraphBody, verifyChallenge } from '@bot-wa/graph-core'
 
 // GET /webhook: handshake de suscripción
 const challenge = verifyChallenge(query, process.env.META_VERIFY_TOKEN!)
@@ -41,7 +42,9 @@ const challenge = verifyChallenge(query, process.env.META_VERIFY_TOKEN!)
 // POST /webhook: verificar la firma y parsear
 const sig = checkGraphSignature(rawBody, headers, process.env.META_APP_SECRET, logger)
 if (!sig.ok) return sig.status // 400 (body no crudo) o 403 (firma inválida)
-const payload = parseGraphBody<MyWebhookBody>(rawBody)
+const parsed = tryParseGraphBody<MyWebhookBody>(rawBody)
+if (!parsed.ok) return parsed.status // 400: no es un objeto JSON
+const payload = parsed.body
 ```
 
 > **Firma sobre los bytes crudos.** Meta firma exactamente los bytes que envía. Si re-serializas el JSON
@@ -61,9 +64,15 @@ Facebook/Instagram:
 |---|---|
 | `131047`: fuera de la ventana de 24 h (WhatsApp) | `OutsideSessionWindowError` (envía una plantilla, `kind: 'template'`) |
 | `131026`: destinatario no puede recibir | `RecipientUnreachableError` |
+| `131030`: destinatario fuera de la lista permitida del número de prueba (WhatsApp) | `RecipientUnreachableError` |
+| `551`: la persona no está disponible (Messenger/Instagram) | `RecipientUnreachableError` |
+| `10` con subcódigo `2018278`: fuera de la ventana de mensajería (Messenger/Instagram) | `OutsideSessionWindowError` |
 | `131051`: tipo de mensaje no soportado | `UnsupportedContentError` (`kind`: el `contentKind` del envío, o `'native'`) |
 | `131062`: el destinatario BSUID no admite este mensaje (WhatsApp; plantillas de autenticación *one-tap*, *zero-tap* y *copy code*) | `UnsupportedContentError` (`kind`: el `contentKind` del envío, o `'template'`); envíalo al teléfono (`wa_id`) |
 | `4`, `613`, `80007`, `36003`: rate limit | `RateLimitedError` (`retryAfterMs` o 60 s por defecto) |
+| `130429`: límite de mensajes por segundo de la Cloud API | `RateLimitedError` (`retryAfterMs` o 1 s) |
+| `131056`: demasiados mensajes al mismo usuario (*pair rate limit*) | `RateLimitedError` (`retryAfterMs` o 6 s) |
+| `131048`: límite por spam | `RateLimitedError` (`retryAfterMs` o 60 s) |
 | cualquier otro (incluidos `147001`–`147005` de la API de nombres de usuario) | `ProviderError` |
 
 `contentKind` es el `kind` del `OutboundContent` que falló. Pásalo si lo conoces: así

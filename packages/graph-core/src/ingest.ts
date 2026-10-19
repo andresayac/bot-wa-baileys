@@ -31,14 +31,14 @@ export function checkGraphSignature(
   logger?: GraphIngestLogger,
 ): GraphSignatureResult {
   if (!appSecret) return { ok: true }
-  if (typeof body !== 'string' && !Buffer.isBuffer(body)) {
+  const raw = rawBodyOf(body)
+  if (raw === undefined) {
     logger?.warn?.(
       'ingest received a non-raw body while appSecret is set — signature verification needs the raw ' +
         'request bytes (use express.raw()/the raw body string).',
     )
     return { ok: false, status: 400 }
   }
-  const raw = body as string | Buffer
   const sig = headerValue(headers, 'x-hub-signature-256')
   const sigStr = Array.isArray(sig) ? sig[0] : sig
   if (!verifySignature(raw, sigStr, appSecret)) {
@@ -56,9 +56,40 @@ function headerValue(headers: Record<string, string | string[] | undefined> | un
   return undefined
 }
 
-/** Parse a webhook body (raw string, Buffer, or already-parsed object) into T. */
+/** The raw request bytes as a string/Buffer, or undefined for an already-parsed body. */
+function rawBodyOf(body: unknown): string | Buffer | undefined {
+  if (typeof body === 'string' || Buffer.isBuffer(body)) return body
+  if (body instanceof Uint8Array) return Buffer.from(body.buffer, body.byteOffset, body.byteLength)
+  if (body instanceof ArrayBuffer) return Buffer.from(body)
+  return undefined
+}
+
+/**
+ * Parse a webhook body (raw string, Buffer/Uint8Array, or already-parsed object)
+ * into T. Throws a `SyntaxError` on a raw body that is not JSON; use
+ * {@link tryParseGraphBody} to answer such a request with a 400 instead.
+ */
 export function parseGraphBody<T>(body: unknown): T {
-  if (typeof body === 'string') return JSON.parse(body) as T
-  if (Buffer.isBuffer(body)) return JSON.parse(body.toString('utf8')) as T
-  return body as T
+  const raw = rawBodyOf(body)
+  if (raw === undefined) return body as T
+  return JSON.parse(typeof raw === 'string' ? raw : raw.toString('utf8')) as T
+}
+
+/** Outcome of {@link tryParseGraphBody}. */
+export type GraphParseResult<T> = { ok: true; body: T } | { ok: false; status: 400 }
+
+/**
+ * Non-throwing {@link parseGraphBody}: a raw body that is not a JSON object (bad
+ * JSON, an array, a bare value) yields `{ ok: false, status: 400 }`, so a webhook
+ * handler can answer 400 instead of crashing on malformed input.
+ */
+export function tryParseGraphBody<T>(body: unknown): GraphParseResult<T> {
+  let parsed: unknown
+  try {
+    parsed = parseGraphBody<unknown>(body)
+  } catch {
+    return { ok: false, status: 400 }
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return { ok: false, status: 400 }
+  return { ok: true, body: parsed as T }
 }
