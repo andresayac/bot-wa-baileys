@@ -36,6 +36,7 @@ const bot = new Bot({
     // turnWaitMs: '2m',        // máximo que un mensaje espera el turno de su chat
     // settleMs: '1m',          // máximo que se retiene un turno por un paso de conversación en curso
     // providerSession: 'auto', // 'leader' | 'shared' | 'auto'
+    // providerDownMs: '1m',    // una líder con el transporte cerrado este tiempo cede el puesto
   },
 })
 await bot.start()
@@ -43,7 +44,10 @@ await bot.start()
 
 Todas las réplicas corren el mismo código. Usa el mismo `prefix` en todas;
 el id de réplica es un UUID aleatorio por proceso salvo que pases
-`replicaId` (debe ser único entre las réplicas en marcha). Con tu propia
+`replicaId` (debe ser único entre las réplicas en marcha; sirve el nombre del
+pod o del host). Cada instancia del coordinador añade su propio nonce en Redis
+(`coordinator.incarnation`), así que una réplica reiniciada con el mismo
+`replicaId` nunca hereda los turnos del proceso que murió. Con tu propia
 conexión a Redis usa `new RedisCoordinator({ url, prefix })` en lugar de
 `store.coordinator()`.
 
@@ -59,15 +63,27 @@ en paralelo. En grupos la clave es por participante, igual que el alcance de
 las conversaciones.
 
 El turno se mantiene hasta que el handler termina **y** la conversación que
-recibió el mensaje vuelve a esperar (o termina), así que otra réplica nunca
-ve un flujo a mitad de un paso (con el límite de `settleMs`).
+recibió el mensaje vuelve a esperar (o termina), también a través de un
+`c.goto()`, así que otra réplica nunca ve un flujo a mitad de un paso.
+`settleMs` limita esa espera: un paso que siga en marcha entonces (un `.do()`
+lento, un `c.sleep` o un delay largos) se detiene, conservando su checkpoint,
+antes de soltar el turno, de modo que nunca corre a la vez que la réplica que
+recibe el chat después. Mantén `settleMs` por encima de tu paso más largo.
+
+Los temporizadores de una conversación (su timeout de espera, `c.idle()`)
+también actúan solo con el turno del chat. Si otra réplica atendió el chat
+entretanto, la copia obsoleta se descarta en lugar de escribir al usuario o
+borrar el checkpoint de la nueva dueña.
 
 **Las conversaciones pasan de una réplica a otra a través del store.** Si el
 siguiente mensaje de un flujo `.persistent()` llega a otra réplica, esa
-réplica lee el checkpoint del store y sigue: el mensaje se toma como la
-respuesta a la pregunta pendiente (no se vuelve a preguntar). La réplica que
-tenía el flujo en memoria descarta su copia la próxima vez que reciba ese
-chat.
+réplica lee el checkpoint del store y sigue. Si el flujo esperaba en la
+primera pregunta de su paso, el mensaje se toma como esa respuesta (no se
+vuelve a preguntar). Si no (un paso `.do()` que esperaba en una pregunta
+posterior, o una réplica que murió antes de preguntar), el paso se repite
+desde el principio y hace su primera pregunta. La réplica que tenía el flujo
+en memoria descarta su copia la próxima vez que reciba ese chat (o cuando
+salte uno de sus temporizadores).
 
 **Una sola conexión para los transportes exclusivos.** Con
 `providerSession: 'auto'` (por defecto), un provider que declara
@@ -83,6 +99,11 @@ líder se detiene o muere.
 | `@bot-wa/discord` | `true` | 1 gateway + en espera |
 | `@bot-wa/meta`, Messenger, Instagram y otros providers de webhook | sin definir (`false`) | todas reciben |
 
+Si el transporte de la líder sigue `'closed'` durante `providerDownMs`
+(sesión cerrada, sesión tomada por otro, reconexión abandonada), la réplica
+cede el puesto, espera unos segundos y vuelve a presentarse, para que una
+réplica en espera conecte entretanto.
+
 Fuérzalo con `providerSession: 'leader'` o `'shared'`. En una réplica en
 espera, `bot.ready` sigue pendiente (el transporte no está conectado) y
 `bot.send()` rechaza con `ProviderNotLeaderError`.
@@ -95,7 +116,9 @@ congelada (pausa del GC, event loop bloqueado, red caída) durante casi todo
 `leaseMs`, suelta sus leases **antes** de que caduquen en Redis: un envío que
 intente después rechaza con `LeaseLostError` en lugar de responder fuera de
 orden, y su conversación en memoria de ese chat se descarta (el checkpoint se
-queda para la nueva dueña).
+queda para la nueva dueña). Una liberación que falla en la red (un corte
+breve de Redis) la repara el watchdog en `leaseMs / 3`, así que el chat no
+se queda bloqueado detrás de una réplica viva.
 
 ## Requisitos y límites
 
@@ -116,9 +139,8 @@ queda para la nueva dueña).
 - **Las tareas programadas (`bot.schedule/every`) corren en todas las
   réplicas.** Usa una tarea solo-líder con `coordinator.tryLead(nombre)` o el
   lock con fencing de abajo.
-- **Los temporizadores de una conversación en memoria obsoleta** (su timeout
-  de espera) aún pueden saltar en la réplica que perdió el chat hasta que
-  vuelva a atender ese chat.
+- **Un paso de conversación más largo que `settleMs` se interrumpe** (ver
+  arriba): sube `settleMs` para trabajo largo en `.do()` o delays.
 - **Redis**: un primario (standalone o Sentinel). Un failover que pierda las
   últimas escrituras puede conceder un lease dos veces. Redis Cluster no está
   soportado.

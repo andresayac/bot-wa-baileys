@@ -5,7 +5,7 @@
  * coordinator start/stop, provider start/stop, the pre-send check), each of which is a
  * no-op path when `coordination` is not configured (the Bot then never builds this).
  */
-import type { IProvider } from '../core/provider.js'
+import type { ConnectionState, IProvider } from '../core/provider.js'
 import { ProviderError } from '../core/provider.js'
 import type { DispatchContext } from '../core/Dispatcher.js'
 import type { ConversationRuntime } from '../conversations/ConversationRuntime.js'
@@ -36,6 +36,8 @@ export interface BotCoordinationDeps {
 }
 
 const RETRY_MS = 1_000
+/** After stepping down for a dead transport, wait this long before campaigning again (lets a standby win). */
+const STEP_DOWN_COOLDOWN_MS = 10_000
 
 export class BotCoordination {
   readonly coordinator: Coordinator
@@ -46,12 +48,17 @@ export class BotCoordination {
   private campaignDone?: Promise<void>
   private leadership?: Leadership
   private offLeaseLost?: () => void
+  private readonly providerDownMs: number
+  /** Resolves the current leadership's "transport down too long" wait (see {@link onConnection}). */
+  private transportDown?: () => void
+  private downTimer?: ReturnType<typeof setTimeout>
 
   constructor(private deps: BotCoordinationDeps) {
     const { config, provider, runtime } = deps
     this.coordinator = config.coordinator
     const session = config.providerSession ?? 'auto'
     this.providerMode = session === 'auto' ? (provider.capabilities.exclusiveSession ? 'leader' : 'shared') : session
+    this.providerDownMs = parseTimerDuration(config.providerDownMs ?? '1m', 'coordination.providerDownMs')
     this.gate = new ChatTurnGate({
       coordinator: this.coordinator,
       turnWaitMs: parseTimerDuration(config.turnWaitMs ?? '2m', 'coordination.turnWaitMs'),
@@ -65,6 +72,11 @@ export class BotCoordination {
         void runtime.suspend(key)
       },
       settle: (key) => runtime.whenSettled(key),
+      expire: async (key) => {
+        deps.logger.warn({ key }, 'conversation step outlived coordination.settleMs; suspending it (resumes from its checkpoint)')
+        await runtime.suspend(key)
+        await runtime.refreshDormant(key)
+      },
     })
   }
 
@@ -117,6 +129,24 @@ export class BotCoordination {
   }
 
   /**
+   * The provider's connection state changed (`'connection'` event). With
+   * `providerSession: 'leader'`, a transport that stays `'closed'` for `providerDownMs`
+   * (logged out, session taken over, reconnect given up) makes this replica step down so
+   * a standby connects instead; any other state cancels that countdown.
+   */
+  onConnection(state: ConnectionState): void {
+    if (state !== 'closed') {
+      if (this.downTimer) clearTimeout(this.downTimer)
+      this.downTimer = undefined
+      return
+    }
+    if (!this.transportDown || this.downTimer) return
+    const fire = this.transportDown
+    this.downTimer = setTimeout(() => { this.downTimer = undefined; fire() }, this.providerDownMs)
+    this.downTimer.unref?.()
+  }
+
+  /**
    * Pre-send check: rejects when this replica's turn on the chat being worked on was lost
    * (`LeaseLostError`), or when it does not hold the provider session
    * ({@link ProviderNotLeaderError}).
@@ -127,29 +157,38 @@ export class BotCoordination {
   }
 
   private async campaign(stop: AbortSignal): Promise<void> {
-    const { provider, emit, reportError } = this.deps
+    const { provider, emit, reportError, logger } = this.deps
     const name = `provider:${provider.id}`
+    /** The election keeps failing (backend down): reported once per outage, not on every retry. */
+    let failing = false
     while (!stop.aborted) {
       let lead: Leadership
       try {
         lead = await this.coordinator.lead(name, { signal: stop })
+        failing = false
       } catch (error) {
         if (stop.aborted) return
-        reportError(error)
+        if (!failing) reportError(error)
+        failing = true
         await sleep(RETRY_MS, stop)
         continue
       }
       if (stop.aborted) { await lead.release().catch(() => {}); return }
       emit('coordination:leader', { name, fence: lead.fence })
       let started = false
+      let steppedDown = false
+      const down = new Promise<void>((resolve) => { this.transportDown = () => { steppedDown = true; resolve() } })
       try {
         await provider.start()
         started = true
         this.leadership = lead
-        await untilAborted(lead.signal, stop)
+        await Promise.race([untilAborted(lead.signal, stop), down])
       } catch (error) {
         reportError(error)
       } finally {
+        this.transportDown = undefined
+        if (this.downTimer) clearTimeout(this.downTimer)
+        this.downTimer = undefined
         this.leadership = undefined
         if (started) {
           try { await provider.stop() } catch (error) { reportError(error) }
@@ -159,7 +198,12 @@ export class BotCoordination {
       if (stop.aborted) return
       const reason = (lead.signal.reason as LeaseLostError | undefined)?.reason
       emit('coordination:follower', { name, ...(reason ? { reason } : {}) })
-      if (!started) await sleep(RETRY_MS, stop)
+      if (steppedDown) {
+        logger.warn({ name, downMs: this.providerDownMs }, 'provider transport stayed closed; stepped down so a standby replica can connect')
+        await sleep(STEP_DOWN_COOLDOWN_MS, stop)
+      } else if (!started) {
+        await sleep(RETRY_MS, stop)
+      }
     }
   }
 }

@@ -12,6 +12,7 @@ import {
   RELEASE_TURN_SCRIPT,
   RENEW_SCRIPT,
   RESERVE_SCRIPT,
+  SWEEP_SCRIPT,
   TURN_SCRIPT,
 } from '../src/coordScripts.js'
 
@@ -66,6 +67,7 @@ export class FakeCoordState {
     h.delete(field)
     if (h.size === 0) this.del(key)
   }
+  hgetall(key: string): Array<[string, string]> { return this.live(key) ? [...(this.hashes.get(key) ?? [])] : [] }
   hlen(key: string): number { return this.live(key) ? (this.hashes.get(key)?.size ?? 0) : 0 }
 
   /** Force a key to expire now (simulates the PX deadline passing). */
@@ -111,6 +113,7 @@ export function evalCoordScript(state: FakeCoordState, script: string, keys: str
           if (s.exists(repPrefix + h)) return [0, '']
           if (s.get(ownerK) === `${cur}|${h}`) return [0, '']
           s.hdel(tixK, String(cur))
+          s.set(lastK, h)
         }
         s.incr(servingK)
       }
@@ -138,6 +141,21 @@ export function evalCoordScript(state: FakeCoordState, script: string, keys: str
       }
       if (ours) { s.hdel(tixK, seqArg); return 2 }
       return 0
+    }
+    case SWEEP_SCRIPT: {
+      const [servingK, ownerK, tixK, lastK, seqK] = keys as [string, string, string, string, string]
+      const [holder, idleMs, ...kept] = args as [string, string, ...string[]]
+      const keep = new Set(kept)
+      let n = 0
+      for (const [seq, h] of s.hgetall(tixK)) {
+        if (h !== holder || keep.has(seq)) continue
+        s.hdel(tixK, seq)
+        if (s.get(ownerK) === `${seq}|${holder}`) s.del(ownerK)
+        if (Number(s.get(servingK)) === Number(seq)) s.del(lastK)
+        n++
+      }
+      if (n > 0 && s.hlen(tixK) === 0) { s.pexpire(servingK, Number(idleMs)); s.pexpire(seqK, Number(idleMs)) }
+      return n
     }
     case LEAD_SCRIPT: {
       const [leadK, termK] = keys as [string, string]

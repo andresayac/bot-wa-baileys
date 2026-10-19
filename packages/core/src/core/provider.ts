@@ -1041,6 +1041,12 @@ export interface FlowCheckpoint {
   step: number
   state: Record<string, unknown>
   updatedAt: number
+  /**
+   * Multi-replica coordination only: `true` while the flow is parked on the FIRST wait of
+   * `step` with its prompt already sent, so the replica that resumes it takes the waking
+   * message as that wait's answer. Absent or `false`: the step re-runs from its start.
+   */
+  parked?: boolean
 }
 
 /**

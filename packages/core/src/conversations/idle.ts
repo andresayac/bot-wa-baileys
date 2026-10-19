@@ -75,7 +75,7 @@ export function createIdleControls(
     }
     const fire = (): void => {
       timer = undefined                        // once per idle period: the next inbound re-arms it
-      void run()
+      rt.runTimer(handle, run)                 // under the chat's turn with multi-replica coordination
     }
     const arm = (): void => {
       if (disposed) return

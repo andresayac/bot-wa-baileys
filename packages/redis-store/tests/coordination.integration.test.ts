@@ -18,7 +18,8 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { createClient } from 'redis'
 import { Bot, LeaseLostError, flow, type Coordinator, type Ticket } from '@bot-wa/core'
 import { MockProvider } from '@bot-wa/core/testing'
-import { RedisCoordinator, RedisStore, type NativeRedisClient } from '../src/index.js'
+import { RedisCoordinator, RedisStore, type CoordinatorClient, type NativeRedisClient } from '../src/index.js'
+import { RELEASE_TURN_SCRIPT } from '../src/coordScripts.js'
 
 const REDIS_URL = process.env.BOTWA_TEST_REDIS_URL
 const RUN = `botwa-co-it:${process.pid}-${randomUUID().slice(0, 8)}`
@@ -234,5 +235,45 @@ describe.skipIf(!REDIS_URL)('RedisCoordinator (real Redis)', () => {
     a.provider.incoming('ana@x.co', { from: 'chat-p', id: 'p3' })
     await vi.waitFor(() => expect(texts(a.provider)).toEqual(['hi', 'name?', 'done Ana ana@x.co']))
     await vi.waitFor(async () => expect(await admin.keys(`${prefix}:cp:*`)).toEqual([]))   // flow finished: checkpoint cleared
+  }, 20_000)
+  /** Two raw coordinators on one prefix; `a` goes through `wrap` (e.g. to fail one EVAL). */
+  async function rawPair(tag: string, leaseMs: number, wrap?: (c: NativeRedisClient) => CoordinatorClient) {
+    const prefix = nextPrefix(tag)
+    const ca = createClient({ url: REDIS_URL }) as NativeRedisClient
+    await ca.connect()
+    cleanups.push(() => ca.quit())
+    const a = new RedisCoordinator({ client: wrap ? wrap(ca) : ca, prefix, replicaId: 'a', leaseMs, maxPollMs: 10 })
+    const b = new RedisCoordinator({ url: REDIS_URL, prefix, replicaId: 'b', leaseMs, maxPollMs: 10 })
+    cleanups.push(() => a.stop(), () => b.stop())
+    await a.start(); await b.start()
+    return { prefix, a, b }
+  }
+
+  it('after a failover the next turn names the dead holder (real scripts)', async () => {
+    const { a, b } = await rawPair('skiplast', 600)
+    await (await a.acquireTurn(await a.reserve('k'))).release()
+    await b.acquireTurn(await b.reserve('k'))
+    const ta = await a.reserve('k')
+    b.simulateCrash()                                     // heartbeat and owner lapse server-side
+    const turn = await a.acquireTurn(ta, { maxWaitMs: 5_000 })
+    expect(turn.previousHolder).toBe(b.incarnation)
+    await turn.release()
+  }, 20_000)
+
+  it('repairs a release that failed on the wire (real scripts)', async () => {
+    let failRelease = false
+    const { a, b } = await rawPair('repair', 300, (c) => ({
+      eval: async (script: string, o?: { keys?: string[]; arguments?: string[] }) => {
+        if (failRelease && script === RELEASE_TURN_SCRIPT) { failRelease = false; throw new Error('ECONNRESET') }
+        return c.eval(script, o)
+      },
+    }))
+    const turn = await a.acquireTurn(await a.reserve('k'))
+    const tb = await b.reserve('k')
+    failRelease = true
+    await expect(turn.release()).rejects.toThrow('ECONNRESET')
+    const next = await b.acquireTurn(tb, { maxWaitMs: 3_000 })   // a is alive: only the repair frees it
+    expect(next.previousHolder).toBeNull()
+    await next.release()
   }, 20_000)
 })

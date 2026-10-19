@@ -11,6 +11,16 @@
  * - **Leadership** (provider sessions, singleton jobs): `SET`-if-absent with a `PX`
  *   lease plus an `INCR` term counter, so every new leader gets a strictly larger fence.
  *
+ * Each instance writes under its own **incarnation id** ({@link RedisCoordinator.incarnation}:
+ * `replicaId` plus a random nonce), so a process restarted with the same fixed
+ * `replicaId` (a pod name) never revives the tickets, turns or heartbeat of the
+ * incarnation that died: those are skipped once its heartbeat lapses.
+ *
+ * A release, ticket cancel or reservation that fails on the wire (the server may have
+ * applied it or not) is repaired by the watchdog, which withdraws every ticket of this
+ * incarnation on that key that is no longer in use, so the chat is never left stalled
+ * behind a live replica.
+ *
  * The watchdog renews this replica's heartbeat, turns and leaderships every
  * `leaseMs / 3`. A renewal that finds the lease gone aborts the matching `signal`
  * (`'expired'`); when no renewal succeeded for 90% of `leaseMs` (Redis unreachable)
@@ -57,6 +67,7 @@ import {
   RELEASE_TURN_SCRIPT,
   RENEW_SCRIPT,
   RESERVE_SCRIPT,
+  SWEEP_SCRIPT,
   TURN_SCRIPT,
 } from './coordScripts.js'
 
@@ -73,7 +84,11 @@ export interface RedisCoordinatorOptions {
   client?: CoordinatorClient | NativeRedisClient
   /** Key prefix; use the same one on every replica of the bot. Default `'botwa'`. */
   prefix?: string
-  /** This replica's id (unique among replicas). Default: a random UUID per process. */
+  /**
+   * This replica's id (unique among the live replicas). Default: a random UUID. A fixed
+   * id (a pod or host name) is fine: every instance adds its own nonce in Redis
+   * ({@link RedisCoordinator.incarnation}).
+   */
   replicaId?: string
   /**
    * Lease length of turns, leaderships and the heartbeat: a duration (`'15s'`) or ms.
@@ -114,6 +129,12 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
 
 export class RedisCoordinator implements Coordinator {
   readonly replicaId: string
+  /**
+   * The id this instance writes to Redis (heartbeat, tickets, turns, leaderships):
+   * `{replicaId}#{nonce}`, new for every instance. A `ChatTurn.previousHolder` of
+   * another instance is reported as its incarnation, never as a bare `replicaId`.
+   */
+  readonly incarnation: string
   /** Lease length in ms. */
   readonly leaseMs: number
   private readonly client: CoordinatorClient
@@ -132,10 +153,17 @@ export class RedisCoordinator implements Coordinator {
   private renewing = false
   /** performance.now() at which the last fully successful renewal round was SENT. */
   private lastRenewOk = 0
+  /** Tickets still in use per key (reserved and waiting, or granted and not released yet). */
+  private readonly live = new Map<string, Set<number>>()
+  /** Reservations in flight per key: a sweep then waits, or it would withdraw them. */
+  private readonly reserving = new Map<string, number>()
+  /** Keys where a release, cancel or reservation failed on the wire: swept by the watchdog. */
+  private readonly dirty = new Set<string>()
 
   constructor(opts: RedisCoordinatorOptions = {}) {
     this.replicaId = opts.replicaId ?? randomUUID()
     if (this.replicaId === '' || this.replicaId.includes('|')) throw new RangeError('RedisCoordinator: replicaId must be non-empty and must not contain "|"')
+    this.incarnation = `${this.replicaId}#${randomUUID().slice(0, 8)}`
     this.leaseMs = positiveMs(opts.leaseMs, DEFAULT_LEASE_MS, 'leaseMs')
     this.idleMs = positiveMs(opts.idleTtlMs, DEFAULT_IDLE_MS, 'idleTtlMs')
     this.maxPollMs = opts.maxPollMs ?? 100
@@ -163,7 +191,7 @@ export class RedisCoordinator implements Coordinator {
   async start(): Promise<void> {
     if (this.running) return
     if (this.ownsClient && this.client.isOpen !== true) await this.client.connect?.()
-    await this.run(HEARTBEAT_SCRIPT, [this.repKey(this.replicaId)], [this.leaseMs])
+    await this.run(HEARTBEAT_SCRIPT, [this.repKey(this.incarnation)], [this.leaseMs])
     this.lastRenewOk = performance.now()
     this.armDeadline()
     this.running = true
@@ -187,7 +215,12 @@ export class RedisCoordinator implements Coordinator {
       releases.push(this.releaseLead(l).catch(() => {}))
     }
     await Promise.all(releases)
-    await this.run(LEAVE_SCRIPT, [this.repKey(this.replicaId)], []).catch(() => {})
+    // Withdraw the tickets still reserved (and anything a failed release left behind).
+    const keys = new Set([...this.live.keys(), ...this.dirty])
+    this.live.clear()
+    this.dirty.clear()
+    await Promise.all([...keys].map((key) => this.sweep(key).catch(() => {})))
+    await this.run(LEAVE_SCRIPT, [this.repKey(this.incarnation)], []).catch(() => {})
     if (this.ownsClient) await this.client.quit?.().catch(() => {})
   }
 
@@ -211,10 +244,18 @@ export class RedisCoordinator implements Coordinator {
     this.assertRunning(key)
     const k = this.turnKeys(key)
     let seq: number
+    this.reserving.set(key, (this.reserving.get(key) ?? 0) + 1)
     try {
-      seq = Number(await this.run(RESERVE_SCRIPT, [k.seq, k.tix, k.serving, k.last], [this.replicaId]))
+      seq = Number(await this.run(RESERVE_SCRIPT, [k.seq, k.tix, k.serving, k.last], [this.incarnation]))
+      this.track(key, seq)
     } catch (error) {
+      // The server may have reserved it anyway (lost reply): the watchdog withdraws it.
+      this.dirty.add(key)
       throw new CoordinationUnavailableError(key, 'unavailable', { cause: error })
+    } finally {
+      const n = (this.reserving.get(key) ?? 1) - 1
+      if (n > 0) this.reserving.set(key, n)
+      else this.reserving.delete(key)
     }
     let cancelled = false
     return {
@@ -223,7 +264,13 @@ export class RedisCoordinator implements Coordinator {
       cancel: async () => {
         if (cancelled) return
         cancelled = true
-        await this.run(RELEASE_TURN_SCRIPT, [k.serving, k.owner, k.tix, k.last, k.seq], [seq, this.replicaId, this.idleMs])
+        this.untrack(key, seq)
+        try {
+          await this.run(RELEASE_TURN_SCRIPT, [k.serving, k.owner, k.tix, k.last, k.seq], [seq, this.incarnation, this.idleMs])
+        } catch (error) {
+          this.dirty.add(key)
+          throw error
+        }
       },
     }
   }
@@ -238,13 +285,13 @@ export class RedisCoordinator implements Coordinator {
       const sentAt = performance.now()
       let reply: [number, string]
       try {
-        reply = (await this.run(TURN_SCRIPT, [k.serving, k.owner, k.tix, k.last], [ticket.seq, this.replicaId, this.leaseMs, `${this.base}:rep:`])) as [number, string]
+        reply = (await this.run(TURN_SCRIPT, [k.serving, k.owner, k.tix, k.last], [ticket.seq, this.incarnation, this.leaseMs, `${this.base}:rep:`])) as [number, string]
       } catch (error) {
         throw new CoordinationUnavailableError(ticket.key, 'unavailable', { cause: error })
       }
       const status = Number(reply[0])
       if (status === 1) {
-        const value = `${ticket.seq}|${this.replicaId}`
+        const value = `${ticket.seq}|${this.incarnation}`
         const held: HeldTurn = { key: ticket.key, seq: ticket.seq, value, ownerKey: k.owner, ac: new AbortController() }
         if (!this.running) {
           await this.releaseTurn(held).catch(() => {})
@@ -253,9 +300,13 @@ export class RedisCoordinator implements Coordinator {
         this.turns.add(held)
         // A turn granted by a reply that took longer than the lease is already unsafe.
         if (performance.now() - sentAt > this.leaseMs * 0.9) this.drop(held, 'expired', true)
-        return this.turnOf(held, reply[1] ? String(reply[1]) : null)
+        const last = reply[1] ? String(reply[1]) : null
+        return this.turnOf(held, last === this.incarnation ? this.replicaId : last)
       }
-      if (status === -1) throw new LeaseLostError(ticket.key, ticket.seq, 'superseded')
+      if (status === -1) {
+        this.untrack(ticket.key, ticket.seq)
+        throw new LeaseLostError(ticket.key, ticket.seq, 'superseded')
+      }
       const now = performance.now()
       if (deadline !== undefined && now >= deadline) {
         await ticket.cancel().catch(() => {})
@@ -290,8 +341,49 @@ export class RedisCoordinator implements Coordinator {
   private async releaseTurn(held: HeldTurn): Promise<unknown> {
     if (held.released) return
     held.released = true
+    this.untrack(held.key, held.seq)
     const k = this.turnKeys(held.key)
-    return this.run(RELEASE_TURN_SCRIPT, [k.serving, k.owner, k.tix, k.last, k.seq], [held.seq, this.replicaId, this.idleMs])
+    try {
+      return await this.run(RELEASE_TURN_SCRIPT, [k.serving, k.owner, k.tix, k.last, k.seq], [held.seq, this.incarnation, this.idleMs])
+    } catch (error) {
+      // Not retried as such (it may have been applied): the watchdog sweeps the key instead.
+      this.dirty.add(held.key)
+      throw error
+    }
+  }
+
+  private track(key: string, seq: number): void {
+    let set = this.live.get(key)
+    if (!set) this.live.set(key, (set = new Set()))
+    set.add(seq)
+  }
+
+  private untrack(key: string, seq: number): void {
+    const set = this.live.get(key)
+    if (!set) return
+    set.delete(seq)
+    if (set.size === 0) this.live.delete(key)
+  }
+
+  /** Withdraw this incarnation's tickets on `key` that are no longer in use (see SWEEP_SCRIPT). */
+  private async sweep(key: string): Promise<void> {
+    const k = this.turnKeys(key)
+    const kept = [...(this.live.get(key) ?? [])]
+    await this.run(SWEEP_SCRIPT, [k.serving, k.owner, k.tix, k.last, k.seq], [this.incarnation, this.idleMs, ...kept])
+  }
+
+  /** Watchdog step: repair the keys where a release, cancel or reservation failed. */
+  private async sweepDirty(): Promise<void> {
+    for (const key of [...this.dirty]) {
+      if (this.reserving.has(key)) continue        // its reply would race the sweep: next round
+      this.dirty.delete(key)
+      try {
+        await this.sweep(key)
+      } catch (error) {
+        this.dirty.add(key)
+        this.logger?.warn?.({ err: error, key }, 'RedisCoordinator: ticket repair failed; retrying')
+      }
+    }
   }
 
   /* leadership ------------------------------------------------------------- */
@@ -312,7 +404,7 @@ export class RedisCoordinator implements Coordinator {
     const leadKey = this.leadKey(name)
     let term: number
     try {
-      term = Number(await this.run(LEAD_SCRIPT, [leadKey, `${leadKey}:term`], [this.replicaId, this.leaseMs]))
+      term = Number(await this.run(LEAD_SCRIPT, [leadKey, `${leadKey}:term`], [this.incarnation, this.leaseMs]))
     } catch (error) {
       throw new CoordinationUnavailableError(name, 'unavailable', { cause: error })
     }
@@ -322,7 +414,7 @@ export class RedisCoordinator implements Coordinator {
     }
     let held = [...this.leads].find((l) => l.name === name && l.term === term)
     if (!held) {
-      held = { name, term, value: `${term}|${this.replicaId}`, leadKey, ac: new AbortController() }
+      held = { name, term, value: `${term}|${this.incarnation}`, leadKey, ac: new AbortController() }
       this.leads.add(held)
       this.emit('leader', { name, fence: term })
     }
@@ -388,7 +480,7 @@ export class RedisCoordinator implements Coordinator {
       const turns = [...this.turns]
       const leads = [...this.leads]
       const results = await Promise.all([
-        this.run(HEARTBEAT_SCRIPT, [this.repKey(this.replicaId)], [this.leaseMs]),
+        this.run(HEARTBEAT_SCRIPT, [this.repKey(this.incarnation)], [this.leaseMs]),
         ...turns.map((t) => this.run(RENEW_SCRIPT, [t.ownerKey], [t.value, this.leaseMs])),
         ...leads.map((l) => this.run(RENEW_SCRIPT, [l.leadKey], [l.value, this.leaseMs])),
       ])
@@ -396,6 +488,7 @@ export class RedisCoordinator implements Coordinator {
       leads.forEach((l, i) => { if (Number(results[i + 1 + turns.length]) !== 1 && this.leads.has(l)) this.dropLead(l, 'expired', true) })
       this.lastRenewOk = sentAt
       if (this.running) this.armDeadline()
+      if (this.dirty.size > 0) await this.sweepDirty()
     } catch (error) {
       this.logger?.warn?.({ err: error }, 'RedisCoordinator: lease renewal failed')
     } finally {

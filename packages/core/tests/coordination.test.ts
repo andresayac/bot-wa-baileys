@@ -42,6 +42,11 @@ function tracked(inner: Coordinator) {
   return { coordinator: wrapped, reserved }
 }
 
+/** The bot scopes store keys: find the checkpoint of conversation key `key`. */
+async function checkpointOf(store: MemoryStore, key: string) {
+  return (await store.listCheckpoints()).find(([k]) => k === key || k.endsWith(`|${key}`))?.[1]
+}
+
 function replica(hub: MemoryCoordinationHub, store: MemoryStore, id: string, extra: Partial<BotConfig> = {}, providerOpts = {}) {
   const provider = new MockProvider(providerOpts)
   const coordinator = new MemoryCoordinator({ hub, replicaId: id })
@@ -94,6 +99,20 @@ describe('MemoryCoordinator (reference contract)', () => {
     expect(lost).toHaveBeenCalledWith(expect.objectContaining({ key: 'k', holder: 'a', reason: 'expired' }))
     const turn = await pb
     expect(turn.fence).toBe(tb.seq)
+    await turn.release()
+  })
+
+  it('after a failover the next turn names the dead holder, so a stale survivor refreshes', async () => {
+    const hub = new MemoryCoordinationHub()
+    const a = new MemoryCoordinator({ hub, replicaId: 'a' })
+    const b = new MemoryCoordinator({ hub, replicaId: 'b' })
+    await a.start(); await b.start()
+    await (await a.acquireTurn(await a.reserve('k'))).release()
+    await b.acquireTurn(await b.reserve('k'))         // b takes over and dies holding it
+    const ta = await a.reserve('k')
+    b.crash()
+    const turn = await a.acquireTurn(ta)
+    expect(turn.previousHolder).toBe('b')
     await turn.release()
   })
 
@@ -272,7 +291,7 @@ describe('Bot with coordination', () => {
     await vi.waitFor(() => expect(texts(b.provider)).toEqual(['email?']))   // no repeated 'name?'
     a.provider.incoming('ana@x.co', { from: 'c1' })     // and back: A's stale conversation is dropped
     await vi.waitFor(() => expect(texts(a.provider)).toEqual(['hi', 'name?', 'done Ana ana@x.co']))
-    expect(await store.getCheckpoint('c1')).toBeUndefined()
+    await vi.waitFor(async () => expect(await checkpointOf(store, 'c1')).toBeUndefined())
     await a.bot.stop(); await b.bot.stop()
   })
 
@@ -316,4 +335,214 @@ describe('Bot with coordination', () => {
       coordination: { coordinator: new MemoryCoordinator(), providerSession: 'x' as 'leader' },
     })).toThrow(/providerSession/)
   })
+})
+
+describe('coordination review fixes', () => {
+  function signup(r: ReturnType<typeof replica>) {
+    r.bot.use(flow('signup').persistent()
+      .say('hi')
+      .ask('name?', 'name')
+      .ask('email?', 'email')
+      .say((_ctx, c) => `done ${String(c.state.name)} ${String(c.state.email)}`))
+    return r
+  }
+
+  it("a stale replica's wait timeout neither messages the user nor clears the new owner's checkpoint", async () => {
+    const hub = new MemoryCoordinationHub()
+    const store = new MemoryStore()
+    const a = signup(replica(hub, store, 'a', { conversation: { timeout: 80 } }))
+    const b = signup(replica(hub, store, 'b'))
+    await a.bot.start(); await b.bot.start()
+    a.provider.incoming('signup', { from: 'c1' })
+    await vi.waitFor(() => expect(texts(a.provider)).toEqual(['hi', 'name?']))
+    b.provider.incoming('Ana', { from: 'c1' })
+    await vi.waitFor(() => expect(texts(b.provider)).toEqual(['email?']))
+    await sleep(200)                                          // A's stale wait timer has fired by now
+    expect(texts(a.provider)).toEqual(['hi', 'name?'])
+    expect(await checkpointOf(store, 'c1')).toMatchObject({ flowId: 'signup', step: 2 })
+    await a.bot.stop(); await b.bot.stop()
+  })
+
+  it('a handover never takes a message as the answer to a later wait of a multi-wait step', async () => {
+    const hub = new MemoryCoordinationHub()
+    const store = new MemoryStore()
+    const make = (id: string) => {
+      const r = replica(hub, store, id)
+      r.bot.use(flow('two').persistent()
+        .say('hi')
+        .do(async (_ctx, c) => {
+          c.state.a = await c.ask('q1?')
+          c.state.b = await c.ask('q2?')
+        })
+        .say((_ctx, c) => `done ${String(c.state.a)} ${String(c.state.b)}`))
+      return r
+    }
+    const a = make('a')
+    const b = make('b')
+    await a.bot.start(); await b.bot.start()
+    a.provider.incoming('two', { from: 'c1' })
+    await vi.waitFor(() => expect(texts(a.provider)).toEqual(['hi', 'q1?']))
+    a.provider.incoming('x', { from: 'c1' })
+    await vi.waitFor(() => expect(texts(a.provider)).toEqual(['hi', 'q1?', 'q2?']))
+    b.provider.incoming('y', { from: 'c1' })                 // meant for q2: the step restarts instead
+    await vi.waitFor(() => expect(texts(b.provider)).toEqual(['q1?']))
+    b.provider.incoming('x2', { from: 'c1' })
+    await vi.waitFor(() => expect(texts(b.provider)).toEqual(['q1?', 'q2?']))
+    b.provider.incoming('y2', { from: 'c1' })
+    await vi.waitFor(() => expect(texts(b.provider)).toEqual(['q1?', 'q2?', 'done x2 y2']))
+    await a.bot.stop(); await b.bot.stop()
+  })
+
+  it('the first wait of a step still takes the handed-over message as its answer', async () => {
+    const hub = new MemoryCoordinationHub()
+    const store = new MemoryStore()
+    const a = signup(replica(hub, store, 'a'))
+    const b = signup(replica(hub, store, 'b'))
+    await a.bot.start(); await b.bot.start()
+    a.provider.incoming('signup', { from: 'c1' })
+    await vi.waitFor(() => expect(texts(a.provider)).toEqual(['hi', 'name?']))
+    await vi.waitFor(async () => expect(await checkpointOf(store, 'c1')).toMatchObject({ step: 1, parked: true }))
+    b.provider.incoming('Ana', { from: 'c1' })
+    await vi.waitFor(() => expect(texts(b.provider)).toEqual(['email?']))
+    await a.bot.stop(); await b.bot.stop()
+  })
+
+  it('a step that outlives settleMs is suspended before the turn is released, so it never runs alongside another replica', async () => {
+    const hub = new MemoryCoordinationHub()
+    const provider = new MockProvider()
+    const coordinator = new MemoryCoordinator({ hub, replicaId: 'a' })
+    const bot = new Bot({ provider, store: new MemoryStore(), coordination: { coordinator, settleMs: 30 } })
+    const order: string[] = []
+    bot.use(flow('slow').ask('name?', 'name').do(async (_ctx, c) => {
+      order.push('step-start')
+      await sleep(150)
+      order.push('step-end')
+      await c.say('late')
+    }))
+    await bot.start()
+    const probe = new MemoryCoordinator({ hub, replicaId: 'probe' })
+    await probe.start()
+    provider.incoming('slow', { from: 'c1' })
+    await vi.waitFor(() => expect(texts(provider)).toEqual(['name?']))
+    provider.incoming('Ana', { from: 'c1' })
+    await vi.waitFor(() => expect(order).toContain('step-start'))
+    const turn = await probe.acquireTurn(await probe.reserve('c1'))
+    order.push('probe')
+    await sleep(200)
+    await turn.release()
+    expect(texts(provider)).toEqual(['name?'])               // the suspended step sent nothing
+    await bot.stop(); await probe.stop()
+  })
+
+  it('holds the turn across a c.goto() until the target settles', async () => {
+    const hub = new MemoryCoordinationHub()
+    const a = replica(hub, new MemoryStore(), 'a')
+    const order: string[] = []
+    a.bot.use(flow('two').do(async () => {
+      order.push('two-start')
+      await sleep(40)
+      order.push('two-end')
+    }).ask('x?', 'x'))
+    a.bot.use(flow('one').ask('name?', 'name').do(async (_ctx, c) => { await sleep(10); c.goto('two') }))
+    await a.bot.start()
+    const probe = new MemoryCoordinator({ hub, replicaId: 'probe' })
+    await probe.start()
+    a.provider.incoming('one', { from: 'c1' })
+    await vi.waitFor(() => expect(texts(a.provider)).toEqual(['name?']))
+    a.provider.incoming('Ana', { from: 'c1' })
+    await vi.waitFor(() => expect(order).toContain('two-start'))
+    const turn = await probe.acquireTurn(await probe.reserve('c1'))
+    order.push('probe')
+    await turn.release()
+    expect(order).toEqual(['two-start', 'two-end', 'probe'])
+    await a.bot.stop(); await probe.stop()
+  })
+
+  it('fences ctx.stream() edits after the chat turn was lost', async () => {
+    const hub = new MemoryCoordinationHub()
+    const r = replica(hub, new MemoryStore(), 'a', {}, { streaming: 'edit' })
+    let crashNow!: () => void
+    const reached = new Promise<void>((resolve) => { crashNow = resolve })
+    let done = false
+    async function* source() {
+      yield 'before'
+      await sleep(10)
+      crashNow()
+      await sleep(20)
+      yield ' after'
+      await sleep(5)
+      yield ' end'
+    }
+    r.bot.onMessage(async (ctx) => {
+      try { await ctx.stream(source(), { throttleMs: 0 }) } catch { /* the stream may reject */ }
+      done = true
+    })
+    await r.bot.start()
+    r.provider.incoming('hi', { from: 'c1' })
+    await reached
+    r.coordinator.crash()
+    await vi.waitFor(() => expect(done).toBe(true))
+    const shown = r.provider.edits.map((e) => (e.content.kind === 'text' ? e.content.text : ''))
+    expect(shown.some((t) => t.includes('after'))).toBe(false)
+    await r.bot.stop()
+  })
+
+  it('a leader whose transport stays closed steps down so a standby takes over', async () => {
+    const hub = new MemoryCoordinationHub()
+    const store = new MemoryStore()
+    const mk = (id: string) => {
+      const provider = new MockProvider({ exclusiveSession: true })
+      const coordinator = new MemoryCoordinator({ hub, replicaId: id })
+      return { provider, bot: new Bot({ provider, store, coordination: { coordinator, providerDownMs: 50 } }) }
+    }
+    const a = mk('a')
+    const b = mk('b')
+    await a.bot.start()
+    await vi.waitFor(() => expect(a.provider.starts).toBe(1))
+    await b.bot.start()
+    const emit = (a.provider as unknown as { emitEvent(e: unknown): void }).emitEvent.bind(a.provider)
+    emit({ kind: 'connection', update: { state: 'closed', reason: 'sessionTakenOver' } })
+    await vi.waitFor(() => expect(b.provider.starts).toBe(1))
+    expect(a.provider.stops).toBe(1)
+    await a.bot.stop(); await b.bot.stop()
+  })
+
+  it('a transport that reconnects within providerDownMs keeps its leadership', async () => {
+    const provider = new MockProvider({ exclusiveSession: true })
+    const bot = new Bot({ provider, coordination: { coordinator: new MemoryCoordinator(), providerDownMs: 80 } })
+    await bot.start()
+    await vi.waitFor(() => expect(provider.starts).toBe(1))
+    const emit = (provider as unknown as { emitEvent(e: unknown): void }).emitEvent.bind(provider)
+    emit({ kind: 'connection', update: { state: 'closed', reason: 'transient' } })
+    await sleep(20)
+    emit({ kind: 'connection', update: { state: 'connecting' } })
+    await sleep(150)
+    expect(provider.stops).toBe(0)
+    await bot.stop()
+  })
+
+  it('reports a failing leadership campaign once per outage, not on every retry', async () => {
+    const inner = new MemoryCoordinator({ replicaId: 'a' })
+    let down = true
+    const coordinator: Coordinator = {
+      replicaId: inner.replicaId,
+      start: () => inner.start(),
+      stop: () => inner.stop(),
+      reserve: (k) => inner.reserve(k),
+      acquireTurn: (t, o) => inner.acquireTurn(t, o),
+      tryLead: (n) => inner.tryLead(n),
+      on: (e, l) => inner.on(e, l),
+      lead: (n, o) => (down ? Promise.reject(new Error('backend down')) : inner.lead(n, o)),
+    }
+    const provider = new MockProvider({ exclusiveSession: true })
+    const bot = new Bot({ provider, coordination: { coordinator } })
+    const errors: unknown[] = []
+    bot.on('error', ({ error }) => errors.push(error))
+    await bot.start()
+    await sleep(2_300)
+    expect(errors).toHaveLength(1)
+    down = false
+    await vi.waitFor(() => expect(provider.starts).toBe(1), { timeout: 3_000 })
+    await bot.stop()
+  }, 10_000)
 })

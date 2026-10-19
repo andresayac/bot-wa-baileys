@@ -6,6 +6,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { Bot, CoordinationUnavailableError, LeaseLostError, MemoryStore } from '@bot-wa/core'
 import { MockProvider } from '@bot-wa/core/testing'
 import { RedisCoordinator, RedisStore } from '../src/index.js'
+import { RELEASE_TURN_SCRIPT, RESERVE_SCRIPT } from '../src/coordScripts.js'
 import { FakeRedisClient } from './fakeRedis.js'
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
@@ -32,7 +33,8 @@ describe('RedisCoordinator (fake Redis)', () => {
     await turn1.release()
     const turn2 = await p2
     expect(turn2.fence).toBe(2)
-    expect(turn2.previousHolder).toBe('a')
+    expect(turn2.previousHolder).toBe(a.incarnation)
+    expect(a.incarnation).toMatch(/^a#/)
     await turn2.release()
     await a.stop(); await b.stop()
   })
@@ -45,7 +47,7 @@ describe('RedisCoordinator (fake Redis)', () => {
     await a.reserve('chat')                          // queued ticket of the replica about to die
     const tb = await b.reserve('chat')
     a.simulateCrash()
-    fake.coord.expireNow('botwa:co:rep:a')
+    fake.coord.expireNow(`botwa:co:rep:${a.incarnation}`)
     fake.coord.expireNow('botwa:co:t:chat:owner')
     const turn = await b.acquireTurn(tb, { maxWaitMs: 1000 })
     expect(turn.fence).toBe(3)
@@ -59,7 +61,7 @@ describe('RedisCoordinator (fake Redis)', () => {
     const first = await b.acquireTurn(await b.reserve('chat'))
     const ta = await a.reserve('chat')
     const tb = await b.reserve('chat')
-    fake.coord.expireNow('botwa:co:rep:a')          // a paused: heartbeat lapsed
+    fake.coord.expireNow(`botwa:co:rep:${a.incarnation}`)   // a paused: heartbeat lapsed
     await first.release()
     const turn = await b.acquireTurn(tb)            // a's ticket skipped
     await turn.release()
@@ -137,8 +139,108 @@ describe('RedisCoordinator (fake Redis)', () => {
     await a.tryLead('job')
     const tb = await b.reserve('chat')
     await a.stop()
-    expect((await b.acquireTurn(tb, { maxWaitMs: 200 })).previousHolder).toBe('a')
+    expect((await b.acquireTurn(tb, { maxWaitMs: 200 })).previousHolder).toBe(a.incarnation)
     expect(await b.tryLead('job')).not.toBeNull()
+    await b.stop()
+  })
+
+  it('after a failover the next turn names the dead holder, so a stale survivor refreshes', async () => {
+    const { fake, a, b } = pair()
+    await a.start(); await b.start()
+    await (await a.acquireTurn(await a.reserve('chat'))).release()        // last = a
+    await b.acquireTurn(await b.reserve('chat'))                           // b takes over, then dies holding it
+    const ta = await a.reserve('chat')
+    b.simulateCrash()
+    fake.coord.expireNow(`botwa:co:rep:${b.incarnation}`)
+    fake.coord.expireNow('botwa:co:t:chat:owner')
+    const turn = await a.acquireTurn(ta, { maxWaitMs: 1000 })
+    expect(turn.previousHolder).toBe(b.incarnation)                        // not a: a's state is stale
+    expect(turn.previousHolder).not.toBe(a.replicaId)
+    await turn.release()
+    await a.stop()
+  })
+
+  /** A client whose next EVAL of `script` fails; `apply` decides whether the server ran it first (lost reply). */
+  function failing(fake: FakeRedisClient) {
+    const plan: Array<{ match: (s: string) => boolean; apply: boolean }> = []
+    const client = {
+      eval: async (s: string, o?: { keys?: string[]; arguments?: string[] }) => {
+        const i = plan.findIndex((p) => p.match(s))
+        if (i < 0) return fake.eval(s, o)
+        const [p] = plan.splice(i, 1)
+        if (p!.apply) await fake.eval(s, o)
+        throw new Error('ECONNRESET')
+      },
+    }
+    return { client, failNext: (script: string, apply = false) => plan.push({ match: (s) => s === script, apply }) }
+  }
+
+  it('repairs a failed turn release: the next ticket is not stalled while the holder lives', async () => {
+    const fake = new FakeRedisClient()
+    const f = failing(fake)
+    const a = new RedisCoordinator({ client: f.client, replicaId: 'a', leaseMs: 90 })
+    const b = new RedisCoordinator({ client: fake, replicaId: 'b', leaseMs: 90 })
+    await a.start(); await b.start()
+    const turn = await a.acquireTurn(await a.reserve('chat'))
+    const tb = await b.reserve('chat')
+    f.failNext(RELEASE_TURN_SCRIPT)
+    await expect(turn.release()).rejects.toThrow('ECONNRESET')
+    const next = await b.acquireTurn(tb, { maxWaitMs: 1000 })
+    expect(next.previousHolder).toBeNull()                                  // unknown: refresh
+    await next.release()
+    await a.stop(); await b.stop()
+  })
+
+  it('repairs a failed ticket cancel and a reservation whose reply was lost', async () => {
+    const fake = new FakeRedisClient()
+    const f = failing(fake)
+    const a = new RedisCoordinator({ client: f.client, replicaId: 'a', leaseMs: 90 })
+    const b = new RedisCoordinator({ client: fake, replicaId: 'b', leaseMs: 90 })
+    await a.start(); await b.start()
+    const ta = await a.reserve('chat')
+    f.failNext(RELEASE_TURN_SCRIPT)
+    await expect(ta.cancel()).rejects.toThrow('ECONNRESET')
+    f.failNext(RESERVE_SCRIPT, true)                                       // applied on the server, reply lost
+    await expect(a.reserve('chat')).rejects.toBeInstanceOf(CoordinationUnavailableError)
+    const tb = await b.reserve('chat')
+    const turn = await b.acquireTurn(tb, { maxWaitMs: 1000 })
+    expect(turn.fence).toBe(3)
+    await turn.release()
+    // a's own later tickets are not stuck behind its orphans either
+    const again = await a.acquireTurn(await a.reserve('chat'), { maxWaitMs: 1000 })
+    await again.release()
+    await a.stop(); await b.stop()
+  })
+
+  it('a restarted replica reusing its replicaId does not revive the dead incarnation\'s tickets', async () => {
+    const fake = new FakeRedisClient()
+    const old = new RedisCoordinator({ client: fake, replicaId: 'pod-0', leaseMs: 10_000 })
+    await old.start()
+    await old.acquireTurn(await old.reserve('chat'))
+    await old.reserve('chat')
+    old.simulateCrash()
+    fake.coord.expireNow(`botwa:co:rep:${old.incarnation}`)
+    fake.coord.expireNow('botwa:co:t:chat:owner')
+    const fresh = new RedisCoordinator({ client: fake, replicaId: 'pod-0', leaseMs: 10_000 })
+    await fresh.start()
+    expect(fresh.incarnation).not.toBe(old.incarnation)
+    const turn = await fresh.acquireTurn(await fresh.reserve('chat'), { maxWaitMs: 500 })
+    expect(turn.fence).toBe(3)
+    expect(turn.previousHolder).toBe(old.incarnation)                      // a different incarnation: refresh
+    await turn.release()
+    await fresh.stop()
+  })
+
+  it('stop() withdraws the tickets it reserved but was not granted', async () => {
+    const { fake, a, b } = pair()
+    await a.start(); await b.start()
+    const held = await b.acquireTurn(await b.reserve('chat'))
+    await a.reserve('chat')
+    await a.reserve('chat')
+    await a.stop()
+    const left = [...(fake.coord.hashes.get('botwa:co:t:chat:tix')?.values() ?? [])]
+    expect(left.filter((h) => h === a.incarnation)).toEqual([])
+    await held.release()
     await b.stop()
   })
 
@@ -186,9 +288,9 @@ describe('RedisCoordinator (fake Redis)', () => {
     await coord.start()
     await coord.reserve('c')
     expect(fake.coord.get('shop:co:t:c:seq')).toBe('1')
-    expect(fake.coord.exists('shop:co:rep:r1')).toBe(true)
+    expect(fake.coord.exists(`shop:co:rep:${coord.incarnation}`)).toBe(true)
     await coord.stop()
-    expect(fake.coord.exists('shop:co:rep:r1')).toBe(false)
+    expect(fake.coord.exists(`shop:co:rep:${coord.incarnation}`)).toBe(false)
   })
 })
 

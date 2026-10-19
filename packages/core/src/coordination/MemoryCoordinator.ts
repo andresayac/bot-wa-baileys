@@ -225,7 +225,11 @@ export class MemoryCoordinator implements Coordinator {
     if (!this.running) throw new CoordinationUnavailableError(key, 'unavailable', { cause: new Error('coordinator not started') })
   }
 
-  /** Advance `serving` past tickets that were cancelled or belong to replicas that died. */
+  /**
+   * Advance `serving` past tickets that were cancelled or belong to replicas that died.
+   * A dead replica's skipped ticket becomes `last`: it may have held the turn and changed
+   * the key's state, so the next holder must refresh.
+   */
   private skipDead(s: KeyState): void {
     while (s.serving <= s.seq) {
       const holder = s.tickets.get(s.serving)
@@ -234,6 +238,7 @@ export class MemoryCoordinator implements Coordinator {
         if (this.hub.alive.has(s.owner.replica)) return
         s.owner = undefined
       }
+      if (holder !== undefined) s.last = holder
       s.tickets.delete(s.serving)
       s.serving++
     }

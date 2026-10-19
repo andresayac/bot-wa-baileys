@@ -68,7 +68,7 @@ import { ExternalSendClock, createPacer, isEditableSend, messagingSupport, norma
 import type { BuildContextDeps } from './provider.js'
 import { createInboundDeduper, type InboundDeduper } from './dedupe.js'
 import { ConversationRuntime, type CheckpointStore, type ConversationFn } from '../conversations/ConversationRuntime.js'
-import type { ConversationSnapshot } from '../conversations/ConversationRuntime.js'
+import type { ConversationSnapshot, RuntimeMessage } from '../conversations/ConversationRuntime.js'
 import { createControls, type ConversationControls } from '../conversations/controls.js'
 import type { ConversationHandler } from '../conversations/handler.js'
 import { ChatIdleWatchers, type IdleHandler } from './idle.js'
@@ -354,6 +354,16 @@ export class Bot extends EventEmitter {
         if (goto !== undefined) event.goto = goto
         this.emitSafely('conversation:ended', event)
       },
+      // Multi-replica: timers of a conversation act only under the chat's turn (a stale
+      // replica's timer refreshes instead of messaging the user or clearing the checkpoint).
+      ...(config.coordination
+        ? {
+            trackParked: true,
+            timerGate: (_key: string, ctx: RuntimeMessage, fire: () => unknown) => {
+              void this.dispatcher.runExclusive(ctx, async () => { await fire() }).catch(() => {})
+            },
+          }
+        : {}),
     })
     if (typeof (this.store as Partial<CheckpointStore>).setCheckpoint === 'function') {
       this.runtime.attachStore(this.store as CheckpointStore)
@@ -610,7 +620,7 @@ export class Bot extends EventEmitter {
     if (!proceed) {
       return { ref: { id: 'skipped', chatId: payload.chatId }, skipped: true }
     }
-    this.coordination?.assertSend(this.dispatcher.currentKey())
+    this.assertCoordinated()
     const localRef = { id: randomId('out'), chatId: payload.chatId }
     const op = this.provider.send(payload.chatId, payload.content, payload.options)
     this.inflightSends.add(op)
@@ -658,7 +668,7 @@ export class Bot extends EventEmitter {
     }
     const proceed = await this.hooks.runBefore('send', payload as typeof payload & { abort(): void })
     if (!proceed) return { ref, skipped: true }
-    this.coordination?.assertSend(this.dispatcher.currentKey())
+    this.assertCoordinated()
     const op = this.provider.editMessage!(ref, payload.content)
     this.inflightSends.add(op)
     try {
@@ -1592,6 +1602,7 @@ export class Bot extends EventEmitter {
       case 'connection': {
         const u = event.update
         this.connState = u.state
+        this.coordination?.onConnection(u.state)
         this.emit('connection', u)
         if (typeof u.authPayload === 'string') this.emit('qr', u.authPayload)
         if (u.state === 'ready') this.emit('ready')
@@ -1712,6 +1723,7 @@ export class Bot extends EventEmitter {
    */
   private async indicateTyping(chatId: ChatId, state: 'typing' | 'recording' | 'paused'): Promise<void> {
     try {
+      this.assertCoordinated()
       await this.provider.typing?.(chatId, state)
     } catch (error) {
       this.logger.debug({ chatId, state, err: error instanceof Error ? error.message : String(error) }, 'typing indicator failed (ignored)')
@@ -1721,8 +1733,8 @@ export class Bot extends EventEmitter {
   /** `false` only when the message was dropped unprocessed because the bot stopped. */
   private async processMessage(inbound: InboundMessage, interaction?: { id: string; data: string; respondBy?: number }): Promise<boolean> {
     const ctx = this.contextFor(inbound, {
-      markRead: async (ref) => { await this.provider.markRead?.([ref]) },
-      deleteMessage: async (ref) => { await this.provider.deleteMessage?.(ref) },
+      markRead: async (ref) => { this.assertCoordinated(); await this.provider.markRead?.([ref]) },
+      deleteMessage: async (ref) => { this.assertCoordinated(); await this.provider.deleteMessage?.(ref) },
       downloadMedia: this.provider.downloadMedia ? (ref) => this.provider.downloadMedia!(ref) : undefined,
       acknowledgeInteraction: this.provider.acknowledgeInteraction
         ? (id, text) => this.provider.acknowledgeInteraction!(id, { text })
@@ -1816,8 +1828,19 @@ export class Bot extends EventEmitter {
     }
   }
 
+  /**
+   * Multi-replica fence for anything that reaches the transport (sends, edits, stream
+   * previews, deletes, read receipts, typing): throws when this replica's turn on the chat
+   * being worked on was lost, or it does not hold the provider session. No-op without
+   * `coordination`.
+   */
+  private assertCoordinated(): void {
+    this.coordination?.assertSend(this.dispatcher.currentKey())
+  }
+
   /** A discarded `ctx.stream()` message: gone from the chat and from the message log. */
   private async deleteStreamMessage(ref: MessageRef): Promise<void> {
+    this.assertCoordinated()
     await this.provider.deleteMessage!(ref)
     try {
       await this.store.deleteMessage(ref)
@@ -1837,6 +1860,7 @@ export class Bot extends EventEmitter {
   private async dispatchStreamEdit(ref: MessageRef, content: OutboundContent): Promise<unknown> {
     const final = await this.runStreamSendHooks(ref.chatId, content, 'edit')
     if (!final) return undefined
+    this.assertCoordinated()
     const res = await this.provider.editMessage!(ref, final)
     await this.messageLog.streamEdit(ref, final)
     return res
@@ -1846,6 +1870,7 @@ export class Bot extends EventEmitter {
   private async dispatchStreamDraft(chatId: ChatId, draftId: number, text: string, opts?: DraftOptions): Promise<void> {
     const final = await this.runStreamSendHooks(chatId, { kind: 'text', text }, 'draft')
     if (!final || final.kind !== 'text') return
+    this.assertCoordinated()
     await this.provider.sendDraft!(chatId, draftId, final.text, opts)
   }
 

@@ -161,10 +161,19 @@ export interface CoordinationConfig {
   turnWaitMs?: string | number
   /**
    * Longest the chat's turn stays held after the handler returned, waiting for a
-   * conversation step it fed (an answered `c.ask`) to reach its next wait or end, so
-   * no other replica processes the chat meanwhile. Default `'1m'`.
+   * conversation step it fed (an answered `c.ask`, a `c.goto()` target) to reach its next
+   * wait or end, so no other replica processes the chat meanwhile. A step still running
+   * then (a slow `.do()`, a long `c.sleep` or delay) is stopped, keeping its checkpoint,
+   * before the turn is released: a persistent flow re-runs that step on the chat's next
+   * message. Set it above your longest step. Default `'1m'`.
    */
   settleMs?: string | number
+  /**
+   * With `providerSession: 'leader'`: how long the leader's transport may stay
+   * `'closed'` (logged out, session taken over, reconnect given up) before the replica
+   * steps down so a standby connects instead. Default `'1m'`.
+   */
+  providerDownMs?: string | number
   /**
    * Who connects the transport:
    * - `'leader'` — only the replica holding the `provider:<id>` leadership starts the

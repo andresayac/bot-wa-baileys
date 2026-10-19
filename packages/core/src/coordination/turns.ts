@@ -6,7 +6,9 @@
  * and returns a runner the Dispatcher calls when the job's local turn comes. The runner
  * waits for the cross-replica turn, refreshes stale local state when another replica
  * held the key last, runs the job, keeps the turn until the conversation it fed has
- * settled, and releases it.
+ * settled, and releases it. A conversation still running a step after `settleMs` is
+ * suspended (checkpoint kept) and fenced before the turn is released, so it can never
+ * run alongside the replica that takes the chat next.
  */
 import {
   CoordinationUnavailableError,
@@ -20,7 +22,7 @@ export interface ChatTurnGateDeps {
   coordinator: Coordinator
   /** Max wait for a turn (ms). */
   turnWaitMs: number
-  /** Max time a turn stays held after the job, waiting for {@link settle}. */
+  /** Max time a turn stays held after the job, waiting for {@link settle}; then {@link expire} runs. */
   settleMs: number
   /**
    * Another replica held `key` last: drop local in-memory state for it (an active
@@ -31,6 +33,11 @@ export interface ChatTurnGateDeps {
   lost: (key: string, error: LeaseLostError) => void
   /** Resolves when the key's conversation (if any) is waiting for input or has ended. */
   settle: (key: string) => Promise<void>
+  /**
+   * The key's conversation did not settle within `settleMs`: stop it (checkpoint kept, so
+   * the next message resumes it from its last completed step) before the turn is released.
+   */
+  expire: (key: string) => Promise<void>
 }
 
 /** A scheduled job's runner: rejects (job not run) when the turn could not be had. */
@@ -84,7 +91,11 @@ export class ChatTurnGate {
         if (turn.previousHolder !== coordinator.replicaId) await this.deps.refresh(key)
         turn.assertHeld()
         await job()
-        await this.settled(key, turn)
+        if (await this.settled(key, turn) === 'timeout') {
+          // Anything the cut-short step still tries to send is refused from now on.
+          this.lostKeys.set(key, new LeaseLostError(key, turn.fence, 'expired'))
+          await this.deps.expire(key)
+        }
       } finally {
         turn.signal.removeEventListener('abort', onLost)
         if (this.held.get(key) === turn) this.held.delete(key)
@@ -104,14 +115,15 @@ export class ChatTurnGate {
     this.held.get(key)?.assertHeld()
   }
 
-  private async settled(key: string, turn: ChatTurn): Promise<void> {
+  private async settled(key: string, turn: ChatTurn): Promise<'settled' | 'timeout' | 'lost'> {
     let timer: ReturnType<typeof setTimeout> | undefined
     let onAbort: (() => void) | undefined
+    if (turn.signal.aborted) return 'lost'
     try {
-      await Promise.race([
-        this.deps.settle(key),
-        new Promise<void>((resolve) => { timer = setTimeout(resolve, this.deps.settleMs) }),
-        new Promise<void>((resolve) => { onAbort = resolve; turn.signal.addEventListener('abort', onAbort, { once: true }) }),
+      return await Promise.race([
+        this.deps.settle(key).then(() => 'settled' as const),
+        new Promise<'timeout'>((resolve) => { timer = setTimeout(() => resolve('timeout'), this.deps.settleMs) }),
+        new Promise<'lost'>((resolve) => { onAbort = () => resolve('lost'); turn.signal.addEventListener('abort', onAbort, { once: true }) }),
       ])
     } finally {
       if (timer) clearTimeout(timer)

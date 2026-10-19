@@ -79,6 +79,7 @@ export function validateConfig<T extends Partial<BotConfig>>(config: T): T {
     }
     assertStringOrNumber('coordination.turnWaitMs', c.turnWaitMs)
     assertStringOrNumber('coordination.settleMs', c.settleMs)
+    assertStringOrNumber('coordination.providerDownMs', c.providerDownMs)
     if (c.providerSession !== undefined && !['leader', 'shared', 'auto'].includes(c.providerSession as string)) {
       throw new ConfigValidationError('coordination.providerSession', "'leader' | 'shared' | 'auto'", c.providerSession)
     }

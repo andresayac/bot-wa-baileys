@@ -36,6 +36,7 @@ const bot = new Bot({
     // turnWaitMs: '2m',        // longest a message waits for its chat's turn
     // settleMs: '1m',          // longest a turn stays held for a running conversation step
     // providerSession: 'auto', // 'leader' | 'shared' | 'auto'
+    // providerDownMs: '1m',    // a leader whose transport stays closed this long steps down
   },
 })
 await bot.start()
@@ -43,7 +44,10 @@ await bot.start()
 
 Every replica runs the same code. Give each one the same `prefix`; the
 replica id is a random UUID per process unless you pass `replicaId` (it must
-be unique among the running replicas). With your own Redis connection use
+be unique among the running replicas; a pod or host name is fine). Each
+coordinator instance adds its own nonce in Redis (`coordinator.incarnation`),
+so a replica restarted with the same `replicaId` never inherits the tickets
+of the process that died. With your own Redis connection use
 `new RedisCoordinator({ url, prefix })` instead of `store.coordinator()`.
 
 ## What you get
@@ -57,14 +61,26 @@ even when a load balancer spreads them over replicas. Different chats run in
 parallel. In groups the key is per participant, like the conversation scope.
 
 A turn is held until the handler returns **and** the conversation it fed is
-waiting again (or has ended), so another replica never sees a flow halfway
-through a step (bounded by `settleMs`).
+waiting again (or has ended), also across a `c.goto()`, so another replica
+never sees a flow halfway through a step. `settleMs` bounds that wait: a step
+still running then (a slow `.do()`, a long `c.sleep` or delay) is stopped,
+keeping its checkpoint, before the turn is released, so it never runs
+alongside the replica that takes the chat next. Keep `settleMs` above your
+longest step.
+
+A conversation's own timers (its wait timeout, `c.idle()`) also act only
+under the chat's turn. If another replica handled the chat meanwhile, the
+stale copy is dropped instead of messaging the user or clearing the new
+owner's checkpoint.
 
 **Conversations move between replicas through the store.** If the next
 message of a `.persistent()` flow reaches another replica, that replica reads
-the checkpoint from the store and continues: the message is taken as the
-answer to the pending question (it is not asked again). The replica that had
-the flow in memory drops its copy the next time it gets that chat.
+the checkpoint from the store and continues. When the flow was parked on the
+first question of its step, the message is taken as that answer (it is not
+asked again). Otherwise (a `.do()` step parked on a later question, or a
+replica that died before asking) the step runs again from its start, asking
+its first question. The replica that had the flow in memory drops its copy
+the next time it gets that chat (or when one of its timers fires).
 
 **One connection for exclusive transports.** With `providerSession: 'auto'`
 (the default) a provider that declares `capabilities.exclusiveSession` is
@@ -79,6 +95,10 @@ and one of them takes over when the leader stops or dies.
 | `@bot-wa/discord` | `true` | 1 gateway + standbys |
 | `@bot-wa/meta`, Messenger, Instagram, other webhook providers | unset (`false`) | all receive |
 
+If the leader's transport stays `'closed'` for `providerDownMs` (logged out,
+session taken over, reconnect given up), the replica steps down, waits a few
+seconds and campaigns again, so a standby can connect meanwhile.
+
 Force it with `providerSession: 'leader'` or `'shared'`. On a standby,
 `bot.ready` stays pending (the transport is not connected) and `bot.send()`
 rejects with `ProviderNotLeaderError`.
@@ -91,7 +111,9 @@ event loop, lost network) for most of `leaseMs`, it gives its leases up
 **before** they can expire in Redis: a send it attempts afterwards rejects
 with `LeaseLostError` instead of answering out of order, and its in-memory
 conversation for that chat is dropped (the checkpoint stays for the new
-owner).
+owner). A release that fails on the wire (a Redis blip) is repaired by the
+watchdog within `leaseMs / 3`, so the chat does not stall behind a live
+replica.
 
 ## Requirements and limits
 
@@ -109,8 +131,8 @@ owner).
   single process that crashes). Durable inbound processing is planned work.
 - **Scheduled jobs (`bot.schedule/every`) run on every replica.** Use a
   leader-only job with `coordinator.tryLead(name)` or the fenced lock below.
-- **Timers of a stale in-memory conversation** (its wait timeout) can still
-  fire on the replica that lost the chat until it next handles that chat.
+- **A conversation step longer than `settleMs` is cut short** (see above):
+  raise `settleMs` for long `.do()` work or delays.
 - **Redis**: one primary (standalone or Sentinel). A failover that loses the
   last writes can grant a lease twice. Redis Cluster is not supported.
 

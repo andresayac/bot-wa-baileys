@@ -4,13 +4,17 @@
  * server, and every expiry is a server-side `PX`, so replica clocks never matter.
  *
  * Key layout (`base` = `{prefix}:co`):
- *   {base}:rep:{replicaId}       heartbeat, PX leaseMs (a replica is alive while it exists)
+ *   {base}:rep:{holder}          heartbeat, PX leaseMs (a replica is alive while it exists)
  *   {base}:t:{key}:seq           INCR counter: ticket numbers of the key
- *   {base}:t:{key}:tix           HASH seq → replicaId: reserved, not yet released tickets
+ *   {base}:t:{key}:tix           HASH seq → holder: reserved, not yet released tickets
  *   {base}:t:{key}:serving       the ticket allowed to run next
- *   {base}:t:{key}:owner         "{seq}|{replicaId}" PX leaseMs: the granted turn
- *   {base}:t:{key}:last          replica that released the previous turn
- *   {base}:lead:{name}           "{term}|{replicaId}" PX leaseMs: the leadership
+ *   {base}:t:{key}:owner         "{seq}|{holder}" PX leaseMs: the granted turn
+ *   {base}:t:{key}:last          holder of the previous turn (absent: unknown)
+ *   {base}:lead:{name}           "{term}|{holder}" PX leaseMs: the leadership
+ *
+ * `holder` is the replica's incarnation id (`{replicaId}#{nonce}`, new per coordinator
+ * instance), so a restarted process reusing a fixed replicaId never revives the tickets,
+ * turns or heartbeat of the incarnation that died.
  *   {base}:lead:{name}:term      INCR counter: leadership terms (fencing tokens)
  */
 
@@ -43,7 +47,8 @@ return s
  * Try to take a ticket's turn. KEYS = serving, owner, tix, last;
  * ARGV = seq, replicaId, leaseMs, heartbeat key prefix ({base}:rep:).
  * Skips tickets that were withdrawn or whose replica is dead (no heartbeat and no live
- * turn). Returns {1, lastHolder} when granted, {0, ''} when an earlier live ticket goes
+ * turn); a dead replica's skipped ticket becomes `last`, because it may have held the
+ * turn and changed the key's state, so the next holder must refresh. Returns {1, lastHolder} when granted, {0, ''} when an earlier live ticket goes
  * first, {-1, ''} when this ticket was skipped (superseded) or the state is gone.
  */
 export const TURN_SCRIPT = `
@@ -66,6 +71,7 @@ for i = 1, 1000 do
     if redis.call('exists', ARGV[4] .. h) == 1 then return {0, ''} end
     if redis.call('get', KEYS[2]) == (tostring(cur) .. '|' .. h) then return {0, ''} end
     redis.call('hdel', KEYS[3], tostring(cur))
+    redis.call('set', KEYS[4], h)
   end
   redis.call('incr', KEYS[1])
 end
@@ -110,6 +116,36 @@ if ours then
   return 2
 end
 return 0
+`
+
+/**
+ * Withdraw every ticket of this holder on a key except the ones it still tracks: repairs
+ * a release, cancel or reservation whose reply was lost (the server may have applied it
+ * or not). KEYS = serving, owner, tix, last, seq; ARGV = holder, idleMs, ...kept seqs.
+ * A swept turn is freed and, when the swept ticket was the one being served (it may have
+ * been granted), `last` is dropped: unknown, so the next holder refreshes.
+ * Returns the number of tickets withdrawn.
+ */
+export const SWEEP_SCRIPT = `
+local keep = {}
+for i = 3, #ARGV do keep[ARGV[i]] = true end
+local all = redis.call('hgetall', KEYS[3])
+local n = 0
+for i = 1, #all, 2 do
+  local seq = all[i]
+  if all[i + 1] == ARGV[1] and not keep[seq] then
+    redis.call('hdel', KEYS[3], seq)
+    if redis.call('get', KEYS[2]) == (seq .. '|' .. ARGV[1]) then redis.call('del', KEYS[2]) end
+    -- The served ticket may have been granted (its release lost): the key's last holder is unknown.
+    if tonumber(redis.call('get', KEYS[1])) == tonumber(seq) then redis.call('del', KEYS[4]) end
+    n = n + 1
+  end
+end
+if n > 0 and redis.call('hlen', KEYS[3]) == 0 then
+  redis.call('pexpire', KEYS[1], ARGV[2])
+  redis.call('pexpire', KEYS[5], ARGV[2])
+end
+return n
 `
 
 /**
