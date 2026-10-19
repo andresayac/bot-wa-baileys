@@ -307,3 +307,45 @@ describe('WPPConnectProvider.ingest — LID lookup budget', () => {
     expect(lookups[0].url).toContain(encodeURIComponent('184523390222111@lid'))
   })
 })
+
+describe('WPPConnectProvider — single-flight token generation', () => {
+  const gen = '/api/my-bot/SECRET/generate-token'
+  const path = (calls: Array<{ url: string }>) => calls.map((c) => c.url.slice(BASE.length))
+
+  it('concurrent calls without a token share ONE generate-token request', async () => {
+    let issued = 0
+    const { provider, calls } = make((c) => {
+      if (c.url.endsWith('/generate-token')) return { status: 201, body: { token: `TOK${++issued}` } }
+      return { status: 201, body: fixture('send-message-response') }
+    }, { token: undefined, secretKey: 'SECRET' })
+    await Promise.all(Array.from({ length: 5 }, (_, i) => provider.send(PN, { kind: 'text', text: `m${i}` })))
+    expect(path(calls).filter((p) => p === gen)).toHaveLength(1)
+    expect(calls.filter((c) => c.url.endsWith('/send-message')).every((c) => c.headers.authorization === 'Bearer TOK1')).toBe(true)
+  })
+
+  it('concurrent 401s on the same stale token regenerate it once, and every call retries with the new one', async () => {
+    let issued = 0
+    const { provider, calls } = make((c) => {
+      if (c.url.endsWith('/generate-token')) return { status: 201, body: { token: `NEW${++issued}` } }
+      if (c.headers.authorization === 'Bearer STALE') return { status: 401, body: { message: 'Token is not present' } }
+      return { status: 201, body: fixture('send-message-response') }
+    }, { token: 'STALE', secretKey: 'SECRET' })
+    await Promise.all(Array.from({ length: 4 }, (_, i) => provider.send(PN, { kind: 'text', text: `m${i}` })))
+    expect(path(calls).filter((p) => p === gen)).toHaveLength(1)
+    const retried = calls.filter((c) => c.url.endsWith('/send-message') && c.headers.authorization !== 'Bearer STALE')
+    expect(retried).toHaveLength(4)
+    expect(retried.every((c) => c.headers.authorization === 'Bearer NEW1')).toBe(true)
+  })
+
+  it('a failed generation is not cached: the next call tries again', async () => {
+    let attempt = 0
+    const { provider, calls } = make((c) => {
+      if (c.url.endsWith('/generate-token')) return ++attempt === 1 ? { status: 500, body: { message: 'down' } } : { status: 201, body: { token: 'OK' } }
+      return { status: 201, body: fixture('send-message-response') }
+    }, { token: undefined, secretKey: 'SECRET' })
+    const results = await Promise.allSettled([provider.send(PN, { kind: 'text', text: 'a' }), provider.send(PN, { kind: 'text', text: 'b' })])
+    expect(results.map((r) => r.status)).toEqual(['rejected', 'rejected'])
+    await provider.send(PN, { kind: 'text', text: 'c' })
+    expect(path(calls).filter((p) => p === gen)).toHaveLength(2)
+  })
+})
