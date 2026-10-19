@@ -782,6 +782,12 @@ export interface MessageContext<TTools extends object = DefaultTools, TRaw = unk
    */
   lang: string
   /**
+   * The bot's default locale (`i18n.defaultLocale`, `'es'` unless configured), whatever
+   * {@link lang} resolved to. Plugins that ship their own built-in texts for a few
+   * languages use it as the fallback for a `lang` they do not cover.
+   */
+  readonly defaultLang?: string
+  /**
    * Where {@link lang} came from (`'user'` | `'provider'` | `'detector'` | `'default'`);
    * `undefined` while i18n is off (then `lang` is just the default locale). Plugins
    * that want a real language signal (e.g. a speech-to-text hint) should ignore

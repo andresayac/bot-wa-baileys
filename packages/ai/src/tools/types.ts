@@ -192,6 +192,11 @@ export interface ToolConfirmRequest {
    * when there is one (it is mentioned in `prompt`). A run with different arguments is not a repeat.
    */
   previous?: AIToolExecution
+  /**
+   * The message context of the turn (`replyInChat(..., { ctx })`), when there is one.
+   * Lets a confirmer reach the chat (e.g. `confirmWith(c)` sends its Yes/No buttons there).
+   */
+  ctx?: MessageContext
 }
 
 /** Asks a human whether a `confirm: true` tool may run. */

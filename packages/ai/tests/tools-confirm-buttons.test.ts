@@ -90,7 +90,7 @@ describe('tool confirmations with native buttons', () => {
   })
 
   it('a press on an answered confirmation is acknowledged and ignored (no double run)', async () => {
-    const { chat, buttonsSent, press, provider, runs } = await setup()
+    const { chat, buttonsSent, press, provider, runs } = await setup({ provider: { supports: { edit: true } } })
     await chat.send('borra')
     await chat.expectReply(/Confirmas/)
     const yes = buttonsSent()[0]!.buttons[0]!.id
@@ -101,7 +101,60 @@ describe('tool confirmations with native buttons', () => {
     await tick()
     expect(runs).toHaveLength(1)
     expect(provider.acks).toHaveLength(2)
+    // The buttons were edited away: nothing else to say.
     expect(provider.outbox.length).toBe(before)
+  })
+
+  it('where the buttons stay (no edit), a press on an answered confirmation gets a localized notice', async () => {
+    const { chat, buttonsSent, press, provider, runs } = await setup({ lang: 'en' })
+    await chat.send('borra')
+    await chat.expectReply(/confirm/)
+    const yes = buttonsSent()[0]!.buttons[0]!.id
+    await press(yes)
+    await chat.expectReply('resultado: borrado')
+    await press(yes)
+    await chat.expectReply('That confirmation is no longer active.')
+    expect(runs).toHaveLength(1)
+    expect(provider.acks).toHaveLength(2)
+  })
+
+  it('a stale press in a chat handed off to a human is acknowledged but gets no notice', async () => {
+    const { bot, chat, buttonsSent, press, provider, runs } = await setup()
+    await chat.send('borra')
+    await chat.expectReply(/Confirmas/)
+    const yes = buttonsSent()[0]!.buttons[0]!.id
+    await press(yes)
+    await chat.expectReply('resultado: borrado')
+    await bot.handoff(chat.jid)
+    const before = provider.outbox.length
+    await press(yes)
+    await tick()
+    expect(provider.outbox.slice(before).map((m) => m.content)).toEqual([])
+    expect(provider.acks).toHaveLength(2)
+    expect(runs).toHaveLength(1)
+  })
+
+  it('toolConfirm.expiredNotice: false drops the stale press silently', async () => {
+    const { chat, buttonsSent, press, provider } = await setup({ cfg: { toolConfirm: { expiredNotice: false } } })
+    await chat.send('borra')
+    await chat.expectReply(/Confirmas/)
+    const yes = buttonsSent()[0]!.buttons[0]!.id
+    await press(yes)
+    await chat.expectReply('resultado: borrado')
+    const before = provider.outbox.length
+    await press(yes)
+    await tick()
+    expect(provider.outbox.length).toBe(before)
+    expect(provider.acks).toHaveLength(2)
+  })
+
+  it('toolConfirm.answeredNotice: true confirms the pressed answer where the buttons stay', async () => {
+    const { chat, buttonsSent, press } = await setup({ cfg: { toolConfirm: { answeredNotice: true } } })
+    await chat.send('borra')
+    await chat.expectReply(/Confirmas/)
+    await press(buttonsSent()[0]!.buttons[0]!.id)
+    await chat.expectReply('Respuesta recibida: Sí.')
+    await chat.expectReply('resultado: borrado')
   })
 
   it('a stale press does not resolve a newer pending confirmation', async () => {

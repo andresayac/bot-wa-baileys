@@ -172,6 +172,7 @@ describe('buildMessageContext without a bot', () => {
     }
     const ctx = buildMessageContext({ inbound, tools: {}, send: async () => ({ ref: { id: 'x', chatId: 'c' } }) })
     expect(ctx.lang).toBe('es')
+    expect(ctx.defaultLang).toBe('es')
     expect(ctx.t(CORE_MESSAGES.timeout)).toBe('⏰ La conversación expiró por inactividad.')
     expect(ctx.t('unknown.key')).toBe('unknown.key')
   })
@@ -195,6 +196,16 @@ describe('Bot i18n', () => {
     bot.when('hola', async (ctx) => { await ctx.reply(`${ctx.lang}:${ctx.t('menu.title')}`) })
     await deliver(bot, provider, 'hola')
     expect(texts(provider)).toEqual(['en:Main menu'])
+    await bot.stop()
+  })
+
+  it('ctx.defaultLang is the bot default locale, whatever language the message resolved to', async () => {
+    const { bot, provider } = await makeBot({ i18n: { defaultLocale: 'en' } })
+    bot.locale('fr', { hi: 'Salut' })
+    bot.when('hola', async (ctx) => { await ctx.reply(`${ctx.lang}/${ctx.defaultLang}`) })
+    await deliver(bot, provider, 'hola', { language: 'fr' })
+    await deliver(bot, provider, 'hola', { from: 'other' })
+    expect(texts(provider)).toEqual(['fr/en', 'en/en'])
     await bot.stop()
   })
 

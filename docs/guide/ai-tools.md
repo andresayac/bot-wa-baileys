@@ -117,7 +117,7 @@ handler under its timeout and send the results back.
 | `maxSteps` | `5` | Max model calls per turn. |
 | `toolTimeoutMs` | `15000` | Default per-tool timeout (`0` disables). |
 | `maxStepsMessage` | localized `ai.tools.maxSteps` (es: `'No pude completar la solicitud. Intenta de nuevo con más detalle.'`) | Reply when the loop hits `maxSteps`. |
-| `toolConfirm` | `{ timeout: '2m', buttons: true }` | `{ yes?, no?, timeout?, buttons?, systemNote? }` for `confirm: true` tools in the autoreply. |
+| `toolConfirm` | `{ timeout: '2m', buttons: true }` | `{ yes?, no?, timeout?, buttons?, answeredNotice?, expiredNotice?, systemNote? }` for `confirm: true` tools in the autoreply (`expiredNotice` also covers `confirmWith(c)`). |
 | `onToolEvent` | — | Audit callback for every loop event. |
 
 ::: tip Tools and streaming
@@ -185,10 +185,21 @@ typed-answer hint (`ai.tools.confirmButtons`: `Voy a: {tool}{args}\n¿Confirmas?
   reply with changes that goes back to the model.
 - Once answered (or timed out / cancelled), the buttons are removed by editing
   the message into text with the choice (`→ Sí`) where the provider can edit
-  (Telegram); elsewhere they stay, but a second press does nothing.
+  (Telegram, Discord).
 - A press on a confirmation that is no longer pending (answered, superseded by
-  a newer one, timed out, `/reset`) is acknowledged and ignored: each
-  confirmation has its own button ids.
+  a newer one, timed out, `/reset`) is acknowledged and ignored, before any
+  routing: each confirmation has its own button ids, so an old press never
+  answers a newer confirmation nor a later question of a conversation.
+- **Channels that cannot edit messages** (WhatsApp Cloud API, Messenger,
+  Instagram) leave the buttons on screen. There, a press on a confirmation that
+  is no longer pending gets a short localized reply (`ai.tools.confirmExpired`:
+  "Esa confirmación ya no está activa." / "That confirmation is no longer
+  active."); `toolConfirm.expiredNotice: false` drops it silently. A chat handed off to a
+  human never gets this notice (the press is only acknowledged). Optionally,
+  `toolConfirm.answeredNotice: true` also replies `ai.tools.confirmAnswered`
+  ("Respuesta recibida: Sí." / "Answer received: Yes.") when a press answers;
+  it is off by default because those channels already show the user's pick as
+  their own message. Neither notice is sent where the buttons are edited away.
 - Channels without native buttons (WhatsApp via Baileys, Twilio, SMS, email…)
   keep the typed question with the `(sí/no)` hint.
 - `toolConfirm.buttons: false` always asks for a typed answer. A tool's
@@ -210,7 +221,9 @@ Voy a: Crear pedido
 
 It is Spanish by default and English (`About to: Create order … Do you
 confirm? (yes/no)`) when `ctx.lang` is `en` (see
-[i18n](/guide/i18n#built-in-messages)). Override it per language with
+[i18n](/guide/i18n#built-in-messages)). A chat in a language without built-in
+texts (say `fr`) gets the bot's default locale when that is `es` or `en`, else
+English. Override it per language with
 `bot.locale('en', { ai: { tools: { confirm: 'Run {tool}?{args}' } } })`
 (`{tool}` is the title, `{args}` a newline plus the `• ` lines, or empty), or
 set `confirmMessage` on the tool.
@@ -254,8 +267,14 @@ Total: $9000
 `argLines(args, ctx, labels)` and `summarizeValue(value, ctx, depth, labels)`
 are exported if you build your own prompt.
 
-**Inside your own conversation** pass `confirmWith(c)`: it asks with `c.ask()`
-(a typed yes/no, no buttons), which never blocks the queue either.
+**Inside your own conversation** pass `confirmWith(c)`. It never blocks the
+queue either, and on a channel with native buttons it asks with the same Yes/No
+buttons as the autoreply (same semantics: typed answers keep working, the
+press is acknowledged, the buttons are edited away where possible, and a later
+press is acknowledged and ignored instead of answering your next `c.ask()`).
+Elsewhere, or with `buttons: false`, it asks a typed yes/no with `c.ask()`. The
+buttons go to the chat of the `ctx` you pass to `replyInChat` (or the `ctx`
+option).
 
 ```ts
 import { chatKeyOf, confirmWith } from '@bot-wa/ai'
@@ -270,8 +289,8 @@ bot.conversation('support', async (c, ctx) => {
 })
 ```
 
-`confirmWith(c, { yes, no, timeout })` classifies the answer like the
-autoresponder: `'approved'`, `'denied'` or `{ reply }`. A
+`confirmWith(c, { yes, no, timeout, buttons, ctx, answeredNotice })` classifies
+the answer like the autoresponder: `'approved'`, `'denied'` or `{ reply }`. A
 conversation control error (timeout, cancel, replaced conversation) propagates
 out of the loop as usual, so the runtime handles it.
 

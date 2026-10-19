@@ -205,6 +205,7 @@ export async function runToolLoop(opts: ToolLoopOptions): Promise<ToolLoopResult
         ? await opts.confirm({
             tool: call.name, callId: call.id, args: v.data, description: tool.description,
             title: toolTitle(call.name, tool), prompt, buttonsPrompt, ...(previous ? { previous } : {}),
+            ...(opts.ctx ? { ctx: opts.ctx } : {}),
           })
         : 'denied'
       if (answer === 'cancelled') {

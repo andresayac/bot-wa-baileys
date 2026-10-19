@@ -3,7 +3,8 @@
  * catalog (`ctx.t`) so they follow `ctx.lang`. The plugin does not register
  * them with `bot.locale()` (that would switch language resolution on for every
  * bot); instead a key the bot's catalog does not translate falls back to the
- * built-in {@link AI_LOCALES} in the context's language (Spanish by default).
+ * built-in {@link AI_LOCALES} in the context's language; a language without
+ * built-ins uses the bot's default locale, then English (Spanish without a context).
  * Override them like any other message:
  *
  * @example
@@ -26,6 +27,13 @@ export const AI_MESSAGES = {
   /** Labels of the Yes/No confirmation buttons. */
   buttonYes: 'ai.tools.button.yes',
   buttonNo: 'ai.tools.button.no',
+  /**
+   * `toolConfirm.answeredNotice` / `confirmWith({ answeredNotice })`: reply after a press answers a
+   * confirmation on a channel that cannot edit the buttons away (`{answer}`: the pressed label).
+   */
+  confirmAnswered: 'ai.tools.confirmAnswered',
+  /** `toolConfirm.expiredNotice`: reply to a press on a confirmation that is no longer pending. */
+  confirmExpired: 'ai.tools.confirmExpired',
   /** Line put before the prompt when the tool already ran in this chat (`{tool}`, `{ago}`, `{result}`). */
   toolConfirmRepeat: 'ai.tools.confirmRepeat',
   /** `{ago}` under a minute. */
@@ -57,6 +65,8 @@ export const AI_LOCALES: Readonly<Record<'es' | 'en', LocaleMessages>> = {
         confirm: 'Voy a: {tool}{args}\n¿Confirmas? (sí/no)',
         confirmButtons: 'Voy a: {tool}{args}\n¿Confirmas?',
         button: { yes: 'Sí', no: 'No' },
+        confirmAnswered: 'Respuesta recibida: {answer}.',
+        confirmExpired: 'Esa confirmación ya no está activa.',
         confirmRepeat: 'Ojo: ya hice «{tool}» {ago} (resultado: {result}). Si confirmas, se hará otra vez.',
         ago: { now: 'hace un momento', minutes: 'hace {n} min' },
         value: { yes: 'sí', no: 'no' },
@@ -82,6 +92,8 @@ export const AI_LOCALES: Readonly<Record<'es' | 'en', LocaleMessages>> = {
         confirm: 'About to: {tool}{args}\nDo you confirm? (yes/no)',
         confirmButtons: 'About to: {tool}{args}\nDo you confirm?',
         button: { yes: 'Yes', no: 'No' },
+        confirmAnswered: 'Answer received: {answer}.',
+        confirmExpired: 'That confirmation is no longer active.',
         confirmRepeat: 'Heads-up: I already did «{tool}» {ago} (result: {result}). Confirming will do it again.',
         ago: { now: 'a moment ago', minutes: '{n} min ago' },
         value: { yes: 'yes', no: 'no' },
@@ -105,13 +117,31 @@ export const AI_LOCALES: Readonly<Record<'es' | 'en', LocaleMessages>> = {
 /** Something that may carry the chat language and a bound translator (a `MessageContext`). */
 export interface AITranslatable {
   lang?: string
+  /** The bot's default locale (`ctx.defaultLang`): the fallback for a `lang` without built-in texts. */
+  defaultLang?: string
   t?(key: string, params?: TranslateParams): string
 }
 
-function builtin(lang: string | undefined, key: string): string | undefined {
+type BuiltinLocale = keyof typeof AI_LOCALES
+
+function builtinLocale(lang: string | undefined): BuiltinLocale | undefined {
   const base = (lang ?? '').toLowerCase().split(/[-_]/)[0]
-  const tree = base === 'en' ? AI_LOCALES.en : AI_LOCALES.es
-  let node: LocaleMessages | string | undefined = tree
+  return base === 'es' || base === 'en' ? base : undefined
+}
+
+/**
+ * Built-in catalog for a context: its `lang` when one ships (`es`, `en`), else the
+ * bot's default locale when one ships, else English. Without any language at all
+ * (no context) Spanish, the core's default locale.
+ */
+function catalogFor(ctx: AITranslatable | undefined): BuiltinLocale {
+  const lang = ctx?.lang
+  const fallback = ctx?.defaultLang
+  return builtinLocale(lang) ?? builtinLocale(fallback) ?? (lang || fallback ? 'en' : 'es')
+}
+
+function builtin(ctx: AITranslatable | undefined, key: string): string | undefined {
+  let node: LocaleMessages | string | undefined = AI_LOCALES[catalogFor(ctx)]
   for (const part of key.split('.')) {
     if (typeof node !== 'object' || node === null) return undefined
     node = (node as LocaleMessages)[part] as LocaleMessages | string | undefined
@@ -129,10 +159,11 @@ function interpolate(text: string, params?: TranslateParams): string {
 
 /**
  * Translate an AI message for `ctx`: the bot's catalog (`ctx.t`) when it has the
- * key, else the built-in text in `ctx.lang` (`en` or, for anything else, `es`).
+ * key, else the built-in text in `ctx.lang` (`es` / `en`); a language without
+ * built-in texts falls back to the bot's default locale (`ctx.defaultLang`), then English.
  */
 export function aiText(ctx: AITranslatable | undefined, key: AIMessageKey, params?: TranslateParams): string {
-  return aiOverride(ctx, key, params) ?? interpolate(builtin(ctx?.lang, key) ?? key, params)
+  return aiOverride(ctx, key, params) ?? interpolate(builtin(ctx, key) ?? key, params)
 }
 
 /** The bot catalog's translation of `key` (`ctx.t`), or `undefined` when the bot does not translate it. */

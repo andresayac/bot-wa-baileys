@@ -229,6 +229,7 @@ export function buildMessageContext(deps: BuildContextDeps): IMessageContext {
 
     /* i18n — ctx.lang is re-resolved by the Bot inside the per-chat queue */
     lang: (deps.i18n ?? defaultI18n).defaultLocale,
+    get defaultLang() { return (deps.i18n ?? defaultI18n).defaultLocale },
     t(key, params) { return (deps.i18n ?? defaultI18n).translate(ctx.lang, key, params) },
     async setLang(code: string) {
       const i18n = deps.i18n ?? defaultI18n

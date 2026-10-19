@@ -123,6 +123,21 @@ export interface AIConfig {
      */
     buttons?: boolean
     /**
+     * On a channel that cannot edit messages (WhatsApp Cloud API, Messenger, Instagram:
+     * the buttons stay on screen), reply a short localized `ai.tools.confirmAnswered`
+     * ("Answer received: Yes.") after a press answers the confirmation. Where the
+     * provider edits, the buttons are replaced by the answer instead. Default `false`
+     * (those channels already show the user's pick as their own message).
+     */
+    answeredNotice?: boolean
+    /**
+     * On a channel that cannot edit messages, reply a short localized
+     * `ai.tools.confirmExpired` ("That confirmation is no longer active.") to a press on a
+     * confirmation that is no longer pending (answered, superseded, timed out). The press
+     * is always acknowledged and ignored; a chat in human handoff gets no notice. Default `true`.
+     */
+    expiredNotice?: boolean
+    /**
      * System prompt note telling the model which tools the system confirms
      * itself (so it does not ask "shall I?" before calling them) and which
      * side-effecting tools already ran in the chat. Localized. `false` turns it

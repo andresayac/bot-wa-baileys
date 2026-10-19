@@ -16,6 +16,27 @@ export function isConfirmButtonId(data: string): boolean {
   return data.startsWith(CONFIRM_BUTTON_PREFIX)
 }
 
+/** Nonces of the confirmations currently waiting for a press (process-wide: nonces are unique). */
+const liveNonces = new Set<string>()
+
+function nonceOf(data: string): string {
+  const end = data.lastIndexOf(':')
+  return end > CONFIRM_BUTTON_PREFIX.length ? data.slice(CONFIRM_BUTTON_PREFIX.length, end) : ''
+}
+
+/**
+ * True when `data` is a button of a confirmation that is still waiting for its answer.
+ * A press of any other confirmation button (answered, superseded, timed out) is stale.
+ */
+export function isLiveConfirmButton(data: string): boolean {
+  return isConfirmButtonId(data) && liveNonces.has(nonceOf(data))
+}
+
+/** The chat's provider can edit a sent message (so answered buttons are taken away). */
+export function editsMessages(ctx: Pick<MessageContext, 'capabilities'>): boolean {
+  return ctx.capabilities?.edit === true
+}
+
 /** Invalid answers (media, a sticker…) tolerated before the confirmation gives up, like `c.ask`. */
 const MAX_INVALID = 3
 
@@ -48,6 +69,20 @@ export interface SuspendingConfirmerOptions {
    * (`capabilities.buttons`). `false` always asks for a typed yes/no. Default `true`.
    */
   buttons?: boolean
+  /** See {@link ButtonsConfirmOptions.answeredNotice}. Default `false`. */
+  answeredNotice?: boolean
+}
+
+/** Options of {@link askWithButtons}. */
+export interface ButtonsConfirmOptions {
+  timeout?: number | string
+  yes?: readonly string[]
+  no?: readonly string[]
+  /**
+   * On a channel that cannot edit messages (the buttons stay on screen), reply a short
+   * localized `ai.tools.confirmAnswered` after a press answers the confirmation.
+   */
+  answeredNotice?: boolean
 }
 
 /** The chat's provider renders native buttons (else they would degrade to numbered text). */
@@ -95,7 +130,7 @@ export function suspendingConfirmer(
     const withButtons = opts.buttons !== false && rendersButtons(mctx)
     const ended = bot.enterConversation(async (c) => {
       if (withButtons) {
-        result = await askWithButtons(c, mctx, req, opts.timeout, vocab)
+        result = await askWithButtons(c, mctx, req, { ...vocab, timeout: opts.timeout, answeredNotice: opts.answeredNotice })
         return
       }
       const answer = await c.ask(req.prompt, opts.timeout !== undefined ? { timeout: opts.timeout } : undefined)
@@ -120,25 +155,28 @@ interface Delivered { type: string; body: string; acknowledge?(text?: string): P
  * Ask with Yes/No buttons and wait for a press of THESE buttons or a typed answer.
  * Presses of other buttons (an older confirmation, another menu) are not taken:
  * they keep routing normally. Other messages (media…) re-ask, up to {@link MAX_INVALID}.
+ * Shared by the autoreply ({@link suspendingConfirmer}) and `confirmWith(c)`; a control
+ * error of the wait (timeout, `/reset`) propagates.
  */
-async function askWithButtons(
-  c: ConversationControls,
+export async function askWithButtons(
+  c: Pick<ConversationControls, 'waitAny'>,
   mctx: MessageContext,
   req: ToolConfirmRequest,
-  timeout: number | string | undefined,
-  vocab: { yes?: readonly string[]; no?: readonly string[] },
+  opts: ButtonsConfirmOptions = {},
 ): Promise<ToolConfirmation> {
   const nonce = newNonce()
   const ids = { yes: `${CONFIRM_BUTTON_PREFIX}${nonce}:yes`, no: `${CONFIRM_BUTTON_PREFIX}${nonce}:no` }
   const labels = { yes: aiText(mctx, AI_MESSAGES.buttonYes), no: aiText(mctx, AI_MESSAGES.buttonNo) }
+  const vocab = { yes: opts.yes, no: opts.no }
   const text = req.buttonsPrompt ?? req.prompt
   const sent: MessageRef[] = []
   const ask = async () => {
     const msg = await mctx.buttons(text, [{ id: ids.yes, title: labels.yes }, { id: ids.no, title: labels.no }])
     if (!msg.skipped) sent.push(msg.ref)
   }
-  const timeoutMs = timeout !== undefined ? parseDuration(timeout) : undefined
+  const timeoutMs = opts.timeout !== undefined ? parseDuration(opts.timeout) : undefined
   let picked: 'yes' | 'no' | undefined
+  liveNonces.add(nonce)
   try {
     await ask()
     for (let invalid = 0; ;) {
@@ -148,8 +186,15 @@ async function askWithButtons(
         filter: (msg) => msg.type !== 'buttons' || msg.body === ids.yes || msg.body === ids.no,
       }) as Delivered
       if (m.type === 'buttons') {
+        // Answered: from now on a press of these buttons is stale (acknowledged and dropped).
+        liveNonces.delete(nonce)
         await acknowledge(m)
         picked = m.body === ids.yes ? 'yes' : 'no'
+        if (opts.answeredNotice && !editsMessages(mctx)) {
+          try {
+            await mctx.reply(aiText(mctx, AI_MESSAGES.confirmAnswered, { answer: labels[picked] }))
+          } catch { /* best effort */ }
+        }
         return picked === 'yes' ? 'approved' : 'denied'
       }
       if (m.type === 'text') {
@@ -161,6 +206,7 @@ async function askWithButtons(
       await ask()
     }
   } finally {
+    liveNonces.delete(nonce)
     // Answered, timed out or cancelled: take the buttons away so they cannot be pressed twice.
     await clearButtons(mctx, sent, picked ? `${text}\n\n→ ${labels[picked]}` : text)
   }
@@ -172,7 +218,7 @@ async function acknowledge(m: Delivered): Promise<void> {
 
 /** Best effort: edit the buttons messages into plain text (no keyboard) where the provider edits. */
 async function clearButtons(mctx: MessageContext, refs: readonly MessageRef[], text: string): Promise<void> {
-  if (!mctx.capabilities?.edit) return
+  if (!editsMessages(mctx)) return
   for (const ref of refs) {
     try { await mctx.edit(ref, text, { fallback: 'skip' }) } catch { /* the buttons just stay */ }
   }
