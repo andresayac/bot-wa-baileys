@@ -78,8 +78,8 @@ const store = new RedisStore({ client: fake })
 
 | Key | Type | Contents | TTL |
 | --- | ---- | -------- | --- |
-| `{prefix}:msg:{chatId}` | ZSET | `messageKey` → timestamp (per-chat index) | — |
-| `{prefix}:msg:item:{chatId}:{id}` | string (JSON) | `StoredMessage` | — |
+| `{prefix}:msg:{chatId}` | ZSET | `messageKey(ref)` → timestamp (per-chat index) | — |
+| `{prefix}:msg:item:{messageKey}` | string (JSON) | `StoredMessage` (`messageKey` = `{chatId}:{id}`, `:` and `%` escaped) | — |
 | `{prefix}:chat:{id}` | string (JSON) | `StoredChat` | — |
 | `{prefix}:contact:{id}` | string (JSON) | `StoredContact` | — |
 | `{prefix}:cp:{key}` | string (JSON) | `FlowCheckpoint` | `sessionTtl` |
@@ -88,6 +88,10 @@ const store = new RedisStore({ client: fake })
 | `{prefix}:lock:{key}` | string | lock token (`SET NX PX`) | lock `ttlMs` |
 
 `getMessagesByChat(chatId, limit)` reads the latest `limit` entries from the ZSET (`ZRANGE … BYSCORE REV LIMIT`) and fetches the JSON items, returning them oldest→newest — same windowing semantics as `@bot-wa/sqlite-store`.
+
+`deleteChat(chatId)` runs as **one Lua script** (the ZSET, every item it lists and the chat record), so a message saved at the same moment either lands before the delete (and goes with it) or after it (and survives intact) — never as an orphan item missing from the chat's log. `deleteMessage` removes an item only when it is a member of that chat's ZSET. Scripts touch keys they compute from the prefix, so the store targets a single Redis node (not Redis Cluster).
+
+- **Message keys.** `messageKey(ref)` (from `@bot-wa/core`) is `{chatId}:{id}` with `%` and `:` percent-escaped in each part (`%25`, `%3A`), so ids that contain `:` — Twilio's `whatsapp:+1…` chat ids — never collide (`('a:b', 'c')` and `('a', 'b:c')` used to share the key `a:b:c`). Ids without `:` or `%` keep exactly the key earlier versions wrote. Rows written by an earlier version under the old unescaped key are still read and deleted (a fallback that only runs for ids containing `:` or `%`, and only returns a row that belongs to that chat), and re-saving such a message moves it to the new key — no manual migration. One theoretical edge remains: an id that literally contains `%3A` and was stored by an earlier version can be overwritten by a new message whose id has `:` in the same place.
 
 ## Distributed lock
 

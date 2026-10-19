@@ -38,11 +38,11 @@ import type {
   UserDataEntry,
   UserId,
 } from '@bot-wa/core'
-import { messageKey, parseDuration } from '@bot-wa/core'
+import { legacyMessageKey, messageKey, parseDuration } from '@bot-wa/core'
 import { RedisUserData } from './userData.js'
 import { escapeGlob } from './glob.js'
 import { matchKeys } from './keys.js'
-import { MERGE_CAS_SCRIPT, RELEASE_LOCK_SCRIPT } from './scripts.js'
+import { DELETE_CHAT_SCRIPT, DROP_MESSAGE_SCRIPT, MERGE_CAS_SCRIPT, RELEASE_LOCK_SCRIPT } from './scripts.js'
 
 /**
  * Compare-and-set attempts per upsert. Each failed attempt means another
@@ -190,6 +190,13 @@ function toStr(value: string | Buffer | null | undefined): string {
   return typeof value === 'string' ? value : value.toString()
 }
 
+/** Parse a message item and keep it only when it is the message `ref` names (see {@link legacyMessageKey}). */
+function ownedMessage(raw: string | Buffer | null, ref: MessageRef): StoredMessage | undefined {
+  if (raw == null) return undefined
+  const msg = JSON.parse(toStr(raw)) as StoredMessage
+  return msg.ref?.id === ref.id && msg.ref?.chatId === ref.chatId ? msg : undefined
+}
+
 /**
  * Unwrap node-redis' ReconnectStrategyError so start() rejects with the socket
  * error itself (e.g. `code: 'ECONNREFUSED'`), not the strategy wrapper.
@@ -271,7 +278,8 @@ export class RedisStore implements IStore {
 
   /* Key scheme (all namespaced by prefix) --------------------------------- *
    *   {prefix}:msg:{chatId}             ZSET messageKey -> timestamp
-   *   {prefix}:msg:item:{chatId}:{id}   JSON StoredMessage
+   *   {prefix}:msg:item:{messageKey}    JSON StoredMessage (messageKey escapes ':' and '%';
+   *                                     rows written before that use the legacy `${chatId}:${id}`)
    *   {prefix}:chat:{id}                JSON StoredChat
    *   {prefix}:contact:{id}             JSON StoredContact
    *   {prefix}:cp:{key}                 JSON FlowCheckpoint   (ttl-aware)
@@ -284,7 +292,7 @@ export class RedisStore implements IStore {
   private msgSetKey(chatId: string): string {
     return `${this.prefix}:msg:${chatId}`
   }
-  /** Item key for a ZSET member (member === `${chatId}:${id}` === messageKey). */
+  /** Item key for a ZSET member (member === messageKey(ref), or legacyMessageKey(ref) for old rows). */
   private msgItemKey(member: string): string {
     return `${this.prefix}:msg:item:${member}`
   }
@@ -392,7 +400,28 @@ export class RedisStore implements IStore {
       .set(this.msgItemKey(member), JSON.stringify(msg))
       .zAdd(this.msgSetKey(msg.chatId), { score: msg.timestamp, value: member })
       .exec()
+    // A copy written under the legacy key by an older version would otherwise
+    // show up twice in the window.
+    await this.dropLegacy(msg.ref)
     await this.trimChat(msg.chatId)
+  }
+
+  /**
+   * Remove the legacy-format copy of `ref` (rows written before message keys
+   * were escaped), if any. No-op for refs whose key never changed. The item is
+   * only deleted when it still holds this very message: under the legacy
+   * format another ref may have overwritten it.
+   */
+  private async dropLegacy(ref: MessageRef): Promise<void> {
+    const legacy = legacyMessageKey(ref)
+    if (legacy === messageKey(ref)) return
+    const setKey = this.msgSetKey(ref.chatId)
+    const itemKey = this.msgItemKey(legacy)
+    if (ownedMessage(await this.client.get(itemKey), ref)) {
+      await this.client.eval(DROP_MESSAGE_SCRIPT, { keys: [setKey, itemKey], arguments: [legacy] })
+    } else {
+      await this.client.zRem(setKey, legacy)
+    }
   }
 
   /** Prune the oldest messages of a chat beyond `maxMessagesPerChat` (ZSET members + item keys). */
@@ -422,8 +451,11 @@ export class RedisStore implements IStore {
 
   async getMessage(ref: MessageRef): Promise<StoredMessage | undefined> {
     if (!ref.id || !ref.chatId) return undefined
-    const raw = await this.client.get(this.msgItemKey(messageKey(ref)))
-    return raw == null ? undefined : (JSON.parse(toStr(raw)) as StoredMessage)
+    const key = messageKey(ref)
+    const found = ownedMessage(await this.client.get(this.msgItemKey(key)), ref)
+    if (found) return found
+    const legacy = legacyMessageKey(ref)
+    return legacy === key ? undefined : ownedMessage(await this.client.get(this.msgItemKey(legacy)), ref)
   }
 
   async getMessagesByChat(chatId: string, limit = 50): Promise<StoredMessage[]> {
@@ -442,19 +474,24 @@ export class RedisStore implements IStore {
     const items = await Promise.all(members.map((m) => this.client.get(this.msgItemKey(m))))
     const messages: StoredMessage[] = []
     for (const raw of items) {
-      if (raw != null) messages.push(JSON.parse(toStr(raw)) as StoredMessage)
+      if (raw == null) continue
+      const msg = JSON.parse(toStr(raw)) as StoredMessage
+      // A legacy-format item key can have been overwritten by another chat's message.
+      if (msg.chatId === chatId) messages.push(msg)
     }
     return messages.reverse() // oldest -> newest
   }
 
   async deleteMessage(ref: MessageRef): Promise<void> {
+    if (!ref.id || !ref.chatId) return
     const member = messageKey(ref)
-    // Atomic: drop the item and its ZSET index entry together (no orphan member).
-    await this.client
-      .multi()
-      .del(this.msgItemKey(member))
-      .zRem(this.msgSetKey(ref.chatId), member)
-      .exec()
+    // Atomic: drop the ZSET entry and its item together (no orphan member), and
+    // only when the member is in THIS chat's log (see DROP_MESSAGE_SCRIPT).
+    await this.client.eval(DROP_MESSAGE_SCRIPT, {
+      keys: [this.msgSetKey(ref.chatId), this.msgItemKey(member)],
+      arguments: [member],
+    })
+    await this.dropLegacy(ref)
   }
 
   /* Chats ----------------------------------------------------------------- */
@@ -473,16 +510,16 @@ export class RedisStore implements IStore {
   }
   /**
    * Removes the chat record AND purges its entire message log — the ZSET index
-   * plus every message item (consistent with MemoryStore). Previously only the
-   * chat key was deleted, leaking the ZSET and all `:msg:item:` keys forever.
+   * plus every message item (consistent with MemoryStore) — in ONE server-side
+   * script ({@link DELETE_CHAT_SCRIPT}), so a message saved concurrently either
+   * lands before (and is deleted) or after (and survives intact), never as an
+   * orphan item without its ZSET entry.
    */
   async deleteChat(chatId: string): Promise<void> {
-    const members = await this.client.zRange(this.msgSetKey(chatId), '-inf', '+inf', { BY: 'SCORE' })
-    const tx = this.client.multi()
-    if (members.length) tx.del(members.map((m) => this.msgItemKey(m)))
-    tx.del(this.msgSetKey(chatId))
-    tx.del(this.chatKey(chatId))
-    await tx.exec()
+    await this.client.eval(DELETE_CHAT_SCRIPT, {
+      keys: [this.msgSetKey(chatId), this.chatKey(chatId)],
+      arguments: [this.msgItemKey('')],
+    })
   }
 
   /* Contacts -------------------------------------------------------------- */

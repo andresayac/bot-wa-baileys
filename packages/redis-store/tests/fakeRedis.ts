@@ -20,7 +20,7 @@
  * interleave, like requests from several connections.
  */
 import type { RedisLikeClient, RedisMulti, RedisZRangeOptions } from '../src/RedisStore.js'
-import { MERGE_CAS_SCRIPT, RELEASE_LOCK_SCRIPT } from '../src/scripts.js'
+import { DELETE_CHAT_SCRIPT, DROP_MESSAGE_SCRIPT, MERGE_CAS_SCRIPT, RELEASE_LOCK_SCRIPT } from '../src/scripts.js'
 
 interface ZEntry {
   score: number
@@ -430,6 +430,23 @@ export class FakeRedisClient implements RedisLikeClient {
       if (hasExpected === '0' ? current !== null : current !== expected) return 0
       this.setSync(key, next)
       return 1
+    }
+    if (script === DROP_MESSAGE_SCRIPT) {
+      const [setKey, itemKey] = keys
+      const [member] = args
+      if (setKey == null || itemKey == null || member == null) throw new Error('ERR drop-message script needs two keys and one argument')
+      if (this.zRemSync(setKey, member) !== 1) return 0
+      this.delSync(itemKey)
+      return 1
+    }
+    if (script === DELETE_CHAT_SCRIPT) {
+      const [setKey, chatKey] = keys
+      const [itemPrefix] = args
+      if (setKey == null || chatKey == null || itemPrefix == null) throw new Error('ERR delete-chat script needs two keys and one argument')
+      const members = this.sorted(this.readZset(setKey), false).map((e) => e.value)
+      if (members.length) this.delSync(members.map((m) => itemPrefix + m))
+      this.delSync([setKey, chatKey])
+      return members.length
     }
     throw new Error('NOSCRIPT FakeRedisClient: unknown script (only the scripts RedisStore sends are modelled)')
   }

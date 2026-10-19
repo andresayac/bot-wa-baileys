@@ -112,6 +112,31 @@ describe('RedisStore', () => {
     expect(fake.strings.has('acme:msg:item:c1:m2')).toBe(false)
   })
 
+  it('deleteChat is atomic: a message saved while it runs is never left as an orphan item', async () => {
+    await store.saveMessage(msg('c1', 'm1', 'old', 1))
+    // Interleave a concurrent save with any read the delete makes before it writes.
+    const zRange = fake.zRange.bind(fake)
+    let injected = false
+    fake.zRange = async (...args: Parameters<FakeRedisClient['zRange']>) => {
+      const out = await zRange(...args)
+      if (!injected) {
+        injected = true
+        await store.saveMessage(msg('c1', 'm2', 'racing', 2))
+      }
+      return out
+    }
+    const deleting = store.deleteChat('c1')
+    if (!injected) await store.saveMessage(msg('c1', 'm2', 'racing', 2)) // the delete is one script: save after it
+    await deleting
+    fake.zRange = zRange
+    const listed = (await store.getMessagesByChat('c1')).map((m) => m.ref.id)
+    const item = await store.getMessage({ chatId: 'c1', id: 'm2' })
+    // Either the save landed after the delete (listed and readable) or before
+    // it (gone entirely) — never readable but missing from the chat's log.
+    expect(item === undefined ? [] : ['m2']).toEqual(listed)
+    expect(fake.strings.has('botwa:msg:item:c1:m1')).toBe(false)
+  })
+
   it('upserts and retrieves contacts', async () => {
     await store.upsertContact({ id: 'user@s.whatsapp.net', name: 'Alice' })
     expect((await store.getContact('user@s.whatsapp.net'))?.name).toBe('Alice')
