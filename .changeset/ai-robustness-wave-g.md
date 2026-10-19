@@ -14,3 +14,4 @@ Robustness fixes across the AI plugin:
 - JSON Schema validation of tool arguments checks own keys only (`required` / `additionalProperties: false` are no longer fooled by `toString`, `constructor`, …).
 - `formatMarkdown(..., 'html')` escapes `"` inside link URLs.
 - A memory extraction cut off by the token cap reports an actionable error (raise `memory.autoExtract.maxTokens`).
+- An unknown `provider` name now lists the valid ones in the error.
