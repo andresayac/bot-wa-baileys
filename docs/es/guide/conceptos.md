@@ -85,6 +85,15 @@ flowchart TD
 12. **Cierre**: hooks `after('message')` y luego el evento `'message'` (aquí
     se rearman los temporizadores de `bot.onIdle`).
 
+Cuando el bot corre como una de varias réplicas ([`coordination`](./replicas)),
+hay un paso más entre el 4 y el 5: el mensaje tomó un turno en la cola FIFO
+del chat compartida entre réplicas al encolarse, y espera ahí su **turno**.
+Solo una réplica tiene el turno de un chat a la vez y los turnos siguen el
+orden de llegada, así que la cola FIFO por chat se mantiene entre réplicas.
+Un mensaje que no consigue su turno se descarta y se informa como `'error'`
+(su id de dedupe se libera). El turno se suelta cuando la conversación que
+recibió el mensaje vuelve a esperar o termina.
+
 Las **llamadas** entrantes siguen un camino aparte: los gates de listas de
 acceso y handoff van **primero** y bloquean la llamada por completo (sin
 hooks `'call'`, sin evento `'call'` ni trigger `CALL`; cuenta en

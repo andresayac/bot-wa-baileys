@@ -80,6 +80,15 @@ flowchart TD
 12. **Finish**: `after('message')` hooks, then the `'message'` event
     (`bot.onIdle` timers re-arm here).
 
+When the bot runs as one of several replicas ([`coordination`](./replicas)),
+one more step sits between 4 and 5: the message took a ticket in its chat's
+cross-replica FIFO when it was queued, and waits there for the chat's
+**turn**. Only one replica holds a chat's turn at a time and turns follow
+ingress order, so the FIFO per chat holds across replicas. A message whose
+turn cannot be had is dropped and reported as `'error'` (its dedupe id is
+released). The turn is released once the conversation the message fed is
+waiting again or has ended.
+
 Incoming **calls** take a separate path: the access-list and handoff gates
 come **first** and block a call completely (no `'call'` hooks, no `'call'`
 event, no `CALL` trigger; it counts in `metrics().dropped`). An admitted call

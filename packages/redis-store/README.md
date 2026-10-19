@@ -9,7 +9,8 @@ Redis [`IStore`](https://github.com/andresayac/bot-wa-baileys/tree/main/packages
 - Everything is JSON under one configurable **prefix**, so apps/bots can share a database.
 - Optional **TTL** for ephemeral session state (conversations, checkpoints).
 - Injectable client → fully hermetic unit tests (an in-memory fake ships with the test-suite; no real Redis needed), plus an opt-in suite against a real server.
-- Ships a small **distributed lock** helper (`acquireLock` / `releaseLock`) as the building block for multi-replica FIFO message processing.
+- **`RedisCoordinator`** for running N replicas of one bot (`BotConfig.coordination`): per-chat turns in ingress order across replicas, and leader election for exclusive transports (Baileys).
+- **Fenced lock** helpers (`acquireLockFenced` / `renewLock` / `releaseLock`) for your own critical sections.
 
 ## Install
 
@@ -93,9 +94,44 @@ const store = new RedisStore({ client: fake })
 
 - **Message keys.** `messageKey(ref)` (from `@bot-wa/core`) is `{chatId}:{id}` with `%` and `:` percent-escaped in each part (`%25`, `%3A`), so ids that contain `:` — Twilio's `whatsapp:+1…` chat ids — never collide (`('a:b', 'c')` and `('a', 'b:c')` used to share the key `a:b:c`). Ids without `:` or `%` keep exactly the key earlier versions wrote. Rows written by an earlier version under the old unescaped key are still read and deleted (a fallback that only runs for ids containing `:` or `%`, and only returns or deletes a row whose stored `ref` is that very message, since a legacy key can be another message's new key), and re-saving such a message moves it to the new key — no manual migration. One theoretical edge remains: an id that literally contains `%3A` and was stored by an earlier version can be overwritten by a new message whose id has `:` in the same place.
 
+## Running N replicas: `RedisCoordinator`
+
+```ts
+const store = new RedisStore({ url: process.env.REDIS_URL, prefix: 'mybot' })
+const bot = new Bot({
+  provider,
+  store,
+  coordination: { coordinator: store.coordinator({ leaseMs: '15s' }) }, // or new RedisCoordinator({ url, prefix })
+})
+```
+
+- **Chat turns.** Each inbound message reserves a ticket in its chat's queue (`INCR`); a Lua compare-and-set hands the chat's turn to the tickets in order, so the replicas process a chat one at a time and in ingress order. Tickets of a replica whose heartbeat expired are skipped.
+- **Leadership.** `tryLead(name)` / `lead(name)`: a `PX` lease plus an `INCR` term (a fencing token that grows every time the leadership changes hands). The bot uses `provider:<id>` to connect an exclusive transport on one replica only.
+- **Watchdog.** Heartbeat, turns and leaderships are renewed every `leaseMs / 3`. A lease found gone aborts its `signal` (`'expired'`); with no successful renewal for 90% of `leaseMs`, every lease is given up locally (`'coordinator-down'`) before Redis can hand it to another replica.
+- Keys live under `{prefix}:co:`; a chat's counters expire `idleTtlMs` (default 1 day) after its last turn.
+- Limits: one Redis primary (standalone or Sentinel; a failover that loses the last writes can grant a lease twice). Redis Cluster is not supported.
+- Guide: [Running N replicas](../../docs/guide/replicas.md).
+
 ## Distributed lock
 
-`RedisStore` exposes a minimal lock, the building block for coordinating work across replicas (e.g. FIFO processing of one chat on exactly one replica). The core does **not** use it yet — it is there for you to compose with.
+`RedisStore` also exposes a lock for your own critical sections (the bot coordination above does not use it).
+
+```ts
+const lock = await store.acquireLockFenced(`report:${day}`, 30_000) // SET NX PX + INCR fence
+if (!lock) return // another replica holds it
+
+try {
+  await writeReport(day, { fence: lock.fence }) // the resource rejects fences lower than the last it saw
+  await store.renewLock(`report:${day}`, lock.token, 30_000) // extend a long section
+} finally {
+  await store.releaseLock(`report:${day}`, lock.token) // Lua compare-and-delete
+}
+```
+
+- `acquireLockFenced(key, ttlMs = 30_000)` → `{ token, fence }`, or `null` when held. `fence` grows by one on every acquisition of `key` and never resets.
+- `renewLock(key, token, ttlMs = 30_000)` → `true` while `token` still owns the lock (atomic), `false` once it expired or changed hands.
+
+The older `acquireLock` (below) keeps working unchanged but has no fence; it is deprecated in favour of `acquireLockFenced`.
 
 ```ts
 const token = await store.acquireLock(`chat:${chatId}`, 30_000) // SET NX PX

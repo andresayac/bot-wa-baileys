@@ -1,0 +1,5 @@
+---
+"@bot-wa/core": minor
+---
+
+Opt-in multi-replica coordination (`BotConfig.coordination`). A `Coordinator` (exported contract, with `MemoryCoordinator`/`MemoryCoordinationHub` as the in-process reference) gives each chat a cross-replica FIFO: the Dispatcher reserves a ticket per message at enqueue time and processes it only while holding the chat's turn, held until the conversation it fed settles. A message that cannot get its turn is dropped and reported (`CoordinationUnavailableError`); sends after a lost turn reject with `LeaseLostError`. A `.persistent()` flow continues on another replica from its checkpoint, the waking message answering the pending question. New optional `ProviderCapabilities.exclusiveSession` and `coordination.providerSession`: exclusive transports start only on the elected replica (`ProviderNotLeaderError` on standbys). New events `'coordination:leader'`, `'coordination:follower'`, `'coordination:lease-lost'`; `MockProvider` gains `exclusiveSession`, `starts` and `stops`. Without `coordination` nothing changes.

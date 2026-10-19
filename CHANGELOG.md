@@ -15,6 +15,17 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/). Versionado po
 - CI en GitHub Actions: `build` + `test` en Node 22 y 24 por PR.
 - Docs VitePress + TypeDoc desde la raíz (`pnpm docs`). Paquetes compilados con TypeScript 7 (native port); TypeDoc corre con TS 5.9 en la raíz.
 
+### Varias réplicas: coordinación opcional (2026-10)
+- **`@bot-wa/core`: `BotConfig.coordination`** para correr N réplicas del mismo bot. Sin la opción no cambia nada.
+  - Contrato `Coordinator` (turnos por chat con tickets, `ChatTurn` con fence y `signal`, `Leadership` con término) y `MemoryCoordinator`/`MemoryCoordinationHub` como implementación de referencia en un proceso (`crash()` simula la caída de una réplica).
+  - El Dispatcher reserva un ticket en la cola FIFO del chat compartida entre réplicas al encolar cada mensaje y solo lo procesa con el turno del chat: orden de llegada y nunca dos réplicas a la vez. El turno se retiene hasta que la conversación alimentada vuelve a esperar (`settleMs`). Un mensaje sin turno (`turnWaitMs`, backend caído) se descarta, se informa como `'error'` (`CoordinationUnavailableError`) y libera su id de dedupe.
+  - Turno perdido a mitad de handler: los envíos rechazan con `LeaseLostError`, la conversación local del chat se aborta conservando el checkpoint, evento `'coordination:lease-lost'`.
+  - Un flujo `.persistent()` sigue en otra réplica desde el checkpoint del store, y el mensaje que lo despierta responde la pregunta pendiente (sin repetirla). `ConversationRuntime` gana `refreshDormant`, `suspend` y `whenSettled`.
+  - `ProviderCapabilities.exclusiveSession` (opcional) y `coordination.providerSession` (`'auto'`/`'leader'`/`'shared'`): un transporte exclusivo solo se conecta en la réplica elegida y las demás esperan el relevo (`'coordination:leader'`/`'coordination:follower'`; `bot.send` en una réplica en espera rechaza con `ProviderNotLeaderError`). `MockProvider` gana `exclusiveSession`, `starts` y `stops`.
+- **`@bot-wa/redis-store`: `RedisCoordinator`** (o `store.coordinator()`): tickets con `INCR`, traspaso de turnos y elección con scripts Lua, leases `PX` renovados por un watchdog que los suelta localmente antes de que caduquen en Redis, términos de liderazgo como fencing tokens. Nuevos `acquireLockFenced` (fence monótono) y `renewLock`; `acquireLock` queda igual y pasa a obsoleto. Suite contra Redis real: 200 mensajes intercalados en dos bots, relevo matando un proceso hijo, réplica congelada, liderazgo del provider y flujo persistente entre réplicas.
+- **Canales**: `@bot-wa/baileys` y `@bot-wa/discord` declaran `exclusiveSession: true`; `@bot-wa/telegram` también en long polling (no en modo webhook).
+- Guía nueva: «Varias réplicas» (`docs/es/guide/replicas.md`, `docs/guide/replicas.md`).
+
 ### Seguridad (endurecimiento 2026-07-23)
 - **`@bot-wa/manager`**: la API HTTP admite autenticación por token (`createManagerApi(m, { auth: { token } })`) con comparación timing-safe; sin token, avisa que el plano de control queda sin autenticar.
 - **`@bot-wa/telegram`**: modo webhook verifica el header `X-Telegram-Bot-Api-Secret-Token` (`webhookSecret`); rechaza updates forjados con 401.

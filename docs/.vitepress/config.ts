@@ -131,6 +131,7 @@ export default defineConfig({
               items: [
                 { text: 'Sub-APIs', link: '/guide/sub-apis' },
                 { text: 'Deployment', link: '/guide/deploy' },
+                { text: 'Running N replicas', link: '/guide/replicas' },
                 { text: 'Security', link: '/guide/security' },
                 { text: 'FAQ', link: '/guide/faq' },
               ],
@@ -223,6 +224,7 @@ export default defineConfig({
               items: [
                 { text: 'Sub-APIs', link: '/es/guide/sub-apis' },
                 { text: 'Despliegue', link: '/es/guide/deploy' },
+                { text: 'Varias réplicas', link: '/es/guide/replicas' },
                 { text: 'Seguridad', link: '/es/guide/seguridad' },
                 { text: 'Preguntas frecuentes', link: '/es/guide/faq' },
               ],
