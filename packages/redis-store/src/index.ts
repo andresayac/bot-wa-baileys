@@ -19,3 +19,5 @@ export type { AnyRedisClient, NativeRedisClusterClient, RedisClusterConnectOptio
 export { INDEX_BUCKETS, LAYOUT_MARKER, bucketOf, encodeSegment } from './layout.js'
 export type { RedisKeyLayout } from './layout.js'
 export { hashSlot } from './slot.js'
+export { migrateToClusterLayout, inspectKeyspace } from './migrate.js'
+export type { MigrateKeyspaceOptions, MigrationReport, KeyspaceNamespace, KeyspaceInspection } from './migrate.js'
