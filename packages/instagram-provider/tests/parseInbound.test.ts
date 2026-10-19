@@ -27,6 +27,26 @@ describe('parseInbound (Instagram)', () => {
     }
   })
 
+  it('maps a location attachment with coordinates to message.location', () => {
+    const [e] = parseInbound(wrap({
+      sender: { id: 'IGSID_1' }, recipient: { id: 'PAGE' }, timestamp: 1,
+      message: { mid: 'mid.loc', attachments: [{ type: 'location', title: 'Parque', payload: { coordinates: { lat: 4.6, long: -74.08 } } }] },
+    }))
+    if (e?.kind !== 'message') throw new Error('expected message')
+    expect(e.message.type).toBe('location')
+    expect(e.message.body).toBe('Parque')
+    expect(e.message.location).toEqual({ latitude: 4.6, longitude: -74.08, name: 'Parque' })
+    expect(e.message.media).toBeUndefined()
+    // Junk coordinates: still a location message, but no normalized location.
+    const [bad] = parseInbound(wrap({
+      sender: { id: 'IGSID_1' }, recipient: { id: 'PAGE' }, timestamp: 1,
+      message: { mid: 'mid.loc2', attachments: [{ type: 'location', payload: { coordinates: { lat: 400, long: 0 } } }] },
+    }))
+    if (bad?.kind !== 'message') throw new Error('expected message')
+    expect(bad.message.type).toBe('location')
+    expect(bad.message.location).toBeUndefined()
+  })
+
   it('parses an image attachment into a MediaRef (token = hosted url)', () => {
     const events = parseInbound(wrap({
       sender: { id: 'IGSID_1' }, recipient: { id: 'PAGE' }, timestamp: 1,

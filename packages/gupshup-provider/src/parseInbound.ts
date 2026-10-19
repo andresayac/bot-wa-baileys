@@ -19,7 +19,8 @@
  * by `gsId` when present.
  */
 
-import type { InboundEvent, MediaRef, MessageType } from '@bot-wa/core'
+import { toInboundLocation } from '@bot-wa/core'
+import type { InboundEvent, InboundLocation, MediaRef, MessageType } from '@bot-wa/core'
 import type { GupshupCallback, GupshupEventPayload, GupshupMessagePayload } from './types.js'
 
 function str(value: unknown): string | undefined {
@@ -111,6 +112,7 @@ export function parseInbound(body: GupshupCallback, now: () => number = Date.now
   let messageType: MessageType = 'unknown'
   let text = ''
   let media: MediaRef | undefined
+  let location: InboundLocation | undefined
   const mediaKind = MEDIA_TYPES[type]
   if (type === 'text') {
     messageType = 'text'
@@ -132,6 +134,8 @@ export function parseInbound(body: GupshupCallback, now: () => number = Date.now
   } else if (type === 'location') {
     messageType = 'location'
     text = [str(inner['name']), str(inner['address'])].filter(Boolean).join(', ')
+    // Gupshup sends the coordinates as strings ('19.1453658').
+    location = toInboundLocation({ latitude: inner['latitude'], longitude: inner['longitude'], name: inner['name'], address: inner['address'] })
   } else if (type === 'contact') {
     messageType = 'contact'
     const contacts = Array.isArray(inner['contacts']) ? (inner['contacts'] as Array<{ name?: { formatted_name?: string } }>) : []
@@ -154,6 +158,7 @@ export function parseInbound(body: GupshupCallback, now: () => number = Date.now
       mentions: [],
       ...(quotedId ? { quoted: { ref: { id: quotedId, chatId: from, native: msg.context } } } : {}),
       ...(media ? { media } : {}),
+      ...(location ? { location } : {}),
       raw: body,
     },
   }]

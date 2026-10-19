@@ -985,6 +985,8 @@ export interface StoredMessage {
   status?: 'received' | 'queued' | 'sent' | 'delivered' | 'read' | 'failed'
   error?: { code?: string | number; message?: string }
   quoted?: MessageRef
+  /** Normalized shared location of an inbound `location` message (see {@link InboundMessage.location}). */
+  location?: InboundLocation
   raw?: unknown
 }
 

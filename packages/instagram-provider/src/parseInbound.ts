@@ -9,9 +9,11 @@
  * (IGSID) of the sender — stable, opaque.
  */
 
+import { toInboundLocation } from '@bot-wa/core'
 import type {
   InboundEvent,
   InboundInteraction,
+  InboundLocation,
   InboundMessage,
   InboundReaction,
   MediaRef,
@@ -23,6 +25,8 @@ interface IgAttachmentPayload {
   url?: string
   title?: string
   sticker_id?: string
+  /** Set on a `location` attachment (shared with Messenger's webhook shape, when Meta sends one). */
+  coordinates?: { lat?: number; long?: number }
 }
 interface IgAttachment {
   /** image | video | audio | file | share | fallback | story_mention | ... */
@@ -109,11 +113,19 @@ function toMessage(ev: IgMessagingEvent): InboundMessage<IgMessagingEvent> {
   let type: MessageType = msg.text ? 'text' : 'unknown'
   let body = msg.text ?? ''
   let media: MediaRef | undefined
+  let location: InboundLocation | undefined
 
   const att = msg.attachments?.[0]
   if (att) {
     const url = att.payload?.url
-    if (att.type === 'share') {
+    if (att.type === 'location') {
+      // A shared location has no downloadable bytes.
+      type = 'location'
+      const title = att.payload?.title ?? att.title
+      body = msg.text ?? title ?? ''
+      const c = att.payload?.coordinates
+      location = toInboundLocation({ latitude: c?.lat, longitude: c?.long, name: title })
+    } else if (att.type === 'share') {
       // A shared IG post — no media bytes, just a link/title.
       type = 'unknown'
       body = att.payload?.url ?? att.payload?.title ?? att.title ?? ''
@@ -145,6 +157,7 @@ function toMessage(ev: IgMessagingEvent): InboundMessage<IgMessagingEvent> {
     timestamp: ev.timestamp ?? 0,
     mentions: [],
     media,
+    ...(location ? { location } : {}),
     quoted: msg.reply_to?.mid ? { ref: { id: msg.reply_to.mid, chatId } } : undefined,
     raw: ev,
   }

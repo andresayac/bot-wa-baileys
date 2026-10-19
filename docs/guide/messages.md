@@ -218,12 +218,27 @@ bot.onLocation(async (ctx) => {
 decimal degrees; `live: true` on the first message of a live-location share).
 `ctx.body` keeps the place name or address (or `''`), so text triggers still
 work. Providers that fill it: WhatsApp via Baileys (pins and live locations),
-WhatsApp Cloud API, Telegram (pins, live locations and venues) and Messenger
-(when Meta sends coordinates). On other channels, or when the transport sends
+WhatsApp Cloud API, Telegram (pins, live locations and venues), Messenger and
+Instagram (when Meta sends coordinates), Evolution API and WPPConnect (pins and
+live locations), Gupshup and Twilio (`Latitude`/`Longitude`). Discord and
+HighLevel have no inbound locations. On other channels, or when the transport sends
 no coordinates, `ctx.type` is still `'location'` but `sharedLocation` is
 `undefined`. Provider authors map their payload with
 `toInboundLocation({ latitude, longitude, name, address, live })` from
 `@bot-wa/core`, which drops missing or out-of-range coordinates.
+
+Inside a conversation, `c.waitLocation(opts?)` waits for one and resolves with
+the `InboundLocation`; anything else re-prompts with `otherwise` (default: the
+localized `core.wait.location`). The stored inbound message keeps it too
+(`StoredMessage.location`).
+
+```ts
+bot.conversation('delivery', async (c) => {
+  await c.say('Share the delivery location 📍')
+  const loc = await c.waitLocation({ timeout: '5m' })
+  await c.say(`We deliver to ${loc.latitude}, ${loc.longitude}`)
+})
+```
 
 ## Poll votes
 

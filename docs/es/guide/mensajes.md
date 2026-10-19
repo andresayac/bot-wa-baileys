@@ -223,12 +223,27 @@ decimales WGS84; `live: true` en el primer mensaje de una ubicación en tiempo
 real). `ctx.body` conserva el nombre del lugar o la dirección (o `''`), así que
 los triggers de texto siguen funcionando. La rellenan: WhatsApp vía Baileys
 (pines y ubicación en tiempo real), WhatsApp Cloud API, Telegram (pines,
-ubicación en tiempo real y lugares/venues) y Messenger (cuando Meta envía
-coordenadas). En otros canales, o si el transporte no trae coordenadas,
+ubicación en tiempo real y lugares/venues), Messenger e Instagram (cuando Meta
+envía coordenadas), Evolution API y WPPConnect (pines y ubicación en tiempo
+real), Gupshup y Twilio (`Latitude`/`Longitude`). Discord y HighLevel no reciben
+ubicaciones. En otros canales, o si el transporte no trae coordenadas,
 `ctx.type` sigue siendo `'location'` pero `sharedLocation` es `undefined`. Si
 escribes un provider, mapea el payload con
 `toInboundLocation({ latitude, longitude, name, address, live })` de
 `@bot-wa/core`, que descarta coordenadas ausentes o fuera de rango.
+
+Dentro de una conversación, `c.waitLocation(opts?)` espera una y resuelve con
+el `InboundLocation`; cualquier otra cosa vuelve a pedirla con `otherwise` (por
+defecto, el texto localizado `core.wait.location`). El mensaje entrante
+guardado también la conserva (`StoredMessage.location`).
+
+```ts
+bot.conversation('envio', async (c) => {
+  await c.say('Comparte la ubicación de entrega 📍')
+  const loc = await c.waitLocation({ timeout: '5m' })
+  await c.say(`Entregamos en ${loc.latitude}, ${loc.longitude}`)
+})
+```
 
 ## Votos de encuestas
 

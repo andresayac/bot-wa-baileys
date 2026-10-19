@@ -18,7 +18,8 @@
  * per channel; WhatsApp and SMS are deliberately different chats.
  */
 
-import type { InboundEvent, MediaRef, MessageType } from '@bot-wa/core'
+import { toInboundLocation } from '@bot-wa/core'
+import type { InboundEvent, InboundLocation, MediaRef, MessageType } from '@bot-wa/core'
 import type { TwilioWebhookParams } from './types.js'
 
 function one(params: TwilioWebhookParams, key: string): string | undefined {
@@ -129,15 +130,20 @@ export function parseInbound(params: TwilioWebhookParams, now: () => number = Da
   let type: MessageType = 'text'
   let body = one(params, 'Body') ?? ''
   const media = mediaItems(params)
+  let location: InboundLocation | undefined
   if (media.length === 0 && one(params, 'Latitude') !== undefined && one(params, 'Longitude') !== undefined) {
     type = 'location'
     body = body || (one(params, 'Address') ?? one(params, 'Label') ?? '')
+    location = toInboundLocation({
+      latitude: one(params, 'Latitude'), longitude: one(params, 'Longitude'),
+      name: one(params, 'Label'), address: one(params, 'Address'),
+    })
   }
 
   const repliedSid = one(params, 'OriginalRepliedMessageSid')
   const repliedSender = one(params, 'OriginalRepliedMessageSender')
   const quoted = repliedSid ? { quoted: { ref: { id: repliedSid, chatId: from }, ...(repliedSender ? { senderId: repliedSender } : {}) } } : {}
-  const message = (id: string, extra: { type: MessageType; body: string; media?: MediaRef }): InboundEvent<TwilioWebhookParams> => ({
+  const message = (id: string, extra: { type: MessageType; body: string; media?: MediaRef; location?: InboundLocation }): InboundEvent<TwilioWebhookParams> => ({
     kind: 'message',
     message: {
       ref: id === sid ? ref : { ...ref, id },
@@ -153,11 +159,12 @@ export function parseInbound(params: TwilioWebhookParams, now: () => number = Da
       mentions: [],
       ...quoted,
       ...(extra.media ? { media: extra.media } : {}),
+      ...(extra.location ? { location: extra.location } : {}),
       raw: params,
     },
   })
 
-  if (media.length === 0) return { inbound, events: [message(sid, { type, body })] }
+  if (media.length === 0) return { inbound, events: [message(sid, { type, body, ...(location ? { location } : {}) })] }
   // One message per media item (Twilio MMS / WhatsApp can carry up to 10). The
   // first keeps the MessageSid and the Body; the rest get `${sid}:${i}` (unique
   // and stable across webhook retries, so dedupe works) and an empty body.

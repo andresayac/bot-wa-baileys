@@ -79,6 +79,19 @@ describe('parseWebhook — onmessage', () => {
     expect(parseWebhook({ ...base, chatId: 'status@broadcast', from: 'status@broadcast' }, ctx())).toEqual([])
   })
 
+  it('fills message.location from lat/lng', () => {
+    const base = fixture('onmessage-text-dm')
+    const [ev] = parseWebhook({ ...base, type: 'location', loc: 'Bogotá', lat: 4.6, lng: -74.08 }, ctx())
+    if (ev.kind !== 'message') throw new Error('expected message')
+    expect(ev.message.location).toEqual({ latitude: 4.6, longitude: -74.08, name: 'Bogotá' })
+    const [live] = parseWebhook({ ...base, type: 'location', lat: 4.6, lng: -74.08, isLive: true }, ctx())
+    if (live.kind !== 'message') throw new Error('expected message')
+    expect(live.message.location).toEqual({ latitude: 4.6, longitude: -74.08, live: true })
+    const [text] = parseWebhook(base, ctx())
+    if (text.kind !== 'message') throw new Error('expected message')
+    expect(text.message.location).toBeUndefined()
+  })
+
   it('uses selfId and the `to` chat for own messages', () => {
     const own = { ...fixture('onmessage-text-dm'), event: 'onselfmessage', fromMe: true, id: 'true_573001112233@c.us_X1', from: '573009998877@c.us', to: PN, chatId: undefined }
     const [ev] = parseWebhook(own, ctx())

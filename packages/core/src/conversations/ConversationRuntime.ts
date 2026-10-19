@@ -12,6 +12,7 @@ import { randomId } from '../utils/timers.js'
 import { translateFor } from '../i18n/I18n.js'
 import { CORE_MESSAGES } from '../i18n/builtins.js'
 import type { TranslateParams } from '../i18n/types.js'
+import type { InboundLocation } from '../core/provider.js'
 
 export interface RuntimeMessage {
   from: string; sender: string; body: string; type: string; isGroup: boolean
@@ -23,6 +24,8 @@ export interface RuntimeMessage {
   lang?: string
   /** Bound translator when the message came through a Bot (see `MessageContext.t`). */
   t?(key: string, params?: TranslateParams): string
+  /** Normalized shared location, when the message is one (see `MessageContext.sharedLocation`). */
+  sharedLocation?: InboundLocation
 }
 
 /**

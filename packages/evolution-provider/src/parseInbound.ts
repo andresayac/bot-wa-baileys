@@ -7,10 +7,12 @@
  * `senderId` — even when a later payload only carries the LID.
  */
 
+import { toInboundLocation } from '@bot-wa/core'
 import type {
   ChatInfo,
   DisconnectReason,
   InboundEvent,
+  InboundLocation,
   InboundMessage,
   MediaRef,
   MessageType,
@@ -74,6 +76,7 @@ interface Classified {
   body: string
   mediaPart?: Record<string, unknown>
   contextInfo?: EvolutionContextInfo
+  location?: InboundLocation
 }
 
 function classify(raw: Record<string, unknown>): Classified {
@@ -94,8 +97,14 @@ function classify(raw: Record<string, unknown>): Classified {
   if (doc) return { type: 'document', body: str(doc.caption) ?? '', mediaPart: doc, contextInfo: ctxOf(doc) }
   const sticker = rec(m.stickerMessage)
   if (sticker) return { type: 'sticker', body: '', mediaPart: sticker, contextInfo: ctxOf(sticker) }
-  const loc = rec(m.locationMessage) ?? rec(m.liveLocationMessage)
-  if (loc) return { type: 'location', body: str(loc.name) ?? str(loc.address) ?? '', contextInfo: ctxOf(loc) }
+  const still = rec(m.locationMessage)
+  const loc = still ?? rec(m.liveLocationMessage)
+  if (loc) {
+    const location = toInboundLocation({
+      latitude: loc.degreesLatitude, longitude: loc.degreesLongitude, name: loc.name, address: loc.address, live: !still,
+    })
+    return { type: 'location', body: str(loc.name) ?? str(loc.address) ?? '', contextInfo: ctxOf(loc), ...(location ? { location } : {}) }
+  }
   const contact = rec(m.contactMessage)
   if (contact) return { type: 'contact', body: str(contact.displayName) ?? '', contextInfo: ctxOf(contact) }
   const poll = rec(m.pollCreationMessage) ?? rec(m.pollCreationMessageV2) ?? rec(m.pollCreationMessageV3)
@@ -215,6 +224,7 @@ export function parseMessage(data: EvolutionMessage, ctx: ParseContext): Inbound
     mentions,
     quoted,
     media,
+    ...(c.location ? { location: c.location } : {}),
     raw: data,
   }
   return [{ kind: 'message', message }]

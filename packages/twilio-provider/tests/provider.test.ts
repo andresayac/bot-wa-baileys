@@ -257,6 +257,17 @@ describe('TwilioProvider — inbound normalization', () => {
     if (event.kind !== 'message') throw new Error('expected message')
     expect(event.message.type).toBe('location')
     expect(event.message.body).toBe('Bogotá')
+    expect(event.message.location).toEqual({ latitude: 4.6097, longitude: -74.0817, address: 'Bogotá' })
+  })
+
+  it('location share with a Label → location.name; junk coordinates → no location', () => {
+    const { Address: _address, ...noAddress } = WA_LOCATION
+    const { event } = ingestOne({ ...noAddress, Label: 'Oficina' })
+    if (event.kind !== 'message') throw new Error('expected message')
+    expect(event.message.location).toEqual({ latitude: 4.6097, longitude: -74.0817, name: 'Oficina' })
+    const { event: bad } = ingestOne({ ...WA_LOCATION, Latitude: 'abc' })
+    if (bad.kind !== 'message') throw new Error('expected message')
+    expect(bad.message.location).toBeUndefined()
   })
 
   it('reply context → quoted ref', () => {

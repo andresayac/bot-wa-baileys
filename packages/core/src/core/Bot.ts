@@ -1618,6 +1618,7 @@ export class Bot extends EventEmitter {
       direction: 'inbound',
       status: 'received',
       quoted: inbound.quoted?.ref,
+      ...(inbound.location ? { location: { ...inbound.location } } : {}),
       raw: this.config.persistRaw ? inbound.raw : undefined,
     }
     await Promise.all([

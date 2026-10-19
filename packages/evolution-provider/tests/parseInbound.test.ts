@@ -119,6 +119,24 @@ describe('parseWebhook — messages.upsert', () => {
   })
 })
 
+describe('parseWebhook — locations', () => {
+  it('fills message.location from locationMessage and liveLocationMessage', () => {
+    const base = fixture('messages-upsert-text-dm')
+    base.data.message = { locationMessage: { degreesLatitude: 4.6, degreesLongitude: -74.08, name: 'Bogotá', address: 'Cra 7' } }
+    const [ev] = parseWebhook(base, ctx())
+    if (ev.kind !== 'message') throw new Error('expected message')
+    expect(ev.message.location).toEqual({ latitude: 4.6, longitude: -74.08, name: 'Bogotá', address: 'Cra 7' })
+    base.data.message = { liveLocationMessage: { degreesLatitude: '4.6', degreesLongitude: '-74.08' } }
+    const [live] = parseWebhook(base, ctx())
+    if (live.kind !== 'message') throw new Error('expected message')
+    expect(live.message.location).toEqual({ latitude: 4.6, longitude: -74.08, live: true })
+    base.data.message = { conversation: 'hola' }
+    const [text] = parseWebhook(base, ctx())
+    if (text.kind !== 'message') throw new Error('expected message')
+    expect(text.message.location).toBeUndefined()
+  })
+})
+
 describe('parseWebhook — other events', () => {
   it('maps messages.update to a delivery status', () => {
     const [ev] = parseWebhook(fixture('messages-update'), ctx())

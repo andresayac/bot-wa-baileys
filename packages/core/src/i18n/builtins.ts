@@ -22,6 +22,8 @@ export const CORE_MESSAGES = {
   waitInvalid: 'core.wait.invalid',
   /** `c.waitMedia()` received something that is not an accepted media type. */
   waitMedia: 'core.wait.media',
+  /** `c.waitLocation()` received something that is not a shared location. */
+  waitLocation: 'core.wait.location',
   /** `/start` and `/help` text of `slashCommandsPlugin`. */
   commandsHelp: 'core.commands.help',
   /** `/reset` reply. */
@@ -122,6 +124,7 @@ export const BUILTIN_LOCALES: Readonly<Record<'es' | 'en', LocaleMessages>> = {
         text: '✍️ Escribe tu respuesta como texto.',
         invalid: '❌ Entrada inválida, intenta de nuevo.',
         media: '📎 Envía un archivo válido.',
+        location: '📍 Comparte una ubicación (clip → Ubicación).',
       },
       commands: {
         help: [
@@ -188,6 +191,7 @@ export const BUILTIN_LOCALES: Readonly<Record<'es' | 'en', LocaleMessages>> = {
         text: '✍️ Please reply with text.',
         invalid: '❌ Invalid input, please try again.',
         media: '📎 Please send a valid file.',
+        location: '📍 Please share a location (attach → Location).',
       },
       commands: {
         help: [

@@ -59,7 +59,7 @@ Un ejemplo completo (comandos, media, hooks, DI, scheduler) vive en [`packages/b
 - **Motor transport-agnostic** — el core no conoce WhatsApp: `IProvider` normaliza entrada (`InboundEvent`) y salida (`OutboundContent`); cada transporte resuelve su propia identidad internamente.
 - **Flows declarativos que compilan a runtime async** — `flow().say().ask().choose()` se compila a un `bot.conversation` real.
 - **Dispatcher por especificidad** — comandos (`/reset`) > conversación activa > matchers (`equals` normalizado por defecto, o `contains`/`startsWith`/`endsWith`) > catch-all.
-- **Runtime de conversaciones async** — `c.ask`, `c.waitText`, `c.waitMedia`, `c.choose`, con validación, reintentos y timeouts por espera.
+- **Runtime de conversaciones async** — `c.ask`, `c.waitText`, `c.waitMedia`, `c.waitLocation`, `c.choose`, con validación, reintentos y timeouts por espera.
 - **Interacciones proyectadas** — clics de botón/slash llegan como un mensaje `type: 'buttons'` con `ctx.acknowledge()` (no-op en WhatsApp).
 - **Validación de config en runtime** — el constructor lanza `ConfigValidationError` con mensaje claro.
 - **Group mode** — `config.groupMode: 'all' | 'mentions' | 'commands'`.

@@ -7,6 +7,7 @@
  * BEFORE calling this mapper (see `WPPConnectProvider.ingest`).
  */
 
+import { toInboundLocation } from '@bot-wa/core'
 import type {
   ChatInfo,
   DisconnectReason,
@@ -166,6 +167,9 @@ export function parseMessage(m: WppMessage, ctx: ParseContext): InboundEvent[] {
     .map((j: WppId) => ctx.identity.lookup(jidOf(j)))
     .filter((j): j is string => j !== undefined)
 
+  const location = type === 'location'
+    ? toInboundLocation({ latitude: m.lat, longitude: m.lng, name: m.loc, live: m.isLive === true })
+    : undefined
   const t = typeof m.t === 'number' ? m.t : Number(m.t)
   const message: InboundMessage<WppMessage> = {
     ref: { id: msgId, chatId, native: { id: msgId, remote, fromMe } },
@@ -184,6 +188,7 @@ export function parseMessage(m: WppMessage, ctx: ParseContext): InboundEvent[] {
     mentions,
     quoted,
     media,
+    ...(location ? { location } : {}),
     raw: m,
   }
   return [{ kind: 'message', message }]

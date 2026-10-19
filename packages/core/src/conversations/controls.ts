@@ -12,6 +12,7 @@ export type SchemaWaitOptions<T> = WaitOptions & { schema: SchemaLike<T> }
 import { defaultI18n, translateFor } from '../i18n/I18n.js'
 import { CORE_MESSAGES } from '../i18n/builtins.js'
 import type { TranslateParams } from '../i18n/types.js'
+import type { InboundLocation } from '../core/provider.js'
 
 /** Types `c.waitMedia()` takes by default (voice notes only when asked for: `waitMedia(['voice'])`). */
 /** Media kinds `c.waitMedia(types)` accepts. */
@@ -30,6 +31,14 @@ export interface ConversationControls extends ConversationControlsBase {
   waitText<T>(opts: SchemaWaitOptions<T>): Promise<T>
   waitText(opts?: WaitOptions): Promise<string>
   waitMedia(types?: WaitMediaType[], opts?: WaitOptions): Promise<RuntimeMessage>
+  /**
+   * Wait for a shared location (`type: 'location'` with a normalized `sharedLocation`) and
+   * resolve with it. Anything else re-prompts with `otherwise` (default: the localized
+   * `core.wait.location`) and counts against `retries`; `validate(body, message)` can reject a
+   * location (`message.sharedLocation`), e.g. a live one. A location message whose provider
+   * could not read valid coordinates is treated as "anything else".
+   */
+  waitLocation(opts?: WaitOptions): Promise<InboundLocation>
   choose(prompt: string, options: Record<string, string>, opts?: WaitOptions): Promise<string>
   goto(name: string, args?: unknown): never
   /**
@@ -44,7 +53,7 @@ export interface ConversationControls extends ConversationControlsBase {
    * **Async conversations** (`bot.conversation()`), and waits made inside the current
    * `flow().do()` step: resolves with the new value — `letra = await c.retry('Solo una letra')`.
    * `T` is that wait's result type: `string` for ask/waitText/choose, `RuntimeMessage` for
-   * waitMedia/waitAny.
+   * waitMedia/waitAny, `InboundLocation` for waitLocation.
    *
    * **Flow steps** (`flow().do()`, a `.choose()` `then` action) whose most recent wait belongs
    * to an EARLIER step (`.ask()`, `.choose()`): rewinds the flow to that step — it is re-prompted
@@ -161,6 +170,14 @@ export function createControls(rt: ConversationRuntime, handle: ConversationHand
       return (types as string[]).includes(m.type)
         ? { ok: true, value: m }
         : { ok: false, message: opts?.otherwise ?? translateFor(m, CORE_MESSAGES.waitMedia) }
+    }),
+
+    waitLocation: (opts) => loopWait<InboundLocation>(opts, ['location'], async (m) => {
+      const location = m.type === 'location' ? m.sharedLocation : undefined
+      if (!location) return { ok: false, message: opts?.otherwise ?? translateFor(m, CORE_MESSAGES.waitLocation) }
+      const v = opts?.validate ? await opts.validate(m.body, m) : true
+      if (v !== true) return { ok: false, message: typeof v === 'string' ? v : translateFor(m, CORE_MESSAGES.waitInvalid) }
+      return { ok: true, value: location }
     }),
 
     choose: async (prompt, options, opts) => {

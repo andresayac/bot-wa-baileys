@@ -68,6 +68,55 @@ describe('inbound location (InboundMessage.location → ctx.sharedLocation)', ()
   })
 })
 
+describe('c.waitLocation() and persistence', () => {
+  it('c.waitLocation() resolves the shared location and re-prompts on anything else', async () => {
+    const { bot, chat } = await createTestBot()
+    bot.conversation('envio', async (c) => {
+      await c.say('Comparte tu ubicación')
+      const loc = await c.waitLocation()
+      await c.say(`Entregamos en ${loc.latitude},${loc.longitude} (${loc.name ?? 'sin nombre'})`)
+    })
+    await chat.send('envio')
+    await chat.expectReply('Comparte')
+    await chat.send('calle 10')
+    await chat.expectReply('📍')
+    await chat.sendLocation({ latitude: 6.26, longitude: -75.57, name: 'Casa' })
+    await chat.expectReply('Entregamos en 6.26,-75.57 (Casa)')
+    await bot.stop()
+  })
+
+  it('c.waitLocation({ otherwise, validate }) uses the custom texts and checks the location', async () => {
+    const { bot, chat } = await createTestBot()
+    bot.conversation('envio', async (c) => {
+      const loc = await c.waitLocation({
+        otherwise: 'Usa el clip → Ubicación',
+        validate: (_body, m) => (m.sharedLocation?.live ? 'Comparte un punto fijo, no la ubicación en tiempo real' : true),
+      })
+      await c.say(`ok ${loc.latitude}`)
+    })
+    await chat.send('envio')
+    await chat.send('hola')
+    await chat.expectReply('Usa el clip → Ubicación')
+    await chat.sendLocation({ latitude: 1, longitude: 2, live: true })
+    await chat.expectReply('punto fijo')
+    await chat.sendLocation({ latitude: 3, longitude: 4 })
+    await chat.expectReply('ok 3')
+    await bot.stop()
+  })
+
+  it('the stored inbound message keeps the location', async () => {
+    const { bot, chat } = await createTestBot()
+    await chat.sendLocation({ latitude: 4.7, longitude: -74.07, name: 'Plaza' })
+    await chat.send('hola')
+    const stored = await bot.getStore().getMessagesByChat(chat.jid)
+    const loc = stored.find((m) => m.type === 'location')
+    const text = stored.find((m) => m.type === 'text')
+    expect(loc).toMatchObject({ type: 'location', location: { latitude: 4.7, longitude: -74.07, name: 'Plaza' } })
+    expect(text).not.toHaveProperty('location')
+    await bot.stop()
+  })
+})
+
 describe('toInboundLocation (provider helper)', () => {
   it('normalizes valid coordinates and optional fields', () => {
     expect(toInboundLocation({ latitude: 4.6, longitude: -74.1, name: 'Casa', address: '', live: true }))

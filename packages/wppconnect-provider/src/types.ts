@@ -105,6 +105,8 @@ export interface WppMessage {
   lat?: number
   lng?: number
   loc?: string
+  /** True on a live-location share. */
+  isLive?: boolean
   vcardFormattedName?: string
   pollName?: string
   quotedMsg?: { type?: string; body?: string; caption?: string }

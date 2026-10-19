@@ -305,6 +305,9 @@ Los flows construidos con `flow()` compilan exactamente a este runtime.
 mensaje; descarga sus bytes con
 [`loadMediaOf()`](./mensajes#acceder-al-contenido-del-media).
 
+`c.waitLocation(opts?)` espera una ubicación compartida y resuelve con su
+`InboundLocation` normalizado (ver [Recibir una ubicación](./mensajes#recibir-una-ubicacion)).
+
 ## `ctx` en `bot.conversation()` es un `MessageContext` completo
 
 El segundo argumento de un handler de `bot.conversation()` es el

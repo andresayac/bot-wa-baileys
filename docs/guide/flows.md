@@ -298,6 +298,9 @@ or `sticker` by default; voice notes only when you ask for them
 with the message; download its bytes with
 [`loadMediaOf()`](./messages#access-media-content).
 
+`c.waitLocation(opts?)` waits for a shared location and resolves with its
+normalized `InboundLocation` (see [Receive a location](./messages#receive-a-location)).
+
 ## `ctx` in `bot.conversation()` is a full `MessageContext`
 
 The second argument of a `bot.conversation()` handler is the full

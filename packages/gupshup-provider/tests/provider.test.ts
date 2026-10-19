@@ -117,6 +117,8 @@ describe('GupshupProvider — inbound normalization', () => {
     const [e] = one(LOCATION)
     if (e?.kind !== 'message') throw new Error('expected message')
     expect(e.message.type).toBe('location')
+    // Gupshup sends the coordinates as strings.
+    expect(e.message.location).toEqual({ latitude: 19.1453658, longitude: 72.8552172 })
   })
 
   it('reply context → quoted ref keyed by the Gupshup id (what send() returned)', () => {
