@@ -86,6 +86,10 @@ const DEFAULT_TIMEOUT_MS = 60_000
 const DEFAULT_RAG_TIMEOUT_MS = 10_000
 const DEFAULT_REFUSAL = 'No puedo ayudar con eso.'
 
+/** Stop reasons meaning the answer hit the output-token cap (Anthropic, OpenAI-compatible, Ollama, Gemini). */
+const TRUNCATED = new Set(['max_tokens', 'length', 'MAX_TOKENS'])
+const isTruncated = (stopReason: string | undefined): boolean => stopReason !== undefined && TRUNCATED.has(stopReason)
+
 /** Options of {@link AIClient.streamReplyInChat}. */
 export interface AIStreamReplyOptions {
   signal?: AbortSignal
@@ -343,7 +347,7 @@ export class AIClient {
         const pending = iterator
         try { void Promise.resolve(pending?.return?.()).catch(() => undefined) } catch { /* ignore */ }
       }
-      if (!failed && !refused && text && (completed || opts?.keepPartial !== false)) {
+      if (!failed && !refused && text.trim() && (completed || opts?.keepPartial !== false)) {
         await this.ctx.appendMany(chatKey, [
           { role: 'user', content: userText },
           { role: 'assistant', content: text },
@@ -418,7 +422,8 @@ export class AIClient {
    * With tools configured the multi-step tool loop runs. With `userId` and
    * memory enabled, the user's facts are injected and, with `autoExtract`, new
    * facts are extracted in the background after the turn. With RAG configured,
-   * retrieved passages are injected with citations.
+   * retrieved passages are injected with citations. An empty answer resolves
+   * `''` and is not stored (the turn leaves no trace in the history).
    */
   async replyInChat(chatKey: string, userText: string, opts?: AIReplyOptions): Promise<string> {
     return (await this.replyInChatDetailed(chatKey, userText, opts)).text
@@ -453,6 +458,10 @@ export class AIClient {
       const text = this.opts.refusalMessage ?? DEFAULT_REFUSAL
       return { text, answer: text, citations: [], facts }
     }
+    // An empty answer (e.g. the token budget spent on reasoning) is not a turn: storing
+    // it would leave a blank assistant message that some providers reject on every
+    // later call. The caller decides what to tell the user.
+    if (!r.text.trim()) return { text: r.text, answer: r.text, citations, facts }
     // Single store write for the whole turn (user + assistant). Intermediate tool
     // turns are not persisted: the history stays plain user/assistant text.
     const turn: AIMessage[] = [
@@ -602,7 +611,11 @@ export class AIClient {
     if (r.stopReason === 'refusal') return []
     const facts = parseFacts(r.text, maxItems, memory.maxFactLength)
     if (!facts) {
-      this.report(new Error('memory extraction answer did not match the JSON schema'), 'memory-extract')
+      const maxTokens = cfg.maxTokens ?? 300
+      this.report(new Error(isTruncated(r.stopReason)
+        ? `memory extraction answer was cut off by the token cap (maxTokens ${maxTokens}): ` +
+          'raise memory.autoExtract.maxTokens (reasoning models spend part of it thinking)'
+        : 'memory extraction answer did not match the JSON schema'), 'memory-extract')
       return []
     }
     const accepted = cfg.filter ? facts.filter((f) => cfg.filter!(f)) : facts

@@ -32,13 +32,15 @@ export interface GeminiResponse {
   usageMetadata?: GeminiUsage
   functionCalls?(): GeminiFunctionCall[] | undefined
   candidates?: Array<{ content?: { parts?: GeminiPart[] }; finishReason?: string }>
+  /** Set when the prompt itself was blocked (then there are no candidates). */
+  promptFeedback?: { blockReason?: string }
 }
 export interface GeminiModelLike {
   generateContent(args: Record<string, unknown>, requestOptions?: GeminiRequestOptions): Promise<{
     response: GeminiResponse
   }>
   generateContentStream?(args: Record<string, unknown>, requestOptions?: GeminiRequestOptions): Promise<{
-    stream: AsyncIterable<{ text(): string }>
+    stream: AsyncIterable<Pick<GeminiResponse, 'text' | 'candidates' | 'promptFeedback'>>
   }>
 }
 export interface GeminiLike {
@@ -48,6 +50,19 @@ export interface GeminiLike {
 type GeminiContent = { role: 'user' | 'model' | 'function'; parts: GeminiPart[] }
 
 const DEFAULT_MODEL = 'gemini-2.0-flash'
+
+/**
+ * Finish / block reasons meaning the answer was withheld by Gemini's safety
+ * filters. They are reported as `stopReason: 'refusal'` (the autoreply then
+ * answers `refusalMessage`) instead of the SDK's `text()` exception.
+ */
+const BLOCKED = new Set(['SAFETY', 'RECITATION', 'BLOCKLIST', 'PROHIBITED_CONTENT', 'SPII', 'IMAGE_SAFETY'])
+
+/** The response (or stream chunk) was blocked by the safety filters. */
+function blocked(r: Pick<GeminiResponse, 'candidates' | 'promptFeedback'>): boolean {
+  const reason = r.candidates?.[0]?.finishReason
+  return (reason !== undefined && BLOCKED.has(reason)) || !!r.promptFeedback?.blockReason
+}
 
 export class GeminiProvider implements AIProvider {
   readonly name = 'gemini'
@@ -98,14 +113,17 @@ export class GeminiProvider implements AIProvider {
     // Gemini does not id function calls; synthesize ids so results can be matched.
     const toolCalls: AIToolCall[] = calls.map((c) => ({ id: `gemini_call_${++this.callSeq}`, name: c.name, args: c.args ?? {} }))
     let text = ''
+    let refused = false
     try {
       text = res.response.text()
     } catch (err) {
-      // The SDK throws from text() for blocked responses (SAFETY, RECITATION, ...):
-      // keep that an error. Only a pure function-call turn may have no text.
-      if (!toolCalls.length) throw err
+      // The SDK throws from text() for blocked responses (SAFETY, RECITATION, a blocked
+      // prompt...): that is a refusal, not a failure. Only a pure function-call turn may
+      // have no text; anything else stays an error.
+      if (!toolCalls.length && blocked(res.response)) refused = true
+      else if (!toolCalls.length) throw err
     }
-    const finish = res.response.candidates?.[0]?.finishReason
+    const finish = refused ? 'refusal' : res.response.candidates?.[0]?.finishReason
     return {
       text,
       model: input.model ?? this.cfg.model ?? DEFAULT_MODEL,
@@ -122,13 +140,22 @@ export class GeminiProvider implements AIProvider {
     if (!model.generateContentStream) {
       const r = await this.generate(input)
       if (r.text) yield r.text
+      input.onStreamEnd?.({ stopReason: r.stopReason })
       return
     }
     const { stream } = await model.generateContentStream(this.buildArgs(input, false), this.reqOpts(input))
+    let stopReason: string | undefined
     for await (const chunk of stream) {
+      if (blocked(chunk)) {
+        // The rest of the answer was withheld: report a refusal (the SDK's text() would throw).
+        stopReason = 'refusal'
+        break
+      }
+      stopReason = chunk.candidates?.[0]?.finishReason ?? stopReason
       const t = chunk.text()
       if (t) yield t
     }
+    input.onStreamEnd?.({ stopReason })
   }
 }
 

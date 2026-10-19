@@ -9,7 +9,8 @@ export interface OpenAIToolCall {
   function: { name: string; arguments: string }
 }
 export interface OpenAIChoice {
-  message?: { content?: string | null; tool_calls?: OpenAIToolCall[] }
+  /** `refusal` is set (and `content` null) when the model declined to answer. */
+  message?: { content?: string | null; tool_calls?: OpenAIToolCall[]; refusal?: string | null }
   finish_reason?: string
 }
 export interface OpenAIChatCompletion {
@@ -18,7 +19,7 @@ export interface OpenAIChatCompletion {
   usage?: { prompt_tokens: number; completion_tokens: number }
 }
 export interface OpenAIStreamChunk {
-  choices: Array<{ delta?: { content?: string }; finish_reason?: string | null }>
+  choices: Array<{ delta?: { content?: string | null; refusal?: string | null }; finish_reason?: string | null }>
 }
 export interface OpenAIRequestOptions {
   signal?: AbortSignal
@@ -85,13 +86,25 @@ export class OpenAIProvider implements AIProvider {
 
   async generate(input: GenerateInput): Promise<GenerateResult> {
     const res = (await this.client.chat.completions.create(this.baseArgs(input), this.reqOpts(input))) as OpenAIChatCompletion
-    const toolCalls: AIToolCall[] = (res.choices[0]?.message?.tool_calls ?? [])
+    const choice = res.choices?.[0]
+    // Some OpenAI-compatible gateways answer an upstream failure with HTTP 200 and `{ error }`.
+    if (!choice) {
+      const error = (res as { error?: { message?: unknown } | string }).error
+      if (error) {
+        const message = typeof error === 'string' ? error : String(error.message ?? JSON.stringify(error))
+        throw new Error(`${this.name}: ${message}`)
+      }
+    }
+    const toolCalls: AIToolCall[] = (choice?.message?.tool_calls ?? [])
       .filter((c) => typeof c.function?.name === 'string')
       .map((c) => ({ id: c.id, name: c.function.name, args: parseArguments(c.function.arguments) }))
+    // A declined answer comes as `message.refusal` (content null): report it like the
+    // other providers do, so the autoreply answers `refusalMessage`.
+    const refused = !!choice?.message?.refusal && !choice.message.content && !toolCalls.length
     return {
-      text: res.choices[0]?.message?.content ?? '',
+      text: choice?.message?.content ?? '',
       model: res.model,
-      stopReason: res.choices[0]?.finish_reason,
+      stopReason: refused ? 'refusal' : choice?.finish_reason,
       usage: res.usage ? { input: res.usage.prompt_tokens, output: res.usage.completion_tokens } : undefined,
       ...(toolCalls.length ? { toolCalls } : {}),
     }
@@ -105,12 +118,16 @@ export class OpenAIProvider implements AIProvider {
       stream: true,
     }, this.reqOpts(input))) as AsyncIterable<OpenAIStreamChunk>
     let stopReason: string | undefined
+    let refused = false
     for await (const chunk of s) {
-      const d = chunk.choices[0]?.delta?.content
+      // Some compatible servers send keep-alive / usage chunks without `choices`.
+      const choice = chunk.choices?.[0]
+      if (choice?.delta?.refusal) refused = true
+      const d = choice?.delta?.content
       if (d) yield d
-      stopReason = chunk.choices[0]?.finish_reason ?? stopReason
+      stopReason = choice?.finish_reason ?? stopReason
     }
-    input.onStreamEnd?.({ stopReason })
+    input.onStreamEnd?.({ stopReason: refused ? 'refusal' : stopReason })
   }
 }
 

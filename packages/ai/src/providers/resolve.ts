@@ -34,11 +34,12 @@ export async function resolveProvider(cfg: AIConfig): Promise<AIProvider> {
 
   switch (name) {
     case 'anthropic': {
-      const mod = await loadModule<{ default: new (o: { apiKey?: string }) => AnthropicLike }>(
+      const mod = await loadModule<{ default: new (o: { apiKey?: string; baseURL?: string }) => AnthropicLike }>(
         '@anthropic-ai/sdk',
         'pnpm add @anthropic-ai/sdk',
       )
-      return new AnthropicProvider(new mod.default({ apiKey: cfg.apiKey }), cfg)
+      // `baseUrl` (a gateway / proxy) only when set: otherwise the SDK keeps ANTHROPIC_BASE_URL or its default.
+      return new AnthropicProvider(new mod.default({ apiKey: cfg.apiKey, ...(cfg.baseUrl ? { baseURL: cfg.baseUrl } : {}) }), cfg)
     }
     case 'openai': {
       const mod = await loadModule<{ default: new (o: { apiKey?: string; baseURL?: string }) => OpenAILike }>(

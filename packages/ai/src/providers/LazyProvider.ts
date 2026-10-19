@@ -7,7 +7,8 @@ import type { AIProvider, GenerateInput, GenerateResult } from '../types.js'
  * is async and may throw (missing SDK, unknown provider, or an SDK constructor
  * that throws — e.g. the Anthropic SDK when no api key is available). The real
  * provider is built by `factory` on the first `generate`/`stream`/`warmup`, and
- * the resulting promise is memoized. A failing factory therefore surfaces
+ * a successful result is memoized (a failed resolution is retried on the next
+ * call). A failing factory therefore surfaces
  * per-call (the autoreply try/catch replies `errorMessage`) instead of turning
  * into an uncatchable unhandled rejection that crashes the process at install.
  */
@@ -18,7 +19,14 @@ export class LazyProvider implements AIProvider {
   constructor(private factory: () => Promise<AIProvider>) {}
 
   private get(): Promise<AIProvider> {
-    return (this.p ??= this.factory())
+    if (!this.p) {
+      const p = this.factory()
+      this.p = p
+      // Only success is memoized: after a failure the next call tries again (a
+      // transient error during the first resolution must not disable the AI for good).
+      p.catch(() => { if (this.p === p) this.p = undefined })
+    }
+    return this.p
   }
 
   /**

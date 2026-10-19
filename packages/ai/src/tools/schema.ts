@@ -103,16 +103,16 @@ function checkJson(schema: JSONSchema, v: unknown, path: string, errors: string[
   if (typeOf(v) === 'object') {
     const obj = v as Record<string, unknown>
     if (Array.isArray(schema.required)) {
-      for (const k of schema.required) if (typeof k === 'string' && !(k in obj)) errors.push(`${path}.${k}: is required`)
+      for (const k of schema.required) if (typeof k === 'string' && !Object.hasOwn(obj, k)) errors.push(`${path}.${k}: is required`)
     }
     const props = (schema.properties && typeof schema.properties === 'object') ? schema.properties as Record<string, JSONSchema> : undefined
     if (props) {
       for (const [k, sub] of Object.entries(props)) {
-        if (k in obj && obj[k] !== undefined && sub && typeof sub === 'object') checkJson(sub, obj[k], `${path}.${k}`, errors)
+        if (Object.hasOwn(obj, k) && obj[k] !== undefined && sub && typeof sub === 'object') checkJson(sub, obj[k], `${path}.${k}`, errors)
       }
     }
     if (schema.additionalProperties === false) {
-      for (const k of Object.keys(obj)) if (!props || !(k in props)) errors.push(`${path}.${k}: is not allowed`)
+      for (const k of Object.keys(obj)) if (!props || !Object.hasOwn(props, k)) errors.push(`${path}.${k}: is not allowed`)
     }
   }
   if (Array.isArray(v) && schema.items && typeof schema.items === 'object' && !Array.isArray(schema.items)) {
