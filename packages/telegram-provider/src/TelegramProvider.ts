@@ -55,7 +55,7 @@ const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms
 /** Bot API methods that accept `reply_parameters`. */
 const REPLYABLE = new Set([
   'sendMessage', 'sendPhoto', 'sendVideo', 'sendAudio', 'sendVoice',
-  'sendDocument', 'sendSticker', 'sendLocation', 'sendContact', 'sendPoll',
+  'sendDocument', 'sendSticker', 'sendLocation', 'sendVenue', 'sendContact', 'sendPoll',
 ])
 
 /** How long a draft's stop callback stays registered (drafts are ~30 s previews). */
@@ -63,12 +63,18 @@ const DRAFT_STOP_TTL_MS = 10 * 60_000
 
 const MEDIA_KINDS: ReadonlyArray<OutboundContent['kind']> = ['image', 'video', 'audio', 'voice', 'document', 'sticker']
 
+/** 400 descriptions meaning the target chat/user cannot be reached by this bot. */
+const UNREACHABLE_400 = /chat not found|user not found|PEER_ID_INVALID|bot was kicked|bot is not a member|have no rights to send|not enough rights to send|group chat was (deactivated|upgraded)/i
+/** 400 descriptions meaning the payload (text, caption, file) exceeds a Bot API limit. */
+const TOO_LARGE_400 = /too long|too big|entity too large/i
+
 /** Translate a Bot API error envelope into a typed provider error. */
 export function toProviderError(chatId: ChatId, errorCode: number | undefined, description: string | undefined, retryAfterSec?: number): ProviderError {
   const desc = description ?? `Telegram error ${errorCode ?? 'unknown'}`
   if (errorCode === 429) return new RateLimitedError((retryAfterSec ?? 1) * 1000, desc)
   if (errorCode === 403) return new RecipientUnreachableError(chatId, desc)
-  if (errorCode === 400 && /too long/i.test(desc)) return new PayloadTooLargeError(desc)
+  if (errorCode === 413 || (errorCode === 400 && TOO_LARGE_400.test(desc))) return new PayloadTooLargeError(desc)
+  if (errorCode === 400 && UNREACHABLE_400.test(desc)) return new RecipientUnreachableError(chatId, desc)
   if (errorCode === 401) return new ProviderError(`Unauthorized — check the bot token (${desc})`)
   return new ProviderError(desc)
 }
@@ -179,6 +185,9 @@ export class TelegramProvider implements IProvider<unknown> {
     if (this.running) return
     this.running = true
     this.stopped = false
+    // A restart (stop() → start()) must announce `ready` again on the first batch.
+    this.readyEmitted = false
+    this.pollErrors = 0
     this.emitConnection('connecting')
     if (this._selfId == null) {
       try {
@@ -216,7 +225,8 @@ export class TelegramProvider implements IProvider<unknown> {
   /**
    * Long-poll loop: getUpdates?offset=N&timeout=T, advancing offset past every
    * update_id. Errors back off (429 honors retry_after; 409 conflict means
-   * another instance polls the same token → sessionTakenOver, stop).
+   * another instance polls the same token → sessionTakenOver, stop; 401 means
+   * the token was revoked → sessionInvalid, stop).
    */
   private async pollLoop(): Promise<void> {
     const allowedUpdates = ['message', 'edited_message', 'callback_query', 'stopped_message_generation']
@@ -250,8 +260,17 @@ export class TelegramProvider implements IProvider<unknown> {
         }
         const detail = err instanceof Error ? err.message : String(err)
         if (/conflict|terminated by other getUpdates|\(409\)/i.test(detail)) {
+          if (/webhook is active/i.test(detail)) {
+            this.logger.error('getUpdates conflicts with an active webhook: call deleteWebhook, or use `polling: false` and ingest()')
+          }
           this.running = false
           this.emitConnection('closed', 'sessionTakenOver', detail)
+          break
+        }
+        // A revoked / wrong token never recovers by retrying: stop and surface it.
+        if (/unauthorized/i.test(detail)) {
+          this.running = false
+          this.emitConnection('closed', 'sessionInvalid', detail)
           break
         }
         // Exponential backoff with a ceiling so a sustained network outage

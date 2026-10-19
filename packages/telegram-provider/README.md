@@ -111,7 +111,7 @@ if (ctx.media) {
 
 | Capability               | Value  | Notes                                             |
 | ------------------------ | ------ | ------------------------------------------------- |
-| `buttons`                | ✅     | inline keyboard (`callback_data` = button id)     |
+| `buttons`                | ✅     | inline keyboard (`callback_data` = button id, cut to 64 bytes) |
 | `lists`                  | ❌     | degrades to an inline keyboard                    |
 | `polls`                  | ✅     | native `sendPoll`                                 |
 | `reactions`              | ✅     | `setMessageReaction`                              |
@@ -131,9 +131,10 @@ Bot API errors become typed `@bot-wa/core` errors:
 | HTTP | Maps to                                              |
 | ---- | ---------------------------------------------------- |
 | 429  | `RateLimitedError` (`retryAfterMs` from `retry_after`) |
-| 403  | `RecipientUnreachableError` (blocked / chat not found) |
-| 400 *message is too long* | `PayloadTooLargeError` (4096 chars) |
-| 401  | `ProviderError` + connection `sessionInvalid`        |
+| 403  | `RecipientUnreachableError` (bot blocked / kicked)   |
+| 400 *chat not found*, *user not found*, *bot is not a member*… | `RecipientUnreachableError` |
+| 400 *message is too long* / *file is too big*, 413 | `PayloadTooLargeError` |
+| 401  | `ProviderError` + connection `sessionInvalid` (also mid-run: the poll loop stops) |
 | 409 conflict (two pollers) | connection `sessionTakenOver`, poll loop stops |
 
 ## Notes
