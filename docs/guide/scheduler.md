@@ -53,8 +53,14 @@ bot.schedule('*/15 * * * *', async () => { /* ... */ })
 ```
 
 Each field takes `*`, a number, a range (`1-5`), a step (`*/15`, `1-30/5`) or a
-comma-separated list of those. Every field must match (the day-of-month /
-day-of-week "OR" rule of classic cron is not implemented). Names (`mon`, `jan`)
+comma-separated list of those. A `*` step counts from the field's minimum
+(`*/3` in the month field is January, April, July and October; `*/2` in the
+day-of-month field is the odd days).
+
+Day rule of standard cron: when **both** day of month and day of week are
+restricted, a day matches if **either** does — `0 9 13 * 5` runs every 13th
+**and** every Friday. When one of them starts with `*` (including a step such as
+`*/2`), both must match, so `0 9 * * 1` is just "Mondays". Names (`mon`, `jan`)
 and macros (`@daily`) are not supported: `bot.schedule()` throws a `TypeError`
 naming the offending field instead of creating a task that never runs.
 

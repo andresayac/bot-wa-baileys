@@ -239,6 +239,9 @@ new Bot({ provider, dedupe: false })                      // desactivar
   como `blocked`, no como `duplicate`).
 - Si falla la persistencia antes de los handlers (store caído), la clave se
   libera y el reintento del transporte sí se procesa.
+- Un mensaje que seguía en la cola de su chat cuando se llamó a
+  `bot.stop()` se descarta sin procesar y su clave se libera, así que el
+  mismo id re-entregado después de `bot.start()` sí se procesa.
 - `size` es un LRU; `ttl` (ms o `'30s'`/`'10m'`/`'1h'`) cuenta desde la
   primera aceptación.
 - **Límite:** vive en la memoria del proceso. No deduplica entre réplicas
