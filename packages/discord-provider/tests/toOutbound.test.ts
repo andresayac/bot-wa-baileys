@@ -22,7 +22,7 @@ describe('toOutbound', () => {
     expect(() => toOutbound({ kind: 'image', media: '' as never })).toThrow(UnsupportedContentError)
   })
 
-  it('buttons → action row (type 1) of buttons (capped at 5; url buttons get style 5)', () => {
+  it('buttons → action rows (type 1) of up to 5 buttons each (url buttons get style 5)', () => {
     const out = toOutbound({
       kind: 'buttons',
       text: 'elige',
@@ -32,9 +32,13 @@ describe('toOutbound', () => {
         { id: '1', title: '1' }, { id: '2', title: '2' }, { id: '3', title: '3' }, { id: '4', title: '4' },
       ],
     })
-    const row = (out.payload.components as Row[])[0]
+    const rows = out.payload.components as Row[]
+    const row = rows[0]
     expect(row.type).toBe(1)
     expect(row.components).toHaveLength(5)
+    // The 6th button is not dropped: it opens a second action row.
+    expect(rows).toHaveLength(2)
+    expect(rows[1].components).toEqual([expect.objectContaining({ label: '4', custom_id: '4' })])
     expect(row.components[0]).toMatchObject({ type: 2, style: 1, label: 'A', custom_id: 'a' })
     expect(row.components[1]).toMatchObject({ type: 2, style: 5, url: 'https://x' })
     expect(row.components[1].custom_id).toBeUndefined()
@@ -97,5 +101,21 @@ describe('toOutbound', () => {
   it('template is unsupported; reaction is routed by the provider', () => {
     expect(() => toOutbound({ kind: 'template', name: 'n', language: 'es' })).toThrow(UnsupportedContentError)
     expect(() => toOutbound({ kind: 'reaction', emoji: '👍', target: { id: 'M', chatId: 'C' } })).toThrow(UnsupportedContentError)
+  })
+})
+
+describe('toOutbound — hardening', () => {
+  it('caps buttons at 25 (5 rows × 5) and falls back to the title when a button id is empty', () => {
+    const buttons = Array.from({ length: 30 }, (_, i) => ({ id: i === 0 ? '' : `b${i}`, title: `T${i}` }))
+    const rows = toOutbound({ kind: 'buttons', text: 'x', buttons }).payload.components as Row[]
+    expect(rows).toHaveLength(5)
+    expect(rows.flatMap((r) => r.components)).toHaveLength(25)
+    expect(rows[0].components[0]).toMatchObject({ custom_id: 'T0' })
+  })
+
+  it('list options fall back to the title when a row id is empty', () => {
+    const out = toOutbound({ kind: 'list', text: 't', buttonText: 'Ver', sections: [{ title: 's', rows: [{ id: '', title: 'Uno' }] }] })
+    const menu = (out.payload.components as Row[])[0].components[0] as { options: Array<{ value: string }> }
+    expect(menu.options[0].value).toBe('Uno')
   })
 })

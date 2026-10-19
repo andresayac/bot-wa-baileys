@@ -154,6 +154,10 @@ export class DiscordProvider implements IProvider<unknown> {
       const user = (d as { user?: { id: string } } | undefined)?.user
       if (user?.id && !this._selfId) this._selfId = user.id
       this.fan({ kind: 'connection', update: { state: 'ready' } })
+    } else if (t === 'RESUMED') {
+      // A resumed session is live again: without this the connection would
+      // stay 'authenticating' after every successful RESUME.
+      this.fan({ kind: 'connection', update: { state: 'ready' } })
     }
     const event = parseDispatch(t, d, this._selfId)
     if (event) this.fan(event)
@@ -164,17 +168,14 @@ export class DiscordProvider implements IProvider<unknown> {
   async send(chatId: ChatId, content: OutboundContent, options?: SendOptions): Promise<SendResult<unknown>> {
     // Reactions live on their own REST route.
     if (content.kind === 'reaction') {
+      if (!content.emoji) {
+        throw new UnsupportedContentError('reaction', 'Discord cannot remove a reaction without knowing its emoji: pass the emoji to react with.')
+      }
       await this.rest.putReaction(content.target.chatId || chatId, content.target.id, content.emoji)
       return { ref: content.target }
     }
 
-    const file = (MEDIA_KINDS as readonly string[]).includes(content.kind)
-      ? await this.resolveMedia(
-          (content as { media: MediaSource }).media,
-          content.kind === 'document' ? ((content as { filename?: string }).filename ?? DEFAULT_NAME.document) : DEFAULT_NAME[content.kind] ?? 'file.bin',
-        )
-      : undefined
-    const { payload, files } = toOutbound(content, file)
+    const { payload, files } = toOutbound(content, await this.mediaFileOf(content))
 
     if (options?.quoted) {
       payload.message_reference = {
@@ -203,15 +204,24 @@ export class DiscordProvider implements IProvider<unknown> {
 
   /* Media ------------------------------------------------------------------- */
 
+  /** The upload for a media kind (undefined for every other kind). */
+  private async mediaFileOf(content: OutboundContent): Promise<DiscordFile | undefined> {
+    if (!(MEDIA_KINDS as readonly string[]).includes(content.kind)) return undefined
+    const name = content.kind === 'document'
+      ? ((content as { filename?: string }).filename ?? DEFAULT_NAME.document)
+      : DEFAULT_NAME[content.kind] ?? 'file.bin'
+    return this.resolveMedia((content as { media: MediaSource }).media, name)
+  }
+
   private async resolveMedia(source: MediaSource, name: string): Promise<DiscordFile> {
     if (typeof source === 'string') {
-      return source.startsWith('http')
+      return /^https?:\/\//i.test(source)
         ? this.downloadAsFile(source, name)
         : { name: basename(source), buffer: await readFile(source), contentType: mimeFor(source) }
     }
-    if (Buffer.isBuffer(source)) return { name, buffer: source }
+    if (Buffer.isBuffer(source)) return { name, buffer: source, contentType: mimeFor(name) }
     if ('url' in source) return this.downloadAsFile(source.url, name)
-    if ('buffer' in source) return { name, buffer: source.buffer }
+    if ('buffer' in source) return { name, buffer: source.buffer, contentType: mimeFor(name) }
     if ('path' in source) {
       return { name: basename(source.path), buffer: await readFile(source.path), contentType: mimeFor(source.path) }
     }
@@ -263,10 +273,7 @@ export class DiscordProvider implements IProvider<unknown> {
 
   async editMessage(ref: MessageRef, content: OutboundContent): Promise<SendResult<unknown>> {
     if (content.kind === 'reaction') throw new UnsupportedContentError('reaction', 'Cannot edit a message into a reaction')
-    const file = (MEDIA_KINDS as readonly string[]).includes(content.kind)
-      ? await this.resolveMedia((content as { media: MediaSource }).media, DEFAULT_NAME[content.kind] ?? 'file.bin')
-      : undefined
-    const { payload, files } = toOutbound(content, file)
+    const { payload, files } = toOutbound(content, await this.mediaFileOf(content))
     // PATCH keeps every field it is not sent: without an explicit empty list the old
     // buttons / select menu stay under the edited content (and stay pressable).
     if (content.kind !== 'native' && !('components' in payload)) payload.components = []

@@ -180,6 +180,8 @@ export interface DiscordInteractionPayload {
   type: number
   token: string
   channel_id?: string
+  /** Partial channel object (newer payloads); `id` mirrors `channel_id`. */
+  channel?: { id?: string }
   guild_id?: string
   /** Present in guilds. */
   member?: { user: DiscordUser; nick?: string | null }

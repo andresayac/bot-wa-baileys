@@ -42,12 +42,25 @@ function mediaPayload(content: OutboundContent & { caption?: string }, file: Dis
   }
 }
 
-function buttonRow(buttons: Array<{ id: string; title: string; url?: string }>): Array<Record<string, unknown>> {
-  return buttons.slice(0, 5).map((b) =>
+/** Discord: at most 5 buttons per action row and 5 action rows per message. */
+const BUTTONS_PER_ROW = 5
+const MAX_ROWS = 5
+
+/**
+ * Buttons -> action rows (type 1) of up to 5 buttons each, at most 25 buttons.
+ * `custom_id` must be 1-100 chars, so an empty id falls back to the title.
+ */
+function buttonRows(buttons: Array<{ id: string; title: string; url?: string }>): Array<Record<string, unknown>> {
+  const components = buttons.slice(0, BUTTONS_PER_ROW * MAX_ROWS).map((b) =>
     b.url
       ? { type: 2, style: 5, label: b.title.slice(0, 80), url: b.url }
-      : { type: 2, style: 1, label: b.title.slice(0, 80), custom_id: b.id.slice(0, 100) },
+      : { type: 2, style: 1, label: b.title.slice(0, 80), custom_id: (b.id || b.title).slice(0, 100) },
   )
+  const rows: Array<Record<string, unknown>> = []
+  for (let i = 0; i < components.length; i += BUTTONS_PER_ROW) {
+    rows.push({ type: 1, components: components.slice(i, i + BUTTONS_PER_ROW) })
+  }
+  return rows
 }
 
 /** Map neutral content → Discord Create-Message payload (+ files when media). */
@@ -68,7 +81,7 @@ export function toOutbound(content: OutboundContent, file?: DiscordFile): Discor
       return {
         payload: {
           content: content.text,
-          components: [{ type: 1, components: buttonRow(content.buttons) }],
+          components: buttonRows(content.buttons),
         },
       }
 
@@ -78,7 +91,7 @@ export function toOutbound(content: OutboundContent, file?: DiscordFile): Discor
         .slice(0, 25)
         .map((r) => ({
           label: r.title.slice(0, 100),
-          value: r.id.slice(0, 100),
+          value: (r.id || r.title).slice(0, 100),
           ...(r.description ? { description: r.description.slice(0, 100) } : {}),
         }))
       const customId = (content.buttonText || 'select').slice(0, 100)
@@ -99,7 +112,7 @@ export function toOutbound(content: OutboundContent, file?: DiscordFile): Discor
       if (content.imageUrl) embed.image = { url: content.imageUrl }
       const payload: Record<string, unknown> = { embeds: [embed] }
       if (content.buttons?.length) {
-        payload.components = [{ type: 1, components: buttonRow(content.buttons) }]
+        payload.components = buttonRows(content.buttons)
       }
       return { payload }
     }

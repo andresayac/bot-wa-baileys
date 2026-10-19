@@ -109,7 +109,8 @@ describe('parseDispatch', () => {
       data: { custom_id: 'menu_1', component_type: 3, values: ['r1'] },
     }, null))
     expect(i.kind).toBe('list')
-    expect(i.data).toBe('menu_1')
+    // The selected option value (the row id), not the menu's custom_id.
+    expect(i.data).toBe('r1')
     expect(i.chat.kind).toBe('dm')
     expect(i.senderId).toBe('U2')
   })
@@ -135,5 +136,28 @@ describe('parseDispatch', () => {
 
   it('extracts timestamps from snowflakes (Discord documented example)', () => {
     expect(snowflakeTimestamp('175928847299117063')).toBe(1462015105796)
+  })
+})
+
+describe('parseDispatch — hardening', () => {
+  const base = { id: '1', type: 3, token: 'T', user: { id: 'U2' }, data: { custom_id: 'b1', component_type: 2 } }
+
+  it('falls back to channel.id when channel_id is absent', () => {
+    const i = interactionOf(parseDispatch('INTERACTION_CREATE', { ...base, channel: { id: 'C9' } }, null))
+    expect(i.chatId).toBe('C9')
+  })
+
+  it('drops an interaction with no channel at all (never an empty chatId)', () => {
+    expect(parseDispatch('INTERACTION_CREATE', base, null)).toBeUndefined()
+  })
+
+  it('a select menu with no values falls back to its custom_id', () => {
+    const i = interactionOf(parseDispatch('INTERACTION_CREATE', { ...base, channel_id: 'C1', data: { custom_id: 'menu', component_type: 3, values: [] } }, null))
+    expect(i.data).toBe('menu')
+  })
+
+  it('an invalid message timestamp falls back to the snowflake time', () => {
+    const m = messageOf(parseDispatch('MESSAGE_CREATE', msg({ id: '175928847299117063', timestamp: 'nope' }), null))
+    expect(m.timestamp).toBe(1462015105796)
   })
 })

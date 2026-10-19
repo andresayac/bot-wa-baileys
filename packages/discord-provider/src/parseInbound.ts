@@ -69,6 +69,12 @@ function describeContent(d: DiscordMessagePayload): { type: MessageType; body: s
   }
 }
 
+/** ISO `timestamp` of the message, else the time encoded in its snowflake id. */
+function messageTimestamp(d: DiscordMessagePayload): number {
+  const parsed = d.timestamp ? Date.parse(d.timestamp) : NaN
+  return Number.isFinite(parsed) ? parsed : snowflakeTimestamp(d.id)
+}
+
 function parseMessageCreate(d: DiscordMessagePayload, selfId?: string | null): InboundEvent | undefined {
   if (!d?.author || d.author.bot) return undefined // ignore own + other bots
 
@@ -100,7 +106,7 @@ function parseMessageCreate(d: DiscordMessagePayload, selfId?: string | null): I
     fromMe: Boolean(selfId && d.author.id === selfId),
     type,
     body,
-    timestamp: d.timestamp ? Date.parse(d.timestamp) : 0,
+    timestamp: messageTimestamp(d),
     mentions: (d.mentions ?? []).map((m) => m.id),
     media,
     raw: d,
@@ -124,7 +130,10 @@ function parseInteractionCreate(d: DiscordInteractionPayload): InboundEvent | un
   const user = d.member?.user ?? d.user
   if (!user || user.bot) return undefined
 
-  const chatId = d.channel_id ?? ''
+  // Newer payloads also carry the partial `channel` object; without either
+  // there is no chat to route to (never emit an empty chatId).
+  const chatId = d.channel_id ?? d.channel?.id
+  if (!chatId) return undefined
   const isGroup = Boolean(d.guild_id)
   const timestamp = snowflakeTimestamp(d.id)
 
@@ -136,8 +145,14 @@ function parseInteractionCreate(d: DiscordInteractionPayload): InboundEvent | un
       data = d.data?.name ?? ''
       break
     case InteractionType.MessageComponent:
-      kind = d.data?.component_type === ComponentType.StringSelect ? 'list' : 'button'
-      data = d.data?.custom_id ?? ''
+      if (d.data?.component_type === ComponentType.StringSelect) {
+        // A choose()/list menu answers with the selected option value (the row id).
+        kind = 'list'
+        data = d.data.values?.[0] ?? d.data.custom_id ?? ''
+      } else {
+        kind = 'button'
+        data = d.data?.custom_id ?? ''
+      }
       break
     case InteractionType.ModalSubmit:
       kind = 'modal'
