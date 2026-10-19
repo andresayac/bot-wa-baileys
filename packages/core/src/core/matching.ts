@@ -1,3 +1,9 @@
+/**
+ * Trigger matching: text normalization (accent/case/space folding), whether a trigger
+ * matches a message (text equality by default, RegExp, function, type and object
+ * triggers with scope/strategy) and each trigger's specificity, which orders the
+ * Dispatcher's matchers. Pure functions: no routing, no state.
+ */
 import type { Trigger, TriggerObject, MatchStrategy, TriggerScope } from './types.js'
 import type { MessageType } from './provider.js'
 import { isTypeTrigger, isWelcomeTrigger, typeTriggerSpecificity, WELCOME_SPECIFICITY } from './triggers.js'

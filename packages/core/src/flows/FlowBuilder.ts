@@ -1,3 +1,8 @@
+/**
+ * The flow DSL: `flow()` / `addKeyword()` build a `FlowBuilder` (`.say/.ask/.do/.choose/
+ * .media/.form/.timeout/.persistent`…) that compiles, with its options validated, into the
+ * immutable `CompiledFlow` the interpreter runs. Building only: no runtime state.
+ */
 import type { Trigger, TriggerScope, WaitOptions } from '../core/types.js'
 import type { MediaSource } from '../core/provider.js'
 import type { RuntimeMessage } from '../conversations/ConversationRuntime.js'

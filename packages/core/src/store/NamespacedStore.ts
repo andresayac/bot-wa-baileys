@@ -1,3 +1,8 @@
+/**
+ * `NamespacedStore`: wraps any `IStore` so every key is isolated by tenant / environment /
+ * bot / provider / connection, while callers keep seeing the plain, unprefixed ids. It
+ * holds no data of its own.
+ */
 import type {
   AIMessage,
   ChatId,

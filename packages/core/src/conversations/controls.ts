@@ -1,3 +1,9 @@
+/**
+ * The `c` object of a conversation (`ConversationControls`): `say`/`ask`/`wait*`/`choose`,
+ * validation and `retry()`, schema parsing, `idle()` watchdogs, `end()` and `goto()`, built
+ * on the runtime's low-level wait primitive. It owns the user-facing helpers only; the
+ * waiting, timeouts and checkpoints live in `ConversationRuntime`.
+ */
 import type { ConversationRuntime, ConversationHandle, RuntimeMessage, ConversationControlsBase, WaitAccepts } from './ConversationRuntime.js'
 import { ConversationEnded, ConversationGoto } from './errors.js'
 import { parseTimerDuration } from '../utils/timers.js'
@@ -6,17 +12,17 @@ import type { WaitOptions } from '../core/types.js'
 import { DEFAULT_RETRIES, WaitTracker, bindTracker, type WaitVerdict } from './retry.js'
 import { createIdleControls, type IdleCallback } from './idle.js'
 import { parseWithSchema, type SchemaLike } from '../flows/schema.js'
-
-/** Wait options with a zod-compatible `schema`: the wait resolves with the schema's parsed value. */
-export type SchemaWaitOptions<T> = WaitOptions & { schema: SchemaLike<T> }
 import { defaultI18n, translateFor } from '../i18n/I18n.js'
 import { CORE_MESSAGES } from '../i18n/builtins.js'
 import type { TranslateParams } from '../i18n/types.js'
 import type { InboundLocation } from '../core/provider.js'
 
-/** Types `c.waitMedia()` takes by default (voice notes only when asked for: `waitMedia(['voice'])`). */
+/** Wait options with a zod-compatible `schema`: the wait resolves with the schema's parsed value. */
+export type SchemaWaitOptions<T> = WaitOptions & { schema: SchemaLike<T> }
+
 /** Media kinds `c.waitMedia(types)` accepts. */
 export type WaitMediaType = 'image' | 'video' | 'audio' | 'document' | 'sticker' | 'voice'
+/** Types `c.waitMedia()` takes by default (voice notes only when asked for: `waitMedia(['voice'])`). */
 const MEDIA_TYPES: readonly WaitMediaType[] = ['image', 'video', 'audio', 'document', 'sticker']
 
 export interface ConversationControls extends ConversationControlsBase {
