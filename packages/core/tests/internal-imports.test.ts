@@ -1,11 +1,13 @@
 /**
  * Guard: inside the monorepo, engine internals are imported from `@bot-wa/core/internal`,
  * never through the deprecated main-entry re-exports (kept only for users until v3).
- * `packages/core/tests` is exempt: its compatibility tests import the deprecated aliases
- * on purpose (see internal-entry.test.ts).
+ * The names come from `internal.ts` itself, and the whole repo is scanned (packages,
+ * examples, scripts, test utilities, READMEs and guides; see `SKIP_DIRS`) for named,
+ * namespace, dynamic and `require` imports of them. `packages/core/tests` is exempt: its
+ * compatibility tests import the deprecated aliases on purpose (see internal-entry.test.ts).
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs'
-import { dirname, join, relative, resolve } from 'node:path'
+import { dirname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
@@ -13,21 +15,44 @@ const here = dirname(fileURLToPath(import.meta.url))
 const repo = resolve(here, '../../..')
 const coreSrc = resolve(here, '../src')
 
-/** Every name `internal.ts` exports, re-exported (deprecated) by the main entry. */
-const DEPRECATED = [
-  'buildMessageContext', 'createControls', 'createPacer', 'runBroadcast', 'runFormStep', 'newFormToken',
-  'resolveFormMode', 'resolveReplyTyping', 'normalizeTypingConfig', 'typingDuration', 'parseReplyDelay',
-  'ExternalSendClock', 'MetricsCollector', 'formatUptime', 'TYPING_REFRESH_MS',
-]
+/** Every name re-exported by `source` (`export { a, type B } from '...'`). */
+export function exportedNames(source: string): string[] {
+  const names: string[] = []
+  for (const m of source.matchAll(/export\s+(?:type\s+)?\{([^}]*)\}\s*from/g)) {
+    for (const part of m[1].split(',')) {
+      const name = part.trim().replace(/^type\s+/, '').split(/\s+as\s+/).pop()!.trim()
+      if (name) names.push(name)
+    }
+  }
+  return names
+}
 
-const SKIP_DIRS = new Set(['node_modules', 'lib', 'dist', '.git', 'cache', 'api', 'superpowers', '.vitepress'])
-const EXTENSIONS = /\.(ts|tsx|mts|js|mjs|cjs|md|txt)$/
+/** Every name `internal.ts` exports, re-exported (deprecated) by the main entry. */
+const DEPRECATED = exportedNames(readFileSync(join(coreSrc, 'internal.ts'), 'utf8'))
+
+/**
+ * Not scanned: generated output, dependencies, git and CI internals, third-party
+ * reference repos (`terceros/`), WhatsApp session folders, historical design notes,
+ * changesets and the TypeDoc output. Everything else in the repo is: every package's
+ * sources, tests, test utilities, examples, scripts and README, the root `test-utils/`
+ * and `scripts/`, the examples and the guides in both languages.
+ */
+const SKIP_DIRS = new Set([
+  'node_modules', 'lib', 'dist', '.git', '.github', 'cache', '.temp', 'api', 'superpowers',
+  'terceros', 'sessions', '.claude', '.playwright-mcp', '.changeset', 'coverage',
+])
+/** Release notes quote historical import lines on purpose. */
+const SKIP_FILES = new Set(['CHANGELOG.md'])
+/** The compatibility tests import the deprecated aliases on purpose (see internal-entry.test.ts). */
+const EXEMPT = new Set([join(repo, 'packages', 'core', 'tests')])
+const EXTENSIONS = /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs|vue|md|txt)$/
 
 function walk(dir: string, out: string[] = []): string[] {
+  if (EXEMPT.has(dir)) return out
   let entries: string[]
   try { entries = readdirSync(dir) } catch { return out }
   for (const name of entries) {
-    if (SKIP_DIRS.has(name)) continue
+    if (SKIP_DIRS.has(name) || name.endsWith('_sessions') || SKIP_FILES.has(name)) continue
     const path = join(dir, name)
     const st = statSync(path)
     if (st.isDirectory()) walk(path, out)
@@ -36,33 +61,72 @@ function walk(dir: string, out: string[] = []): string[] {
   return out
 }
 
-/** Names imported/re-exported from exactly `'@bot-wa/core'` (not a subpath) in `source`. */
-export function mainEntryNames(source: string): string[] {
+/** Exactly the main entry, quoted (not a subpath such as `@bot-wa/core/internal`). */
+const MAIN = String.raw`['"]@bot-wa/core['"]`
+
+function namesIn(list: string): string[] {
   const names: string[] = []
-  const re = /(?:import|export)\s+(?:type\s+)?\{([^}]*)\}\s*from\s*['"]@bot-wa\/core['"]/g
-  for (const m of source.matchAll(re)) {
-    for (const part of m[1].split(',')) {
-      const name = part.trim().replace(/^type\s+/, '').split(/\s+as\s+/)[0].trim()
-      if (name) names.push(name)
-    }
+  for (const part of list.split(',')) {
+    // `type X`, `X as Y` (import) and `X: y` (destructuring) all name `X`.
+    const name = part.trim().replace(/^type\s+/, '').split(/\s+as\s+|\s*:/)[0].trim()
+    if (/^[A-Za-z_$][\w$]*$/.test(name)) names.push(name)
   }
   return names
 }
 
-function scannedFiles(): string[] {
-  const roots = [
-    join(repo, 'examples'),
-    join(repo, 'docs/guide'),
-    join(repo, 'docs/examples'),
-    join(repo, 'docs/es/guide'),
-    join(repo, 'docs/es/ejemplos'),
-    join(repo, 'docs/public'),
-  ]
-  for (const pkg of readdirSync(join(repo, 'packages'))) {
-    roots.push(join(repo, 'packages', pkg, 'src'))
-    if (pkg !== 'core') roots.push(join(repo, 'packages', pkg, 'tests'))
+/**
+ * Names taken from exactly `'@bot-wa/core'` (not a subpath) in `source`: named imports
+ * and re-exports (also next to a default import), namespace imports (`ns.X`), dynamic
+ * imports and `require` (destructured, bound to a name, or `import('@bot-wa/core').X`
+ * in a type position).
+ */
+export function mainEntryNames(source: string): string[] {
+  const names: string[] = []
+  const named = new RegExp(String.raw`(?:import|export)\s+(?:type\s+)?(?:[\w$]+\s*,\s*)?\{([^}]*)\}\s*from\s*` + MAIN, 'g')
+  for (const m of source.matchAll(named)) names.push(...namesIn(m[1]))
+  const call = String.raw`(?:await\s+)?(?:import|require)\s*\(\s*` + MAIN + String.raw`\s*\)`
+  for (const m of source.matchAll(new RegExp(String.raw`\{([^}]*)\}\s*=\s*` + call, 'g'))) names.push(...namesIn(m[1]))
+  const member = new RegExp(String.raw`(?:import|require)\s*\(\s*` + MAIN + String.raw`\s*\)\s*\.\s*([A-Za-z_$][\w$]*)`, 'g')
+  for (const m of source.matchAll(member)) names.push(m[1])
+  const namespaces = [
+    ...source.matchAll(new RegExp(String.raw`import\s+(?:type\s+)?\*\s+as\s+([\w$]+)\s+from\s*` + MAIN, 'g')),
+    ...source.matchAll(new RegExp(String.raw`(?:const|let|var)\s+([\w$]+)\s*=\s*` + call, 'g')),
+  ].map((m) => m[1])
+  for (const ns of namespaces) {
+    const use = new RegExp(String.raw`(?<![\w$.])` + ns.replace(/\$/g, '\\$') + String.raw`\s*\.\s*([A-Za-z_$][\w$]*)`, 'g')
+    for (const m of source.matchAll(use)) names.push(m[1])
   }
-  return roots.flatMap((r) => walk(r))
+  return names
+}
+
+/** The subpaths `@bot-wa/core` publishes (`exports` of its package.json). */
+const CORE_SUBPATHS = new Set(
+  Object.keys((JSON.parse(readFileSync(resolve(coreSrc, '../package.json'), 'utf8')) as { exports: Record<string, unknown> }).exports)
+    .map((key) => (key === '.' ? '@bot-wa/core' : `@bot-wa/core/${key.slice(2)}`)),
+)
+
+/**
+ * Module specifiers in `source` (a file in `dir`) that bypass the published entries of
+ * `@bot-wa/core`: an unexported `@bot-wa/core/...` subpath, or a relative path into
+ * `packages/core`.
+ */
+export function deepCoreImports(source: string, dir: string): string[] {
+  const core = join(repo, 'packages', 'core')
+  const out: string[] = []
+  const specifiers = /(?:\bfrom\s*|\bimport\s*\(\s*|\brequire\s*\(\s*|^\s*import\s+)['"]([^'"]+)['"]/gm
+  for (const m of source.matchAll(specifiers)) {
+    const spec = m[1]
+    if (spec.startsWith('@bot-wa/core/') && !CORE_SUBPATHS.has(spec)) out.push(spec)
+    else if (spec.startsWith('.')) {
+      const target = resolve(dir, spec)
+      if (target === core || target.startsWith(core + sep)) out.push(spec)
+    }
+  }
+  return out
+}
+
+function scannedFiles(): string[] {
+  return walk(repo)
 }
 
 describe('deprecated main-entry re-exports', () => {
@@ -76,6 +140,43 @@ describe('deprecated main-entry re-exports', () => {
     expect(mainEntryNames(src)).toEqual(['Bot', 'MetricsCollector', 'ExternalSendClock', 'flow', 'runBroadcast'])
   })
 
+  it('the matcher also sees namespace, dynamic and require imports of the main entry', () => {
+    const src = [
+      "import * as core from '@bot-wa/core'",
+      'const pacer = core.createPacer()',
+      "const { MemoryStore, typingDuration: td } = await import('@bot-wa/core')",
+      "let clock: import('@bot-wa/core').ExternalSendClock",
+      "const { runFormStep } = require('@bot-wa/core')",
+      "const bw = await import('@bot-wa/core')",
+      'bw.formatUptime(1)',
+      "import * as internal from '@bot-wa/core/internal'",
+      'internal.newFormToken()',
+      "const { resolveFormMode } = await import('@bot-wa/core/internal')",
+      "import Default, { buildMessageContext } from '@bot-wa/core'",
+    ].join('\n')
+    expect(mainEntryNames(src).sort()).toEqual([
+      'ExternalSendClock', 'MemoryStore', 'buildMessageContext', 'createPacer', 'formatUptime', 'runFormStep', 'typingDuration',
+    ])
+  })
+
+  it('takes the deprecated names from internal.ts', () => {
+    expect(DEPRECATED).toEqual(expect.arrayContaining(['createPacer', 'MetricsCollector', 'TYPING_REFRESH_MS', 'newFormToken', 'buildMessageContext']))
+    expect(DEPRECATED.length).toBeGreaterThanOrEqual(15)
+  })
+
+  it('scans every package, example, script, test utility, README and guide', () => {
+    const files = scannedFiles().map((f) => relative(repo, f).split(sep).join('/'))
+    for (const expected of [
+      'packages/core/src/index.ts', 'packages/ai/tests/', 'packages/core/README.md', 'packages/baileys-provider/examples/',
+      'test-utils/store-conformance.ts', 'scripts/pack-smoke.mjs', 'examples/', 'README.md',
+      'docs/guide/', 'docs/es/guide/', 'docs/examples/', 'docs/es/ejemplos/', 'docs/public/', 'docs/MIGRATION-v1-to-v2.md',
+    ]) {
+      expect(files.some((f) => f === expected || (expected.endsWith('/') && f.startsWith(expected))), expected).toBe(true)
+    }
+    expect(files.some((f) => f.startsWith('packages/core/tests/'))).toBe(false)
+    expect(files.some((f) => /(^|\/)(node_modules|lib|terceros)\//.test(f))).toBe(false)
+  })
+
   it('are not imported from @bot-wa/core anywhere in the monorepo (use @bot-wa/core/internal)', () => {
     const offenders: string[] = []
     const files = scannedFiles()
@@ -83,6 +184,32 @@ describe('deprecated main-entry re-exports', () => {
     for (const file of files) {
       const used = mainEntryNames(readFileSync(file, 'utf8')).filter((n) => DEPRECATED.includes(n))
       if (used.length) offenders.push(`${relative(repo, file)}: ${used.join(', ')}`)
+    }
+    expect(offenders).toEqual([])
+  })
+
+  it('the deep-import matcher flags unexported subpaths and paths into packages/core', () => {
+    const src = [
+      "import { createPacer } from '@bot-wa/core/lib/core/messaging.js'",
+      "import { x } from '../../core/src/core/context.js'",
+      "const m = await import('@bot-wa/core/src/ops/metrics.js')",
+      "import { Bot } from '@bot-wa/core'",
+      "import { createPacer as p } from '@bot-wa/core/internal'",
+      "import { createTestBot } from '@bot-wa/core/testing'",
+      "import { defineBot } from '@bot-wa/core/dev'",
+      "import { y } from './core/helpers.js'",
+    ].join('\n')
+    expect(deepCoreImports(src, join(repo, 'packages', 'ai', 'src'))).toEqual([
+      '@bot-wa/core/lib/core/messaging.js', '../../core/src/core/context.js', '@bot-wa/core/src/ops/metrics.js',
+    ])
+  })
+
+  it('are reached only through the published subpaths, never by a deep import into packages/core', () => {
+    const offenders: string[] = []
+    for (const file of scannedFiles()) {
+      if (file.startsWith(join(repo, 'packages', 'core') + sep)) continue
+      const deep = deepCoreImports(readFileSync(file, 'utf8'), dirname(file))
+      if (deep.length) offenders.push(`${relative(repo, file)}: ${deep.join(', ')}`)
     }
     expect(offenders).toEqual([])
   })

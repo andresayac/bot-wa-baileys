@@ -1,3 +1,8 @@
+/**
+ * Public surface of multi-replica coordination: the `Coordinator` contract with its
+ * errors and option types, the in-process `MemoryCoordinator` / `MemoryCoordinationHub`
+ * and `ProviderNotLeaderError`.
+ */
 export {
   LeaseLostError,
   CoordinationUnavailableError,

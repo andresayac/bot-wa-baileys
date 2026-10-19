@@ -1,3 +1,13 @@
+/**
+ * The message router of one bot: a FIFO queue per conversation key (chat, or chat +
+ * participant in groups), and inside each queue slot the routing pipeline documented
+ * on {@link Dispatcher.run} — before-hooks, the handoff gate, commands, the active
+ * conversation, dormant resume, matchers by specificity, the catch-all, then the
+ * after-hooks and the `'message'` event. Projected events (calls) take
+ * {@link Dispatcher.dispatchEvent}: same gates, type triggers only. It knows nothing of
+ * transports, stores or the `Bot`; everything it needs comes in through
+ * {@link DispatcherDeps}.
+ */
 import { AsyncLocalStorage } from 'node:async_hooks'
 import type { Trigger } from './types.js'
 import type { MessageType } from './provider.js'
@@ -342,7 +352,7 @@ export class Dispatcher {
             return this.finish(ctx)
           }
         }
-        // continúa: una conversación puede consumir "/xyz" como texto
+        // fall through: a conversation may take "/xyz" as text
       }
 
       // 2. conversación activa

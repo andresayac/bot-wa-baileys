@@ -96,25 +96,35 @@ describe('RedisCoordinator (fake Redis)', () => {
   })
 
   it('gives every lease up locally when Redis stops answering, before the server-side lease could expire', async () => {
-    const fake = new FakeRedisClient()
-    let down = false
-    const flaky = { eval: (s: string, o?: { keys?: string[]; arguments?: string[] }) => (down ? Promise.reject(new Error('ECONNRESET')) : fake.eval(s, o)) }
-    const leaseMs = 300
-    const a = new RedisCoordinator({ client: flaky, replicaId: 'a', leaseMs })
-    await a.start()
-    const turn = await a.acquireTurn(await a.reserve('chat'))
-    const lead = await a.tryLead('provider:x')
-    const grantedAt = performance.now()
-    let abortedAt = 0
-    turn.signal.addEventListener('abort', () => { abortedAt = performance.now() })
-    down = true
-    await vi.waitFor(() => expect(turn.signal.aborted).toBe(true), { timeout: 2000 })
-    // Given up before the server-side lease (granted at or after grantedAt) could expire.
-    expect(abortedAt - grantedAt).toBeLessThan(leaseMs)
-    expect(turn.signal.reason).toMatchObject({ reason: 'coordinator-down' })
-    expect(lead!.signal.aborted).toBe(true)
-    down = false
-    await a.stop()
+    // Fake clock (timers, performance.now() and the fake server's Date.now()): the deadline
+    // is checked against the configured lease, not against how late a loaded machine
+    // happens to fire the watchdog timer.
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'performance', 'Date'] })
+    try {
+      const fake = new FakeRedisClient()
+      let down = false
+      const flaky = { eval: (s: string, o?: { keys?: string[]; arguments?: string[] }) => (down ? Promise.reject(new Error('ECONNRESET')) : fake.eval(s, o)) }
+      const leaseMs = 300
+      const a = new RedisCoordinator({ client: flaky, replicaId: 'a', leaseMs })
+      await a.start()
+      const turn = await a.acquireTurn(await a.reserve('chat'))
+      const lead = await a.tryLead('provider:x')
+      const grantedAt = performance.now()
+      let abortedAt = 0
+      turn.signal.addEventListener('abort', () => { abortedAt = performance.now() })
+      down = true
+      // Run the clock up to (not including) the moment the server-side lease, granted at
+      // or after grantedAt, could expire: everything must have been given up by then.
+      await vi.advanceTimersByTimeAsync(leaseMs - 1)
+      expect(turn.signal.aborted).toBe(true)
+      expect(abortedAt - grantedAt).toBeLessThan(leaseMs)
+      expect(turn.signal.reason).toMatchObject({ reason: 'coordinator-down' })
+      expect(lead!.signal.aborted).toBe(true)
+      down = false
+      await a.stop()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('elects one leader per name, with a larger term each time it changes hands', async () => {

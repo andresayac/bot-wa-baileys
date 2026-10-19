@@ -1,4 +1,8 @@
 /**
+ * Helper to drop `undefined` fields before a partial store upsert.
+ */
+
+/**
  * Copy of `record` without its `undefined`-valued own properties.
  *
  * Stores treat an explicit `undefined` in an upsert as "unset this field"

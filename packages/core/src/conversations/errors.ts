@@ -1,3 +1,10 @@
+/**
+ * Control signals of the conversation runtime. They are thrown through the
+ * conversation's call stack to unwind it (timeout, cancel, retries exhausted, `end`,
+ * `goto`, a concurrent wait) and caught by the runtime, which maps each one to an
+ * outcome.
+ */
+
 /** Base of the conversation control signals; `name` is the concrete class name. */
 export class ConversationError extends Error {
   constructor(message?: string) {

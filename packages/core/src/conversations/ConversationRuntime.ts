@@ -1,3 +1,13 @@
+/**
+ * The conversation engine: registers conversations (async functions and compiled DSL
+ * flows), runs at most one per key, feeds it the messages routed to that key and
+ * resolves its waits (`ask`, `choose`, timeouts, retries, `goto`/`end`). Every live
+ * entry is bound to its own {@link ConversationHandle}, so a stale teardown never
+ * touches a newer entry. Persistent flows checkpoint through a {@link CheckpointStore}
+ * and resume dormant after a restart; with multi-replica coordination it also writes
+ * the hand-over stubs another replica resumes from. Tracing and durability (causation)
+ * hook in through {@link RuntimeConfig}; with neither configured they cost nothing.
+ */
 import {
   ConcurrentWaitError, ConversationCancelled, ConversationEnded, ConversationGoto,
   ConversationTimeout, RetriesExceeded,
@@ -51,10 +61,10 @@ export interface ResolvedWaitOptions {
   accepts?: WaitAccepts
 }
 
-/** Identidad opaca de una conversación activa; impide que un teardown viejo toque la entry nueva. */
+/** Opaque identity of a live conversation; keeps a stale teardown from touching a newer entry. */
 export interface ConversationHandle { readonly key: string }
 
-/** Interfaz mínima; controls.ts (Task 3) la extiende con ask/waitText/choose/... */
+/** Minimal controls surface; `controls.ts` extends it with ask/waitText/choose/... */
 export interface ConversationControlsBase {
   waitAny(opts?: ResolvedWaitOptions): Promise<RuntimeMessage>
   say(text: string): Promise<void>
@@ -110,7 +120,7 @@ export interface RuntimeConfig {
   scope?: 'participant' | 'chat'
   logger?: { debug?: (...a: unknown[]) => void; warn?: (...a: unknown[]) => void; error?: (...a: unknown[]) => void }
   onError?: (error: unknown, ctx: RuntimeMessage) => void
-  /** Task 3 inyecta la factory completa de controls; default = base. */
+  /** Factory of the full controls (`controls.ts`); defaults to the base controls. */
   controlsFactory?: (rt: ConversationRuntime, handle: ConversationHandle, ctx: RuntimeMessage) => ConversationControlsBase
   /** A conversation was entered (metrics / `'conversation:started'`). Must not throw. */
   onConversationStart?: (info: ConversationStartInfo) => void

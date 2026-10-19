@@ -2,6 +2,7 @@
  * The one duration grammar of the bot (`'500ms'`, `'2m'`, `'1h'`, `'5 minutes'`, numbers as ms).
  * Range checks for timers live in `timers.ts`.
  */
+
 const MULTIPLIERS: Record<string, number> = {
   ms: 1,
   s: 1_000,

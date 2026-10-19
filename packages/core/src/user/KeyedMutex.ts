@@ -1,4 +1,8 @@
 /**
+ * Per-key mutual exclusion for the user-data service (`ctx.user` read-modify-writes).
+ */
+
+/**
  * KeyedMutex — FIFO async mutual exclusion per string key (internal).
  *
  * `run(key, task)` starts `task` only after every task previously queued under

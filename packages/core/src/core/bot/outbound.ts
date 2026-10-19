@@ -27,20 +27,10 @@ export class OutboundPipeline {
    * so an implicit `ctx.edit(content)` never edits a reply that was followed by it.
    */
   send(chatId: ChatId, content: OutboundContent, options?: SendOptions, origin: 'ctx' | 'api' = 'api', stream?: 'message'): Promise<SendResult> {
-    const tracing = this.k.tracing
-    if (!tracing) return this.sendNow(chatId, content, options, origin, stream)
     // Tracing: one `bot.send` span (kind client); the provider call runs inside it, so the
     // backend's http instrumentation nests under it. No content, only its kind.
-    const attributes = {
-      [TRACE_ATTR.providerId]: this.k.provider.id,
-      [TRACE_ATTR.contentKind]: content.kind,
-      [TRACE_ATTR.sendOrigin]: origin,
-      [TRACE_ATTR.sendStream]: stream,
-    }
-    return tracing.trace(SPAN_NAMES.send, { kind: 'client', attributes }, (span) => {
-      tracing.setIds(span, { chatId })
-      return this.sendNow(chatId, content, options, origin, stream, span)
-    }, isSendDeferred)
+    return this.traceSend(chatId, content, { [TRACE_ATTR.sendOrigin]: origin, [TRACE_ATTR.sendStream]: stream },
+      (span) => this.sendNow(chatId, content, options, origin, stream, span), isSendDeferred)
   }
 
   /** The body of {@link send}; `span` is its `bot.send` span when traced (outcome attributes). */
@@ -57,11 +47,7 @@ export class OutboundPipeline {
     }
     const payload: { chatId: ChatId; content: OutboundContent; options?: SendOptions; stream?: 'message' } = { chatId, content, options }
     if (stream) payload.stream = stream
-    const proceed = await hooks.runBefore('send', payload as typeof payload & { abort(): void })
-    if (!proceed) {
-      span?.setAttribute(TRACE_ATTR.sendOutcome, 'skipped')
-      return { ref: { id: 'skipped', chatId: payload.chatId }, skipped: true }
-    }
+    if (!(await this.runBeforeSend(payload))) return this.skipped({ id: 'skipped', chatId: payload.chatId }, span)
     assertCoordinated(this.k)
     const localRef = { id: randomId('out'), chatId: payload.chatId }
     const op = durable
@@ -111,17 +97,35 @@ export class OutboundPipeline {
    * The ledger entry of `ref` is updated in place with the edited content.
    */
   edit(ref: MessageRef, content: OutboundContent): Promise<SendResult> {
+    return this.traceSend(ref.chatId, content, { [TRACE_ATTR.sendEdit]: true }, (span) => this.editNow(ref, content, span))
+  }
+
+  /**
+   * The `bot.send` span shared by {@link send} and {@link edit} (`attributes` add to the
+   * provider id and content kind). Untraced bots call `run` directly, with no span.
+   */
+  private traceSend(
+    chatId: ChatId, content: OutboundContent, attributes: Record<string, string | boolean | undefined>,
+    run: (span?: BotSpan) => Promise<SendResult>, expected?: (error: unknown) => boolean,
+  ): Promise<SendResult> {
     const tracing = this.k.tracing
-    if (!tracing) return this.editNow(ref, content)
-    const attributes = {
-      [TRACE_ATTR.providerId]: this.k.provider.id,
-      [TRACE_ATTR.contentKind]: content.kind,
-      [TRACE_ATTR.sendEdit]: true,
-    }
-    return tracing.trace(SPAN_NAMES.send, { kind: 'client', attributes }, (span) => {
-      tracing.setIds(span, { chatId: ref.chatId })
-      return this.editNow(ref, content, span)
-    })
+    if (!tracing) return run()
+    const all = { [TRACE_ATTR.providerId]: this.k.provider.id, [TRACE_ATTR.contentKind]: content.kind, ...attributes }
+    return tracing.trace(SPAN_NAMES.send, { kind: 'client', attributes: all }, (span) => {
+      tracing.setIds(span, { chatId })
+      return run(span)
+    }, expected)
+  }
+
+  /** `before('send')` with the abortable payload; resolves `false` when a hook aborted. */
+  private runBeforeSend<P extends { chatId: ChatId; content: OutboundContent; options?: SendOptions }>(payload: P): Promise<boolean> {
+    return this.k.hooks.runBefore('send', payload as P & { abort(): void })
+  }
+
+  /** The `skipped` result of a send a `before('send')` hook aborted (outcome on the span). */
+  private skipped(ref: MessageRef, span: BotSpan | undefined): SendResult {
+    span?.setAttribute(TRACE_ATTR.sendOutcome, 'skipped')
+    return { ref, skipped: true }
   }
 
   private async editNow(ref: MessageRef, content: OutboundContent, span?: BotSpan): Promise<SendResult> {
@@ -129,8 +133,7 @@ export class OutboundPipeline {
     const payload: { chatId: ChatId; content: OutboundContent; options?: SendOptions; edit: MessageRef } = {
       chatId: ref.chatId, content, options: undefined, edit: ref,
     }
-    const proceed = await hooks.runBefore('send', payload as typeof payload & { abort(): void })
-    if (!proceed) { span?.setAttribute(TRACE_ATTR.sendOutcome, 'skipped'); return { ref, skipped: true } }
+    if (!(await this.runBeforeSend(payload))) return this.skipped(ref, span)
     assertCoordinated(this.k)
     const op = provider.editMessage!(ref, payload.content)
     inflightSends.add(op)
@@ -242,23 +245,22 @@ export class OutboundPipeline {
   /** `before('send')` for a live preview. Resolves the (possibly rewritten) content, or `undefined` when a hook aborted. */
   private async runStreamSendHooks(chatId: ChatId, content: OutboundContent, stream: 'draft' | 'edit'): Promise<OutboundContent | undefined> {
     const payload: { chatId: ChatId; content: OutboundContent; options?: SendOptions; stream: 'draft' | 'edit' } = { chatId, content, stream }
-    const proceed = await this.k.hooks.runBefore('send', payload as typeof payload & { abort(): void })
-    return proceed ? payload.content : undefined
+    return (await this.runBeforeSend(payload)) ? payload.content : undefined
   }
 
   /** A `ctx.stream()` edit: send hooks, provider edit, then the message log is updated to the shown text. */
   private streamEdit(ref: MessageRef, content: OutboundContent): Promise<unknown> {
-    const tracing = this.k.tracing
-    if (!tracing) return this.streamEditNow(ref, content)
     return this.traceStreamUpdate('edit', () => this.streamEditNow(ref, content))
   }
 
   /**
    * Tracing of a `ctx.stream()` preview update: a `bot.stream.update` span with
    * `spans.streamUpdates`, else just an event on the active span (they are many).
+   * Untraced bots just `run`.
    */
   private traceStreamUpdate<T>(kind: 'edit' | 'draft', run: () => Promise<T>): Promise<T> {
-    const tracing = this.k.tracing!
+    const tracing = this.k.tracing
+    if (!tracing) return run()
     if (tracing.streamSpans) {
       return tracing.trace(SPAN_NAMES.streamUpdate, { kind: 'client', attributes: { [TRACE_ATTR.sendStream]: kind } }, run)
     }
@@ -277,7 +279,6 @@ export class OutboundPipeline {
 
   /** A `ctx.stream()` draft: send hooks, then the provider draft (skipped when aborted or no longer text). */
   private streamDraft(chatId: ChatId, draftId: number, text: string, opts?: DraftOptions): Promise<void> {
-    if (!this.k.tracing) return this.streamDraftNow(chatId, draftId, text, opts)
     return this.traceStreamUpdate('draft', () => this.streamDraftNow(chatId, draftId, text, opts))
   }
 
