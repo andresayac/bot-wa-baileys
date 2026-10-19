@@ -85,7 +85,10 @@ describe('eventsDurability with a bot', () => {
       pa.incoming('hola', { from: 'u1', id: 'm1' })
       await a.whenCrashed
 
-      // "Restart": a new process opens the same file (same pid here, so the lock is ours).
+      // "Restart": the dead process's journal is gone (closing it frees this process's claim
+      // on the file; the crashed wrapper never touches it again), and a new one opens the file.
+      await expect(FileEventJournal.open(file, { lock: true })).rejects.toThrow(/already open in this process/)
+      await journalA.close()
       const journalB = await FileEventJournal.open(file, { lock: true })
       const backendB = eventsDurability({ journal: journalB })
       const pb = new MockProvider()

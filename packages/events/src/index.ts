@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
-import { mkdir, open, readFile, rename, rm, writeFile } from 'node:fs/promises'
-import { dirname } from 'node:path'
+import { mkdir, open, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises'
+import { basename, dirname, join } from 'node:path'
 
 export interface EventContext {
   tenantId: string
@@ -466,9 +466,11 @@ export class MemoryEventJournal implements LeasedEventJournal {
 /** Options of {@link FileEventJournal.open}. */
 export interface FileEventJournalOptions {
   /**
-   * Take a `<file>.lock` advisory lock holding this process's pid, so a second PROCESS cannot
+   * Take a `<file>.lock` advisory lock holding this process's pid, so a second process cannot
    * open the same journal while this one is alive (a lock left by a dead process is taken
-   * over; nothing is ever killed). Required by `@bot-wa/events/durability`. Default `false`.
+   * over; nothing is ever killed). Within one process, a second locked `open()` of the same
+   * file is refused until the first journal is closed. Required by
+   * `@bot-wa/events/durability`. Default `false`.
    */
   lock?: boolean
 }
@@ -484,6 +486,15 @@ function pidAlive(pid: number): boolean {
   }
 }
 
+/** Lock files held by an open journal of THIS process (canonical paths). */
+const heldLocks = new Set<string>()
+
+/** A canonical key for a lock path: real directory (symlinks resolved), case-folded on Windows. */
+async function lockKey(lockPath: string): Promise<string> {
+  const key = join(await realpath(dirname(lockPath)), basename(lockPath))
+  return process.platform === 'win32' ? key.toLowerCase() : key
+}
+
 async function acquireLock(lockPath: string): Promise<void> {
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
@@ -494,7 +505,9 @@ async function acquireLock(lockPath: string): Promise<void> {
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
       const holder = Number.parseInt(await readFile(lockPath, 'utf8').catch(() => ''), 10)
-      if (holder === process.pid) return // a previous journal of this same process
+      // Our own pid while no journal of this process holds it (open() checks heldLocks):
+      // a lock left by an earlier process that had the same pid (a restarted container).
+      if (holder === process.pid) return
       if (pidAlive(holder)) throw new Error(`event journal is locked by live process ${holder}: ${lockPath}`)
       await rm(lockPath, { force: true }) // stale lock of a dead process
     }
@@ -510,26 +523,46 @@ async function acquireLock(lockPath: string): Promise<void> {
  */
 export class FileEventJournal implements LeasedEventJournal {
   private writeQueue: Promise<void> = Promise.resolve()
+  /** A write queued but not started yet: later changes join it (its snapshot is taken when it starts). */
+  private queuedWrite: Promise<void> | undefined
+  /** In-memory changes not written yet (lease extensions). */
+  private dirty = false
+  private closed = false
   private readonly registered = new Map<string, JournalSidecar>()
   private constructor(
     private readonly filePath: string,
     private readonly memory: MemoryEventJournal,
     private readonly lockPath: string | undefined,
+    /** Key of this journal's entry in the in-process lock registry. */
+    private readonly lockKey: string | undefined,
     /** Saved side state, including names this process never registers (kept on rewrite). */
     private readonly savedSidecars: Record<string, unknown>,
   ) {}
 
-  /** The file is held under the advisory lock (`open(path, { lock: true })`). */
-  get locked(): boolean { return this.lockPath !== undefined }
+  /** The file is held under the advisory lock (`open(path, { lock: true })`) and the journal is not closed. */
+  get locked(): boolean { return this.lockPath !== undefined && !this.closed }
   /** Only one process can use a locked file journal. */
   get exclusive(): boolean { return this.locked }
 
-  /** @throws {Error} when the file is not a valid journal, or (with `lock`) another live process holds it. */
+  /**
+   * @throws {Error} when the file is not a valid journal, or (with `lock`) another live process
+   *   holds it or another open journal of this process does.
+   */
   static async open(filePath: string, options: FileEventJournalOptions = {}): Promise<FileEventJournal> {
     const lockPath = options.lock === true ? `${filePath}.lock` : undefined
+    let key: string | undefined
     if (lockPath) {
       await mkdir(dirname(filePath), { recursive: true })
-      await acquireLock(lockPath)
+      key = await lockKey(lockPath)
+      // Checked and claimed with no await in between, so two concurrent opens cannot both pass.
+      if (heldLocks.has(key)) throw new Error(`event journal is already open in this process: ${filePath}`)
+      heldLocks.add(key)
+      try {
+        await acquireLock(lockPath)
+      } catch (error) {
+        heldLocks.delete(key)
+        throw error
+      }
     }
     let records: EventRecord[] = []
     let sidecars: Record<string, unknown> = {}
@@ -544,10 +577,11 @@ export class FileEventJournal implements LeasedEventJournal {
     } catch (error: unknown) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
         if (lockPath) await rm(lockPath, { force: true }).catch(() => {})
+        if (key) heldLocks.delete(key)
         throw error
       }
     }
-    return new FileEventJournal(filePath, MemoryEventJournal.fromSnapshot(records), lockPath, sidecars)
+    return new FileEventJournal(filePath, MemoryEventJournal.fromSnapshot(records), lockPath, key, sidecars)
   }
   async append<TPayload>(envelope: EventEnvelope<TPayload>): Promise<boolean> { const changed = await this.memory.append(envelope); if (changed) await this.persist(); return changed }
   async appendRecord<TPayload>(envelope: EventEnvelope<TPayload>, options?: AppendEventOptions): Promise<{ status: 'appended' | 'duplicate'; record: EventRecord }> {
@@ -558,7 +592,15 @@ export class FileEventJournal implements LeasedEventJournal {
   get(eventId: string): Promise<EventRecord | undefined> { return this.memory.get(eventId) }
   async claim(limit: number, options?: ClaimEventOptions): Promise<EventRecord[]> { const records = await this.memory.claim(limit, options); if (records.length) await this.persist(); return records }
   async claimOne(eventId: string, lease: EventLease): Promise<EventRecord | null> { const record = await this.memory.claimOne(eventId, lease); if (record) await this.persist(); return record }
-  async extend(eventId: string, options: { fencingToken: number; leaseUntil: number }): Promise<void> { await this.memory.extend(eventId, options); await this.persist() }
+  /**
+   * Extends the lease in memory only; the file gets it with the next write (or `close()`).
+   * A lease matters only while this process lives, so a heartbeat never rewrites the file.
+   */
+  async extend(eventId: string, options: { fencingToken: number; leaseUntil: number }): Promise<void> {
+    this.assertOpen()
+    await this.memory.extend(eventId, options)
+    this.dirty = true
+  }
   async ack(eventId: string, options?: AckEventOptions): Promise<void> { await this.memory.ack(eventId, options); await this.persist() }
   async fail(eventId: string, error: unknown, options?: FailEventOptions): Promise<void> { await this.memory.fail(eventId, error, options); await this.persist() }
   async release(eventId: string, options?: ReleaseEventOptions): Promise<void> { await this.memory.release(eventId, options); await this.persist() }
@@ -573,10 +615,21 @@ export class FileEventJournal implements LeasedEventJournal {
     return { changed: () => this.persist() }
   }
 
-  /** Wait for pending writes and release the lock (if any). The journal must not be used afterwards. */
+  /**
+   * Write pending in-memory changes, wait for pending writes and release the lock (if any).
+   * Idempotent. Later writes reject: a closed journal never writes without its lock.
+   */
   async close(): Promise<void> {
+    if (this.closed) return
+    if (this.dirty) await this.persist().catch(() => {})
+    this.closed = true
     await this.writeQueue
     if (this.lockPath) await rm(this.lockPath, { force: true })
+    if (this.lockKey) heldLocks.delete(this.lockKey)
+  }
+
+  private assertOpen(): void {
+    if (this.closed) throw new Error(`event journal is closed: ${this.filePath}`)
   }
 
   private snapshotJson(): string {
@@ -587,8 +640,16 @@ export class FileEventJournal implements LeasedEventJournal {
     return JSON.stringify({ version: 2, records, sidecars })
   }
 
+  /**
+   * Rewrite the snapshot. A call made while another write is queued (not started) joins it:
+   * that write takes its snapshot when it starts, so it carries this change too.
+   */
   private persist(): Promise<void> {
-    const write = this.writeQueue.then(async () => {
+    if (this.closed) return Promise.reject(new Error(`event journal is closed: ${this.filePath}`))
+    if (this.queuedWrite) return this.queuedWrite
+    const write: Promise<void> = this.writeQueue.then(async () => {
+      if (this.queuedWrite === write) this.queuedWrite = undefined
+      this.dirty = false
       await mkdir(dirname(this.filePath), { recursive: true })
       const temporary = `${this.filePath}.${randomUUID()}.tmp`
       try {
@@ -601,6 +662,7 @@ export class FileEventJournal implements LeasedEventJournal {
     })
     // The caller sees this write's failure; the queue does not, so one failed
     // write (full disk, a transient EPERM on Windows) never blocks later ones.
+    this.queuedWrite = write
     this.writeQueue = write.catch(() => {})
     return write
   }

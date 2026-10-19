@@ -74,4 +74,42 @@ describe('FileEventJournal lock', () => {
     await j.close()
     expect(() => readFileSync(`${file}.lock`)).toThrow()
   })
+
+  it('refuses a second open of the same locked file in this process until the first is closed', async () => {
+    const a = await FileEventJournal.open(file, { lock: true })
+    await expect(FileEventJournal.open(file, { lock: true })).rejects.toThrow(/already open in this process/)
+    await expect(FileEventJournal.open(join(dir, '.', 'events.json'), { lock: true })).rejects.toThrow(/already open in this process/)
+    await a.append(env('x'))
+    expect(a.locked).toBe(true)
+    await a.close()
+    expect(a.locked).toBe(false)
+    expect(a.exclusive).toBe(false)
+    const b = await FileEventJournal.open(file, { lock: true })
+    expect(b.locked).toBe(true)
+    expect((await b.get('x'))?.state).toBe('pending')
+    await b.close()
+  })
+
+  it('takes over a lock file with its own pid when no journal of this process holds it (a restarted container reuses pids)', async () => {
+    writeFileSync(`${file}.lock`, String(process.pid))
+    const j = await FileEventJournal.open(file, { lock: true })
+    expect(j.locked).toBe(true)
+    await j.close()
+  })
+
+  it('frees the in-process claim when open fails on an invalid file', async () => {
+    writeFileSync(file, 'not json')
+    await expect(FileEventJournal.open(file, { lock: true })).rejects.toThrow()
+    rmSync(file)
+    const j = await FileEventJournal.open(file, { lock: true })
+    await j.close()
+  })
+
+  it('rejects writes after close, so a closed journal never writes without its lock', async () => {
+    const j = await FileEventJournal.open(file, { lock: true })
+    await j.close()
+    await j.close() // idempotent
+    await expect(j.append(env('late'))).rejects.toThrow(/closed/)
+    expect(() => readFileSync(file)).toThrow() // nothing was written
+  })
 })

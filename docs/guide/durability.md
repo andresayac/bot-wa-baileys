@@ -83,7 +83,15 @@ const bot = new Bot({ provider, durability: { journal: eventsDurability({ journa
 - The outbox is the core outbox kept as a *sidecar* of the journal: the same file and
   the same atomic snapshot as the inbox.
 - A `FileEventJournal` must be opened with `{ lock: true }`. The pid lock file stops a
-  second process from opening it.
+  second process from opening it, and a second `open()` of the same file in the same
+  process is refused until the first journal is closed.
+- Cost: a `FileEventJournal` rewrites its **whole** file on every write, and here that
+  file holds the app's own events, the bot's inbound records (kept for the retention
+  window, 7 days by default) and the outbox. Each inbound message and each send cause a
+  few rewrites (concurrent writes share one, and lease heartbeats only write with the
+  next change). For more than light traffic, give the bot a journal file of its own,
+  keep the retention short, or pass a database-backed `outbox`; or use
+  `FileDurability` or a database backend instead.
 - For several replicas you need a shared `LeasedEventJournal` with atomic, fenced
   operations, plus a shared `outbox` (`eventsDurability({ journal, outbox: kv })`, with
   the `DurableKv` of a Postgres or Redis backend). No such journal ships yet.
