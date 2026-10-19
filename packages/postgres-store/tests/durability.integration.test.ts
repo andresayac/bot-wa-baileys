@@ -17,8 +17,11 @@ const URL = process.env.BOTWA_TEST_POSTGRES_URL
 describe.skipIf(!URL)('PostgresDurability — real PostgreSQL', () => {
   const run = `itd${randomBytes(4).toString('hex')}_`
   let n = 0
-  // One pool for the whole file: a pool per backend would exhaust max_connections.
-  const pool = URL ? new pg.Pool({ connectionString: URL, max: 10 }) : (undefined as unknown as pg.Pool)
+  // One pool for the whole file: a pool per backend would exhaust max_connections. The
+  // application_name keeps it out of integration.test.ts' "kill every idle backend" test,
+  // which runs in parallel against the same database.
+  const pool = URL ? new pg.Pool({ connectionString: URL, max: 10, application_name: 'botwa-durability-it' }) : (undefined as unknown as pg.Pool)
+  pool?.on('error', () => {})
   const prefixes: string[] = []
   const fresh = () => {
     const tablePrefix = `${run}${n++}_`
