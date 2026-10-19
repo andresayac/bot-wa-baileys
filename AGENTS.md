@@ -4,30 +4,33 @@ Guía para agentes de código (y humanos) que trabajan en este repositorio. Comp
 
 ## Qué es
 
-Framework de bots de mensajería **agnóstico de transporte**, en un **monorepo pnpm** (`packages/*`). El motor es `@bot-wa/core`; los canales (WhatsApp vía Baileys, Cloud API, Evolution API, WPPConnect, Twilio o Gupshup; Messenger, Instagram, Telegram, Discord, GoHighLevel, email y TikTok) son paquetes que implementan `IProvider`. Hay **39 paquetes**. Todo es **ESM-only**, **Node >= 22** y está en alpha; todavía no hay nada en npm (la publicación va por Changesets, ver [Publicar una versión](#publicar-una-versión)).
+Framework de bots de mensajería **agnóstico de transporte**, en un **monorepo pnpm** (`packages/*` y `examples/*`). El motor es `@bot-wa/core`; los canales (WhatsApp vía Baileys, Cloud API, Evolution API, WPPConnect, Twilio o Gupshup; Messenger, Instagram, Telegram, Discord, GoHighLevel, email y TikTok) son paquetes que implementan `IProvider`. Hay **40 paquetes** en `packages/` y un ejemplo ejecutable en `examples/bakery-ai` (`@bot-wa/example-bakery-ai`, privado). Todo es **ESM-only**, **Node >= 22** y está en alpha; todavía no hay nada en npm (la publicación va por Changesets, ver [Publicar una versión](#publicar-una-versión)).
 
 Capas (las dependencias van siempre hacia abajo, nunca al revés):
 
 | Capa | Paquetes |
 | --- | --- |
 | Motor | `core` (`@bot-wa/core`, la única dependencia runtime es `pino`) |
-| Infra compartida | `http` (cliente anti-SSRF), `graph-core` (helpers de Meta Graph), `server` (ingress de webhooks: body crudo, límites, health) |
+| Infra compartida | `http` (cliente anti-SSRF), `graph-core` (helpers de Meta Graph), `wa-gateway-kit` (identidad LID/PN, REST y media compartidos por Evolution y WPPConnect), `server` (ingress de webhooks: body crudo, límites, health) |
 | Canales (13) | `baileys-provider`, `meta-provider`, `messenger-provider`, `instagram-provider`, `telegram-provider`, `discord-provider`, `evolution-provider`, `wppconnect-provider`, `twilio-provider`, `gohighlevel-provider`, `gupshup-provider`, `email-provider`, `tiktok-provider` |
 | Stores | `sqlite-store`, `redis-store`, `mongo-store`, `postgres-store`, `mysql-store` |
 | Plugins | `ai`, `rag`, `voice`, `nlu`, `dialogflow`, `chatwoot`, `tickets`, `moderation`, `manager`, `events` |
 | Prototipos de producto | `inbox`, `crm`, `hub`, `campaigns`, `deployments` |
 | Tooling | `create-bot-wa` (CLI scaffolder), `eslint-plugin` (`eslint-plugin-bot-wa`) |
+| Ejemplos | `examples/bakery-ai` (asistente de pedidos con IA sobre Baileys o Twilio) |
 
 El nombre del directorio no siempre coincide con el del paquete (`packages/baileys-provider` → `@bot-wa/baileys`, `packages/meta-provider` → `@bot-wa/meta`, `packages/*-provider` → `@bot-wa/<canal>`, `packages/eslint-plugin` → `eslint-plugin-bot-wa`). Mira el `name` en su `package.json` antes de usar `--filter`.
 
-Solo 10 paquetes son **públicos**: `core`, `baileys`, `meta`, `telegram`, `sqlite-store`, `redis-store`, `ai`, `http`, `graph-core` y `create-bot-wa`. Los otros 29 llevan `"private": true` y nunca se publican:
+Solo 10 paquetes son **públicos**: `core`, `baileys`, `meta`, `telegram`, `sqlite-store`, `redis-store`, `ai`, `http`, `graph-core` y `create-bot-wa`. Los otros 30 (más el ejemplo) llevan `"private": true` y nunca se publican:
 
 - Canales: `discord`, `messenger`, `instagram`, `evolution`, `wppconnect`, `twilio`, `gohighlevel`, `gupshup`, `email`, `tiktok`.
 - Stores: `mongo-store`, `postgres-store`, `mysql-store`.
-- Plugins e infra: `server`, `rag`, `voice`, `nlu`, `dialogflow`, `chatwoot`, `tickets`, `moderation`, `manager`, `events`.
+- Plugins e infra: `server`, `wa-gateway-kit`, `rag`, `voice`, `nlu`, `dialogflow`, `chatwoot`, `tickets`, `moderation`, `manager`, `events`.
 - Tooling: `eslint-plugin-bot-wa`.
 - Prototipos: `inbox`, `crm`, `hub`, `campaigns`, `deployments`.
- Un paquete público no puede depender de uno privado, y sus dependencias internas se declaran como `"workspace:^"` (al empaquetar salen como `^x.y.z`, así npm deduplica `@bot-wa/core`).
+- Ejemplo: `@bot-wa/example-bakery-ai`.
+
+Un paquete público no puede depender de uno privado, y sus dependencias internas se declaran como `"workspace:^"` (al empaquetar salen como `^x.y.z`, así npm deduplica `@bot-wa/core`).
 
 ## Comandos
 
@@ -45,10 +48,11 @@ pnpm --filter "./packages/*-store" test   # los stores (con BOTWA_TEST_*_URL, ta
 pnpm bench:soak                           # carga/soak/fugas del runtime (tras pnpm build; no entra en pnpm test, ver CONTRIBUTING)
 pnpm changeset                            # añade un changeset (todo cambio visible de un paquete público)
 pnpm pack:smoke                           # empaqueta los paquetes públicos y los prueba instalados desde tarballs (no publica)
-pnpm test:scripts                         # tests de los helpers de scripts/ (semver del smoke test)
+pnpm test:scripts                         # tests de los helpers de scripts/ (semver del smoke test, enlaces de los README)
 
 pnpm docs:dev                             # sitio VitePress en local (http://localhost:5173/)
 pnpm docs                                 # TypeDoc + VitePress (CI lo compila en Node 24; no se publica en ningún hosting)
+pnpm docs:site                            # solo VitePress (rápido; falla con enlaces muertos)
 ```
 
 **Importante:** los paquetes se resuelven entre sí por `exports` → `lib/` (salida compilada). Si cambias `core` (u otra dependencia interna) y luego pruebas un paquete que la usa, **compila primero la dependencia**; si no, los tests corren contra el `lib/` anterior.
@@ -77,7 +81,7 @@ packages/<pkg>/
   tests/*.test.ts
 ```
 
-Las dependencias internas se declaran como `"workspace:*"`. Un paquete nuevo copia la forma de uno existente parecido (p. ej. `nlu` para un plugin, `telegram-provider` para un canal) y se añade a la tabla del [`README.md`](README.md#paquetes).
+Las dependencias internas se declaran como `"workspace:*"` en los paquetes privados y `"workspace:^"` en los públicos (ver arriba). Un paquete nuevo copia la forma de uno existente parecido (p. ej. `nlu` para un plugin, `telegram-provider` para un canal) y se añade a la tabla del [`README.md`](README.md#paquetes).
 
 ## Reglas de código
 
@@ -99,6 +103,8 @@ Son los errores que más caro han salido. Respétalos aunque un cambio "parezca"
 - **Contrato de estabilidad de identidad:** el provider resuelve los alias (LID/PN en WhatsApp, también en Evolution y WPPConnect vía `WaIdentityStore`; `sender_chat` en Telegram, member/user en Discord) **antes** de emitir el evento. La misma persona produce siempre el mismo `senderId`. El core nunca re-deriva identidad.
 - En Baileys, el cambio LID↔PN es la causa número 1 de flujos rotos. Todo keying o enrutado nuevo debe pasar por la identidad canónica (`IdentityStore` en `baileys-provider/src/identity.ts` + `getPNForLID`), nunca por el `remoteJid` crudo.
 - El contrato completo está documentado en `packages/core/src/core/provider.ts`. Si cambias `IProvider`, revisa los trece canales y `MockProvider`.
+- Una ubicación entrante llega como `type: 'location'` con `InboundMessage.location` normalizado (`ctx.sharedLocation`; `ctx.location()` **envía** una). Los providers lo rellenan con `toInboundLocation()` del core, que descarta coordenadas inválidas; nunca construyas el objeto a mano. Lo rellenan Baileys, Cloud API, Telegram, Messenger, Instagram, Evolution, WPPConnect, Gupshup y Twilio; el bot lo guarda en `StoredMessage.location` y `c.waitLocation()` lo espera en conversaciones.
+- El dedupe de entrada guarda una huella de contenido (tipo + body, hasheada) por id: una **edición** que reutiliza el id original (Telegram `edited_message`, con `ref.native.edit_date` e `isEditedMessage(ctx)`) pasa como entrada nueva; un reintento idéntico no. Un provider que entregue ediciones debe conservar el `ref.id` original.
 
 ### Dispatcher y conversaciones
 - El dispatcher procesa una **cola FIFO por chat**. Un mensaje lo consume el primer handler que lo maneja (`ctx.pass()` para dejarlo pasar al siguiente). Orden completo de entrada (doc comment de `Dispatcher.run`): en el `Bot`, blacklist/whitelist (lo bloqueado no se marca como visto) → dedupe de entrada → persistencia → filtro `groupMode`; en el dispatcher, resolución del idioma (`prepare`, solo con i18n activo) → before-hooks (si un hook reescribió `ctx.body`, p. ej. la transcripción de voz, el idioma se re-resuelve con `reprepare` para que `detect` vea el texto final) → gate de handoff → comando → conversación activa → reanudación dormida → matchers por especificidad (`WELCOME` primero; texto; función; tipo único; multi-tipo) → catch-all → after-hooks + evento `'message'`. Los comandos siempre ganan a una conversación activa (por eso `/reset` funciona como escape). Las llamadas van primero por los gates de acceso y handoff (una llamada bloqueada no corre hooks `'call'`, no emite `'call'` ni llega a `CALL`; cuenta en `metrics().dropped`); una admitida corre hooks `'call'` + evento y, por `dispatchEvent`, resolución del idioma y solo triggers de tipo. `bot.trigger()` (y `bot.triggerFlow()`, un wrapper fino con `ifActive: 'replace'`) tampoco pasa por `run`: listas de acceso → turno FIFO del chat (`runExclusive`) → gate de handoff → resolución del idioma → inicio de la conversación.
@@ -124,7 +130,8 @@ Son los errores que más caro han salido. Respétalos aunque un cambio "parezca"
 - Los `tests/integration.test.ts` de `postgres-store`, `mysql-store`, `mongo-store` y `redis-store` corren contra un servidor real y leen `BOTWA_TEST_POSTGRES_URL`, `BOTWA_TEST_MYSQL_URL`, `BOTWA_TEST_MONGO_URL` y `BOTWA_TEST_REDIS_URL`; sin la variable, la suite se salta (`describe.skipIf`). En local, levanta los servidores con Docker (comandos en [`CONTRIBUTING.md`](CONTRIBUTING.md#tests-de-integración-de-stores-docker)); CI no los ejecuta, así que córrelos en local si tocas un store.
 
 ### Canales y red
-- Meta (WhatsApp Cloud, Messenger, Instagram) comparte `@bot-wa/graph-core` para verificar webhooks, mapear errores y proteger el ingest. No dupliques esa lógica en el provider.
+- Meta (WhatsApp Cloud, Messenger, Instagram) comparte `@bot-wa/graph-core` para verificar webhooks, mapear errores (`readGraphResponse()`) y proteger el ingest. No dupliques esa lógica en el provider.
+- Los gateways REST de WhatsApp (Evolution, WPPConnect) comparten `@bot-wa/wa-gateway-kit` (`WaIdentityStore`, cliente REST, media). Lo común entre ambos va ahí, no copiado en cada provider.
 - La firma de un webhook se calcula sobre los **bytes crudos** del body, nunca sobre JSON re-serializado.
 - Las descargas de media y las peticiones salientes a URLs externas pasan por `secureFetch` de `@bot-wa/http` (anti-SSRF, validación de redirecciones, timeouts y límites de tamaño).
 - Baileys no tiene botones ni listas nativos (el protocolo de WhatsApp Web los dejó de soportar); usa menús `choose()` numerados o `ctx.poll()`. La Cloud API sí los tiene.
