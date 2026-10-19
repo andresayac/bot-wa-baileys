@@ -58,3 +58,28 @@ describe('Instagram inbound hardening', () => {
     expect(events).toEqual([])
   })
 })
+
+describe('Instagram ingest — malformed bodies', () => {
+  it('answers 400 (never throws) for a raw body that is not a JSON object', () => {
+    const p = new InstagramProvider(baseCfg)
+    expect(p.ingest('{not json')).toBe(400)
+    expect(p.ingest(Buffer.from('<html>'))).toBe(400)
+    expect(p.ingest('"str"')).toBe(400)
+  })
+
+  it('answers 400 for a correctly signed body that is not JSON', async () => {
+    const { createHmac } = await import('node:crypto')
+    const p = new InstagramProvider({ ...baseCfg, appSecret: 'shh' })
+    const raw = '{oops'
+    const sig = 'sha256=' + createHmac('sha256', 'shh').update(raw).digest('hex')
+    expect(p.ingest(raw, { 'x-hub-signature-256': sig })).toBe(400)
+  })
+})
+
+describe('Instagram send errors carry the content kind', () => {
+  it('an unsupported-content code reports the kind that was sent', async () => {
+    stubGraphError({ code: 131051, message: 'unsupported' })
+    const err = await new InstagramProvider(baseCfg).send('IGSID', { kind: 'video', media: 'https://x.dev/a.mp4' }).catch((e: unknown) => e)
+    expect(err).toMatchObject({ name: 'UnsupportedContentError', kind: 'video' })
+  })
+})

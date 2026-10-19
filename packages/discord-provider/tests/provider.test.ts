@@ -288,7 +288,7 @@ describe('DiscordProvider — hardening', () => {
     await expect(p.send('C1', { kind: 'text', text: 'x' })).rejects.toBeInstanceOf(RecipientUnreachableError)
   })
 
-  it('an empty reaction emoji is rejected with UnsupportedContentError (no API call)', async () => {
+  it('an empty reaction emoji with no remembered reaction is rejected with UnsupportedContentError (no API call)', async () => {
     const calls = mockFetch()
     const p = provider()
     await expect(p.send('C1', { kind: 'reaction', emoji: '', target: { id: 'M1', chatId: 'C1' } })).rejects.toBeInstanceOf(UnsupportedContentError)
@@ -301,5 +301,54 @@ describe('DiscordProvider — hardening', () => {
     await p.editMessage({ id: 'M1', chatId: 'C1' }, { kind: 'document', media: Buffer.from('x'), filename: 'factura.pdf' })
     const form = calls[0].init!.body as FormData
     expect((form.get('files[0]') as File).name).toBe('factura.pdf')
+  })
+})
+
+describe('DiscordProvider — removing and replacing the bot own reaction', () => {
+  const route = (emoji: string, msg = 'M1') => `https://discord.com/api/v10/channels/C1/messages/${msg}/reactions/${encodeURIComponent(emoji)}/@me`
+  const target = (id = 'M1') => ({ id, chatId: 'C1' })
+  const ops = (calls: Call[]) => calls.map((c) => `${c.init!.method} ${c.url}`)
+
+  it('an empty emoji removes the reaction the bot set on that message', async () => {
+    const calls = mockFetch()
+    const p = provider()
+    await p.send('C1', { kind: 'reaction', emoji: '👍', target: target() })
+    await p.send('C1', { kind: 'reaction', emoji: '', target: target() })
+    expect(ops(calls)).toEqual([`PUT ${route('👍')}`, `DELETE ${route('👍')}`])
+    // Forgotten after removal: a second removal has nothing to remove.
+    await expect(p.send('C1', { kind: 'reaction', emoji: '', target: target() })).rejects.toBeInstanceOf(UnsupportedContentError)
+  })
+
+  it('a new emoji replaces the previous one (one reaction per message, like WhatsApp/Telegram)', async () => {
+    const calls = mockFetch()
+    const p = provider()
+    await p.send('C1', { kind: 'reaction', emoji: '⏳', target: target() })
+    await p.send('C1', { kind: 'reaction', emoji: '✅', target: target() })
+    await p.send('C1', { kind: 'reaction', emoji: '✅', target: target() })
+    expect(ops(calls)).toEqual([`PUT ${route('⏳')}`, `PUT ${route('✅')}`, `DELETE ${route('⏳')}`, `PUT ${route('✅')}`])
+  })
+
+  it('a failed PUT does not forget the previous reaction', async () => {
+    const calls = mockFetch((c) => (c.url.includes(encodeURIComponent('❌')) ? { status: 400, body: { message: 'Unknown Emoji', code: 10014 } } : {}))
+    const p = provider()
+    await p.send('C1', { kind: 'reaction', emoji: '👍', target: target() })
+    await expect(p.send('C1', { kind: 'reaction', emoji: '❌', target: target() })).rejects.toBeInstanceOf(ProviderError)
+    await p.send('C1', { kind: 'reaction', emoji: '', target: target() })
+    expect(ops(calls).at(-1)).toBe(`DELETE ${route('👍')}`)
+  })
+
+  it('the memory is bounded (reactionMemory) and can be turned off', async () => {
+    mockFetch()
+    const p = provider({ reactionMemory: 2 })
+    for (const id of ['M1', 'M2', 'M3']) await p.send('C1', { kind: 'reaction', emoji: '👍', target: target(id) })
+    await expect(p.send('C1', { kind: 'reaction', emoji: '', target: target('M1') })).rejects.toBeInstanceOf(UnsupportedContentError)
+    await expect(p.send('C1', { kind: 'reaction', emoji: '', target: target('M3') })).resolves.toBeDefined()
+
+    const calls = mockFetch()
+    const off = provider({ reactionMemory: 0 })
+    await off.send('C1', { kind: 'reaction', emoji: '⏳', target: target() })
+    await off.send('C1', { kind: 'reaction', emoji: '✅', target: target() })
+    expect(ops(calls)).toEqual([`PUT ${route('⏳')}`, `PUT ${route('✅')}`]) // no replace without memory
+    await expect(off.send('C1', { kind: 'reaction', emoji: '', target: target() })).rejects.toBeInstanceOf(UnsupportedContentError)
   })
 })

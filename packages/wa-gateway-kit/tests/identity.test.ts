@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { WaIdentityStore, normalizeJid } from '../src/identity.js'
+import { WaIdentityStore, normalizeJid } from '../src/index.js'
 
 describe('WaIdentityStore', () => {
   it('strips device suffixes and rejects empty ids', () => {

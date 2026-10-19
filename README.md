@@ -50,6 +50,7 @@ El monorepo tiene **39 paquetes**: 10 **Alpha** (publicables), 24 **Experimental
 | **Infra compartida** (dependencias de los paquetes Alpha) | | |
 | [`@bot-wa/http`](packages/http) | Alpha | Cliente HTTP seguro: anti-SSRF, validación de redirecciones, timeout y límites de descarga. |
 | [`@bot-wa/graph-core`](packages/graph-core) | Alpha | Helpers Meta Graph compartidos (verificación de webhook, mapeo de errores, guard de ingest) usados por meta/messenger/instagram. |
+| [`@bot-wa/wa-gateway-kit`](packages/wa-gateway-kit) | Interno | Código compartido por los gateways REST de WhatsApp (`evolution`, `wppconnect`): cliente REST sobre `secureFetch`, resolución de media saliente y reconciliación de identidad LID/PN. Privado; no se instala directamente. |
 | [`@bot-wa/server`](packages/server) | Experimental | Ingress de webhooks para los providers: body crudo, límites de tamaño, timeouts, concurrencia y endpoints de salud para `node:http`, Express, Fastify y Hono (sin dependencias). |
 | **Producto / operación** | | |
 | [`@bot-wa/inbox`](packages/inbox) | Prototipo | Inbox omnicanal en memoria: asignación, handoff, notas, unread, SLA y CAS por conversación. |

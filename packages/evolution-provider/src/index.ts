@@ -9,10 +9,11 @@ export { parseWebhook, parseMessage, normalizeEventName, textOf } from './parseI
 export type { ParseContext } from './parseInbound.js'
 export { toOutbound, keyFromRef, numberedMenu } from './toOutbound.js'
 export type { EvolutionOutbound } from './toOutbound.js'
-export { WaIdentityStore, normalizeJid } from './identity.js'
-export type { IdentityPersistence } from './identity.js'
+// Shared with @bot-wa/wppconnect through the private @bot-wa/wa-gateway-kit.
+export { WaIdentityStore, normalizeJid } from '@bot-wa/wa-gateway-kit'
+export type { IdentityPersistence } from '@bot-wa/wa-gateway-kit'
 export { verifyHs256Jwt, signHs256Jwt } from './webhookAuth.js'
-export type { RestHttpOptions } from './rest.js'
+export type { RestHttpOptions } from '@bot-wa/wa-gateway-kit'
 export type {
   EvolutionProviderConfig,
   EvolutionWebhook,

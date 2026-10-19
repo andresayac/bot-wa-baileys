@@ -6,8 +6,7 @@
  */
 
 import type { Logger } from 'pino'
-import type { IdentityPersistence } from './identity.js'
-import type { RestHttpOptions } from './rest.js'
+import type { IdentityPersistence, RestHttpOptions } from '@bot-wa/wa-gateway-kit'
 
 export interface EvolutionProviderConfig {
   /** Evolution API base URL, e.g. `http://localhost:8080`. */

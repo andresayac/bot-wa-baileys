@@ -99,3 +99,34 @@ export function toGraphError(err: GraphError, opts: GraphErrorOptions = {}): Pro
       return new ProviderError(`${msg}${code ? ` (code ${code})` : ''}`)
   }
 }
+
+/** The subset of a fetch `Response` that {@link readGraphResponse} reads. */
+export interface GraphResponseLike {
+  ok: boolean
+  status: number
+  headers: { get(name: string): string | null }
+  json(): Promise<unknown>
+}
+
+/**
+ * Read a Graph API response: resolve to its JSON body (an unparsable body is
+ * `{}`), or reject with the typed error {@link toGraphError} maps it to when the
+ * HTTP status fails or the body carries an `error` object. A `Retry-After`
+ * header (seconds) overrides `opts.retryAfterMs`.
+ *
+ * This is the single response check shared by the WhatsApp Cloud API,
+ * Messenger and Instagram clients, so the Messenger Platform window /
+ * unreachable codes are mapped in exactly one place.
+ */
+export async function readGraphResponse<T = unknown>(res: GraphResponseLike, opts: GraphErrorOptions = {}): Promise<T> {
+  const parsed = await res.json().catch(() => ({}))
+  const body = (parsed && typeof parsed === 'object' ? parsed : {}) as { error?: GraphError }
+  if (!res.ok || body.error) {
+    const retryAfter = Number(res.headers.get('Retry-After')) || undefined
+    throw toGraphError(body.error ?? { message: `HTTP ${res.status}` }, {
+      ...opts,
+      retryAfterMs: retryAfter ? retryAfter * 1000 : opts.retryAfterMs,
+    })
+  }
+  return body as T
+}

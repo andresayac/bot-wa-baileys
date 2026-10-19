@@ -54,7 +54,15 @@ app.listen(3000)
 | `template` | `ContentSid` (= `name`) + `ContentVariables` (= `components`) |
 | `native` (`provider: 'twilio'`) | parámetros de la Messages API tal cual |
 
-Entrante: texto, media (`ctx.media` vía `downloadMedia`, con Basic auth solo hacia `api.twilio.com`), ubicación, respuestas citadas (`quoted`), quick replies (`ButtonPayload` → interacción `button`) y list pickers (`ListId` → `list`). Los status callbacks llegan como eventos `status` (`undelivered` → `failed` con `error.code`).
+Entrante: texto, media (`ctx.media` vía `downloadMedia`, con Basic auth solo hacia `api.twilio.com`; un mensaje con varios adjuntos llega como un mensaje por adjunto, ver abajo), ubicación, respuestas citadas (`quoted`), quick replies (`ButtonPayload` → interacción `button`) y list pickers (`ListId` → `list`). Los status callbacks llegan como eventos `status` (`undelivered` → `failed` con `error.code`).
+
+**Varios adjuntos.** Twilio manda todos los adjuntos de un mensaje en un solo webhook (`NumMedia` > 1, `MediaUrl0..N-1`, máximo 10). El provider emite **un `InboundMessage` por adjunto**, en orden, para que cada uno tenga su `ctx.media`:
+
+- el primero conserva `ref.id` = `MessageSid` y el texto (`Body`);
+- el adjunto `i` lleva `ref.id` = `` `${MessageSid}:${i}` `` y cuerpo vacío;
+- todos comparten chat, remitente y `raw` (los parámetros del webhook).
+
+Los ids son únicos por adjunto y se repiten en un reintento del webhook, así que el dedupe del core descarta los reintentos sin perder adjuntos. Ojo: cada adjunto pasa por el dispatcher como un mensaje propio, así que un `ask()` que espera una imagen consume solo el primero.
 
 `ctx.typing()` usa el indicador de escritura de WhatsApp (`POST /v3/Indicators/Typing.json` con `{ "channel": "WHATSAPP", "messageId": "SM…" }`, en beta pública; además marca el mensaje como leído y se borra al responder o a los 25 s). Solo se envía en chats de WhatsApp con un mensaje entrante (`SM…`/`MM…`) de las últimas 24 h; en SMS es no-op. Es *best-effort*: nunca rechaza. Si Twilio responde 4xx (p. ej. un remitente o cuenta sin soporte), se registra en `debug` y el chat deja de intentarlo durante 30 min; 429/5xx/errores de red solo se registran.
 

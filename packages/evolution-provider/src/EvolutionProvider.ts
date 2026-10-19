@@ -46,9 +46,16 @@ import {
   RecipientUnreachableError,
   UnsupportedContentError,
 } from '@bot-wa/core'
-import { WaIdentityStore, normalizeJid } from './identity.js'
+import {
+  WaIdentityStore,
+  describeErrorBody,
+  isRecord,
+  normalizeJid,
+  resolveHttpPolicy,
+  restCall,
+  type RestHttpOptions,
+} from '@bot-wa/wa-gateway-kit'
 import { normalizeEventName, parseWebhook } from './parseInbound.js'
-import { describeErrorBody, isRecord, resolveHttpPolicy, restCall, type RestHttpOptions } from './rest.js'
 import { keyFromRef, toOutbound } from './toOutbound.js'
 import type { EvolutionMediaToken, EvolutionProviderConfig, EvolutionWebhook } from './types.js'
 import { bearerToken, headerValue, safeEqual, verifyHs256Jwt, type HeaderBag } from './webhookAuth.js'

@@ -4,7 +4,7 @@
  */
 export { verifyChallenge, verifySignature } from './webhook.js'
 export type { ChallengeQuery } from './webhook.js'
-export { toGraphError } from './errors.js'
-export type { GraphError, GraphErrorOptions } from './errors.js'
+export { toGraphError, readGraphResponse } from './errors.js'
+export type { GraphError, GraphErrorOptions, GraphResponseLike } from './errors.js'
 export { checkGraphSignature, parseGraphBody, tryParseGraphBody } from './ingest.js'
 export type { GraphSignatureResult, GraphIngestLogger, GraphParseResult } from './ingest.js'

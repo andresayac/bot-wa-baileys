@@ -7,6 +7,7 @@ import {
   checkGraphSignature,
   parseGraphBody,
   tryParseGraphBody,
+  readGraphResponse,
 } from '../src/index.js'
 import {
   ProviderError,
@@ -235,5 +236,49 @@ describe('toGraphError — throughput and reachability codes', () => {
     expect(toGraphError({ code: 10, error_subcode: 2018278, message: 'outside window' }, { chatId: 'psid' })).toBeInstanceOf(OutsideSessionWindowError)
     const other = toGraphError({ code: 10, message: 'permission' })
     expect(other.constructor).toBe(ProviderError)
+  })
+})
+
+describe('readGraphResponse', () => {
+  const res = (status: number, body: unknown, retryAfter: string | null = null) => ({
+    ok: status < 400,
+    status,
+    headers: { get: (h: string) => (h.toLowerCase() === 'retry-after' ? retryAfter : null) },
+    json: async () => body,
+  })
+
+  it('returns the parsed body of a successful response', async () => {
+    await expect(readGraphResponse(res(200, { message_id: 'm1' }))).resolves.toEqual({ message_id: 'm1' })
+  })
+
+  it('treats an unparsable success body as an empty object', async () => {
+    const r = { ...res(200, null), json: async () => { throw new SyntaxError('bad') } }
+    await expect(readGraphResponse(r)).resolves.toEqual({})
+  })
+
+  it('maps the Messenger Platform window/unreachable codes with the chat id', async () => {
+    const win = await readGraphResponse(res(400, { error: { code: 10, error_subcode: 2018278, message: 'w' } }), { chatId: 'PSID' }).catch((e: unknown) => e)
+    expect(win).toBeInstanceOf(OutsideSessionWindowError)
+    expect((win as OutsideSessionWindowError).chatId).toBe('PSID')
+    const gone = await readGraphResponse(res(400, { error: { code: 551, message: 'g' } }), { chatId: 'IG' }).catch((e: unknown) => e)
+    expect(gone).toBeInstanceOf(RecipientUnreachableError)
+    expect((gone as RecipientUnreachableError).chatId).toBe('IG')
+  })
+
+  it('honours Retry-After (seconds) on rate limits', async () => {
+    const err = await readGraphResponse(res(429, { error: { code: 4, message: 'slow' } }, '7')).catch((e: unknown) => e)
+    expect(err).toBeInstanceOf(RateLimitedError)
+    expect((err as RateLimitedError).retryAfterMs).toBe(7000)
+  })
+
+  it('an error body on a 200 still throws; a bare HTTP failure becomes a generic ProviderError', async () => {
+    await expect(readGraphResponse(res(200, { error: { code: 1, message: 'x' } }))).rejects.toBeInstanceOf(ProviderError)
+    await expect(readGraphResponse(res(500, {}))).rejects.toThrow(/HTTP 500/)
+  })
+
+  it('passes the content kind through to the unsupported-content codes', async () => {
+    const err = await readGraphResponse(res(400, { error: { code: 131051, message: 'u' } }), { contentKind: 'sticker' }).catch((e: unknown) => e)
+    expect(err).toBeInstanceOf(UnsupportedContentError)
+    expect((err as UnsupportedContentError).kind).toBe('sticker')
   })
 })

@@ -4,7 +4,7 @@
  */
 
 export { TelegramProvider, toProviderError } from './TelegramProvider.js'
-export { parseUpdate } from './parseInbound.js'
+export { parseUpdate, isEditedMessage } from './parseInbound.js'
 export { toOutbound, MEDIA_UPLOAD } from './toOutbound.js'
 export type { ResolvedTelegramMedia, TelegramOutbound } from './toOutbound.js'
 export type {

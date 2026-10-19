@@ -8,9 +8,7 @@
  */
 
 import { UnsupportedContentError, type OutboundContent, type SendOptions } from '@bot-wa/core'
-import { isGroupJid, isLidJid } from './identity.js'
-import { resolveMedia, toDataUri } from './media.js'
-import { isRecord } from './rest.js'
+import { isGroupJid, isLidJid, isRecord, resolveMedia, toDataUri } from '@bot-wa/wa-gateway-kit'
 
 export interface WppOutbound {
   /** Endpoint under `/api/{session}/` (e.g. `send-message`). */

@@ -220,6 +220,26 @@ const hooked = new TelegramProvider({
   resto.
 - En modo webhook `ingest()` parsea un **string** JSON (o un objeto): con
   `@bot-wa/server` móntalo con `body: 'text'`.
+- **Mensajes editados**: llegan al bot como mensajes con el texto nuevo y el
+  `ref.id` original (respuestas, reacciones y ediciones apuntan al mensaje
+  editado). `isEditedMessage(ctx)` los distingue; el dedupe del core deja pasar
+  la edición porque su contenido cambió. `editedMessages: 'ignore'` los desactiva.
+- **Servidor Bot API propio (self-hosted)**: apunta `baseUrl` a él. Si va por
+  HTTP plano o en una red privada, las descargas de media necesitan además
+  `mediaDownload: { allowHttp: true, allowPrivateHosts: true }` (y un `maxBytes`
+  mayor). Arráncalo sin `--local`: en ese modo las rutas de archivo no se sirven
+  por HTTP.
+
+```ts
+import { TelegramProvider, isEditedMessage } from '@bot-wa/telegram'
+
+const selfHosted = new TelegramProvider({
+  token: process.env.TELEGRAM_TOKEN!,
+  baseUrl: 'http://telegram-bot-api:8081',
+  mediaDownload: { allowHttp: true, allowPrivateHosts: true, maxBytes: 200 * 1024 * 1024 },
+})
+bot.before('message', async (ctx, next) => { if (!isEditedMessage(ctx)) await next() }) // ignora ediciones
+```
 
 [README](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/telegram-provider)
 
@@ -277,6 +297,12 @@ const provider = new DiscordProvider({ token: process.env.DISCORD_TOKEN! })
 
 - Botones, menús de selección, encuestas, reacciones y ediciones nativos;
   `ctx.stream()` edita un mensaje a medida que crece el texto.
+- El bot mantiene una reacción por mensaje, como en WhatsApp/Telegram: un
+  nuevo `ctx.react(emoji)` reemplaza la anterior y `ctx.react('')` la quita.
+  Discord borra reacciones por emoji, así que el provider recuerda el que puso
+  (en memoria, `reactionMemory`, 1000 mensajes por defecto); si no lo conoce
+  (se puso antes de reiniciar o salió del LRU) rechaza con
+  `UnsupportedContentError`.
 - Las interacciones tienen un plazo estricto de confirmación
   (`interactionsRequireAck`).
 
@@ -365,6 +391,10 @@ const provider = new TwilioProvider({
 - `ingestRequest({ url, body, headers })` para URLs que cambian por petición
   (multi-tenant).
 - El error 63016 se traduce a `OutsideSessionWindowError`.
+- Un mensaje con varios adjuntos (`NumMedia` > 1, hasta 10) llega como **un
+  mensaje por adjunto**, en orden: el primero conserva el `MessageSid` y el
+  texto (`Body`); el adjunto `i` lleva el id `MessageSid:i` y cuerpo vacío
+  (ids únicos y estables ante reintentos del webhook).
 
 [README](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/twilio-provider)
 

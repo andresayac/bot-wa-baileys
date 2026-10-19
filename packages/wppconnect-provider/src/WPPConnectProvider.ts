@@ -47,9 +47,18 @@ import {
   RecipientUnreachableError,
   UnsupportedContentError,
 } from '@bot-wa/core'
-import { WaIdentityStore, isGroupJid, isLidJid, normalizeJid } from './identity.js'
+import {
+  WaIdentityStore,
+  describeErrorBody,
+  isGroupJid,
+  isLidJid,
+  isRecord,
+  normalizeJid,
+  resolveHttpPolicy,
+  restCall,
+  type RestHttpOptions,
+} from '@bot-wa/wa-gateway-kit'
 import { jidOf, lidsIn, parseWebhook, serializedId } from './parseInbound.js'
-import { describeErrorBody, isRecord, resolveHttpPolicy, restCall, type RestHttpOptions } from './rest.js'
 import { target, toOutbound } from './toOutbound.js'
 import type { WPPConnectProviderConfig, WppMediaToken } from './types.js'
 import { bearerToken, headerValue, safeEqual, type HeaderBag } from './webhookAuth.js'
@@ -110,6 +119,8 @@ export class WPPConnectProvider implements IProvider<unknown> {
   /** Settles when the previous webhook has emitted its events (per-provider FIFO). */
   private emitTail: Promise<void> = Promise.resolve()
   private token: string | undefined
+  /** The generate-token request in flight, shared by concurrent callers. */
+  private tokenInFlight: Promise<string> | undefined
   private _selfId: string | null
 
   constructor(private readonly config: WPPConnectProviderConfig) {
@@ -168,6 +179,19 @@ export class WPPConnectProvider implements IProvider<unknown> {
 
   /* REST ------------------------------------------------------------------ */
 
+  /**
+   * A fresh bearer token, single-flight: concurrent callers (a burst of sends
+   * at start-up, or several requests rejected with 401 on the same stale token)
+   * share ONE generate-token request. `stale` is the token the caller saw
+   * rejected; when another caller already replaced it, that token is reused
+   * instead of generating again. A failed generation is not cached.
+   */
+  private async freshToken(stale?: string): Promise<string> {
+    if (this.token && this.token !== stale) return this.token
+    this.tokenInFlight ??= this.generateToken().finally(() => { this.tokenInFlight = undefined })
+    return this.tokenInFlight
+  }
+
   /** POST /api/{session}/{secretKey}/generate-token → bearer token. */
   private async generateToken(): Promise<string> {
     if (!this.config.secretKey) throw new ProviderError('WPPConnect token rejected and no secretKey configured to regenerate it')
@@ -183,17 +207,16 @@ export class WPPConnectProvider implements IProvider<unknown> {
   }
 
   private async api<T = unknown>(method: string, endpoint: string, body?: unknown, chatId: ChatId = '', http: RestHttpOptions = this.http): Promise<T> {
-    if (!this.token) await this.generateToken()
-    const call = () => restCall(
+    const call = (token: string) => restCall(
       `${this.baseUrl}/api/${this.sessionPath}/${endpoint}`,
-      { method, headers: { authorization: `Bearer ${this.token}` }, body, label: `/api/{session}/${endpoint.split('/')[0]}` },
+      { method, headers: { authorization: `Bearer ${token}` }, body, label: `/api/{session}/${endpoint.split('/')[0]}` },
       http,
     )
-    let res = await call()
+    const token = this.token ?? await this.freshToken()
+    let res = await call(token)
     if (res.status === 401 && this.config.secretKey) {
       this.logger.debug('WPPConnect token rejected; regenerating once')
-      await this.generateToken()
-      res = await call()
+      res = await call(await this.freshToken(token))
     }
     if (!res.ok) throw toWppError(res.status, res.body, chatId, res.retryAfterMs)
     return res.body as T

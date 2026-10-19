@@ -28,7 +28,9 @@ Create a bot with [@BotFather](https://t.me/BotFather) and keep the token.
 ```ts
 interface TelegramProviderConfig {
   token: string        // bot token from @BotFather (required)
-  baseUrl?: string     // default 'https://api.telegram.org'
+  baseUrl?: string     // default 'https://api.telegram.org' (or your self-hosted Bot API server)
+  mediaDownload?: SecureFetchOptions // download policy: maxBytes, timeoutMs, allowHttp, allowPrivateHosts
+  editedMessages?: 'deliver' | 'ignore' // default 'deliver' (see "Edited messages")
   polling?: boolean    // default true; false = webhook mode (host calls ingest())
   selfId?: string      // bot's own user id; resolved via getMe() when omitted
   pollTimeout?: number // getUpdates server timeout (s), default 30
@@ -105,7 +107,65 @@ if (ctx.media) {
 ```
 
 `downloadMedia(ref)` resolves `file_id → getFile → file_path` and fetches
-`{baseUrl}/file/bot{token}/{file_path}` (20 MB Bot API limit).
+`{baseUrl}/file/bot{token}/{file_path}` (20 MB Bot API limit) through the
+anti-SSRF `secureFetch` of `@bot-wa/http`. Download failures reject with typed
+errors (`PayloadTooLargeError` over `mediaDownload.maxBytes`, 16 MiB by default;
+`ProviderError` otherwise) whose messages never include the URL (it carries the token).
+
+## Self-hosted Bot API server
+
+A [self-hosted Bot API server](https://github.com/tdlib/telegram-bot-api) lifts
+the cloud limits (downloads up to 2000 MB, uploads up to 2000 MB). Point
+`baseUrl` at it. It usually runs on plain HTTP inside your network, which the
+download guard refuses by default, so allow it explicitly:
+
+```ts
+const provider = new TelegramProvider({
+  token: process.env.TG_TOKEN!,
+  baseUrl: 'http://telegram-bot-api:8081',   // your server (Docker service, LAN, localhost)
+  mediaDownload: {
+    allowHttp: true,          // the server speaks plain HTTP
+    allowPrivateHosts: true,  // and lives on a private/loopback address
+    maxBytes: 200 * 1024 * 1024,
+    timeoutMs: 120_000,
+  },
+})
+```
+
+- Only enable `allowHttp` / `allowPrivateHosts` for a server you control: they
+  relax the SSRF protection for every file download of this provider.
+- Call `logOut` on the cloud API once before switching a bot to your server
+  (Telegram's requirement), then `getUpdates`/`setWebhook` against the new `baseUrl`.
+- Run the server **without** `--local`: in local mode `getFile` returns a path on
+  the server's disk that is not served over HTTP, and `downloadMedia` rejects
+  with a `ProviderError` explaining it.
+
+## Edited messages
+
+By default (`editedMessages: 'deliver'`) an `edited_message` update reaches the
+bot as a normal message with the new text:
+
+- it keeps the original `ref.id`, so `ctx.reply`, `ctx.react` and `ctx.edit`
+  target the edited message, and a store upsert updates it in place;
+- `ref.native.edit_date` and `raw.edit_date` (unix seconds) are set, and
+  `isEditedMessage(message)` returns `true`;
+- the core deduper keys on `chatId + ref.id` plus a content fingerprint, so the
+  edit (different text) gets through while a webhook retry of the same edit, or
+  an edit that leaves the text unchanged, is dropped.
+
+An edit is routed like any message (it can answer a pending `ask()`). If that
+is not what you want, branch on it or turn edits off:
+
+```ts
+import { TelegramProvider, isEditedMessage } from '@bot-wa/telegram'
+
+bot.before('message', async (ctx, next) => { if (!isEditedMessage(ctx)) await next() }) // skip edits
+new TelegramProvider({ token, editedMessages: 'ignore' })                   // or never receive them
+```
+
+With `'ignore'` long-polling stops requesting `edited_message`; in webhook mode
+the update is acknowledged (200) and dropped (also leave it out of
+`setWebhook`'s `allowed_updates`).
 
 ## Capabilities
 

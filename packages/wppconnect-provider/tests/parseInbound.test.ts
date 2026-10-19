@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { parseWebhook, remoteOfMessageId, serializedId, lidsIn } from '../src/parseInbound.js'
-import { WaIdentityStore } from '../src/identity.js'
+import { WaIdentityStore } from '@bot-wa/wa-gateway-kit'
 import { fixture } from './support/fake.js'
 
 const PN = '573001112233@c.us'

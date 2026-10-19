@@ -67,7 +67,7 @@ Alpha:
 - @bot-wa/core — Bot engine, IProvider v2, flows/conversations, hooks, plugins, scheduler, DI, MemoryStore, ctx.user, handoff, access lists, i18n, ctx.stream, bot.broadcast/trigger/metrics, golden transcripts, testing kit (createTestBot/MockProvider/ChaosProvider/replayTranscript from '@bot-wa/core/testing'), `bot-wa dev` terminal simulator
 - @bot-wa/baileys — BaileysProvider (WhatsApp Web, unofficial; QR or pairing code), RateLimiter, JID helpers, LID/PN identity resolution, poll votes (pluggable pollStore)
 - @bot-wa/meta — CloudAPIProvider (official WhatsApp Cloud API, webhook; native buttons/lists/templates/WhatsApp Flows forms; 24h session window manager (sessionWindow) and pricing usage (provider.usage); feed inbound via provider.ingest(rawBody, headers))
-- @bot-wa/telegram — TelegramProvider (Bot API, long-poll or webhook; native drafts/edits for ctx.stream)
+- @bot-wa/telegram — TelegramProvider (Bot API, long-poll or webhook; native drafts/edits for ctx.stream; edited_message is delivered as a message with the original ref.id, isEditedMessage(ctx) detects it, editedMessages: 'ignore' drops edits; self-hosted Bot API server via baseUrl + mediaDownload { allowHttp, allowPrivateHosts, maxBytes })
 - @bot-wa/sqlite-store — SQLiteStore (better-sqlite3 peer dependency, WAL)
 - @bot-wa/redis-store — RedisStore (shared state across replicas + acquireLock/releaseLock; atomic cross-replica upserts)
 - @bot-wa/ai — aiPlugin + AIClient (multi-provider LLM autoresponder, tool calling, long-term user memory, RAG hook)

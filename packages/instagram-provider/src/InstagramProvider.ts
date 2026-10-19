@@ -40,7 +40,7 @@ import type { InstagramProviderConfig } from './types.js'
 import { GraphClient } from './graphClient.js'
 import { toOutbound } from './toOutbound.js'
 import { parseInbound, type IgWebhookBody } from './parseInbound.js'
-import { verifyChallenge, checkGraphSignature, parseGraphBody, type ChallengeQuery } from '@bot-wa/graph-core'
+import { verifyChallenge, checkGraphSignature, tryParseGraphBody, type ChallengeQuery } from '@bot-wa/graph-core'
 
 export class InstagramProvider implements IProvider<unknown> {
   readonly id = 'instagram'
@@ -130,13 +130,18 @@ export class InstagramProvider implements IProvider<unknown> {
    * Feed an inbound webhook POST. When `appSecret` is configured and `headers`
    * are passed, the body is verified against `X-Hub-Signature-256` first
    * (forged bodies are dropped → 403). Normalized events are emitted via
-   * onEvent. Returns the HTTP status the host should send.
+   * onEvent. Returns the HTTP status the host should send; a body that is not
+   * a JSON object answers 400 instead of throwing.
    */
   ingest(body: unknown, headers?: Record<string, string | string[] | undefined>): number {
     const sig = checkGraphSignature(body, headers, this.config.appSecret, this.logger)
     if (!sig.ok) return sig.status
-    const parsed = parseGraphBody<IgWebhookBody>(body)
-    for (const event of parseInbound(parsed)) this.fan(event)
+    const parsed = tryParseGraphBody<IgWebhookBody>(body)
+    if (!parsed.ok) {
+      this.logger.warn('webhook rejected: body is not a JSON object')
+      return parsed.status
+    }
+    for (const event of parseInbound(parsed.body)) this.fan(event)
     return 200
   }
 
@@ -149,7 +154,7 @@ export class InstagramProvider implements IProvider<unknown> {
   async send(chatId: ChatId, content: OutboundContent, options?: SendOptions): Promise<SendResult<unknown>> {
     void options // quoted/mentions/interactionId have no Send API equivalent
     const message = toOutbound(content)
-    const res = await this.graph.sendMessage(chatId, message)
+    const res = await this.graph.sendMessage(chatId, message, content.kind)
     return { ref: { id: res.message_id ?? '', chatId }, raw: res }
   }
 

@@ -11,10 +11,34 @@ import type { SecureFetchOptions } from '@bot-wa/http'
 export interface TelegramProviderConfig {
   /** Bot token from @BotFather. */
   token: string
-  /** Bot API base URL. Default 'https://api.telegram.org'. */
+  /**
+   * Bot API base URL. Default 'https://api.telegram.org'. Point it at a
+   * self-hosted Bot API server (`telegram-bot-api`) to lift the 20 MB download
+   * / 50 MB upload limits; when that server runs on a private address
+   * (localhost, Docker network, LAN) also set `mediaDownload.allowPrivateHosts`
+   * so file downloads are not refused by the anti-SSRF guard.
+   */
   baseUrl?: string
-  /** Safe-download policy for Telegram file URLs. */
+  /**
+   * Safe-download policy for Telegram file URLs (`@bot-wa/http` `secureFetch`
+   * options: `maxBytes`, `timeoutMs`, `allowPrivateHosts`, ...). Downloads are
+   * refused for private/loopback hosts unless `allowPrivateHosts: true`, which a
+   * self-hosted Bot API server on a private network needs.
+   */
   mediaDownload?: Omit<SecureFetchOptions, 'fetch'>
+  /**
+   * What to do with `edited_message` updates (a user edits a message the bot
+   * already saw):
+   *  - `'deliver'` (default): emit it as a normal message with the new text. It
+   *    keeps the original `ref.id` (reply/react/edit target the edited message),
+   *    `ref.native.edit_date` / `raw.edit_date` are set, and `isEditedMessage()`
+   *    returns true. The core deduper lets it through because its content
+   *    differs; a redelivery of the same edit (or an edit that leaves the text
+   *    unchanged) is dropped.
+   *  - `'ignore'`: edits are not requested from `getUpdates` and are dropped in
+   *    webhook mode (also unsubscribe them in `setWebhook`'s `allowed_updates`).
+   */
+  editedMessages?: 'deliver' | 'ignore'
   /**
    * true (default): start() runs a getUpdates long-poll loop.
    * false: webhook mode — the host POSTs Updates to `ingest()`.
@@ -141,6 +165,8 @@ export interface TelegramMessage {
   from?: TelegramUser
   sender_chat?: TelegramChat
   date?: number
+  /** Set on edited_message updates: when the message was last edited (unix seconds). */
+  edit_date?: number
   chat: TelegramChat
   text?: string
   caption?: string

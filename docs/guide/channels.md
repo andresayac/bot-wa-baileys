@@ -209,6 +209,25 @@ const hooked = new TelegramProvider({
 - `ctx.stream()` uses native drafts in private chats and edits elsewhere.
 - In webhook mode `ingest()` parses a JSON **string** (or an object): with
   `@bot-wa/server` mount it with `body: 'text'`.
+- **Edited messages** reach the bot as messages with the new text and the
+  original `ref.id` (replies, reactions and edits target the edited message).
+  `isEditedMessage(ctx)` tells them apart; the core deduper lets an edit
+  through because its content changed. `editedMessages: 'ignore'` turns them off.
+- **Self-hosted Bot API server**: set `baseUrl` to it. On plain HTTP or a
+  private network, media downloads also need `mediaDownload: { allowHttp: true,
+  allowPrivateHosts: true }` (plus a larger `maxBytes`). Run the server without
+  `--local`, whose file paths are not served over HTTP.
+
+```ts
+import { TelegramProvider, isEditedMessage } from '@bot-wa/telegram'
+
+const selfHosted = new TelegramProvider({
+  token: process.env.TELEGRAM_TOKEN!,
+  baseUrl: 'http://telegram-bot-api:8081',
+  mediaDownload: { allowHttp: true, allowPrivateHosts: true, maxBytes: 200 * 1024 * 1024 },
+})
+bot.before('message', async (ctx, next) => { if (!isEditedMessage(ctx)) await next() }) // skip edits
+```
 
 [README](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/telegram-provider)
 
@@ -265,6 +284,11 @@ const provider = new DiscordProvider({ token: process.env.DISCORD_TOKEN! })
 
 - Buttons, select menus, polls, reactions and edits are native;
   `ctx.stream()` edits one message as the text grows.
+- The bot keeps one reaction per message, like WhatsApp/Telegram: a new
+  `ctx.react(emoji)` replaces its previous one and `ctx.react('')` removes it.
+  Discord deletes reactions by emoji, so the provider remembers the emoji it
+  set (in memory, `reactionMemory`, default 1000 messages); an unknown one
+  (set before a restart, or evicted) rejects with `UnsupportedContentError`.
 - Interactions have a hard acknowledgement deadline
   (`interactionsRequireAck`).
 
@@ -352,6 +376,10 @@ const provider = new TwilioProvider({
 - `ingestRequest({ url, body, headers })` for per-request URLs
   (multi-tenant).
 - Error 63016 maps to `OutsideSessionWindowError`.
+- A message with several attachments (`NumMedia` > 1, up to 10) arrives as
+  **one message per attachment**, in order: the first keeps the `MessageSid`
+  and the text (`Body`); attachment `i` gets the id `MessageSid:i` and an
+  empty body (unique ids, stable across webhook retries).
 
 [README](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/twilio-provider)
 
