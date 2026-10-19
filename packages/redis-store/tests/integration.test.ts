@@ -118,9 +118,10 @@ describe.skipIf(!REDIS_URL)('RedisStore against a real Redis server', { timeout:
     return store
   }
   const keysOf = (prefix: string): Promise<string[]> => admin.keys(`${globLiteral(prefix)}:*`)
-  const clientIds = async (): Promise<Set<string>> => {
+  /** Ids of the connections currently on database `db` (`CLIENT LIST`). */
+  const clientIdsInDb = async (db: string): Promise<Set<string>> => {
     const list = String(await admin.sendCommand(['CLIENT', 'LIST']))
-    return new Set([...list.matchAll(/^id=(\d+)/gm)].map((m) => m[1]))
+    return new Set([...list.matchAll(/^id=(\d+) .* db=(\d+) /gm)].filter((m) => m[2] === db).map((m) => m[1]))
   }
 
   beforeAll(async () => {
@@ -221,13 +222,18 @@ describe.skipIf(!REDIS_URL)('RedisStore against a real Redis server', { timeout:
 
   describe('lifecycle', () => {
     it('start() is idempotent: repeated and concurrent starts open a single connection', async () => {
-      const before = await clientIds()
-      const store = own({ prefix: nextPrefix('idem') })
+      // Other test files (separate workers) open connections to the same server meanwhile:
+      // this store selects a database nobody else uses, and only connections on it count.
+      const db = '11'
+      const before = await clientIdsInDb(db)
+      const dbUrl = new URL(url)
+      dbUrl.pathname = '/' + db
+      const store = own({ url: dbUrl.toString(), prefix: nextPrefix('idem') })
       await Promise.all([store.start(), store.start()])
       await store.start()
       await store.setCursor('k', 'v')
       expect(await store.getCursor('k')).toBe('v')
-      const fresh = [...(await clientIds())].filter((id) => !before.has(id))
+      const fresh = [...(await clientIdsInDb(db))].filter((id) => !before.has(id))
       expect(fresh).toHaveLength(1)
     })
 
