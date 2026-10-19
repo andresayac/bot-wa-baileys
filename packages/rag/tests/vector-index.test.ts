@@ -57,3 +57,18 @@ describe('VectorIndex', () => {
     expect(() => VectorIndex.fromJSON({ version: 2 })).toThrow(RagError)
   })
 })
+
+describe('VectorIndex.upsert validation', () => {
+  it('is all-or-nothing: a bad entry in a batch leaves the index untouched', () => {
+    const idx = new VectorIndex('t')
+    expect(() => idx.upsert([entry('a', [1, 0]), entry('b', [1, 0, 0])])).toThrow(RagError)
+    expect(idx.size).toBe(0)
+    expect(idx.dimensions).toBeNull()
+  })
+
+  it('rejects non-finite vector components (a corrupted index file would silently drop hits)', () => {
+    const idx = new VectorIndex('t')
+    expect(() => idx.upsert([entry('a', [1, Number.NaN])])).toThrow(/finite/)
+    expect(() => VectorIndex.fromJSON({ version: 1, embedder: 't', dimensions: 2, entries: [entry('a', [1, null as unknown as number])] })).toThrow(RagError)
+  })
+})
