@@ -230,7 +230,7 @@ provider first needs an audit of which pino methods it calls (`child`, `level`, 
 `MemoryStore` caps `maxMessagesPerChat` at 1000 by default, while the persistent stores
 have no limit unless you set one.
 
-**Decision:** keep. It is deliberate for a RAM-only store and documented in its JSDoc.
+**Decision:** keep. It is deliberate for a RAM-only store; documented in its JSDoc, the store guides and `AGENTS.md`, and `Infinity` disables it. An invalid cap now throws a `RangeError`, like the persistent stores.
 
 ### F20. Naming conventions (low)
 

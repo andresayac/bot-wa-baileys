@@ -31,10 +31,16 @@ const bot = new Bot({
   storeConfig: {
     file: './store.json',
     autoSaveInterval: '1m', // duración o ms (0 = desactivar)
-    maxMessagesPerChat: 1000,
+    maxMessagesPerChat: 1000, // el valor por defecto; Infinity quita el tope
   },
 })
 ```
+
+`MemoryStore` guarda como máximo **1000 mensajes por chat** por defecto. A
+diferencia de los stores persistentes, donde el tope es opt-in, este log vive
+en la RAM del proceso y nunca se escribe en disco, así que un valor por
+defecto sin límite solo haría crecer la memoria en un bot de larga duración.
+Pasa `maxMessagesPerChat: Infinity` para conservarlo todo.
 
 ::: warning Los mensajes NO se restauran
 `MemoryStore` intencionalmente omite los mensajes al recargar (privacidad + tamaño). Solo chats, contactos, flow states, checkpoints y conversaciones AI sobreviven un reinicio vía el dump JSON.
@@ -66,6 +72,7 @@ const bot = new Bot({
 | `file` | `string` | `'./bot.db'` | Ruta al archivo de base de datos SQLite |
 | `wal` | `boolean` | `true` | Activar modo WAL (mejores lecturas concurrentes) |
 | `maxMessagesPerChat` | `number` | — (sin límite) | Conserva solo los N mensajes más recientes por chat; los más viejos se podan al guardar |
+| `purgeBatchSize` | `number` | `1000` | Filas que borra cada sentencia de `purgeExpiredUserData` (repite hasta que no queda nada expirado) |
 | `logger` | `object` | — | Logger para errores (`{ error: fn }`) |
 
 ### Qué almacena
@@ -147,7 +154,9 @@ estado del bot, respetando `tablePrefix` / `collectionPrefix`:
 
 Postgres y MySQL crean ahora siete tablas en `start()`. Las filas expiradas
 se borran de forma perezosa con `bot.purgeExpiredUserData()` (Redis las
-expira por sí mismo).
+expira por sí mismo). SQLite, Postgres, MySQL y MongoDB las borran en lotes de
+`purgeBatchSize` (por defecto `1000`) hasta que no queda nada expirado, así
+que un backlog grande nunca se ejecuta como un único borrado largo.
 
 ## Stores personalizados
 
@@ -177,8 +186,19 @@ Semántica que todo store debe respetar:
   upsert parcial debe omitir lo que no conoce. El `Bot` ya lo hace: un mensaje sin
   nombre visible (o sin nombre de chat) nunca borra el que estaba guardado.
 - `deleteChat` borra también el log de mensajes de ese chat.
-- `maxMessagesPerChat` es opt-in; por defecto el log de mensajes no tiene límite.
-  Todos los stores incluidos rechazan un tope negativo o con decimales con un `RangeError`.
+- `maxMessagesPerChat` es opt-in en los stores persistentes; por defecto su log
+  de mensajes no tiene límite. `MemoryStore` es la excepción: guarda 1000
+  mensajes por chat por defecto porque su log vive en RAM (`Infinity` quita el
+  tope). Todos los stores incluidos rechazan un tope negativo o con decimales
+  con un `RangeError`.
+- Los mensajes se guardan con la clave `messageKey(ref)`: `{chatId}:{id}` con `%`
+  y `:` escapados en cada parte (`%25`, `%3A`), así que los ids que contienen `:`
+  (los chat ids `whatsapp:+1…` de Twilio) ya no colisionan. Los ids sin `:` ni `%`
+  conservan la clave que escribían las versiones anteriores; las filas guardadas
+  con la clave antigua sin escapar (`legacyMessageKey(ref)`) se siguen leyendo y
+  borrando, y al volver a guardarlas pasan a la clave nueva. Un store persistente
+  propio que use `messageKey` debería hacer lo mismo y comprobar que la fila
+  encontrada con la clave antigua pertenece al chat pedido.
 - `saveMessage` ignora un mensaje sin `ref.id` o sin `chatId` (los providers envían
   `ref.id: ''` cuando no tienen un id estable), y `getMessage` de esa referencia
   resuelve `undefined`. Guardar de nuevo un id reemplaza el mensaje guardado.
