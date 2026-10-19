@@ -441,3 +441,66 @@ describe('Dispatcher without a firstContact dependency', () => {
     expect(welcome).toHaveBeenCalledOnce()
   })
 })
+
+describe('WelcomeTracker: reset() vs an in-flight first-contact check', () => {
+  /** A store whose reads/writes take effect immediately but resolve only when `release()` is called. */
+  function gatedStore(inner = new MemoryStore()) {
+    let gate: Promise<void> = Promise.resolve()
+    let open: () => void = () => {}
+    const store = {
+      hold() { gate = new Promise<void>((r) => { open = r }) },
+      release() { open() },
+      async getCursor(key: string) { const v = await inner.getCursor(key); await gate; return v },
+      async setCursor(key: string, value: string) { await inner.setCursor(key, value); await gate },
+    }
+    return { store, inner }
+  }
+  const dm = { from: 'u', sender: 'u', isGroup: false }
+
+  it('a reset issued while a check reads the store is not undone by that check', async () => {
+    const { store, inner } = gatedStore()
+    expect(await new WelcomeTracker({ store: inner }).isFirstContact({ ...dm })).toBe(true) // welcomed before
+    const t = new WelcomeTracker({ store })
+    store.hold()
+    const check = t.isFirstContact({ ...dm }) // reads "welcomed", stalls
+    await tick(1)
+    const reset = t.reset('u')
+    store.release()
+    expect(await check).toBe(false)
+    await reset
+    expect(await t.isFirstContact({ ...dm })).toBe(true)
+  })
+
+  it('a reset issued while a first contact is being recorded wins in the store', async () => {
+    const { store, inner } = gatedStore()
+    const t = new WelcomeTracker({ store })
+    // Let the reads through, then stall the welcome write.
+    const original = store.setCursor
+    let releaseWrite!: () => void
+    const write = new Promise<void>((r) => { releaseWrite = r })
+    store.setCursor = async (key, value) => { if (value === 'w') await write; return original(key, value) }
+    const check = t.isFirstContact({ ...dm })
+    await tick(1)
+    const reset = t.reset('u')
+    await tick(1)
+    releaseWrite()
+    expect(await check).toBe(true)
+    await reset
+    expect(await new WelcomeTracker({ store: inner }).isFirstContact({ ...dm })).toBe(true)
+  })
+
+  it('a group-wide reset waits for a participant check in flight', async () => {
+    const { store, inner } = gatedStore()
+    const ana = { from: 'g', sender: 'ana', isGroup: true }
+    expect(await new WelcomeTracker({ store: inner }).isFirstContact({ ...ana })).toBe(true)
+    const t = new WelcomeTracker({ store })
+    store.hold()
+    const check = t.isFirstContact({ ...ana })
+    await tick(1)
+    const reset = t.reset('g')
+    store.release()
+    expect(await check).toBe(false)
+    await reset
+    expect(await t.isFirstContact({ ...ana })).toBe(true)
+  })
+})
