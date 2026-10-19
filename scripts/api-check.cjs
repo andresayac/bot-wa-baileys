@@ -8,8 +8,9 @@
  *   node scripts/api-check.cjs surface    # sorted list of every exported name per entry (diff it before/after)
  *   node scripts/api-check.cjs any        # `any` in exported declarations
  *   node scripts/api-check.cjs internal   # exported symbols tagged @internal
+ *   node scripts/api-check.cjs deprecated # exported names tagged @deprecated (on the export or its declaration)
  *
- * Exits 1 when `missing`, `internal` or `any` finds something. See docs/api-review.md.
+ * Exits 1 when `missing`, `internal` or `any` finds something (`deprecated` only lists). See docs/api-review.md.
  */
 const path = require('path')
 const fs = require('fs')
@@ -41,7 +42,7 @@ for (const dir of PUBLIC) {
       const target = s.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(s) : s
       exported.add(target)
       names.push(`${pj.name}${k === '.' ? '' : k.slice(1)}#${s.name}`)
-      exportSyms.push([k, s.name, target])
+      exportSyms.push([k, s.name, target, s])
     }
   }
   if (mode === 'surface') { names.sort().forEach((n) => console.log(n)); continue }
@@ -49,6 +50,7 @@ for (const dir of PUBLIC) {
   const missing = new Map()
   const anys = []
   const internals = []
+  const deprecated = []
   const seen = new Set()
   const visit = (decl, owner) => {
     const walk = (node) => {
@@ -76,7 +78,9 @@ for (const dir of PUBLIC) {
     }
     walk(decl)
   }
-  for (const [k, name, sym] of exportSyms) {
+  const hasTag = (decls, tag) => (decls ?? []).some((d) => ts.getJSDocTags(d).some((t) => t.tagName.text === tag))
+  for (const [k, name, sym, alias] of exportSyms) {
+    if (hasTag(alias.declarations, 'deprecated') || hasTag(sym.declarations, 'deprecated')) deprecated.push(`${k} ${name}`)
     for (const d of sym.declarations ?? []) {
       if (ts.getJSDocTags(d).some((t) => t.tagName.text === 'internal')) internals.push(`${k} ${name}`)
       visit(d, name)
@@ -85,9 +89,10 @@ for (const dir of PUBLIC) {
   const out = mode === 'missing' ? [...missing].map(([k, v]) => `MISSING ${k} <- ${[...v].slice(0, 4).join(', ')}`)
     : mode === 'any' ? anys.map((a) => `ANY ${a}`)
     : mode === 'internal' ? internals.map((a) => `INTERNAL ${a}`)
+    : mode === 'deprecated' ? deprecated.map((a) => `DEPRECATED ${a}`)
     : []
   console.log(`${pj.name}: ${names.length} exports${out.length ? `, ${out.length} finding(s)` : ''}`)
   for (const line of out) console.log(`  ${line}`)
-  problems += out.length
+  if (mode !== 'deprecated') problems += out.length
 }
 process.exitCode = problems > 0 ? 1 : 0

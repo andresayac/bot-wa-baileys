@@ -53,6 +53,7 @@ const CONSUMER_TS = `import { Bot, flow, defineBot, isMainModule } from '@bot-wa
 import type { IProvider, MessageContext } from '@bot-wa/core'
 import { createTestBot, MockProvider } from '@bot-wa/core/testing'
 import { runCli } from '@bot-wa/core/dev'
+import { createPacer } from '@bot-wa/core/internal'
 import { aiPlugin, MockAIProvider, type AIClient } from '@bot-wa/ai'
 import { TelegramProvider } from '@bot-wa/telegram'
 import { CloudAPIProvider } from '@bot-wa/meta'
@@ -69,7 +70,7 @@ export const providers: IProvider[] = [
   new BaileysProvider({ session: 'demo' }),
 ]
 export const store = new SQLiteStore({ file: ':memory:' })
-export const refs = [RedisStore, secureFetch, verifySignature, scaffold, runCli]
+export const refs = [RedisStore, secureFetch, verifySignature, scaffold, runCli, createPacer]
 
 const createBot = defineBot((provider) => {
   const bot = new Bot({ provider })
