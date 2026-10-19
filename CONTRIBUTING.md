@@ -135,7 +135,7 @@ git commit -am "chore(release): version packages"
 pnpm changeset publish-plan   # revisa qué se va a publicar
 pnpm pack:smoke            # empaqueta e instala los tarballs en un proyecto limpio (no publica nada)
 pnpm test:scripts          # tests de los helpers de scripts/ (semver del smoke test)
-pnpm release               # pnpm build && changeset publish: publica y crea los tags <paquete>@<versión>
+pnpm release               # pnpm clean && pnpm build && changeset publish: publica y crea los tags <paquete>@<versión>
 git push --follow-tags
 ```
 
