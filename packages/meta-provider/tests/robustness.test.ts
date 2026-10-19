@@ -97,6 +97,17 @@ describe('parseInbound — edge cases', () => {
     const bodies = events.map((e) => (e.kind === 'message' ? e.message.body : ''))
     expect(bodies).toEqual(['Office, Main St', 'Ana'])
   })
+
+  it('exposes the coordinates of a location message on message.location', () => {
+    const events = parseInbound(wrap({
+      messages: [
+        { from: '573001', id: 'wamid.L', timestamp: '1', type: 'location', location: { latitude: 4.6, longitude: -74.1, name: 'Office', address: 'Main St' } },
+        { from: '573001', id: 'wamid.L2', timestamp: '1', type: 'location', location: { latitude: 4.6 } },
+      ],
+    }))
+    const locations = events.map((e) => (e.kind === 'message' ? e.message.location : null))
+    expect(locations).toEqual([{ latitude: 4.6, longitude: -74.1, name: 'Office', address: 'Main St' }, undefined])
+  })
 })
 
 describe('CloudAPIProvider.send — media upload typing', () => {

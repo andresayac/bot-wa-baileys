@@ -104,6 +104,19 @@ describe('toInbound — location, contact and template replies', () => {
     expect(m.body).toBe('')
   })
 
+  it('exposes normalized coordinates on message.location', () => {
+    const m = toInbound(msg({ locationMessage: { degreesLatitude: 4.6, degreesLongitude: -74.1, name: 'Panadería', address: 'Calle 1' } }), new IdentityStore())
+    expect(m.location).toEqual({ latitude: 4.6, longitude: -74.1, name: 'Panadería', address: 'Calle 1' })
+  })
+
+  it('flags a live location and leaves location unset without coordinates', () => {
+    const live = toInbound(msg({ liveLocationMessage: { degreesLatitude: 1, degreesLongitude: 2, caption: 'aquí voy' } }), new IdentityStore())
+    expect(live.location).toEqual({ latitude: 1, longitude: 2, live: true })
+    expect(live.body).toBe('aquí voy')
+    const bare = toInbound(msg({ locationMessage: { address: 'Calle 1' } }), new IdentityStore())
+    expect(bare.location).toBeUndefined()
+  })
+
   it('maps a single contact card with its display name', () => {
     const m = toInbound(msg({ contactMessage: { displayName: 'Ana', vcard: 'BEGIN:VCARD' } }), new IdentityStore())
     expect(m.type).toBe('contact')

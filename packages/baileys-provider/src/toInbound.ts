@@ -6,7 +6,7 @@
  */
 
 import { normalizeMessageContent, toNumber, type WAMessage, type WAMessageKey, type proto } from '@whiskeysockets/baileys'
-import type { ChatInfo, ChatKind, InboundMessage, MediaRef, MessageType, QuotedRef, SenderInfo } from '@bot-wa/core'
+import { toInboundLocation, type ChatInfo, type ChatKind, type InboundLocation, type InboundMessage, type MediaRef, type MessageType, type QuotedRef, type SenderInfo } from '@bot-wa/core'
 import { isPnUser, isLidUser, normalize } from './jid.js'
 import { canonicalKey, type IdentityStore } from './identity.js'
 
@@ -76,6 +76,7 @@ export function toInbound(message: WAMessage, identity: IdentityStore): InboundM
 
   let body = ''
   let type: MessageType = 'unknown'
+  let location: InboundLocation | undefined
   // Unwrap disappearing-mode, view-once and document-with-caption envelopes.
   const m: proto.IMessage = normalizeMessageContent(message.message) ?? {}
 
@@ -87,9 +88,17 @@ export function toInbound(message: WAMessage, identity: IdentityStore): InboundM
   else if (m.audioMessage) { type = m.audioMessage.ptt ? 'voice' : 'audio' }
   else if (m.stickerMessage) { type = 'sticker' }
   else if (m.documentMessage) { type = 'document'; body = m.documentMessage.caption ?? '' }
-  else if (m.locationMessage || m.liveLocationMessage) {
+  else if (m.locationMessage) {
     type = 'location'
-    body = m.locationMessage?.name ?? m.locationMessage?.address ?? ''
+    const l = m.locationMessage
+    body = l.name ?? l.address ?? ''
+    location = toInboundLocation({ latitude: l.degreesLatitude, longitude: l.degreesLongitude, name: l.name, address: l.address })
+  }
+  else if (m.liveLocationMessage) {
+    type = 'location'
+    const l = m.liveLocationMessage
+    body = l.caption ?? ''
+    location = toInboundLocation({ latitude: l.degreesLatitude, longitude: l.degreesLongitude, live: true })
   }
   else if (m.contactMessage || m.contactsArrayMessage) {
     type = 'contact'
@@ -153,6 +162,7 @@ export function toInbound(message: WAMessage, identity: IdentityStore): InboundM
     mentions,
     quoted,
     media,
+    ...(location ? { location } : {}),
     raw: message,
   }
 }

@@ -56,6 +56,25 @@ describe('parseUpdate', () => {
     expect(ev.message.media).toMatchObject({ kind: 'image', token: 'big', size: 98_000 })
   })
 
+  it('normalizes location, live location and venue coordinates', () => {
+    const mk = (fields: object): TelegramUpdate => ({
+      update_id: 4,
+      message: { message_id: 13, date: 1, from: ana, chat: privateChat, ...fields },
+    })
+    const pin = parseUpdate(mk({ location: { latitude: 4.7, longitude: -74.0 } }))
+    expect(pin?.kind === 'message' && pin.message.location).toEqual({ latitude: 4.7, longitude: -74.0 })
+    expect(pin?.kind === 'message' && pin.message.body).toBe('')
+    const live = parseUpdate(mk({ location: { latitude: 1, longitude: 2, live_period: 900 } }))
+    expect(live?.kind === 'message' && live.message.location).toEqual({ latitude: 1, longitude: 2, live: true })
+    const venue = parseUpdate(mk({
+      location: { latitude: 4.6, longitude: -74.1 },
+      venue: { location: { latitude: 4.6, longitude: -74.1 }, title: 'Panadería', address: 'Calle 1' },
+    }))
+    expect(venue?.kind === 'message' && venue.message.type).toBe('location')
+    expect(venue?.kind === 'message' && venue.message.body).toBe('Panadería')
+    expect(venue?.kind === 'message' && venue.message.location).toEqual({ latitude: 4.6, longitude: -74.1, name: 'Panadería', address: 'Calle 1' })
+  })
+
   it('parses voice/document/sticker/location/contact/poll', () => {
     const mk = (fields: object): TelegramUpdate => ({
       update_id: 3,

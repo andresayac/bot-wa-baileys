@@ -9,16 +9,19 @@
 
 import type {
   InboundEvent,
+  InboundLocation,
   InboundMessage,
   MediaRef,
   MessageType,
 } from '@bot-wa/core'
+import { toInboundLocation } from '@bot-wa/core'
 
 /* Loose Messenger webhook shapes (only the fields we read). */
 
 export interface MessengerAttachment {
   type?: string // 'image' | 'video' | 'audio' | 'file' | 'location' | 'fallback'
-  payload?: { url?: string; title?: string }
+  /** `coordinates` is set on a `location` attachment (when Meta still sends one). */
+  payload?: { url?: string; title?: string; coordinates?: { lat?: number; long?: number } }
 }
 
 export interface MessengerMessage {
@@ -73,6 +76,7 @@ function toMessage(ev: MessagingEvent, selfId?: string): InboundMessage<Messagin
   let type: MessageType = m.text != null ? 'text' : 'unknown'
   let body = m.text ?? ''
   let media: MediaRef | undefined
+  let location: InboundLocation | undefined
 
   if (attach) {
     type = attachType(attach.type)
@@ -80,6 +84,8 @@ function toMessage(ev: MessagingEvent, selfId?: string): InboundMessage<Messagin
     // A shared location has no downloadable bytes.
     if (type === 'location') {
       body = m.text ?? attach.payload?.title ?? ''
+      const c = attach.payload?.coordinates
+      location = toInboundLocation({ latitude: c?.lat, longitude: c?.long, name: attach.payload?.title })
     } else {
       media = {
         kind: type as MediaRef['kind'],
@@ -105,6 +111,7 @@ function toMessage(ev: MessagingEvent, selfId?: string): InboundMessage<Messagin
     timestamp: ev.timestamp ?? 0,
     mentions: [],
     media,
+    ...(location ? { location } : {}),
     ...(m.reply_to?.mid ? { quoted: { ref: { id: m.reply_to.mid, chatId } } } : {}),
     raw: ev,
   }
