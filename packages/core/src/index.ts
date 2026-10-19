@@ -477,3 +477,13 @@ export type {
   OutboxJournal, OutboxRecord, OutboxState, OutboxPut, OutboxError, ClaimedSend,
   ClaimOptions, LeaseOptions,
 } from './durability/types.js'
+
+// Telemetry
+// Tracing hooks (BotConfig.telemetry, bot.tracing): the minimal BotTracer contract an
+// integration implements (OpenTelemetry: @bot-wa/otel) and the attribute names.
+export { noopTracer, NOOP_TRACING, errorTypeOf } from './telemetry/tracing.js'
+export { TRACE_ATTR, SPAN_NAMES } from './telemetry/attributes.js'
+export type {
+  BotTracer, BotTracing, BotSpan, SpanOptions, SpanKind, SpanStatus, SpanLink, SpanContextRef, SpanException,
+  TraceAttributes, TraceAttributeValue, TelemetryConfig,
+} from './telemetry/types.js'

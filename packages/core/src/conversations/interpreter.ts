@@ -6,6 +6,7 @@ import { ConversationEnded, ConversationGoto } from './errors.js'
 import { assertControlsAlive, markStep, pauseControls, replayable } from './retry.js'
 import { sendFlowMedia } from '../flows/media.js'
 import { runFormStep } from '../forms/runForm.js'
+import { traceFlowStep } from '../telemetry/context.js'
 
 async function resolveText(t: CompiledStep & { kind: 'say' | 'ask' }, ctx: RuntimeMessage, c: ConversationControls): Promise<string> {
   return typeof t.text === 'function' ? await t.text(ctx, c) : t.text
@@ -41,6 +42,7 @@ async function runStepsFrom(
   for (let i = startAt; i < flow.steps.length; i++) {
     const step = flow.steps[i]
     markStep(c, flow, i)
+    traceFlowStep(flow.id, i, step.kind)   // tracing: a `flow.step` event on the turn (no-op when off)
     switch (step.kind) {
       case 'say':
         await pause(step.delayMs, c)

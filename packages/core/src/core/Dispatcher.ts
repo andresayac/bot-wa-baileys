@@ -5,6 +5,8 @@ import { matchTrigger, triggerSpecificity, normalizeText } from './matching.js'
 import { isTypeTrigger, isWelcomeTrigger, typeTrigger } from './triggers.js'
 import { WelcomeTracker } from './welcome.js'
 import type { ConversationRuntime, RuntimeMessage } from '../conversations/ConversationRuntime.js'
+import type { BotSpan, BotTracing, TraceAttributes } from '../telemetry/types.js'
+import { SPAN_NAMES, TRACE_ATTR } from '../telemetry/attributes.js'
 
 export interface DispatchContext extends RuntimeMessage {
   pass(): void
@@ -69,6 +71,12 @@ export interface DispatcherDeps {
     schedule(key: string): (job: () => Promise<void>) => Promise<void>
     onDrop(error: unknown, ctx: DispatchContext): void
   }
+  /**
+   * Tracing (`BotConfig.telemetry`): a `bot.dispatch` span per job (queue wait, routing
+   * stage) and a `bot.handler` span around each handler it runs. Omitted (the default):
+   * no span code runs at all.
+   */
+  tracing?: BotTracing
 }
 
 interface MatcherEntry {
@@ -78,6 +86,8 @@ interface MatcherEntry {
   handler: MessageHandler
   /** The handler starts a conversation (registered through {@link Dispatcher.conversationMatcher}). */
   startsConversation?: boolean
+  /** Flow/conversation the handler enters (tracing: `bot.flow.id`). */
+  flow?: string
 }
 
 export class Dispatcher {
@@ -129,13 +139,14 @@ export class Dispatcher {
    * conversation or a dormant checkpoint, so an event can never replace (and wipe the
    * checkpoint of) a conversation in progress; the next matching handler runs instead.
    */
-  conversationMatcher(trigger: Trigger, handler: MessageHandler): () => void {
+  conversationMatcher(trigger: Trigger, handler: MessageHandler, meta?: { flow?: string }): () => void {
     return this.addMatcher({
       seq: this.seq++,
       trigger,
       specificity: triggerSpecificity(trigger),
       handler,
       startsConversation: true,
+      ...(meta?.flow !== undefined ? { flow: meta.flow } : {}),
     })
   }
 
@@ -167,7 +178,8 @@ export class Dispatcher {
    */
   dispatch(ctx: DispatchContext): Promise<boolean> {
     let ran = false
-    return this.enqueue(ctx, async () => { ran = await this.run(ctx) }).then(() => ran)
+    const enqueuedAt = this.deps.tracing ? Date.now() : 0
+    return this.enqueue(ctx, async () => { ran = await this.run(ctx, enqueuedAt) }).then(() => ran)
   }
 
   /**
@@ -269,32 +281,53 @@ export class Dispatcher {
    * {@link runExclusive} (the chat's FIFO slot) → handoff gate → language resolution →
    * conversation start — no dedupe, persistence, message hooks, matchers or 'message' event.
    */
-  private async run(ctx: DispatchContext): Promise<boolean> {
+  private async run(ctx: DispatchContext, enqueuedAt = 0): Promise<boolean> {
     // Dropped unprocessed (bot stopped while the job was queued): reported to the caller.
     if (this.deps.isOpen && !this.deps.isOpen()) return false
+    const tracing = this.deps.tracing
+    if (tracing) {
+      await tracing.trace(SPAN_NAMES.dispatch, { attributes: dispatchAttributes(ctx, enqueuedAt) }, (span) => this.route(ctx, span))
+      return true
+    }
     await this.route(ctx)
     return true
   }
 
-  /** Steps 5–12 of {@link run}. */
-  private async route(ctx: DispatchContext): Promise<void> {
+  /**
+   * Run one handler — inside a `bot.handler` span when the dispatch is traced (`span`),
+   * else exactly as before (`call()` itself, no wrapper).
+   */
+  private runHandler<T>(span: BotSpan | undefined, attributes: () => TraceAttributes, call: () => T): T {
+    const tracing = this.deps.tracing
+    if (!span || !tracing) return call()
+    return tracing.trace(SPAN_NAMES.handler, { attributes: attributes() }, call)
+  }
+
+  /** Steps 5–12 of {@link run}. `span`: the `bot.dispatch` span, when traced. */
+  private async route(ctx: DispatchContext, span?: BotSpan): Promise<void> {
     const { hooks, runtime, emit } = this.deps
     const prefix = this.deps.commandPrefix ?? '/'
     try {
       if (this.deps.prepare) await this.deps.prepare(ctx)
       const bodyBeforeHooks = ctx.body
-      if (!(await hooks.runBefore('message', ctx))) return
+      if (!(await hooks.runBefore('message', ctx))) { span?.setAttribute(TRACE_ATTR.dispatchStage, 'aborted_by_hook'); return }
       if (this.deps.reprepare && ctx.body !== bodyBeforeHooks) await this.deps.reprepare(ctx)
 
       // 0. routing gate (human handoff): skip every routing stage, still finish()
-      if (this.deps.gate && !this.deps.gate(ctx)) return this.finish(ctx)
+      if (this.deps.gate && !this.deps.gate(ctx)) {
+        span?.setAttribute(TRACE_ATTR.dispatchStage, 'handoff')
+        return this.finish(ctx)
+      }
 
       // 1. comandos — SIEMPRE antes que la conversación activa
       if (ctx.body?.startsWith(prefix)) {
         const [raw, ...args] = ctx.body.slice(prefix.length).trim().split(/\s+/)
-        const handler = this.commands.get(normalizeText(raw ?? ''))
+        const name = normalizeText(raw ?? '')
+        const handler = this.commands.get(name)
         if (handler) {
-          await handler(ctx, args)
+          span?.setAttribute(TRACE_ATTR.dispatchStage, 'command')
+          // Only a REGISTERED command's name is recorded (unknown command text never is).
+          await this.runHandler(span, () => ({ [TRACE_ATTR.handlerStage]: 'command', [TRACE_ATTR.commandName]: name }), () => handler(ctx, args))
           return this.finish(ctx)
         }
         // Only emit 'command:unknown' when there is no active conversation for this chat-key.
@@ -304,31 +337,42 @@ export class Dispatcher {
         // (double behavior). Falling through here lets step 2 (runtime.deliver) consume it.
         if (!runtime.hasActive(runtime.keyFor(ctx))) {
           const handled = emit('command:unknown', { ctx, command: raw })
-          if (handled) return this.finish(ctx)
+          if (handled) {
+            span?.setAttribute(TRACE_ATTR.dispatchStage, 'command_unknown')
+            return this.finish(ctx)
+          }
         }
         // continúa: una conversación puede consumir "/xyz" como texto
       }
 
       // 2. conversación activa
-      if (runtime.deliver(ctx)) return this.finish(ctx)
+      if (runtime.deliver(ctx)) {
+        span?.setAttribute(TRACE_ATTR.dispatchStage, 'conversation')
+        return this.finish(ctx)
+      }
 
       // 3. checkpoint dormido
-      if (await runtime.resumeDormant(ctx)) return this.finish(ctx)
+      if (await runtime.resumeDormant(ctx)) {
+        span?.setAttribute(TRACE_ATTR.dispatchStage, 'dormant')
+        return this.finish(ctx)
+      }
 
       // 4. matchers por especificidad
       for (const m of this.matchers) {
         if (!matchTrigger(m.trigger, ctx)) continue
         if (isWelcomeTrigger(m.trigger) && !(await this.isFirstContact(ctx))) continue
         ctx._passed = false
-        await m.handler(ctx)
+        span?.setAttribute(TRACE_ATTR.dispatchStage, 'matcher')
+        await this.runHandler(span, () => matcherAttributes(m, 'matcher'), () => m.handler(ctx))
         if (ctx._aborted) return this.finish(ctx)
         if (!ctx._passed) return this.finish(ctx)
       }
 
       // 5. catch-all
+      span?.setAttribute(TRACE_ATTR.dispatchStage, this.catchAlls.length > 0 ? 'catch_all' : 'unhandled')
       for (const h of this.catchAlls) {
         ctx._passed = false
-        await h(ctx)
+        await this.runHandler(span, () => ({ [TRACE_ATTR.handlerStage]: 'catch_all' }), () => h(ctx))
         if (ctx._aborted || !ctx._passed) break
       }
       return this.finish(ctx)
@@ -374,10 +418,21 @@ export class Dispatcher {
    * A handler error goes to the `error` hooks of `ctx.type` and to the `'error'` event.
    */
   dispatchEvent(ctx: DispatchContext): Promise<void> {
-    return this.enqueue(ctx, () => this.runEvent(ctx))
+    const enqueuedAt = this.deps.tracing ? Date.now() : 0
+    return this.enqueue(ctx, () => this.runEvent(ctx, enqueuedAt))
   }
 
-  private async runEvent(ctx: DispatchContext): Promise<void> {
+  /** Not `async`: untraced, it returns {@link routeEvent}'s own promise (no extra ticks). */
+  private runEvent(ctx: DispatchContext, enqueuedAt = 0): Promise<void> {
+    const tracing = this.deps.tracing
+    if (tracing && !(this.deps.isOpen && !this.deps.isOpen())) {
+      const attributes = { ...dispatchAttributes(ctx, enqueuedAt), [TRACE_ATTR.dispatchStage]: 'event' }
+      return tracing.trace(SPAN_NAMES.dispatch, { attributes }, (span) => this.routeEvent(ctx, span))
+    }
+    return this.routeEvent(ctx)
+  }
+
+  private async routeEvent(ctx: DispatchContext, span?: BotSpan): Promise<void> {
     const { runtime } = this.deps
     const key = runtime.keyFor(ctx)
     if (this.deps.isOpen && !this.deps.isOpen()) return
@@ -390,7 +445,7 @@ export class Dispatcher {
         // earlier in the cascade may itself have started one).
         if (m.startsConversation && (runtime.hasActive(key) || runtime.hasDormant(key))) continue
         ctx._passed = false
-        await m.handler(ctx)
+        await this.runHandler(span, () => matcherAttributes(m, 'event'), () => m.handler(ctx))
         if (ctx._aborted || !ctx._passed) return
       }
     } catch (error) {
@@ -399,4 +454,20 @@ export class Dispatcher {
       this.deps.emit('error', { error, ctx })
     }
   }
+}
+
+/** `bot.dispatch` attributes: queue wait and the message kind (no ids, no body). */
+function dispatchAttributes(ctx: DispatchContext, enqueuedAt: number): TraceAttributes {
+  return {
+    [TRACE_ATTR.queueWaitMs]: enqueuedAt > 0 ? Math.max(0, Date.now() - enqueuedAt) : undefined,
+    [TRACE_ATTR.messageType]: ctx.type,
+    [TRACE_ATTR.chatKind]: ctx.isGroup ? 'group' : 'private',
+  }
+}
+
+/** `bot.handler` attributes of a matcher: its tier and the flow it enters (when it does). */
+function matcherAttributes(m: MatcherEntry, stage: 'matcher' | 'event'): TraceAttributes {
+  const t = m.trigger
+  const kind = isWelcomeTrigger(t) ? 'welcome' : isTypeTrigger(t) ? 'type' : typeof t === 'function' ? 'function' : 'text'
+  return { [TRACE_ATTR.handlerStage]: stage, [TRACE_ATTR.matcherKind]: kind, [TRACE_ATTR.flowId]: m.flow }
 }

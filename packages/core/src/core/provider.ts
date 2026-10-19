@@ -21,6 +21,7 @@ import type { I18nConfig, LangSource, TranslateParams } from '../i18n/types.js'
 import type { StreamOptions, StreamResult, StreamSource } from '../streaming/types.js'
 import type { FormContent, FormDefinition } from '../forms/types.js'
 import type { SchedulerOptions } from '../scheduler/ScheduleStore.js'
+import type { TelemetryConfig } from '../telemetry/types.js'
 
 /* ============================================================================
  * 1. IDENTITY PRIMITIVES  (opaque — no shape grammar)
@@ -1303,4 +1304,14 @@ export interface BotConfig {
    * {@link SchedulerOptions}.
    */
   scheduler?: SchedulerOptions
+
+  /* ---- observability: tracing (opt-in) ------------------------------------ */
+  /**
+   * Trace the bot's work as spans (inbound message → dispatch → handler / conversation
+   * turn → send; `@bot-wa/ai` adds model and tool spans) through a {@link BotTracer} —
+   * OpenTelemetry with `@bot-wa/otel`. No message bodies or personal data are recorded;
+   * ids are hashed by default. Omitted: no tracing, the code path is unchanged. See the
+   * "Tracing" guide.
+   */
+  telemetry?: TelemetryConfig
 }

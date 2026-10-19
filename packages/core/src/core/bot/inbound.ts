@@ -14,6 +14,8 @@ import type { CallEvent, ChatId, HookEvent, InboundEvent, InboundInteraction, In
 import type { ContextFactory } from './contextFactory.js'
 import { assertCoordinated, type BotKernel } from './kernel.js'
 import type { Persistence } from './persistence.js'
+import { SPAN_NAMES, TRACE_ATTR } from '../../telemetry/attributes.js'
+import type { TracingImpl } from '../../telemetry/tracing.js'
 
 type InteractionInfo = { id: string; data: string; respondBy?: number }
 
@@ -30,9 +32,37 @@ export class InboundPipeline {
   /** Subscribe to the provider's normalized event stream and route each kind. */
   attach(): () => void {
     return this.k.provider.onEvent((event: InboundEvent) => {
-      const task = this.handleProviderEvent(event).catch((error) => this.k.events.error({ error }))
+      const tracing = this.k.tracing
+      const task = (tracing && isTracedEvent(event) ? this.traceProviderEvent(tracing, event) : this.handleProviderEvent(event))
+        .catch((error) => this.k.events.error({ error }))
       this.k.inflightEvents.add(task)
       void task.finally(() => this.k.inflightEvents.delete(task))
+    })
+  }
+
+  /**
+   * Tracing: one `bot.inbound` span (kind consumer) around a message, interaction or call
+   * event — ids through the `ids` policy, never the body. Its `bot.inbound.outcome` is
+   * `dispatched` unless a drop site below overwrites it.
+   */
+  private traceProviderEvent(tracing: TracingImpl, event: TracedEvent): Promise<void> {
+    const ids = event.kind === 'call'
+      ? { chatId: event.event.chatId ?? event.event.from, senderId: event.event.from, messageId: event.event.id }
+      : event.kind === 'message'
+        ? { chatId: event.message.chatId, senderId: event.message.senderId, messageId: event.message.ref.id }
+        : { chatId: event.interaction.chatId, senderId: event.interaction.senderId, messageId: event.interaction.ref.id }
+    const attributes = {
+      [TRACE_ATTR.providerId]: this.k.provider.id,
+      [TRACE_ATTR.botId]: this.k.namespace.botId,
+      [TRACE_ATTR.eventKind]: event.kind,
+      [TRACE_ATTR.messageType]: event.kind === 'message' ? event.message.type : event.kind === 'interaction' ? 'buttons' : 'call',
+      [TRACE_ATTR.chatKind]: (event.kind === 'call' ? event.event.isGroup === true : event.kind === 'message' ? event.message.isGroup : event.interaction.isGroup)
+        ? 'group' : 'private',
+      [TRACE_ATTR.inboundOutcome]: 'dispatched',
+    }
+    return tracing.trace(SPAN_NAMES.inbound, { kind: 'consumer', attributes }, (span) => {
+      tracing.setIds(span, ids)
+      return this.handleProviderEvent(event)
     })
   }
 
@@ -41,14 +71,17 @@ export class InboundPipeline {
     const { state } = this.k
     switch (event.kind) {
       case 'message': {
-        if (!state.acceptingInbound || event.message.fromMe) return
+        if (!state.acceptingInbound || event.message.fromMe) {
+          this.k.tracing?.annotate(TRACE_ATTR.inboundOutcome, event.message.fromMe ? 'from_me' : 'stopped')
+          return
+        }
         const message = event.message
         if (!this.admitsSender(message)) return
         await this.runInboundOnce(event, () => this.handleInbound(message))
         return
       }
       case 'interaction': {
-        if (!state.acceptingInbound) return
+        if (!state.acceptingInbound) { this.k.tracing?.annotate(TRACE_ATTR.inboundOutcome, 'stopped'); return }
         const interaction = event.interaction
         if (!this.admitsSender(interaction)) return
         await this.runInboundOnce(event, () => this.handleInteraction(interaction))
@@ -85,6 +118,7 @@ export class InboundPipeline {
     if (access === 'allowed') return true
     this.k.counters.blockedDropped()
     this.k.logger.debug({ gate: access, chatId: ids.chatId, senderId: ids.senderId }, 'inbound dropped by access list')
+    this.k.tracing?.annotate(TRACE_ATTR.inboundOutcome, 'blocked')
     return false
   }
 
@@ -104,6 +138,7 @@ export class InboundPipeline {
     await dedupe.run(event, handle, () => {
       this.k.counters.duplicateDropped()
       this.k.logger.debug({ kind: event.kind }, 'duplicate inbound event dropped')
+      this.k.tracing?.annotate(TRACE_ATTR.inboundOutcome, 'duplicate')
     })
   }
 
@@ -128,7 +163,7 @@ export class InboundPipeline {
       ...(inbound.location ? { location: { ...inbound.location } } : {}),
       raw: config.persistRaw ? inbound.raw : undefined,
     }
-    await Promise.all([
+    const writes = () => Promise.all([
       this.persistence.persistChat({
         id: inbound.chatId,
         ...namespace,
@@ -151,6 +186,8 @@ export class InboundPipeline {
       }),
       this.k.store.saveMessage(stored),
     ])
+    const tracing = this.k.tracing
+    await (tracing?.persistSpans ? tracing.trace(SPAN_NAMES.persist, {}, writes) : writes())
     return this.processMessage(inbound, interaction)
   }
 
@@ -195,13 +232,20 @@ export class InboundPipeline {
       if (config.groupMode === 'mentions') {
         const self = provider.selfId ?? null
         const mentioned = self ? ctx.mentions.includes(self) : ctx.mentions.length > 0
-        if (!mentioned) return true
+        if (!mentioned) { this.k.tracing?.annotate(TRACE_ATTR.inboundOutcome, 'group_filtered'); return true }
       }
-      if (config.groupMode === 'commands' && !ctx.body.startsWith(prefix)) return true
+      if (config.groupMode === 'commands' && !ctx.body.startsWith(prefix)) {
+        this.k.tracing?.annotate(TRACE_ATTR.inboundOutcome, 'group_filtered')
+        return true
+      }
     }
 
     this.k.logger.debug({ from: ctx.from, type: ctx.type }, 'dispatching message')
-    return this.k.dispatcher.dispatch(ctx as unknown as DispatchContext)
+    const ran = this.k.dispatcher.dispatch(ctx as unknown as DispatchContext)
+    const span = this.k.tracing?.activeSpan()
+    // Dropped unprocessed because the bot stopped meanwhile (a side branch: `ran` is returned as is).
+    if (span) void ran.then((ok) => { if (!ok) span.setAttribute(TRACE_ATTR.inboundOutcome, 'stopped') }, () => {})
+    return ran
   }
 
   /**
@@ -239,11 +283,13 @@ export class InboundPipeline {
     if (access !== 'allowed') {
       counters.blockedDropped()
       logger.debug({ gate: access, chatId: inbound.chatId, senderId: inbound.senderId }, 'call dropped by access list')
+      this.k.tracing?.annotate(TRACE_ATTR.inboundOutcome, 'blocked')
       return
     }
     if (!this.k.handoffs.admits(inbound)) {
       counters.handoffDropped()
       logger.debug({ gate: 'handoff', chatId: inbound.chatId, senderId: inbound.senderId }, 'call dropped: chat handed off')
+      this.k.tracing?.annotate(TRACE_ATTR.inboundOutcome, 'handoff')
       return
     }
     const proceed = await this.dispatchHookEvent('call', call)
@@ -255,4 +301,11 @@ export class InboundPipeline {
     ctx.call = call
     await this.k.dispatcher.dispatchEvent(ctx as unknown as DispatchContext)
   }
+}
+
+type TracedEvent = Extract<InboundEvent, { kind: 'message' | 'interaction' | 'call' }>
+
+/** Events that get a `bot.inbound` span (connection, presence, status… do not). */
+function isTracedEvent(event: InboundEvent): event is TracedEvent {
+  return event.kind === 'message' || event.kind === 'interaction' || event.kind === 'call'
 }

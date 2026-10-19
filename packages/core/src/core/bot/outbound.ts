@@ -10,6 +10,8 @@ import { toStoredError } from '../ledger.js'
 import { isSendDeferred } from '../../durability/bind.js'
 import type { ChatId, MessageRef, OutboundContent, SendOptions, SendResult, SentMessage } from '../types.js'
 import { assertCoordinated, type BotKernel } from './kernel.js'
+import { SPAN_NAMES, TRACE_ATTR } from '../../telemetry/attributes.js'
+import type { BotSpan } from '../../telemetry/types.js'
 
 export type ContextStreamDeps = Pick<BuildContextDeps, 'capabilities' | 'textFormatFor' | 'streamSend' | 'streamEdit' | 'sendDraft' | 'deleteStreamMessage' | 'stopSignal'>
 export type ContextMessagingDeps = Pick<BuildContextDeps, 'pace' | 'editMessage' | 'sendClock' | 'supports'>
@@ -24,19 +26,40 @@ export class OutboundPipeline {
    * own chat (`bot.send`, `sendTo` from a human agent, campaigns) ticks `externalSends`,
    * so an implicit `ctx.edit(content)` never edits a reply that was followed by it.
    */
-  async send(chatId: ChatId, content: OutboundContent, options?: SendOptions, origin: 'ctx' | 'api' = 'api', stream?: 'message'): Promise<SendResult> {
+  send(chatId: ChatId, content: OutboundContent, options?: SendOptions, origin: 'ctx' | 'api' = 'api', stream?: 'message'): Promise<SendResult> {
+    const tracing = this.k.tracing
+    if (!tracing) return this.sendNow(chatId, content, options, origin, stream)
+    // Tracing: one `bot.send` span (kind client); the provider call runs inside it, so the
+    // backend's http instrumentation nests under it. No content, only its kind.
+    const attributes = {
+      [TRACE_ATTR.providerId]: this.k.provider.id,
+      [TRACE_ATTR.contentKind]: content.kind,
+      [TRACE_ATTR.sendOrigin]: origin,
+      [TRACE_ATTR.sendStream]: stream,
+    }
+    return tracing.trace(SPAN_NAMES.send, { kind: 'client', attributes }, (span) => {
+      tracing.setIds(span, { chatId })
+      return this.sendNow(chatId, content, options, origin, stream, span)
+    }, isSendDeferred)
+  }
+
+  /** The body of {@link send}; `span` is its `bot.send` span when traced (outcome attributes). */
+  private async sendNow(
+    chatId: ChatId, content: OutboundContent, options: SendOptions | undefined, origin: 'ctx' | 'api', stream: 'message' | undefined, span?: BotSpan,
+  ): Promise<SendResult> {
     const { hooks, provider, counters, inflightSends, messageLog, config } = this.k
     // Durability: an idempotency key already sent is answered from the outbox (no hooks, no provider call).
     const durable = this.k.durable?.prepareSend(options)
     if (durable) {
       const prior = await durable.prior(chatId, content)
-      if (prior) return prior
+      if (prior) { span?.setAttribute(TRACE_ATTR.sendOutcome, 'deduplicated'); return prior }
       options = durable.options
     }
     const payload: { chatId: ChatId; content: OutboundContent; options?: SendOptions; stream?: 'message' } = { chatId, content, options }
     if (stream) payload.stream = stream
     const proceed = await hooks.runBefore('send', payload as typeof payload & { abort(): void })
     if (!proceed) {
+      span?.setAttribute(TRACE_ATTR.sendOutcome, 'skipped')
       return { ref: { id: 'skipped', chatId: payload.chatId }, skipped: true }
     }
     assertCoordinated(this.k)
@@ -49,6 +72,7 @@ export class OutboundPipeline {
       let res: SendResult
       try { res = await op } catch (error) { counters.outbound(false); throw error }
       counters.outbound(true)
+      span?.setAttribute(TRACE_ATTR.sendOutcome, 'ok')
       if (isEditableSend(payload.content)) {
         if (origin !== 'ctx') this.k.externalSends.mark(payload.chatId)
       }
@@ -64,7 +88,8 @@ export class OutboundPipeline {
       return res
     } catch (error) {
       // Deferred to the outbox sweeper: not failed (the ledger row is written when it goes out).
-      if (isSendDeferred(error)) throw error
+      if (isSendDeferred(error)) { span?.setAttribute(TRACE_ATTR.sendOutcome, 'deferred'); throw error }
+      span?.setAttribute(TRACE_ATTR.sendOutcome, 'failed')
       await messageLog.outbound({
         ref: localRef,
         chatId: payload.chatId,
@@ -85,18 +110,33 @@ export class OutboundPipeline {
    * tell edits apart. A hook may rewrite `payload.content` or `abort()` (→ `skipped`).
    * The ledger entry of `ref` is updated in place with the edited content.
    */
-  async edit(ref: MessageRef, content: OutboundContent): Promise<SendResult> {
+  edit(ref: MessageRef, content: OutboundContent): Promise<SendResult> {
+    const tracing = this.k.tracing
+    if (!tracing) return this.editNow(ref, content)
+    const attributes = {
+      [TRACE_ATTR.providerId]: this.k.provider.id,
+      [TRACE_ATTR.contentKind]: content.kind,
+      [TRACE_ATTR.sendEdit]: true,
+    }
+    return tracing.trace(SPAN_NAMES.send, { kind: 'client', attributes }, (span) => {
+      tracing.setIds(span, { chatId: ref.chatId })
+      return this.editNow(ref, content, span)
+    })
+  }
+
+  private async editNow(ref: MessageRef, content: OutboundContent, span?: BotSpan): Promise<SendResult> {
     const { hooks, provider, inflightSends, messageLog, config } = this.k
     const payload: { chatId: ChatId; content: OutboundContent; options?: SendOptions; edit: MessageRef } = {
       chatId: ref.chatId, content, options: undefined, edit: ref,
     }
     const proceed = await hooks.runBefore('send', payload as typeof payload & { abort(): void })
-    if (!proceed) return { ref, skipped: true }
+    if (!proceed) { span?.setAttribute(TRACE_ATTR.sendOutcome, 'skipped'); return { ref, skipped: true } }
     assertCoordinated(this.k)
     const op = provider.editMessage!(ref, payload.content)
     inflightSends.add(op)
     try {
       const res = await op
+      span?.setAttribute(TRACE_ATTR.sendOutcome, 'ok')
       await hooks.runAfter('send', payload)
       await messageLog.edit(ref, payload.content, config.persistRaw ? res.raw : undefined)
       return res
@@ -112,6 +152,24 @@ export class OutboundPipeline {
    * off meanwhile (a reply that started in an already handed-off chat still goes out).
    */
   paced(chatId: ChatId, text: string, opts: ReplyOptions | undefined, send: () => Promise<SentMessage>): Promise<SentMessage> {
+    const tracing = this.k.tracing
+    if (tracing?.paceSpans) {
+      // Tracing: `bot.pace` covers the wait (delay + typing) and the send it releases.
+      const started = Date.now()
+      let sendAt: number | undefined
+      return tracing.trace(SPAN_NAMES.pace, {}, (span) => {
+        const op = this.pacedNow(chatId, text, opts, () => { sendAt = Date.now(); return send() })
+        op.then((r) => {
+          span.setAttribute(TRACE_ATTR.paceMs, (sendAt ?? Date.now()) - started)
+          if (r.skipped) span.setAttribute(TRACE_ATTR.sendOutcome, 'skipped')
+        }, () => {})
+        return op
+      })
+    }
+    return this.pacedNow(chatId, text, opts, send)
+  }
+
+  private pacedNow(chatId: ChatId, text: string, opts: ReplyOptions | undefined, send: () => Promise<SentMessage>): Promise<SentMessage> {
     const { isHandedOff, state, inflightSends } = this.k
     const handedOffAtStart = isHandedOff(chatId)
     const op = this.k.pacer.run(chatId, text, opts, send, {
@@ -189,7 +247,26 @@ export class OutboundPipeline {
   }
 
   /** A `ctx.stream()` edit: send hooks, provider edit, then the message log is updated to the shown text. */
-  private async streamEdit(ref: MessageRef, content: OutboundContent): Promise<unknown> {
+  private streamEdit(ref: MessageRef, content: OutboundContent): Promise<unknown> {
+    const tracing = this.k.tracing
+    if (!tracing) return this.streamEditNow(ref, content)
+    return this.traceStreamUpdate('edit', () => this.streamEditNow(ref, content))
+  }
+
+  /**
+   * Tracing of a `ctx.stream()` preview update: a `bot.stream.update` span with
+   * `spans.streamUpdates`, else just an event on the active span (they are many).
+   */
+  private traceStreamUpdate<T>(kind: 'edit' | 'draft', run: () => Promise<T>): Promise<T> {
+    const tracing = this.k.tracing!
+    if (tracing.streamSpans) {
+      return tracing.trace(SPAN_NAMES.streamUpdate, { kind: 'client', attributes: { [TRACE_ATTR.sendStream]: kind } }, run)
+    }
+    tracing.activeSpan()?.addEvent(SPAN_NAMES.streamUpdate, { [TRACE_ATTR.sendStream]: kind })
+    return run()
+  }
+
+  private async streamEditNow(ref: MessageRef, content: OutboundContent): Promise<unknown> {
     const final = await this.runStreamSendHooks(ref.chatId, content, 'edit')
     if (!final) return undefined
     assertCoordinated(this.k)
@@ -199,7 +276,12 @@ export class OutboundPipeline {
   }
 
   /** A `ctx.stream()` draft: send hooks, then the provider draft (skipped when aborted or no longer text). */
-  private async streamDraft(chatId: ChatId, draftId: number, text: string, opts?: DraftOptions): Promise<void> {
+  private streamDraft(chatId: ChatId, draftId: number, text: string, opts?: DraftOptions): Promise<void> {
+    if (!this.k.tracing) return this.streamDraftNow(chatId, draftId, text, opts)
+    return this.traceStreamUpdate('draft', () => this.streamDraftNow(chatId, draftId, text, opts))
+  }
+
+  private async streamDraftNow(chatId: ChatId, draftId: number, text: string, opts?: DraftOptions): Promise<void> {
     const final = await this.runStreamSendHooks(chatId, { kind: 'text', text }, 'draft')
     if (!final || final.kind !== 'text') return
     assertCoordinated(this.k)

@@ -10,6 +10,7 @@ import { assertTriggerArgs, triggerInbound, type TriggerOptions, type TriggerRes
 import type { ChatId, MessageContext, OutboundContent, SendOptions, SentMessage } from '../types.js'
 import type { ContextFactory } from './contextFactory.js'
 import type { BotKernel } from './kernel.js'
+import { SPAN_NAMES, TRACE_ATTR } from '../../telemetry/attributes.js'
 
 /** Resolve `ctx.lang` / `ctx.langSource` (i18n must be enabled). Never rejects. */
 export async function resolveLang(i18n: I18n, ctx: MessageContext): Promise<void> {
@@ -29,15 +30,31 @@ export class BotOps {
     // Not started yet (or stopped): nothing may go out through a provider that is not running.
     const stopSignal = this.k.state.isStarted ? this.k.state.lifecycleAbort.signal : AbortSignal.abort()
     const signal = opts?.signal ? AbortSignal.any([opts.signal, stopSignal]) : stopSignal
-    return runBroadcast(
+    const run = () => runBroadcast(
       { send: (chatId, c, o) => send(chatId, c, o), reportError: (error) => this.k.events.error({ error }) },
       chatIds,
       outbound,
       { ...opts, signal },
     )
+    const tracing = this.k.tracing
+    if (!tracing) return run()
+    // Tracing: one `bot.broadcast` span; every send is a `bot.send` child of it.
+    const attributes = { [TRACE_ATTR.broadcastRecipients]: chatIds.length, [TRACE_ATTR.contentKind]: outbound.kind }
+    return tracing.trace(SPAN_NAMES.broadcast, { attributes }, () => run())
   }
 
-  async trigger(name: string, opts: TriggerOptions): Promise<TriggerResult> {
+  trigger(name: string, opts: TriggerOptions): Promise<TriggerResult> {
+    const tracing = this.k.tracing
+    if (!tracing) return this.triggerNow(name, opts)
+    // Tracing: a `bot.trigger` span (the conversation's first turn is its child).
+    return tracing.trace(SPAN_NAMES.trigger, { attributes: { [TRACE_ATTR.triggerName]: name } }, (span) => {
+      const result = this.triggerNow(name, opts)
+      result.then((r) => { span.setAttribute(TRACE_ATTR.triggerResult, r.started ? 'started' : r.reason) }, () => {})
+      return result
+    })
+  }
+
+  private async triggerNow(name: string, opts: TriggerOptions): Promise<TriggerResult> {
     const { runtime, state, counters, access } = this.k
     assertTriggerArgs(name, opts)
     if (!runtime.has(name)) throw new Error(`Conversation "${name}" is not registered`)

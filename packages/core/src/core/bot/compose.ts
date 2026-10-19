@@ -36,6 +36,8 @@ import { MessageLog } from '../ledger.js'
 import { ExternalSendClock, createPacer, normalizeTypingConfig } from '../messaging.js'
 import type { BotConfig, ChatId, MessageContext, Trigger } from '../types.js'
 import { WelcomeTracker } from '../welcome.js'
+import { createTracing } from '../../telemetry/tracing.js'
+import { ConversationTracing } from '../../telemetry/conversation.js'
 import { createContextFactory, type ContextFactory } from './contextFactory.js'
 import { createEventSink, dispatcherEmit, type EventHost } from './events.js'
 import { InboundPipeline } from './inbound.js'
@@ -116,7 +118,9 @@ export function composeBot(host: ComposeHost, inputConfig: BotConfig, fields: Co
   k.externalSends = new ExternalSendClock()
   k.inflightSends = new Set()
   k.inflightEvents = new Set()
-  k.events = createEventSink(host, fields.counters, () => logger)
+  // Tracing (opt-in): `null` without `config.telemetry`, and every site then runs its original code.
+  k.tracing = createTracing(inputConfig.telemetry, logger.child({ module: 'telemetry' }))
+  k.events = createEventSink(host, fields.counters, () => logger, k.tracing ? () => k.tracing : undefined)
   k.isHandedOff = (chatId) => host.isChatHandedOff(chatId)
 
   k.hooks = new HookSystem(logger.child({ module: 'hooks' }))
@@ -203,6 +207,7 @@ export function composeBot(host: ComposeHost, inputConfig: BotConfig, fields: Co
           },
         }
       : {}),
+    ...(k.tracing ? { tracing: new ConversationTracing(k.tracing) } : {}),
   })
   if (typeof (store as Partial<CheckpointStore>).setCheckpoint === 'function') {
     k.runtime.attachStore(store as CheckpointStore)
@@ -236,6 +241,7 @@ export function composeBot(host: ComposeHost, inputConfig: BotConfig, fields: Co
     // A message queued before stop() is dropped when its turn comes after it.
     isOpen: () => k.state.acceptingInbound,
     turns: k.coordination?.turns,
+    ...(k.tracing ? { tracing: k.tracing } : {}),
     logger: logger.child({ module: 'dispatcher' }),
     emit: dispatcherEmit(k.events),
     gate: (ctx) => {

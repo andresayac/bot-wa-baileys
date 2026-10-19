@@ -16,6 +16,7 @@ import type { InboundLocation } from '../core/provider.js'
 import {
   adoptCause, currentCause, forkCause, hasCause, restoreCause, trackSettle, type CauseBox, type CauseRef, type SettleOutcome,
 } from '../durability/causation.js'
+import type { ConversationTraceBox, ConversationTracing } from '../telemetry/conversation.js'
 
 export interface RuntimeMessage {
   from: string; sender: string; body: string; type: string; isGroup: boolean
@@ -109,6 +110,11 @@ export interface RuntimeConfig {
    * message answers that wait. Off (default): checkpoints are written once per step.
    */
   trackParked?: boolean
+  /**
+   * Tracing (`BotConfig.telemetry`): each stretch of a conversation between two waits is
+   * a `bot.conversation.turn` span (see telemetry/conversation.ts). Omitted: no span code runs.
+   */
+  tracing?: ConversationTracing
 }
 
 /**
@@ -191,6 +197,8 @@ interface ActiveConversation extends ConversationHandle {
   cause?: CauseBox
   /** Durability: settles of the steps fed to it, resolved when it next blocks on a wait or ends. */
   idle?: Array<(outcome: SettleOutcome) => void>
+  /** Tracing: the conversation's turn spans (see {@link RuntimeConfig.tracing}). */
+  trace?: ConversationTraceBox
 }
 
 const INBOX_CAP = 10
@@ -234,6 +242,8 @@ export class ConversationRuntime {
   private handoverAnswers = new Map<string, RuntimeMessage>()
   /** Durability: the cause of each buffered (not yet consumed) message. */
   private bufferedCauses = new WeakMap<RuntimeMessage, CauseRef>()
+  /** Tracing: keys whose next {@link run} resumes a dormant checkpoint (consumed synchronously). */
+  private tracedResumes = new Set<string>()
 
   constructor(private cfg: RuntimeConfig = {}) {}
 
@@ -367,11 +377,13 @@ export class ConversationRuntime {
     if (handover && !replayOfCaptured) this.handoverAnswers.set(key, ctx)
     // enter() is fire-and-forget (it only resolves when the resumed flow ends); a rejection
     // here (e.g. a bad goto target) would otherwise become an unhandled rejection → crash.
+    if (this.cfg.tracing) this.tracedResumes.add(key)
     void this.enter(resumed, ctx, { name: cp.flowId }).catch((e) => {
       this.cfg.onError?.(e, ctx)
       this.cfg.logger?.error?.('resume failed', e)
     })
     this.handoverAnswers.delete(key)   // consumed synchronously by run(); never left behind
+    if (this.cfg.tracing) this.tracedResumes.delete(key)
     // Durability: the waking message answers the re-run step (a handover already queued it as
     // the parked wait's answer) — unless the checkpoint already captured this very message (a
     // replay after the step that consumed it): the flow then only re-runs its pending steps.
@@ -549,13 +561,20 @@ export class ConversationRuntime {
     const startInfo: ConversationStartInfo = { id: randomId('conv'), name, key, ctx }
     entry.life = { info: startInfo, startedAt: Date.now(), ended: false }
     this.notifyLifecycle(() => this.cfg.onConversationStart?.(startInfo))
+    const tracing = this.cfg.tracing
+    if (tracing) {
+      const reason = latest ? 'goto' : this.tracedResumes.delete(key) ? 'dormant' : 'start'
+      entry.trace = tracing.begin({ id: startInfo.id, name }, reason)
+    }
 
     const controls = (this.cfg.controlsFactory ?? defaultControlsFactory)(this, entry, ctx)
 
     let goto: ConversationGoto | undefined
     let outcome: ConversationOutcome = 'completed'
     try {
-      const forked = forkCause(() => fn(controls as never, ctx))
+      const forked = entry.trace
+        ? tracing!.run(entry.trace, () => forkCause(() => fn(controls as never, ctx)))
+        : forkCause(() => fn(controls as never, ctx))
       entry.cause = forked.box
       await forked.result
     } catch (e) {
@@ -564,24 +583,24 @@ export class ConversationRuntime {
         outcome = 'cancelled'
       } else if (e instanceof ConversationEnded) {
         outcome = e.guarded ? 'guarded' : 'ended'
-        if (e.farewell) await this.safeReply(ctx, e.farewell)
+        if (e.farewell) await this.endReply(entry, ctx, e.farewell)
       } else if (e instanceof ConversationGoto) {
         if (e.guarded) outcome = 'guarded'
         goto = e
       } else if (e instanceof ConversationTimeout) {
         outcome = 'timedOut'
-        await this.safeReply(ctx, this.cfg.timeoutMessage ?? translateFor(entry.latest ?? ctx, CORE_MESSAGES.timeout))
+        await this.endReply(entry, ctx, this.cfg.timeoutMessage ?? translateFor(entry.latest ?? ctx, CORE_MESSAGES.timeout))
       } else if (e instanceof ConversationCancelled) {
         outcome = 'cancelled'
-        if (!e.silent && this.cfg.cancelledMessage) await this.safeReply(ctx, this.cfg.cancelledMessage)
+        if (!e.silent && this.cfg.cancelledMessage) await this.endReply(entry, ctx, this.cfg.cancelledMessage)
       } else if (e instanceof RetriesExceeded) {
         outcome = 'retriesExceeded'
-        await this.safeReply(ctx, this.cfg.retriesMessage ?? translateFor(entry.latest ?? ctx, CORE_MESSAGES.retries))
+        await this.endReply(entry, ctx, this.cfg.retriesMessage ?? translateFor(entry.latest ?? ctx, CORE_MESSAGES.retries))
       } else {
         outcome = 'error'
         this.cfg.onError?.(e, ctx)
         this.cfg.logger?.error?.('conversation error', e)
-        await this.safeReply(ctx, this.cfg.errorMessage ?? translateFor(entry.latest ?? ctx, CORE_MESSAGES.error))
+        await this.endReply(entry, ctx, this.cfg.errorMessage ?? translateFor(entry.latest ?? ctx, CORE_MESSAGES.error))
       }
     } finally {
       // A goto hands the key straight to its target: not settled until the target is.
@@ -607,6 +626,7 @@ export class ConversationRuntime {
     if (entry.observers) for (const o of [...entry.observers]) { try { o.inbound?.(ctx) } catch { /* observers must not break delivery */ } }
     if (entry.pending) {
       if (entry.pending.filter && !entry.pending.filter(ctx)) return false
+      if (entry.trace) this.cfg.tracing!.resume(entry.trace, 'reply')
       adoptCause(entry.cause)
       this.trackIdle(entry)
       entry.pending.resolve(ctx)
@@ -756,10 +776,15 @@ export class ConversationRuntime {
       }
       if (timeoutMs > 0) {
         pending.timer = setTimeout(() => {
-          this.runTimer(entry, () => { if (entry.pending === pending) pending.reject(new ConversationTimeout()) })
+          this.runTimer(entry, () => {
+            if (entry.pending !== pending) return
+            if (entry.trace) this.cfg.tracing!.resume(entry.trace, 'timeout')
+            pending.reject(new ConversationTimeout())
+          })
         }, timeoutMs)
       }
       entry.pending = pending
+      if (entry.trace) this.cfg.tracing!.park(entry.trace)
       this.markParked(entry, entry.waits === 1)
       if (this.settleWaiters.size > 0) this.notifySettled(entry.key)
     })
@@ -857,8 +882,10 @@ export class ConversationRuntime {
   interrupt(handle: ConversationHandle, error: Error): boolean {
     const entry = handle as ActiveConversation
     if (this.active.get(entry.key) !== entry || entry.cancelled) return false
-    if (entry.pending) entry.pending.reject(error)
-    else entry.interrupted = error
+    if (entry.pending) {
+      if (entry.trace) this.cfg.tracing!.resume(entry.trace, 'idle')
+      entry.pending.reject(error)
+    } else entry.interrupted = error
     return true
   }
 
@@ -873,6 +900,7 @@ export class ConversationRuntime {
     const life = entry.life
     if (!life || life.ended) return
     life.ended = true
+    if (entry.trace) this.cfg.tracing!.end(entry.trace, outcome, goto)
     const info: ConversationEndInfo = { ...life.info, outcome, durationMs: Date.now() - life.startedAt }
     if (goto !== undefined) info.goto = goto
     this.notifyLifecycle(() => this.cfg.onConversationEnd?.(info))
@@ -912,6 +940,16 @@ export class ConversationRuntime {
     if (!this.active.has(entry.key)) this.preserveOnAbort.delete(entry.key)
     this.notifyEnd(entry)
     if (settled && this.settleWaiters.size > 0) this.notifySettled(entry.key)
+  }
+
+  /**
+   * A built-in end-of-conversation reply (farewell, timeout, retries, error). Traced:
+   * sent from the conversation's own box, so it lands under its last turn. Not `async`:
+   * untraced, it returns {@link safeReply}'s own promise.
+   */
+  private endReply(entry: ActiveConversation, ctx: RuntimeMessage, text: string): Promise<void> {
+    if (entry.trace) return this.cfg.tracing!.run(entry.trace, () => this.safeReply(ctx, text))
+    return this.safeReply(ctx, text)
   }
 
   private async safeReply(ctx: RuntimeMessage, text: string): Promise<void> {

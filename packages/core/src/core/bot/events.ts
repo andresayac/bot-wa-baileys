@@ -8,6 +8,7 @@ import type { Logger } from 'pino'
 import type { MetricsCollector } from '../../ops/metrics.js'
 import type { MessageContext } from '../types.js'
 import type { BotEventSink } from './kernel.js'
+import type { TracingImpl } from '../../telemetry/tracing.js'
 
 /** The slice of the bot the sink needs (the real `Bot`, an `EventEmitter`). */
 export interface EventHost {
@@ -15,12 +16,19 @@ export interface EventHost {
   listenerCount(event: string): number
 }
 
-export function createEventSink(bot: EventHost, counters: MetricsCollector, logger: () => Logger): BotEventSink {
+export function createEventSink(
+  bot: EventHost,
+  counters: MetricsCollector,
+  logger: () => Logger,
+  tracing?: () => TracingImpl | null,
+): BotEventSink {
   const sink: BotEventSink = {
     emit: (event, ...args) => bot.emit(event, ...args),
     listenerCount: (event) => bot.listenerCount(event),
     error(payload: { error: unknown; ctx?: MessageContext }): void {
       counters.error()
+      // Tracing on: the error is also recorded (sanitized) on the span it happened under.
+      tracing?.()?.reportError(payload.error)
       if (bot.listenerCount('error') > 0) bot.emit('error', payload)
       else logger().error({ err: payload.error }, 'unhandled bot error')
     },
