@@ -2,7 +2,7 @@
 
 `@bot-wa/core` v2 (antes `@bot-wa/bot-wa-baileys`) es un **rewrite del core**, no un parche sobre la v1. Cambian los nombres (`BaileysClass` → `Bot`), pero también cambia el motor por debajo: el viejo "router de mensajes" y el engine de flujos por arrays de pasos desaparecen, reemplazados por un **Dispatcher** con prioridad por especificidad y un **runtime de conversaciones async** sobre el que se compila el DSL declarativo (`flow()`).
 
-Además, la v2 es **agnóstica de transporte**: el core ya no sabe de WhatsApp. Todo lo específico de la conexión (QR, sesión, JIDs, auth) vive en un **provider** que tú construyes e inyectas: `new Bot({ provider: new BaileysProvider({...}) })`. Ver la sección de [reorganización de paquetes](#reorganizacion-de-paquetes-core-transportes-stores) para el mapa completo.
+Además, la v2 es **agnóstica de transporte**: el core ya no sabe de WhatsApp. Todo lo específico de la conexión (QR, sesión, JIDs, auth) vive en un **provider** que tú construyes e inyectas: `new Bot({ provider: new BaileysProvider({...}) })`. Ver la sección de [reorganización de paquetes](#reorganización-de-paquetes-core-transportes-stores) para el mapa completo.
 
 Si tu bot v1 es simple (unos cuantos `addKeyword`/respuestas de texto), la migración es mecánica. Si usa flujos con `capture` anidados, botones, o depende de que `bot.on('message')` reciba *todos* los mensajes, lee también la sección de [cambios de comportamiento](#cambios-de-comportamiento-en-v2) — hay diferencias de semántica, no solo de nombres.
 
@@ -176,6 +176,9 @@ Los paquetes son **ESM puros** (`"type": "module"`, sin build CommonJS). Tu proy
 - Estar en Node **>= 22.12**, donde `require('@bot-wa/core')` funciona vía el soporte experimental de Node para `require(esm)`.
 
 Mínimo soportado: **Node >= 22**. Baileys 7 (un transporte, no el core) también es ESM-only — es una de las razones por las que la v2 no ofrece un build CJS.
+
+<!-- Alias anchor: GitHub keeps the accent in the heading slug, VitePress drops it (#reorganizacion-...). Links use the accented one so they work in both. -->
+<a id="reorganización-de-paquetes-core-transportes-stores"></a>
 
 ## Reorganización de paquetes: core, transportes, stores
 

@@ -14,10 +14,13 @@ function loadMermaid() {
  * Renders a ```mermaid fence (see `markdown.config` in ../config.ts). The
  * source is passed URI-encoded so Vue never parses it as a template. Until
  * mermaid (loaded lazily, client only) has drawn the diagram, and when it
- * fails, the page shows the diagram source instead.
+ * fails, the page shows the diagram source instead. A theme toggle (or a new
+ * source) starts a new render; the render token drops any render still in
+ * flight, so a stale diagram (e.g. the light one) never replaces the newer one.
  */
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useData } from 'vitepress'
+import { latestOnly } from './latest.mjs'
 
 const props = defineProps<{ code: string }>()
 
@@ -25,10 +28,13 @@ const source = computed(() => decodeURIComponent(props.code))
 const svg = ref('')
 const failed = ref(false)
 const { isDark } = useData()
+const renders = latestOnly()
 
 async function render() {
+  const isCurrent = renders.begin()
   try {
     const mermaid = await loadMermaid()
+    if (!isCurrent()) return
     mermaid.initialize({
       startOnLoad: false,
       securityLevel: 'strict',
@@ -37,15 +43,18 @@ async function render() {
     })
     const id = `mermaid-${Date.now().toString(36)}-${counter++}`
     const result = await mermaid.render(id, source.value)
+    if (!isCurrent()) return
     svg.value = result.svg
     failed.value = false
   } catch {
+    if (!isCurrent()) return
     svg.value = ''
     failed.value = true
   }
 }
 
 onMounted(render)
+onBeforeUnmount(() => renders.cancel())
 watch([isDark, source], render)
 </script>
 
