@@ -14,6 +14,7 @@
 import type { UserDataEntry, UserId } from '@bot-wa/core'
 import type { RedisLikeClient } from './RedisStore.js'
 import { escapeGlob } from './glob.js'
+import { matchKeys } from './keys.js'
 
 interface StoredPayload {
   value: unknown
@@ -64,6 +65,9 @@ export class RedisUserData {
   }
 
   async set(entry: UserDataEntry, now: number): Promise<void> {
+    // `{ value: undefined }` would serialise to a payload without a value and
+    // read back as `undefined`; reject it like MemoryStore does.
+    if (JSON.stringify(entry.value) === undefined) throw new TypeError('user data value must be JSON-serialisable')
     const itemKey = this.itemKey(entry.userId, entry.namespace, entry.key)
     const payload: StoredPayload = { value: entry.value, updatedAt: entry.updatedAt }
     if (entry.expiresAt == null) {
@@ -87,12 +91,12 @@ export class RedisUserData {
       await this.client.del(this.itemKey(userId, namespace, key))
       return
     }
-    const keys = await this.client.keys(this.pattern(userId, namespace))
+    const keys = await matchKeys(this.client, this.pattern(userId, namespace))
     if (keys.length) await this.client.del(keys)
   }
 
   async list(userId: UserId, namespace: string | undefined, now: number): Promise<UserDataEntry[]> {
-    const keys = await this.client.keys(this.pattern(userId, namespace))
+    const keys = await matchKeys(this.client, this.pattern(userId, namespace))
     const owned: Array<{ itemKey: string; ns: string; key: string }> = []
     for (const itemKey of keys) {
       const parts = itemKey.slice(this.base.length).split(':')

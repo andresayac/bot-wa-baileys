@@ -254,7 +254,16 @@ export class FakeRedisClient implements RedisLikeClient {
     return removed
   }
 
+  /** Number of KEYS commands received (lets tests assert the store scanned instead). */
+  keysCalls = 0
+
   async keys(pattern: string): Promise<string[]> {
+    this.keysCalls++
+    return this.matching(pattern)
+  }
+
+  /** Live keys matching a glob, in insertion order (the KEYS reply). */
+  protected matching(pattern: string): string[] {
     const out: string[] = []
     for (const k of new Set([...this.strings.keys(), ...this.zsets.keys()])) {
       if (this.live(k) && stringMatch(pattern, k)) out.push(k)
@@ -423,5 +432,23 @@ export class FakeRedisClient implements RedisLikeClient {
       return 1
     }
     throw new Error('NOSCRIPT FakeRedisClient: unknown script (only the scripts RedisStore sends are modelled)')
+  }
+}
+
+/**
+ * The fake plus node-redis' `scanIterator`: yields the matching keys in small
+ * batches (v5 shape, `string[]`), repeating one key, since SCAN may legitimately
+ * report a key more than once.
+ */
+export class ScanningFakeRedisClient extends FakeRedisClient {
+  scanCalls = 0
+
+  async *scanIterator(options?: { MATCH?: string; COUNT?: number }): AsyncIterable<string | string[]> {
+    this.scanCalls++
+    const keys = this.matching(options?.MATCH ?? '*')
+    for (let i = 0; i < keys.length; i += 2) {
+      const batch = keys.slice(i, i + 2)
+      yield i === 0 ? batch : [keys[0]!, ...batch] // a duplicate on every later step
+    }
   }
 }

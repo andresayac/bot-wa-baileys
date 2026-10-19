@@ -143,7 +143,7 @@ estado del bot, respetando `tablePrefix` / `collectionPrefix`:
 | `PostgresStore` | tabla `{prefix}user_data` (valor como `TEXT`, no JSONB, para conservar el JSON exacto: U+0000 y los surrogates sueltos vuelven sin cambios, como escapes JSON `\u0000`) + índice de expiración |
 | `MysqlStore` | tabla `{prefix}user_data`: ids, namespace y clave como `VARBINARY` (exactos byte a byte), valor `MEDIUMTEXT` (16 MiB) |
 | `MongoStore` | colección `{prefix}user_data`, índices sobre `{ userId, namespace }` y `expiresAt` |
-| `RedisStore` | una clave por entrada, `{prefix}:ud:{user}:{ns}:{key}`, con expiración nativa `PX`; para listar y borrar namespaces usa `KEYS`, como `listChats` |
+| `RedisStore` | una clave por entrada, `{prefix}:ud:{user}:{ns}:{key}`, con expiración nativa `PX`; para listar y borrar namespaces usa `SCAN` incremental (o `KEYS` con un cliente sin `scanIterator`), como `listChats` |
 
 Postgres y MySQL crean ahora siete tablas en `start()`. Las filas expiradas
 se borran de forma perezosa con `bot.purgeExpiredUserData()` (Redis las
@@ -178,6 +178,15 @@ Semántica que todo store debe respetar:
   nombre visible (o sin nombre de chat) nunca borra el que estaba guardado.
 - `deleteChat` borra también el log de mensajes de ese chat.
 - `maxMessagesPerChat` es opt-in; por defecto el log de mensajes no tiene límite.
+  Todos los stores incluidos rechazan un tope negativo o con decimales con un `RangeError`.
+- `saveMessage` ignora un mensaje sin `ref.id` o sin `chatId` (los providers envían
+  `ref.id: ''` cuando no tienen un id estable), y `getMessage` de esa referencia
+  resuelve `undefined`. Guardar de nuevo un id reemplaza el mensaje guardado.
+- `getMessagesByChat(chatId, limit)` devuelve los `limit` mensajes más recientes,
+  del más antiguo al más nuevo. Un `limit` de `0` o menos no devuelve nada, una
+  fracción se redondea hacia arriba e `Infinity` devuelve el log completo.
+- `setUserData` rechaza con un `TypeError` cuando el valor no es JSON
+  (`undefined`), y no escribe nada.
 
 Los métodos de datos de usuario (`getUserData`, `setUserData`,
 `deleteUserData`, `listUserData`, `purgeExpiredUserData`) son opcionales:

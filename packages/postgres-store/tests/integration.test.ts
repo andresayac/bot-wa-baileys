@@ -241,6 +241,25 @@ describe.skipIf(!URL)('PostgresStore — real PostgreSQL integration', () => {
       await expect(store.getChat('x')).rejects.toThrow(/start/)
     })
 
+    it('survives the server dropping an idle connection (no crash) and keeps serving', async () => {
+      const errors: unknown[] = []
+      const store = makeStore({ logger: { error: (...args: unknown[]) => errors.push(args) } })
+      await store.start()
+      await store.upsertChat({ id: 'c1', name: 'before' })
+      // Kill every idle backend of the store's pool, as a server restart or a
+      // failover would. pg emits 'error' on the pool for an idle client; without
+      // a listener that is an uncaught exception that takes the process down.
+      await admin.query(
+        `SELECT pg_terminate_backend(pid) FROM pg_stat_activity
+         WHERE datname = current_database() AND pid <> pg_backend_pid() AND state = 'idle' AND application_name = ''`,
+      )
+      await new Promise((resolve) => setTimeout(resolve, 200))
+      expect(errors.length).toBeGreaterThan(0)
+      // The pool replaces the dead client on the next checkout.
+      await store.upsertChat({ id: 'c1', kind: 'group' })
+      expect(await store.getChat('c1')).toEqual({ id: 'c1', name: 'before', kind: 'group' })
+    })
+
     it('works with an injected real pg.Pool and never ends it', async () => {
       const pool = new pg.Pool({ connectionString, max: 2 })
       try {

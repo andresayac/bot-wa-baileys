@@ -82,6 +82,7 @@ export class MysqlUserData {
   }
 
   async set(entry: UserDataEntry): Promise<void> {
+    if (JSON.stringify(entry.value) === undefined) throw new TypeError('user data value must be JSON-serialisable')
     await this.query(
       `INSERT INTO \`${this.table}\` (${COLUMNS}) VALUES (?, ?, ?, ?, ?, ?) ` +
         'ON DUPLICATE KEY UPDATE value = VALUES(value), expires_at = VALUES(expires_at), updated_at = VALUES(updated_at)',

@@ -50,7 +50,9 @@ function toEntry(row: UserDataRow): UserDataEntry {
  * surrogate, so the text never holds a raw NUL or a lone surrogate.
  */
 function serializeValue(value: unknown): string {
-  return JSON.stringify(value)
+  const json = JSON.stringify(value) as string | undefined
+  if (json === undefined) throw new TypeError('user data value must be JSON-serialisable')
+  return json
 }
 
 export class PostgresUserData {

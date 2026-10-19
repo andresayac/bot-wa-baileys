@@ -257,3 +257,49 @@ describe('MysqlStore — lifecycle', () => {
     expect(fake.ended).toBe(false) // untouched other fake
   })
 })
+
+describe('MysqlStore — options validation', () => {
+  it('rejects an invalid maxMessagesPerChat up front (RangeError)', () => {
+    for (const bad of [-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(() => new MysqlStore({ maxMessagesPerChat: bad })).toThrow(RangeError)
+    }
+  })
+})
+
+describe('MysqlStore — legacy schema notice', () => {
+  /** FakePool that answers the information_schema probe with the given key-column types. */
+  class SchemaPool extends FakePool {
+    constructor(private readonly types: Array<[table: string, column: string, type: string | Buffer]> | Error) { super() }
+    override async query(sql: string, params?: readonly unknown[]) {
+      if (sql.includes('information_schema.COLUMNS')) {
+        if (this.types instanceof Error) throw this.types
+        return [this.types.map(([t, c, type]) => ({ t, c, type })), []] as Awaited<ReturnType<FakePool['query']>>
+      }
+      return super.query(sql, params)
+    }
+  }
+
+  it('warns once, naming the non-binary key columns and the README upgrade section', async () => {
+    const warn = vi.fn()
+    const store = new MysqlStore({
+      pool: new SchemaPool([['messages', 'id', 'varchar'], ['messages', 'chat_id', Buffer.from('varchar')], ['messages', 'msg', 'json'], ['chats', 'id', 'varbinary']]),
+      logger: { warn },
+    })
+    await store.start()
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(warn.mock.calls[0]?.[0]).toEqual({ columns: ['messages.id', 'messages.chat_id'] })
+    expect(String(warn.mock.calls[0]?.[1])).toMatch(/Upgrading tables created by an earlier version/)
+  })
+
+  it('falls back to logger.error when there is no warn', async () => {
+    const error = vi.fn()
+    await new MysqlStore({ pool: new SchemaPool([['cursors', 'key', 'varchar']]), logger: { error } }).start()
+    expect(error).toHaveBeenCalledTimes(1)
+  })
+
+  it('never fails start(): the probe is advisory', async () => {
+    const warn = vi.fn()
+    await new MysqlStore({ pool: new SchemaPool(new Error('SELECT command denied')), logger: { warn } }).start()
+    expect(warn).not.toHaveBeenCalled()
+  })
+})

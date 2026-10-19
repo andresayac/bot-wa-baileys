@@ -142,7 +142,7 @@ state, honouring `tablePrefix` / `collectionPrefix`:
 | `PostgresStore` | table `{prefix}user_data` (value as `TEXT`, not JSONB, to keep the exact JSON: U+0000 and unpaired surrogates round-trip unchanged, as JSON `\u0000` escapes) + expiry index |
 | `MysqlStore` | table `{prefix}user_data`: ids, namespace and key as `VARBINARY` (byte-exact), value `MEDIUMTEXT` (16 MiB) |
 | `MongoStore` | collection `{prefix}user_data`, indexes on `{ userId, namespace }` and `expiresAt` |
-| `RedisStore` | one key per entry, `{prefix}:ud:{user}:{ns}:{key}`, with native `PX` expiry; listing and namespace deletes use `KEYS`, like `listChats` |
+| `RedisStore` | one key per entry, `{prefix}:ud:{user}:{ns}:{key}`, with native `PX` expiry; listing and namespace deletes use incremental `SCAN` (falling back to `KEYS` for a client without `scanIterator`), like `listChats` |
 
 Postgres and MySQL now create seven tables in `start()`. Expired rows are
 removed lazily by `bot.purgeExpiredUserData()` (Redis expires them by
@@ -177,6 +177,15 @@ Semantics every store must keep:
   display name (or chat name) never erases the one stored.
 - `deleteChat` also deletes that chat's message log.
 - `maxMessagesPerChat` is opt-in; by default the message log is unbounded.
+  Every built-in store rejects a negative or fractional cap with a `RangeError`.
+- `saveMessage` ignores a message without `ref.id` or `chatId` (providers send
+  `ref.id: ''` when they have no stable id), and `getMessage` of such a ref
+  resolves `undefined`. Re-saving an id replaces the stored message.
+- `getMessagesByChat(chatId, limit)` returns the newest `limit` messages,
+  oldest first. A `limit` of `0` or less returns nothing, a fraction rounds up
+  and `Infinity` returns the whole log.
+- `setUserData` rejects with a `TypeError` when the value is not JSON
+  (`undefined`), and writes nothing.
 
 The user-data methods (`getUserData`, `setUserData`, `deleteUserData`,
 `listUserData`, `purgeExpiredUserData`) are optional: without them

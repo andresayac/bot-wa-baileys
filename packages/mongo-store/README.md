@@ -68,7 +68,7 @@ const store = new MongoStore({ client: fake })
 | `dbName`           | `string`                   | `'botwa'`                   | Database holding the store's collections. |
 | `collectionPrefix` | `string`                   | `''`                        | Prefix applied to every collection name. |
 | `client`           | `MongoClient \| MongoLikeClient` | —                     | Inject an existing client (required for tests). The store never connects/closes it. |
-| `maxMessagesPerChat` | `number`                 | — (unbounded)               | When set, `saveMessage` prunes each chat's oldest messages (by timestamp) beyond the cap. |
+| `maxMessagesPerChat` | `number`                 | — (unbounded)               | When set, `saveMessage` prunes each chat's oldest messages (by timestamp) beyond the cap. Must be a non-negative integer (else `RangeError`). |
 | `logger`           | `{ error? }`               | —                           | Receives lifecycle errors (e.g. close failure). |
 
 ## Collection layout

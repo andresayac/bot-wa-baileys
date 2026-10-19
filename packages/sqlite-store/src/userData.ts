@@ -75,11 +75,13 @@ export class SqliteUserData {
   }
 
   set(entry: UserDataEntry): void {
+    const json = JSON.stringify(entry.value) as string | undefined
+    if (json === undefined) throw new TypeError('user data value must be JSON-serialisable')
     this.stmts.upsert.run(
       entry.userId,
       entry.namespace,
       entry.key,
-      JSON.stringify(entry.value),
+      json,
       entry.expiresAt ?? null,
       entry.updatedAt,
     )

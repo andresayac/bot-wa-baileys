@@ -21,6 +21,7 @@
  *  - `ORDER BY` honours every key (BIGINT numerically, TEXT by code unit, i.e.
  *    C collation); `LIMIT` must be a non-negative integer (22P02 / 2201W).
  */
+import { EventEmitter } from 'node:events'
 import type { PostgresPoolLike, PostgresQueryResult } from '../src/PostgresStore.js'
 
 interface TableDef {
@@ -273,7 +274,8 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
 }
 
-export class FakePool implements PostgresPoolLike {
+/** An EventEmitter like pg's Pool, so tests can emit the 'error' of an idle client. */
+export class FakePool extends EventEmitter implements PostgresPoolLike {
   /** table name -> definition + rows. Inspect for assertions. */
   readonly tables = new Map<string, TableDef>()
   /** Every statement executed, in order. */
