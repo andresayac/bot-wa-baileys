@@ -15,6 +15,7 @@
     "docs:dev": "vitepress dev docs",
     "docs:serve": "vitepress serve docs",
     "typecheck": "pnpm -r typecheck",
+    "bench:soak": "node --expose-gc scripts/soak/soak.mjs",
     "changeset": "changeset",
     "version-packages": "changeset version",
     "release": "pnpm build && changeset publish"

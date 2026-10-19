@@ -857,6 +857,11 @@ export interface BuildContextDeps<TRaw = unknown> {
   sendDraft?(chatId: ChatId, draftId: number, text: string, opts?: DraftOptions): Promise<void>
   /** Deletes a message `ctx.stream()` sent (`onCancel: 'discard'`), from the chat and the message log. */
   deleteStreamMessage?(ref: MessageRef): Promise<void>
+  /**
+   * Aborts when the bot stops: `ctx.stream()` then cancels (combined with the caller's
+   * `signal`), so a stream left running by a handler never outlives `bot.stop()`.
+   */
+  stopSignal?(): AbortSignal | undefined
   /** Set when this context projects an interaction (button/slash/callback). */
   interaction?: { id: string; data: string; respondBy?: number }
   /** Sender profile exposed as `ctx.user`; when omitted every `ctx.user` call rejects with `UserDataError('UNAVAILABLE')`. */

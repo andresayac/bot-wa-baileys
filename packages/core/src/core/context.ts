@@ -185,6 +185,11 @@ export function buildMessageContext(deps: BuildContextDeps): IMessageContext {
       return sendOut({ kind: 'native', provider, payload })
     },
     stream(source, opts) {
+      const stop = deps.stopSignal?.()
+      if (stop) {
+        const signal = opts?.signal ? AbortSignal.any([opts.signal, stop]) : stop
+        opts = { ...opts, signal }
+      }
       return streamText({
         capabilities: deps.capabilities,
         isPrivate,

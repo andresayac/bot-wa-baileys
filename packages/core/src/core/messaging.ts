@@ -19,7 +19,7 @@
  */
 
 import { parseDuration } from '../utils/duration.js'
-import { MAX_TIMER_MS, sleep as defaultSleep } from '../utils/timers.js'
+import { MAX_TIMER_MS, abortableSleep } from '../utils/timers.js'
 import type { ChatId, IProvider, MessageRef, OutboundContent } from './provider.js'
 
 /** Automatic typing-indicator policy (`BotConfig.typing`, `ctx.reply(text, { typing })`). */
@@ -216,6 +216,11 @@ export interface PacerOptions {
   logger?: DebugLogger
   /** Injected for tests. */
   sleep?: (ms: number) => Promise<void>
+  /**
+   * Read before each wait: when the signal aborts (the bot stopped) a pending wait ends at
+   * once and its timer is cleared; the guard then drops the reply. Ignored with `sleep`.
+   */
+  signal?: () => AbortSignal | undefined
 }
 
 /** Re-checked after every pacing wait; when `cancelled()` is true the send is dropped. */
@@ -232,7 +237,7 @@ export interface Pacer {
 
 export function createPacer(options: PacerOptions): Pacer {
   const { provider, logger } = options
-  const wait = options.sleep ?? defaultSleep
+  const wait = options.sleep ?? ((ms: number) => abortableSleep(ms, options.signal?.()))
 
   const indicate = (chatId: ChatId, state: 'typing' | 'paused'): void => {
     // Fire-and-forget: a slow or failing indicator never delays or fails the send.

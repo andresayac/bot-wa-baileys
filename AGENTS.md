@@ -42,6 +42,7 @@ pnpm --filter "@bot-wa/meta..." build     # un paquete + sus dependencias del wo
 pnpm --filter @bot-wa/core exec vitest run tests/dispatcher.test.ts   # un solo archivo
 pnpm --filter "./packages/*-store" test   # los stores (con BOTWA_TEST_*_URL, también contra servidores reales)
 
+pnpm bench:soak                           # carga/soak/fugas del runtime (tras pnpm build; no entra en pnpm test, ver CONTRIBUTING)
 pnpm changeset                            # añade un changeset (todo cambio visible de un paquete público)
 
 pnpm docs:dev                             # sitio VitePress en local (http://localhost:5173/)
