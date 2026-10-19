@@ -49,6 +49,8 @@ import type {
   Plugin,
   PluginContext,
   ScheduledTask,
+  DurableTaskHandler,
+  DurableTaskOptions,
   SendOptions,
   SendResult,
   SentMessage,
@@ -74,6 +76,7 @@ import type { ConversationHandler } from '../conversations/handler.js'
 import { ChatIdleWatchers, type IdleHandler } from './idle.js'
 import { FlowBuilder, isCompiledFlow, type CompiledFlow } from '../flows/FlowBuilder.js'
 import { Scheduler } from '../scheduler/Scheduler.js'
+import { createBotScheduler } from '../scheduler/botScheduler.js'
 import { parseTimerDuration, randomId } from '../utils/timers.js'
 import { validateConfig } from '../utils/validateConfig.js'
 import { FlowRouteLog, isDurableStore, type FlowInventory } from '../flows/inventory.js'
@@ -310,6 +313,8 @@ export class Bot extends EventEmitter {
     } else {
       this.store = new NamespacedStore(baseStore, this.namespace)
     }
+    // Durable scheduler tasks (opt-in): only replaced when `BotConfig.scheduler` is set.
+    if (config.scheduler) this.scheduler = createBotScheduler(config.scheduler, this.namespace)
     this.messageLog = new MessageLog({
       store: this.store,
       namespace: this.namespace,
@@ -473,7 +478,8 @@ export class Bot extends EventEmitter {
       for (const { chatId } of this.handoffs.list()) this.runtime.abortChat(chatId)
       providerAttempted = true
       await this.provider.start()
-      this.scheduler.start(this.logger.child({ module: 'scheduler' }))
+      const restoring = this.scheduler.start(this.logger.child({ module: 'scheduler' }))
+      if (restoring) await restoring   // only with durable tasks: restores their schedules
       if (this.lifecycleAbort.signal.aborted) this.lifecycleAbort = new AbortController()
       if (this.sendsAbort.signal.aborted) this.sendsAbort = new AbortController()
       this.isStarted = true
@@ -1317,11 +1323,32 @@ export class Bot extends EventEmitter {
    * ====================================================================== */
 
   /** Run `fn` on a cron expression (e.g. `'0 9 * * *'`). */
-  schedule(cron: string, fn: () => void | Promise<void>): ScheduledTask { return this.scheduler.cron(cron, fn) }
+  schedule(cron: string, fn: () => void | Promise<void>): ScheduledTask
+  /**
+   * Durable cron task: its schedule is stored under `opts.id` (see `BotConfig.scheduler`),
+   * survives restarts with the `opts.missed` policy, and each occurrence runs on one replica.
+   */
+  schedule(cron: string, opts: DurableTaskOptions, fn: DurableTaskHandler): ScheduledTask
+  schedule(cron: string, a: (() => void | Promise<void>) | DurableTaskOptions, b?: DurableTaskHandler): ScheduledTask {
+    return typeof a === 'function' ? this.scheduler.cron(cron, a) : this.scheduler.cron(cron, a, b as DurableTaskHandler)
+  }
   /** Run `fn` every `interval` (a duration such as `'10m'`, or ms). */
-  every(interval: string | number, fn: () => void | Promise<void>): ScheduledTask { return this.scheduler.every(interval, fn) }
+  every(interval: string | number, fn: () => void | Promise<void>): ScheduledTask
+  /** Durable interval task (see the durable {@link schedule} overload); slots do not drift. */
+  every(interval: string | number, opts: DurableTaskOptions, fn: DurableTaskHandler): ScheduledTask
+  every(interval: string | number, a: (() => void | Promise<void>) | DurableTaskOptions, b?: DurableTaskHandler): ScheduledTask {
+    return typeof a === 'function' ? this.scheduler.every(interval, a) : this.scheduler.every(interval, a, b as DurableTaskHandler)
+  }
   /** Run `fn` once after `duration` (a duration such as `'30s'`, or ms). */
-  delay(duration: string | number, fn: () => void | Promise<void>): ScheduledTask { return this.scheduler.delay(duration, fn) }
+  delay(duration: string | number, fn: () => void | Promise<void>): ScheduledTask
+  /**
+   * Durable one-shot task: its run time is fixed when `opts.id` is first stored, so a
+   * restart does not push it back (see the durable {@link schedule} overload).
+   */
+  delay(duration: string | number, opts: DurableTaskOptions, fn: DurableTaskHandler): ScheduledTask
+  delay(duration: string | number, a: (() => void | Promise<void>) | DurableTaskOptions, b?: DurableTaskHandler): ScheduledTask {
+    return typeof a === 'function' ? this.scheduler.delay(duration, a) : this.scheduler.delay(duration, a, b as DurableTaskHandler)
+  }
 
   /* =========================================================================
    * IDLE (per-chat inactivity)

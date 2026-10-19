@@ -155,8 +155,74 @@ export interface ScheduledTask {
   readonly runAt?: Date
   readonly nextRun: Date | null
   readonly isRecurring: boolean
+  /**
+   * `true` for a durable task (registered with {@link DurableTaskOptions}): its schedule
+   * lives in a `ScheduleStore`, and `cancel()` also deletes the stored row. Absent on
+   * in-memory tasks.
+   */
+  readonly durable?: boolean
   cancel(): void
 }
+
+/**
+ * What a durable task does with the occurrences that fell due while no scheduler was
+ * running (the bot was down, or every replica was stopped), applied once at start:
+ * - `'skip'` (default): run none of them and wait for the next slot after now.
+ * - `'run-once'`: run one occurrence (`missed: true`, `scheduledAt` = the first missed
+ *   slot), then wait for the next slot after now.
+ * - `'catch-up'`: run every missed slot in order, each with its own `scheduledAt`, up to
+ *   {@link DurableTaskOptions.maxCatchUp}; later missed slots are skipped (logged).
+ *
+ * A one-shot `delay` task counts as one slot: `'skip'` drops a reminder that was due
+ * while the bot was down, the other two run it once.
+ */
+export type MissedRunPolicy = 'skip' | 'run-once' | 'catch-up'
+
+/**
+ * Options that make a `schedule`/`every`/`delay` task durable: its next run time is
+ * persisted in the scheduler's `ScheduleStore` under `id`, so it survives restarts, and
+ * each occurrence is claimed under a fenced lease so only one replica runs it.
+ */
+export interface DurableTaskOptions {
+  /**
+   * Stable task id, unique per bot (the bot's store namespace is applied, so two bots
+   * sharing a backend never collide). The schedule's state is keyed by it: keep it
+   * stable across deploys. Registering the same id twice throws a `TypeError`.
+   */
+  id: string
+  /** Policy for occurrences missed while no scheduler ran. Default `'skip'`. */
+  missed?: MissedRunPolicy
+  /** Most missed slots `'catch-up'` runs at start. Default `10`. Positive integer. */
+  maxCatchUp?: number
+  /**
+   * How long one claimed occurrence stays leased to this process: a duration (`'2m'`)
+   * or ms. Renewed every third of it while the handler runs; a crashed runner's
+   * occurrence is retried by another process once it expires. Default `'60s'`.
+   */
+  leaseMs?: string | number
+}
+
+/** One occurrence of a durable task, passed to its handler. */
+export interface ScheduledRun {
+  /** The task's {@link DurableTaskOptions.id} (without the store namespace). */
+  taskId: string
+  /** The slot this run covers (not the wall clock at which it started). */
+  scheduledAt: Date
+  /**
+   * `${taskId}@${scheduledAt.toISOString()}`: stable per occurrence, so a run retried
+   * after a crash or a lost lease reuses it. Use it as an idempotency key.
+   */
+  occurrenceKey: string
+  /** Fencing token of this claim: strictly increasing per task. Pass it downstream to reject stale writes. */
+  fencingToken: number
+  /** `true` when the run comes from the `'run-once'`/`'catch-up'` missed-run policy. */
+  missed: boolean
+  /** Aborted when the scheduler stops or the lease on this occurrence is lost. */
+  signal: AbortSignal
+}
+
+/** Handler of a durable task. */
+export type DurableTaskHandler = (run: ScheduledRun) => void | Promise<void>
 
 /* ============================================================================
  * BROADCAST
