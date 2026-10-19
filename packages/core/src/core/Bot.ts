@@ -95,6 +95,7 @@ import { deleteSubjectData, exportSubjectData, type SubjectDataDeps, type Subjec
 import { MessageLog, receiveTimestamp, toStoredError } from './ledger.js'
 import { assertTriggerArgs, triggerInbound, type TriggerOptions, type TriggerResult } from '../ops/trigger.js'
 import { I18n } from '../i18n/I18n.js'
+import { createDurability, isSendDeferred, type DurabilityControl, type DurableEngine } from '../durability/bind.js'
 import type { I18nConfig, LocaleMessages, TranslateParams } from '../i18n/types.js'
 
 /** A user message handler — receives the full inbound {@link MessageContext}. */
@@ -146,6 +147,16 @@ export interface BotEvents {
   'conversation:started': ConversationStartedEvent
   /** A conversation/flow ended — completed, cancelled, timed out, out of retries or errored. */
   'conversation:ended': ConversationEndedEvent
+  /**
+   * Durability (`BotConfig.durability`): an inbound event or a send was dead-lettered after its
+   * retries (`id` is the inbox record id or the outbox key). Replay/retry it through `bot.durability`.
+   */
+  'durability:dead': { kind: 'inbound' | 'outbound'; id: string; chatId?: ChatId; error: unknown }
+  /**
+   * Durability: a send's outcome is unknown after a crash (the provider was called, the result
+   * was never recorded). Handled per `durability.outbox.onAmbiguous`.
+   */
+  'durability:ambiguous': { key: string; chatId: ChatId }
 }
 
 export type BotEventArgs<K extends keyof BotEvents> = BotEvents[K] extends void ? [] : [BotEvents[K]]
@@ -257,6 +268,8 @@ export class Bot extends EventEmitter {
   private flowRegistry: DynamicFlowRegistry
   /** Names of the plugins currently plugged (with a count), for `PluginSpec.requires`. */
   private readonly pluggedNames = new Map<string, number>()
+  /** Durable inbox/outbox (`BotConfig.durability`); `null` when off — every durable branch checks it. */
+  private durable: DurableEngine | null = null
 
   constructor(config: BotConfig) {
     super()
@@ -420,6 +433,18 @@ export class Bot extends EventEmitter {
       logger: this.logger.child({ module: 'handoff' }),
     })
 
+    this.durable = createDurability(this.config.durability, {
+      logger: this.logger.child({ module: 'durability' }),
+      namespace: this.namespace,
+      store: this.store, runtime: this.runtime, hooks: this.hooks, messageLog: this.messageLog,
+      provider: this.provider, persistRaw: this.config.persistRaw === true,
+      admits: (ids) => this.admitsSender(ids),
+      handleInbound: (m) => this.handleInbound(m),
+      handleInteraction: (i) => this.handleInteraction(i),
+      emit: (event, payload) => { this.emit(event, payload) },
+      reportError: (error) => this.emitError({ error }),
+    })
+
     this.ready = new Promise<void>((resolve) => {
       const off = this.provider.onEvent((e) => {
         if (e.kind === 'connection' && e.update.state === 'ready') { off(); resolve() }
@@ -471,6 +496,7 @@ export class Bot extends EventEmitter {
       // the handoff may predate start() (or have happened while stopped), or its clear
       // failed / never ran before a crash.
       for (const { chatId } of this.handoffs.list()) this.runtime.abortChat(chatId)
+      await this.durable?.recover()
       providerAttempted = true
       await this.provider.start()
       this.scheduler.start(this.logger.child({ module: 'scheduler' }))
@@ -479,16 +505,20 @@ export class Bot extends EventEmitter {
       this.isStarted = true
       this.acceptingInbound = true
       this.pacedSendsOpen = true
+      this.durable?.resume()
       this.counters.markStarted()
       this.emit('started')
     } catch (error) {
       this.acceptingInbound = false
       this.scheduler.stop()
+      this.durable?.pause()
       if (providerAttempted) {
         try { await this.provider.stop() }
         catch (rollbackError) { this.logger.error({ err: rollbackError }, 'provider start rollback failed') }
       }
       if (storeAttempted) {
+        try { await this.durable?.stop() }
+        catch (rollbackError) { this.logger.error({ err: rollbackError }, 'durability start rollback failed') }
         try { await this.store.stop() }
         catch (rollbackError) { this.logger.error({ err: rollbackError }, 'store start rollback failed') }
       }
@@ -516,6 +546,7 @@ export class Bot extends EventEmitter {
     // in `inflightSends`, so `drain` still waits for them.
     this.lifecycleAbort.abort()
     this.scheduler.stop()
+    this.durable?.pause()
     if (opts?.drain && this.inflightSends.size > 0) {
       const timeout = drainTimeout
       let timer: ReturnType<typeof setTimeout> | undefined
@@ -536,6 +567,8 @@ export class Bot extends EventEmitter {
     let stopError: unknown
     try { await this.provider.stop() }
     catch (error) { stopError = error }
+    try { await this.durable?.stop() }
+    catch (error) { stopError ??= error }
     try { await this.store.stop() }
     catch (error) { stopError ??= error }
     this.isStarted = false
@@ -570,6 +603,13 @@ export class Bot extends EventEmitter {
    * so an implicit `ctx.edit(content)` never edits a reply that was followed by it.
    */
   private async dispatchSend(chatId: ChatId, content: OutboundContent, options?: SendOptions, origin: 'ctx' | 'api' = 'api', stream?: 'message'): Promise<SendResult> {
+    // Durability: an idempotency key already sent is answered from the outbox (no hooks, no provider call).
+    const durable = this.durable?.prepareSend(options)
+    if (durable) {
+      const prior = await durable.prior()
+      if (prior) return prior
+      options = durable.options
+    }
     const payload: { chatId: ChatId; content: OutboundContent; options?: SendOptions; stream?: 'message' } = { chatId, content, options }
     if (stream) payload.stream = stream
     const proceed = await this.hooks.runBefore('send', payload as typeof payload & { abort(): void })
@@ -577,7 +617,9 @@ export class Bot extends EventEmitter {
       return { ref: { id: 'skipped', chatId: payload.chatId }, skipped: true }
     }
     const localRef = { id: randomId('out'), chatId: payload.chatId }
-    const op = this.provider.send(payload.chatId, payload.content, payload.options)
+    const op = durable
+      ? durable.run(payload, () => this.provider.send(payload.chatId, payload.content, payload.options))
+      : this.provider.send(payload.chatId, payload.content, payload.options)
     this.inflightSends.add(op)
     try {
       let res: SendResult
@@ -597,6 +639,8 @@ export class Bot extends EventEmitter {
       })
       return res
     } catch (error) {
+      // Deferred to the outbox sweeper: not failed (the ledger row is written when it goes out).
+      if (isSendDeferred(error)) throw error
       await this.messageLog.outbound({
         ref: localRef,
         chatId: payload.chatId,
@@ -633,6 +677,34 @@ export class Bot extends EventEmitter {
     } finally {
       this.inflightSends.delete(op)
     }
+  }
+
+  /**
+   * Durable message processing controls — the inbox/outbox journals, operator replay/retry
+   * of dead-lettered records and counters. `undefined` unless `BotConfig.durability` is set.
+   *
+   * @example
+   * ```ts
+   * for (const r of await bot.durability!.outbox.list({ state: 'dead' })) await bot.durability!.retrySend(r.key)
+   * ```
+   */
+  get durability(): DurabilityControl | undefined { return this.durable ?? undefined }
+
+  /**
+   * Durable fire-and-forget send (needs `BotConfig.durability`): runs the `before('send')`
+   * hooks, journals the send and returns its outbox key at once; the background sweeper
+   * delivers it (retries, backoff, dead-letter queue). Enqueueing an `idempotencyKey` that
+   * already exists is a no-op (`status: 'exists'`) — use it for campaigns and scheduled
+   * jobs that may run twice.
+   *
+   * @example
+   * ```ts
+   * await bot.enqueue(chatId, 'Tu cita es mañana', { idempotencyKey: `reminder:${citaId}` })
+   * ```
+   */
+  async enqueue(chatId: ChatId, content: string | OutboundContent, options?: SendOptions): Promise<{ key: string; status: 'queued' | 'exists' | 'skipped' }> {
+    if (!this.durable) throw new Error('bot.enqueue() needs BotConfig.durability')
+    return this.durable.enqueue(chatId, typeof content === 'string' ? { kind: 'text', text: content } : content, options)
   }
 
   /** Send plain text to a chat. Same as `send(chatId, text)`. */
@@ -1591,6 +1663,12 @@ export class Bot extends EventEmitter {
    * `handle` resolving `false` (dropped unprocessed because the bot stopped) forgets the key.
    */
   private async runInboundOnce(event: InboundEvent, handle: () => Promise<boolean>): Promise<void> {
+    // Durability: journal before dispatch (the in-memory deduper stays as a cheap first filter).
+    const durable = this.durable
+    if (durable) {
+      const journaled = handle
+      handle = () => durable.admit(event, journaled)
+    }
     if (!this.inboundDedupe) { await handle(); return }
     await this.inboundDedupe.run(event, handle, () => {
       this.counters.duplicateDropped()
