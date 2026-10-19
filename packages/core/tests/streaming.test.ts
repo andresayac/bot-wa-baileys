@@ -287,8 +287,13 @@ describe('streamText — edit strategy (Discord-like)', () => {
     const deleted: string[] = []
     r.target.delete = async (ref) => { deleted.push(ref.id) }
     const ac = new AbortController()
-    async function* endless(): AsyncGenerator<string> { for (let i = 0; ; i++) { await wait(3); yield `t${i} ` } }
-    setTimeout(() => ac.abort(), 40)
+    // Deterministic: abort only once the live message exists (no wall-clock race under load).
+    async function* endless(): AsyncGenerator<string> {
+      yield 't0 '
+      while (r.sent.length === 0) await wait(1)
+      ac.abort()
+      for (let i = 1; ; i++) { await wait(1); yield `t${i} ` }
+    }
     const res = await streamText(r.target, endless(), { throttleMs: 0, signal: ac.signal, onCancel: 'discard' })
     expect(res.cancelled).toBe(true)
     expect(r.sent).toHaveLength(1)
@@ -465,11 +470,16 @@ describe('ctx.stream (Bot integration)', () => {
   it("onCancel: 'discard' deletes the streamed message from the chat and the message log", async () => {
     const { bot, provider, chat } = await createTestBot({}, { provider: { streaming: 'edit' } })
     const store = bot.getStore()
-    async function* endless(): AsyncGenerator<string> { for (let i = 0; ; i++) { await wait(3); yield `t${i} ` } }
     let res: { cancelled: boolean } | undefined
     bot.when('x', async (ctx) => {
       const ac = new AbortController()
-      setTimeout(() => ac.abort(), 40)
+      // Deterministic: abort only once the live message was sent (no wall-clock race under load).
+      async function* endless(): AsyncGenerator<string> {
+        yield 't0 '
+        while (provider.outbox.length === 0) await wait(1)
+        ac.abort()
+        for (let i = 1; ; i++) { await wait(1); yield `t${i} ` }
+      }
       res = await ctx.stream(endless(), { throttleMs: 0, signal: ac.signal, onCancel: 'discard' })
     })
     await chat.send('x')
