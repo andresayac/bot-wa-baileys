@@ -32,6 +32,7 @@ export type {
   MediaPayload,
   MediaSource,
   InboundEvent,
+  InboundLocation,
   InboundMessage,
   InboundInteraction,
   DeliveryStatus,

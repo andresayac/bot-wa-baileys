@@ -121,6 +121,7 @@ export function buildMessageContext(deps: BuildContextDeps): IMessageContext {
     mentions: inbound.mentions,
     quoted: inbound.quoted,
     media: undefined,
+    sharedLocation: inbound.location,
     ref: inbound.ref,
     raw: inbound.raw,
     timestamp: inbound.timestamp,

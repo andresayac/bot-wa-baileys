@@ -13,6 +13,7 @@ import type {
   StreamingMode,
   TextFormat,
   InboundEvent,
+  InboundLocation,
   InboundMessage,
   MessageType,
   OutboundContent,
@@ -45,6 +46,8 @@ export interface MockIncomingOptions {
   language?: string
   /** Transport extras on `SenderInfo.platformData` (e.g. `{ languageCode: 'en' }`). */
   platformData?: Record<string, unknown>
+  /** Shared location (`InboundMessage.location`); implies `type: 'location'` unless `type` is given. */
+  location?: InboundLocation
 }
 
 /** Options of {@link MockProvider}. */
@@ -204,7 +207,7 @@ export class MockProvider implements IProvider {
     const from = opts.from ?? 'user-1'
     const isGroup = opts.isGroup ?? false
     const senderId = opts.sender ?? from
-    const type = opts.type ?? 'text'
+    const type = opts.type ?? (opts.location ? 'location' : 'text')
     const media: MediaRef | undefined = MEDIA_TYPES.includes(type)
       ? { kind: type as MediaRef['kind'], token: null }
       : undefined
@@ -218,9 +221,18 @@ export class MockProvider implements IProvider {
       timestamp: Math.floor(Date.now() / 1000),
       mentions: opts.mentions ?? [],
       media,
+      ...(opts.location ? { location: { ...opts.location } } : {}),
       raw: {},
     }
     this.emitEvent({ kind: 'message', message })
+  }
+
+  /**
+   * Simulate a shared location (`type: 'location'`, `ctx.sharedLocation`). The body is
+   * the place name, else the address, else `''` — as the real providers set it.
+   */
+  incomingLocation(location: InboundLocation, opts: Omit<MockIncomingOptions, 'location' | 'type'> = {}): void {
+    this.incoming(location.name ?? location.address ?? '', { ...opts, type: 'location', location })
   }
 
   /** Simulate a UI interaction (button/slash/callback). */
