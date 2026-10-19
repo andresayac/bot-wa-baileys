@@ -2,7 +2,9 @@
  * Conversation hand-over between replicas against a REAL Redis server: RedisCoordinator
  * (turns), RedisStore (checkpoints) and RedisDurability (inbox/outbox) shared by two bots.
  *
- * Skipped unless BOTWA_TEST_REDIS_URL is set (see integration.test.ts / CONTRIBUTING):
+ * Skipped unless BOTWA_TEST_REDIS_URL is set (see integration.test.ts / CONTRIBUTING). The same
+ * scenarios also run on a real Redis Cluster (cluster key layout) with BOTWA_TEST_REDIS_CLUSTER_URL
+ * (see clusterEnv.ts); the kill -9 test runs on the single node only:
  *
  *   docker run -d --rm --name botwa-it-redis -p 127.0.0.1:56379:6379 redis:7-alpine
  *   BOTWA_TEST_REDIS_URL=redis://127.0.0.1:56379 pnpm --filter @bot-wa/redis-store test
@@ -19,6 +21,8 @@ import { createClient } from 'redis'
 import { Bot, flow, type BotConfig, type ConversationHandoverConfig } from '@bot-wa/core'
 import { MockProvider } from '@bot-wa/core/testing'
 import { RedisCoordinator, RedisDurability, RedisStore, type NativeRedisClient } from '../src/index.js'
+import type { NativeRedisClusterClient, RedisClusterConnectOptions } from '../src/client.js'
+import { CLUSTER_URL, cleanupPrefix, clusterOptions, connectCluster } from './clusterEnv.js'
 
 const REDIS_URL = process.env.BOTWA_TEST_REDIS_URL
 const RUN = `botwa-ho-it:${process.pid}-${randomUUID().slice(0, 8)}`
@@ -35,24 +39,44 @@ function silent(): BotConfig['logger'] {
   return l as unknown as BotConfig['logger']
 }
 
-describe.skipIf(!REDIS_URL)('conversation hand-over (real Redis)', { timeout: 30_000 }, () => {
-  let admin: NativeRedisClient
+/** How a replica reaches the server: a single node by url, or a Redis Cluster (cluster layout). */
+type Conn = { url: string } | { cluster: RedisClusterConnectOptions }
+
+const VARIANTS: Array<{ label: string; enabled: boolean; conn: () => Conn; single: boolean }> = [
+  { label: 'real Redis', enabled: !!REDIS_URL, conn: () => ({ url: REDIS_URL! }), single: true },
+  { label: 'real Redis Cluster', enabled: !!CLUSTER_URL, conn: () => ({ cluster: clusterOptions() }), single: false },
+]
+
+for (const variant of VARIANTS) describe.skipIf(!variant.enabled)(`conversation hand-over (${variant.label})`, { timeout: 30_000 }, () => {
+  let admin: NativeRedisClient | undefined
+  let clusterAdmin: NativeRedisClusterClient | undefined
+  const prefixes: string[] = []
   const cleanups: Array<() => Promise<unknown>> = []
   const children: ChildProcess[] = []
 
   beforeAll(async () => {
-    admin = createClient({ url: REDIS_URL })
-    await admin.connect()
+    if (variant.single) {
+      admin = createClient({ url: REDIS_URL })
+      await admin.connect()
+    } else {
+      clusterAdmin = await connectCluster()
+    }
   })
 
   afterAll(async () => {
     for (const child of children) if (child.exitCode === null) child.kill('SIGKILL')
     for (const c of cleanups.reverse()) await c().catch(() => {})
-    for await (const batch of admin.scanIterator({ MATCH: `${RUN}:*`, COUNT: 500 })) {
-      const keys = Array.isArray(batch) ? batch : [batch]
-      if (keys.length) await admin.del(keys)
+    if (admin) {
+      for await (const batch of admin.scanIterator({ MATCH: `${RUN}:*`, COUNT: 500 })) {
+        const keys = Array.isArray(batch) ? batch : [batch]
+        if (keys.length) await admin.del(keys)
+      }
+      await admin.quit()
     }
-    await admin.quit()
+    if (clusterAdmin) {
+      for (const p of prefixes) await cleanupPrefix(clusterAdmin, p).catch(() => {})
+      await clusterAdmin.quit()
+    }
   })
 
   interface ReplicaOpts { durable?: boolean; settleMs?: number; handover?: ConversationHandoverConfig }
@@ -60,8 +84,10 @@ describe.skipIf(!REDIS_URL)('conversation hand-over (real Redis)', { timeout: 30
   /** One replica: its own connections (store, coordinator, journal) on the shared prefix. */
   function replica(prefix: string, id: string, o: ReplicaOpts = {}) {
     const provider = new MockProvider()
-    const store = new RedisStore({ url: REDIS_URL, prefix })
-    const coordinator = new RedisCoordinator({ url: REDIS_URL, prefix, replicaId: id, leaseMs: 1_000, maxPollMs: 20 })
+    if (!prefixes.includes(prefix)) prefixes.push(prefix)
+    const conn = variant.conn()
+    const store = new RedisStore({ ...conn, prefix })
+    const coordinator = new RedisCoordinator({ ...conn, prefix, replicaId: id, leaseMs: 1_000, maxPollMs: 20 })
     const bot = new Bot({
       provider, store, logger: silent(),
       coordination: {
@@ -70,7 +96,7 @@ describe.skipIf(!REDIS_URL)('conversation hand-over (real Redis)', { timeout: 30
         ...(o.handover ? { handover: o.handover } : {}),
       },
       ...(o.durable === false ? {} : {
-        durability: { journal: new RedisDurability({ url: REDIS_URL, prefix }), instanceId: id, pollMs: 20, inbox: { leaseMs: 1_000 } },
+        durability: { journal: new RedisDurability({ ...conn, prefix }), instanceId: id, pollMs: 20, inbox: { leaseMs: 1_000 } },
       }),
     })
     cleanups.push(() => bot.stop())
@@ -146,7 +172,7 @@ describe.skipIf(!REDIS_URL)('conversation hand-over (real Redis)', { timeout: 30
     await vi.waitFor(async () => expect(await checkpoint(b.store, 'c1')).toBeUndefined(), { timeout: 5_000 })
   })
 
-  it.skipIf(!BUILT)('kill -9 mid-step: the journaled answer is replayed on the survivor and the flow goes on', async () => {
+  it.skipIf(!BUILT || !variant.single)('kill -9 mid-step: the journaled answer is replayed on the survivor and the flow goes on', async () => {
     const prefix = nextPrefix('kill')
     const child = spawn(process.execPath, [CHILD, REDIS_URL!, prefix, 'c9'], { stdio: ['ignore', 'pipe', 'inherit'] })
     children.push(child)

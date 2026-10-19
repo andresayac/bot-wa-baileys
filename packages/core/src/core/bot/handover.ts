@@ -6,7 +6,8 @@
  *   step's first wait in its checkpoint (`FlowCheckpoint.answer`) and to rebuild it as a
  *   full `MessageContext` on the replica that takes the chat: by inbox record id when
  *   durability journals the message, else the encoded message itself (bounded by
- *   `handover.maxAnswerBytes`). The before-hooks are not run again: the body/lang they
+ *   `handover.maxAnswerBytes`). A journaled media marker is rehydrated through the provider
+ *   hooks (`durability/media.ts`), as on a durable replay. The before-hooks are not run again: the body/lang they
  *   produced travel with the answer.
  * - The runtime's resolved hand-over policy ({@link runtimeHandover}).
  *
@@ -18,6 +19,7 @@ import { DEFAULT_HANDOVER_TTL_MS } from '../../conversations/handover.js'
 import type { RuntimeMessage } from '../../conversations/ConversationRuntime.js'
 import type { ConversationHandoverConfig, ConversationHandoverEvent } from '../../coordination/types.js'
 import { decodeInbound, decodeJson, encodeJson, encodedSize } from '../../durability/codec.js'
+import { providerMediaCodec, rehydrateInbound } from '../../durability/media.js'
 import type { JsonValue } from '../../durability/types.js'
 import { parseTimerDuration } from '../../utils/timers.js'
 import type { CheckpointAnswer } from '../provider.js'
@@ -42,7 +44,7 @@ interface Origin { inbound: InboundMessage; interaction?: InteractionInfo }
  * @param inbound  late-bound inbound pipeline (rebuilds contexts like a received message)
  */
 export function createHandoverBridge(
-  k: Pick<BotKernel, 'durable'>,
+  k: Pick<BotKernel, 'durable' | 'provider' | 'logger'>,
   config: ConversationHandoverConfig | undefined,
   inbound: () => InboundPipeline,
 ): HandoverBridge {
@@ -75,7 +77,9 @@ export function createHandoverBridge(
       if (answer.inboundId !== undefined) {
         const record = await k.durable?.inbox.get(answer.inboundId)
         if (!record) return undefined
-        const event = decodeInbound(record.payload)
+        // A journaled media token is a serialized marker (durability.inbox.mediaRefs): rebuild the
+        // live token like a durable replay does (never rejects; a failure only fails the download).
+        const event = await rehydrateInbound(decodeInbound(record.payload), providerMediaCodec(k.provider), k.logger)
         if (event.kind === 'message') message = event.message
         else if (event.kind === 'interaction') ({ inbound: message, interaction } = projectInteraction(event.interaction))
       } else if (answer.message !== undefined) {
