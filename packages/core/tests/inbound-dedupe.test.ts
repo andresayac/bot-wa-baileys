@@ -288,6 +288,37 @@ describe('Bot inbound idempotency', () => {
     await bot.stop()
   })
 
+  it('a message dropped because the bot stopped is not remembered: a redelivery after restart runs', async () => {
+    const provider = new MockProvider()
+    const bot = new Bot({ provider })
+    const seen: string[] = []
+    let release!: () => void
+    const gate = new Promise<void>((r) => { release = r })
+    bot.onMessage(async (ctx) => {
+      seen.push(ctx.ref.id)
+      if (ctx.ref.id === 'm-1') await gate
+    })
+    await bot.start()
+    emit(provider, { kind: 'message', message: message({ ref: { id: 'm-1', chatId: 'chat-1' } }) })
+    await tick(5)
+    emit(provider, { kind: 'message', message: message({ ref: { id: 'm-2', chatId: 'chat-1' }, body: 'second' }) })
+    await tick(5) // m-2 is queued behind m-1 in the chat FIFO
+    const stopped = bot.stop()
+    release()
+    await stopped
+    await tick(5)
+    expect(seen).toEqual(['m-1']) // m-2's turn came after stop(): dropped
+
+    await bot.start()
+    emit(provider, { kind: 'message', message: message({ ref: { id: 'm-2', chatId: 'chat-1' }, body: 'second' }) })
+    await tick(5)
+    expect(seen).toEqual(['m-1', 'm-2'])
+    emit(provider, { kind: 'message', message: message({ ref: { id: 'm-1', chatId: 'chat-1' } }) })
+    await tick(5)
+    expect(seen).toEqual(['m-1', 'm-2']) // m-1 was processed: still a duplicate
+    await bot.stop()
+  })
+
   it('validates BotConfig.dedupe at construction', () => {
     expect(() => new Bot({ provider: new MockProvider(), dedupe: { size: 0 } })).toThrow(ConfigValidationError)
     expect(() => new Bot({ provider: new MockProvider(), dedupe: 'yes' as never })).toThrow(ConfigValidationError)

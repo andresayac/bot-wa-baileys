@@ -53,9 +53,15 @@ bot.schedule('*/15 * * * *', async () => { /* ... */ })
 ```
 
 Cada campo acepta `*`, un número, un rango (`1-5`), un paso (`*/15`, `1-30/5`)
-o una lista separada por comas de esos. Tienen que cumplirse todos los campos
-(no se implementa la regla "O" entre día del mes y día de la semana del cron
-clásico). Los nombres (`mon`, `jan`) y las macros (`@daily`) no están
+o una lista separada por comas de esos. Un paso sobre `*` cuenta desde el
+mínimo del campo (`*/3` en el mes es enero, abril, julio y octubre; `*/2` en
+el día del mes son los días impares).
+
+Regla de días del cron estándar: si **ambos** campos, día del mes y día de la
+semana, están restringidos, un día vale si cumple **cualquiera** de los dos —
+`0 9 13 * 5` corre cada día 13 **y** cada viernes. Si uno de ellos empieza por
+`*` (también un paso como `*/2`), se tienen que cumplir los dos, así que
+`0 9 * * 1` es simplemente "los lunes". Los nombres (`mon`, `jan`) y las macros (`@daily`) no están
 soportados: `bot.schedule()` lanza un `TypeError` que nombra el campo inválido
 en lugar de crear una tarea que nunca se ejecuta.
 

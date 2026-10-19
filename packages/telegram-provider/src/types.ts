@@ -96,6 +96,16 @@ export interface TelegramFile {
 export interface TelegramLocation {
   latitude: number
   longitude: number
+  /** Seconds the location can be updated for: present on a live-location share. */
+  live_period?: number
+  horizontal_accuracy?: number
+}
+
+/** A named place (`message.venue`); Telegram also sets `message.location` on it. */
+export interface TelegramVenue {
+  location: TelegramLocation
+  title?: string
+  address?: string
 }
 
 export interface TelegramContact {
@@ -143,6 +153,7 @@ export interface TelegramMessage {
   video?: TelegramFile
   sticker?: TelegramFile
   location?: TelegramLocation
+  venue?: TelegramVenue
   contact?: TelegramContact
   poll?: TelegramPoll
   /** Legacy (Bot API < 7.0) reply reference. */

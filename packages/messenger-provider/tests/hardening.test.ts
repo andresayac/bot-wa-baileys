@@ -146,6 +146,18 @@ describe('Messenger inbound hardening', () => {
     expect(m.media).toBeUndefined()
   })
 
+  it('a location attachment with coordinates fills message.location', () => {
+    const events = parseInbound({
+      object: 'page',
+      entry: [{ messaging: [
+        { sender: { id: 'U' }, timestamp: 1, message: { mid: 'm1', attachments: [{ type: 'location', payload: { title: 'Pin', coordinates: { lat: 4.6, long: -74.1 } } }] } },
+        { sender: { id: 'U' }, timestamp: 2, message: { mid: 'm2', attachments: [{ type: 'location', payload: { title: 'Pin' } }] } },
+      ] }],
+    })
+    const locations = events.map((ev) => (ev as { kind: 'message'; message: { location?: unknown } }).message.location)
+    expect(locations).toEqual([{ latitude: 4.6, longitude: -74.1, name: 'Pin' }, undefined])
+  })
+
   it('a reply carries the quoted message id', () => {
     const [ev] = parseInbound({
       object: 'page',

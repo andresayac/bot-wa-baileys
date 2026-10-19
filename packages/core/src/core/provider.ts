@@ -116,6 +116,25 @@ export interface MediaRef {
   token: unknown
 }
 
+/**
+ * A location the user shared, normalized by the provider (`InboundMessage.location`,
+ * surfaced on `ctx.sharedLocation`). Coordinates are WGS84 decimal degrees.
+ *
+ * Providers fill it for: WhatsApp via Baileys (`locationMessage` / `liveLocationMessage`),
+ * WhatsApp Cloud API (`location`), Telegram (`location` / `venue`) and Messenger
+ * (`location` attachments, when Meta still sends coordinates).
+ */
+export interface InboundLocation {
+  latitude: number
+  longitude: number
+  /** Place name (a venue, a named pin), when the transport sends one. */
+  name?: string
+  /** Street address, when the transport sends one. */
+  address?: string
+  /** `true` for a live-location share (its first update); omitted for a static pin. */
+  live?: boolean
+}
+
 /** Downloaded media payload surfaced on `ctx.media`. */
 export interface MediaPayload {
   buffer: Buffer
@@ -188,6 +207,11 @@ export interface InboundMessage<TRaw = unknown> {
   mentions: UserId[]
   quoted?: QuotedRef
   media?: MediaRef
+  /**
+   * The shared location of a `type: 'location'` message, when the transport sends
+   * coordinates. `body` stays the place name/address (or `''`) for text matching.
+   */
+  location?: InboundLocation
 
   /** Provider-native payload (proto.IWebMessageInfo, webhook JSON, gateway obj). */
   raw: TRaw
@@ -675,6 +699,11 @@ export interface MessageContext<TTools extends object = DefaultTools, TRaw = unk
   mentions: UserId[]
   quoted?: QuotedRef
   media?: MediaPayload
+  /**
+   * The location the user shared (`type === 'location'`), normalized by the provider;
+   * `undefined` otherwise. Named `sharedLocation` because `ctx.location()` SENDS one.
+   */
+  sharedLocation?: InboundLocation
   ref: MessageRef
   raw: TRaw
   timestamp: number

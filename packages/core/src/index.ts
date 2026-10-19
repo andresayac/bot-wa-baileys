@@ -58,6 +58,7 @@ export type {
   SenderInfo,
   DefaultTools,
   InboundEvent,
+  InboundLocation,
   InboundMessage,
   InboundInteraction,
   DeliveryStatus,
@@ -249,6 +250,8 @@ export type { ConversationSnapshot, WaitAccepts } from './conversations/Conversa
 // contract helpers live under '@bot-wa/core/testing'.
 export { InboundDeduper, createInboundDeduper, inboundDedupeKey, DEFAULT_DEDUPE_SIZE } from './core/dedupe.js'
 export type { InboundDedupeOptions, InboundDeduperOptions, InboundDedupeKey } from './core/dedupe.js'
+export { toInboundLocation } from './core/location.js'
+export type { InboundLocationInput } from './core/location.js'
 
 // ctx-user
 export { UserDataService, userOf, supportsUserData, DEFAULT_USER_NAMESPACE } from './user/UserDataService.js'

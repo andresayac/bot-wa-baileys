@@ -11,13 +11,14 @@
 
 import type {
   InboundEvent,
+  InboundLocation,
   InboundMessage,
   MessageType,
   MediaRef,
   SenderInfo,
   FormReply,
 } from '@bot-wa/core'
-import { formReplyBody } from '@bot-wa/core'
+import { formReplyBody, toInboundLocation } from '@bot-wa/core'
 import {
   IdentityResolver,
   MemoryIdentityMap,
@@ -182,6 +183,7 @@ function toMessage(msg: GraphMessage, id: string, who: ResolvedParty): InboundMe
   let type: MessageType = 'unknown'
   let body = ''
   let media: MediaRef | undefined
+  let location: InboundLocation | undefined
 
   if (msg.type === 'text') {
     type = 'text'
@@ -189,6 +191,7 @@ function toMessage(msg: GraphMessage, id: string, who: ResolvedParty): InboundMe
   } else if (msg.type === 'location') {
     type = 'location'
     body = [str(msg.location?.name), str(msg.location?.address)].filter(Boolean).join(', ')
+    location = toInboundLocation(msg.location)
   } else if (msg.type === 'contacts') {
     type = 'contact'
     const cards = Array.isArray(msg.contacts) ? msg.contacts : []
@@ -217,6 +220,7 @@ function toMessage(msg: GraphMessage, id: string, who: ResolvedParty): InboundMe
     mentions: [],
     ...(quotedId !== undefined ? { quoted: { ref: { id: quotedId, chatId } } } : {}),
     media,
+    ...(location ? { location } : {}),
     raw: msg,
   }
 }

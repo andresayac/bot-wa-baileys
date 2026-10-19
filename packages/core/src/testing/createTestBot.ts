@@ -25,7 +25,7 @@
 import { Bot } from '../core/Bot.js'
 import { MockProvider, type MockOutgoing, type MockProviderOptions } from './MockProvider.js'
 import { ChaosProvider, type ChaosOptions } from './chaos.js'
-import type { BotConfig } from '../core/provider.js'
+import type { BotConfig, InboundLocation } from '../core/provider.js'
 
 /** Extra knobs for {@link createTestBot}. */
 export interface CreateTestBotOptions {
@@ -49,6 +49,8 @@ export interface TestChat {
   jid: string
   /** Simulate an inbound message from this chat, then drain the dispatch microtasks. */
   send(text: string, opts?: { type?: string }): Promise<void>
+  /** Simulate a shared location from this chat (`ctx.sharedLocation`), then drain the dispatch microtasks. */
+  sendLocation(location: InboundLocation): Promise<void>
   /** Resolve with the first reply matching `matcher` (already sent or arriving before the timeout). */
   expectReply(matcher: string | RegExp, timeoutMs?: number): Promise<string>
   /** Snapshot of all text/caption replies sent to this chat so far (buttons and lists: their text). */
@@ -85,6 +87,10 @@ export async function createTestBot(
     jid,
     async send(text, opts) {
       provider.incoming(text, { from: jid, type: opts?.type as never })
+      await new Promise((r) => setTimeout(r, 0))
+    },
+    async sendLocation(location) {
+      provider.incomingLocation(location, { from: jid })
       await new Promise((r) => setTimeout(r, 0))
     },
     replies: () => forJid().map(textOf),

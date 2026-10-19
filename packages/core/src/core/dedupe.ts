@@ -148,23 +148,26 @@ export class InboundDeduper {
 
   /**
    * Run `handle` for `event` unless it is a duplicate. A key is released again
-   * when `handle` rejects, so a transport retry of an event that never reached
-   * the handlers (e.g. the store was down) is processed.
+   * when `handle` rejects, or resolves `false` ("not processed", e.g. the bot
+   * stopped before the event's turn came), so a transport retry of an event that
+   * never reached the handlers (the store was down, a restart) is processed.
    *
    * @returns `false` when the event was dropped as a duplicate.
    */
-  async run(event: InboundEvent, handle: () => Promise<void>, onDuplicate?: () => void): Promise<boolean> {
+  async run(event: InboundEvent, handle: () => Promise<void | boolean>, onDuplicate?: () => void): Promise<boolean> {
     const id = inboundDedupeKey(event)
     if (id && this.isDuplicate(id.key, id.fingerprint)) {
       onDuplicate?.()
       return false
     }
+    let processed: void | boolean
     try {
-      await handle()
+      processed = await handle()
     } catch (error) {
       if (id) this.release(id.key)
       throw error
     }
+    if (processed === false && id) this.release(id.key)
     return true
   }
 }

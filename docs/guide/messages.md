@@ -200,6 +200,31 @@ bot.onPoll(async (ctx) => { await ctx.reply('📊 Got your poll') })
 The same tier is available as trigger constants (`IMAGE`, `VOICE_NOTE`,
 `MEDIA`, `LOCATION`, `CALL`...): see [Special triggers](./triggers).
 
+## Receive a location
+
+A shared location arrives as `ctx.type === 'location'` with its coordinates
+normalized on `ctx.sharedLocation` (it is not `ctx.location`, which **sends**
+one):
+
+```ts
+bot.onLocation(async (ctx) => {
+  const loc = ctx.sharedLocation
+  if (!loc) return ctx.reply('I could not read that location')
+  await ctx.reply(`📍 ${loc.latitude}, ${loc.longitude}${loc.name ? ` (${loc.name})` : ''}`)
+})
+```
+
+`sharedLocation` is `{ latitude, longitude, name?, address?, live? }` (WGS84
+decimal degrees; `live: true` on the first message of a live-location share).
+`ctx.body` keeps the place name or address (or `''`), so text triggers still
+work. Providers that fill it: WhatsApp via Baileys (pins and live locations),
+WhatsApp Cloud API, Telegram (pins, live locations and venues) and Messenger
+(when Meta sends coordinates). On other channels, or when the transport sends
+no coordinates, `ctx.type` is still `'location'` but `sharedLocation` is
+`undefined`. Provider authors map their payload with
+`toInboundLocation({ latitude, longitude, name, address, live })` from
+`@bot-wa/core`, which drops missing or out-of-range coordinates.
+
 ## Poll votes
 
 `ctx.poll(question, options, multiSelect?)` sends a native poll. Votes

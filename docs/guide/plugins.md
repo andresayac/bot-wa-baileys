@@ -25,7 +25,27 @@ everything the plugin registered through `ctx.bot` (commands, matchers,
 conversations, flows, hooks, nested plugins and `onDispose` callbacks) and
 then calls the plugin's `uninstall(ctx)`, if it has one. Calling it twice is
 a no-op. If `install()` throws, whatever it registered so far is rolled back
-before the error reaches you.
+before the error reaches you. Flows the plugin registers at runtime with
+`ctx.bot.registerFlow()` (or creates with `ctx.bot.replaceFlow()`) are
+unregistered too.
+
+### Dependencies between plugins (`requires`)
+
+A plugin can list the plugins it needs by name. `bot.plug()` checks them
+before running `install()` and throws a descriptive error when one is not
+plugged:
+
+```ts
+const crm = definePlugin({ name: 'crm', version: '1.0.0', requires: ['inbox'], install(ctx) { /* … */ } })
+
+bot.plug(crm)            // Error: Plugin "crm" requires plugin(s) "inbox", which is not plugged…
+bot.plug(inbox)          // ok: plug the dependency first...
+bot.plug(crm)            // ...then the plugin that requires it
+```
+
+The check runs at plug time only: unplugging `inbox` later does not unplug
+`crm`. A plugin nested inside another one (`ctx.bot.plug()` from `install()`)
+may require its parent.
 
 ### Built-in: slashCommands
 
@@ -118,6 +138,7 @@ definePlugin({
   name: string,             // unique name (required)
   version: string,          // semver (required)
   description?: string,     // human description
+  requires?: string[],      // names of plugins that must be plugged first
   install(ctx, config) {    // runs on install (required)
     // ctx: { bot, logger, tools, config, onDispose(fn) }
     // register via ctx.bot.when/command/before/... and use
@@ -129,7 +150,8 @@ definePlugin({
 ::: warning `install()` must be synchronous
 `bot.plug()` does not `await` `install()`: the bot keeps going before an
 `async install` finishes, and a rejection only reaches the `'error'` event
-(older core versions let it crash the process). If your
+(older core versions let it crash the process) — nothing is rolled back and
+the plugin counts as plugged. If your
 plugin needs async setup (open a connection, load an SDK), keep `install`
 synchronous and resolve lazily on first use, reporting configuration errors
 without crashing. That's how `@bot-wa/ai` loads its provider SDKs.

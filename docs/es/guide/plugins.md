@@ -25,7 +25,27 @@ todo lo que el plugin registró vía `ctx.bot` (comandos, matchers,
 conversaciones, flows, hooks, plugins anidados y callbacks de `onDispose`) y
 después llama a su `uninstall(ctx)`, si lo tiene. Llamarla dos veces no hace
 nada. Si `install()` lanza, lo que alcanzó a registrar se revierte antes de
-que el error te llegue.
+que el error te llegue. Los flows que el plugin registra en caliente con
+`ctx.bot.registerFlow()` (o crea con `ctx.bot.replaceFlow()`) también se
+desregistran.
+
+### Dependencias entre plugins (`requires`)
+
+Un plugin puede listar por nombre los plugins que necesita. `bot.plug()` los
+comprueba antes de ejecutar `install()` y lanza un error descriptivo si falta
+alguno:
+
+```ts
+const crm = definePlugin({ name: 'crm', version: '1.0.0', requires: ['inbox'], install(ctx) { /* … */ } })
+
+bot.plug(crm)            // Error: Plugin "crm" requires plugin(s) "inbox", which is not plugged…
+bot.plug(inbox)          // ok: primero la dependencia...
+bot.plug(crm)            // ...y después el plugin que la requiere
+```
+
+La comprobación solo ocurre al enchufar: desenchufar `inbox` después no
+desenchufa `crm`. Un plugin anidado dentro de otro (`ctx.bot.plug()` desde
+`install()`) puede requerir a su padre.
 
 ### Incluido: slashCommands
 
@@ -118,6 +138,7 @@ definePlugin({
   name: string,             // nombre único (obligatorio)
   version: string,          // semver (obligatorio)
   description?: string,     // descripción para humanos
+  requires?: string[],      // plugins que deben estar enchufados antes
   install(ctx, config) {    // se ejecuta al instalar (obligatorio)
     // ctx: { bot, logger, tools, config, onDispose(fn) }
     // regístralo vía ctx.bot.when/command/before/... y usa
@@ -129,7 +150,8 @@ definePlugin({
 ::: warning `install()` debe ser síncrono
 `bot.plug()` no hace `await` de `install()`: el bot sigue antes de que un
 `install` async termine y su rechazo solo llega al evento `'error'` (en
-versiones anteriores del core tumbaba el proceso). Si tu
+versiones anteriores del core tumbaba el proceso): no se revierte nada y el
+plugin cuenta como enchufado. Si tu
 plugin necesita inicialización async (abrir una conexión, cargar un SDK),
 mantén `install` síncrono y resuelve de forma perezosa en el primer uso,
 reportando los errores de configuración sin tumbar el bot. Así carga

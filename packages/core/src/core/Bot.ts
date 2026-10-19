@@ -255,6 +255,8 @@ export class Bot extends EventEmitter {
   private preparedLang = new WeakMap<object, string>()
   /** Runtime flow CRUD (`registerFlow`/`unregisterFlow`/`replaceFlow`/`triggerFlow`). */
   private flowRegistry: DynamicFlowRegistry
+  /** Names of the plugins currently plugged (with a count), for `PluginSpec.requires`. */
+  private readonly pluggedNames = new Map<string, number>()
 
   constructor(config: BotConfig) {
     super()
@@ -1113,6 +1115,13 @@ export class Bot extends EventEmitter {
    * `install()` should be synchronous. If it throws, whatever it registered so far is
    * rolled back and the error is rethrown; if it returns a promise that rejects, the
    * rejection goes to the `'error'` event instead of crashing the process.
+   *
+   * `spec.requires` lists plugin names that must already be plugged (a nested plugin may
+   * require its parent); a missing one throws before `install()` runs. Flows registered
+   * through `ctx.bot.registerFlow()` (or created by `ctx.bot.replaceFlow()`) are
+   * unregistered on unplug.
+   *
+   * @throws {Error} when a plugin named in `spec.requires` is not plugged.
    */
   plug(plugin: Plugin, config?: Record<string, unknown>): () => void {
     const spec = typeof plugin === 'function' ? plugin(config) : plugin
@@ -1120,6 +1129,15 @@ export class Bot extends EventEmitter {
       throw new TypeError(
         'plug() expects a plugin object { name, version, install(ctx) } or a factory returning one, ' +
           `got ${spec === null ? 'null' : typeof spec}`,
+      )
+    }
+    const missing = (Array.isArray(spec.requires) ? spec.requires : [])
+      .filter((name) => !this.pluggedNames.has(name))
+    if (missing.length > 0) {
+      throw new Error(
+        `Plugin "${spec.name}" requires plugin(s) ${missing.map((n) => `"${n}"`).join(', ')}, which ` +
+          `${missing.length === 1 ? 'is' : 'are'} not plugged. Plug ${missing.length === 1 ? 'it' : 'them'} ` +
+          `before "${spec.name}" (PluginSpec.requires).`,
       )
     }
     const disposables: Array<() => void> = []
@@ -1156,6 +1174,28 @@ export class Bot extends EventEmitter {
     scopedBot.after = ((event: HookEvent, handler: HookHandler, priority = 0) => hook(event, 'after', handler, priority)) as Bot['after']
     scopedBot.onError = ((event: HookEvent, handler: HookHandler, priority = 0) => hook(event, 'error', handler, priority)) as Bot['onError']
     scopedBot.hook = hook as Bot['hook']
+    // Flows registered at runtime through ctx.bot are unregistered with the plugin. Tracked by
+    // id; an id the plugin unregisters itself is forgotten, so a later bot flow under the same
+    // id survives the unplug. replaceFlow() is tracked only when it CREATES the flow.
+    const pluginFlows = new Set<string>()
+    scopedBot.registerFlow = (f) => {
+      const id = this.registerFlow(f)
+      pluginFlows.add(id)
+      return id
+    }
+    scopedBot.replaceFlow = (id, f) => {
+      const created = !this.hasFlow(id)
+      this.replaceFlow(id, f)
+      if (created) pluginFlows.add(id)
+    }
+    scopedBot.unregisterFlow = (id) => {
+      pluginFlows.delete(id)
+      return this.unregisterFlow(id)
+    }
+    disposables.push(() => {
+      for (const id of pluginFlows) this.unregisterFlow(id)
+      pluginFlows.clear()
+    })
 
     const ctx: PluginContext = {
       bot: scopedBot,
@@ -1173,16 +1213,25 @@ export class Bot extends EventEmitter {
       }
     }
 
+    // Counted before install() so a nested plugin may require its parent.
+    this.pluggedNames.set(spec.name, (this.pluggedNames.get(spec.name) ?? 0) + 1)
+    const unregisterName = () => {
+      const left = (this.pluggedNames.get(spec.name) ?? 1) - 1
+      if (left > 0) this.pluggedNames.set(spec.name, left)
+      else this.pluggedNames.delete(spec.name)
+    }
     try {
       reportAsync(spec.install(ctx, config))
     } catch (error) {
       disposeRegistrations()
+      unregisterName()
       throw error
     }
     let disposed = false
     return () => {
       if (disposed) return
       disposed = true
+      unregisterName()
       if (spec.uninstall) {
         try { reportAsync(spec.uninstall(ctx)) } catch (error) { this.emitError({ error }) }
       }
@@ -1533,19 +1582,23 @@ export class Bot extends EventEmitter {
     return false
   }
 
-  /** Inbound idempotency gate: a redelivered message/interaction never reaches handlers twice. */
-  private async runInboundOnce(event: InboundEvent, handle: () => Promise<void>): Promise<void> {
-    if (!this.inboundDedupe) return handle()
+  /**
+   * Inbound idempotency gate: a redelivered message/interaction never reaches handlers twice.
+   * `handle` resolving `false` (dropped unprocessed because the bot stopped) forgets the key.
+   */
+  private async runInboundOnce(event: InboundEvent, handle: () => Promise<boolean>): Promise<void> {
+    if (!this.inboundDedupe) { await handle(); return }
     await this.inboundDedupe.run(event, handle, () => {
       this.counters.duplicateDropped()
       this.logger.debug({ kind: event.kind }, 'duplicate inbound event dropped')
     })
   }
 
+  /** Persist and dispatch one inbound message; `false` when it was dropped because the bot stopped. */
   private async handleInbound(
     inbound: InboundMessage,
     interaction?: { id: string; data: string; respondBy?: number },
-  ): Promise<void> {
+  ): Promise<boolean> {
     // The access lists already admitted this sender (admitsSender, before dedupe).
     this.counters.inbound()
     const timestamp = receiveTimestamp(inbound.timestamp)
@@ -1586,11 +1639,11 @@ export class Bot extends EventEmitter {
       }),
       this.store.saveMessage(stored),
     ])
-    await this.processMessage(inbound, interaction)
+    return this.processMessage(inbound, interaction)
   }
 
   /** Project an interaction (button/slash/callback) into a message-shaped context. */
-  private async handleInteraction(it: InboundInteraction): Promise<void> {
+  private async handleInteraction(it: InboundInteraction): Promise<boolean> {
     const inbound: InboundMessage = {
       ref: it.ref,
       chat: it.chat,
@@ -1608,7 +1661,7 @@ export class Bot extends EventEmitter {
       mentions: [],
       raw: it.raw,
     }
-    await this.handleInbound(inbound, { id: it.interactionId, data: it.data, respondBy: it.respondBy })
+    return this.handleInbound(inbound, { id: it.interactionId, data: it.data, respondBy: it.respondBy })
   }
 
   /**
@@ -1624,7 +1677,8 @@ export class Bot extends EventEmitter {
     }
   }
 
-  private async processMessage(inbound: InboundMessage, interaction?: { id: string; data: string; respondBy?: number }): Promise<void> {
+  /** `false` only when the message was dropped unprocessed because the bot stopped. */
+  private async processMessage(inbound: InboundMessage, interaction?: { id: string; data: string; respondBy?: number }): Promise<boolean> {
     const ctx = this.contextFor(inbound, {
       markRead: async (ref) => { await this.provider.markRead?.([ref]) },
       deleteMessage: async (ref) => { await this.provider.deleteMessage?.(ref) },
@@ -1641,13 +1695,13 @@ export class Bot extends EventEmitter {
       if (this.config.groupMode === 'mentions') {
         const self = this.provider.selfId ?? null
         const mentioned = self ? ctx.mentions.includes(self) : ctx.mentions.length > 0
-        if (!mentioned) return
+        if (!mentioned) return true
       }
-      if (this.config.groupMode === 'commands' && !ctx.body.startsWith(prefix)) return
+      if (this.config.groupMode === 'commands' && !ctx.body.startsWith(prefix)) return true
     }
 
     this.logger.debug({ from: ctx.from, type: ctx.type }, 'dispatching message')
-    await this.dispatcher.dispatch(ctx as unknown as DispatchContext)
+    return this.dispatcher.dispatch(ctx as unknown as DispatchContext)
   }
 
   /**

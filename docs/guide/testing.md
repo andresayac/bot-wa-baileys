@@ -26,7 +26,9 @@ provider.outbox       // every outbound message, any chat
 
 `createTestBot(config?)` builds a started `Bot` on a `MockProvider`. You can
 also drive the mock directly: `provider.incoming(text, { from, sender, ... })`,
-`provider.interaction(data, opts)` (button and list taps) and
+`provider.interaction(data, opts)` (button and list taps),
+`provider.incomingLocation({ latitude, longitude, name? }, opts)` (a shared
+location, `ctx.sharedLocation`; also `chat.sendLocation(location)`) and
 `provider.call({ id, from, status })` (for [`CALL` triggers](./triggers#call)).
 
 `editMessage`, `deleteMessage` and `sendDraft` are real methods (recorded in

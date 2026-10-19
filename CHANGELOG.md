@@ -323,6 +323,19 @@ Revisión de los 10 paquetes públicos, con hallazgos y decisiones en [`docs/api
 
 ---
 
+### @bot-wa/core y canales (2026-10, ronda H)
+
+**Añadido**
+- **Ubicación entrante normalizada**: `InboundMessage.location` (`{ latitude, longitude, name?, address?, live? }`, tipo `InboundLocation`) y `ctx.sharedLocation` en los mensajes `type: 'location'`. Se llama `sharedLocation` porque `ctx.location()` ya existe y **envía** una ubicación. `ctx.body` sigue siendo el nombre del lugar o la dirección. La rellenan `@bot-wa/baileys` (`locationMessage` y `liveLocationMessage`, con `live: true`; el `body` de una ubicación en tiempo real pasa a ser su `caption`), `@bot-wa/meta` (`location`), `@bot-wa/telegram` (`location`, ubicación en tiempo real con `live_period` y `venue`, cuyo `title` pasa a ser el `body`; nuevo tipo `TelegramVenue`) y `@bot-wa/messenger` (adjuntos `location` con `coordinates`). Helper `toInboundLocation()` para providers: descarta coordenadas ausentes, no finitas o fuera de rango. `MockProvider.incomingLocation()`, la opción `location` de `incoming()` y `TestChat.sendLocation()` para tests.
+- **`PluginSpec.requires` se aplica**: `bot.plug()` lanza un error descriptivo antes de `install()` si algún plugin requerido (por `name`) no está enchufado. Un plugin anidado puede requerir a su padre. Solo se comprueba al enchufar.
+
+**Corregido**
+- Los flows que un plugin registra con `ctx.bot.registerFlow()` (o crea con `ctx.bot.replaceFlow()`) se desregistran al desenchufarlo; antes quedaban vivos.
+- Dedupe de entrada: un mensaje que seguía en la cola de su chat cuando se llamó a `bot.stop()` se descartaba sin procesar pero quedaba marcado como visto, así que su re-entrega tras `bot.start()` se perdía como duplicado. Ahora se libera su clave. `Dispatcher.dispatch()` resuelve `false` en ese caso.
+- `WELCOME`: un `bot.resetWelcome()` que coincidía con una comprobación de primer contacto en curso podía deshacerse (caché o escritura tardía de "ya saludado"). Las operaciones con el store se serializan por chat; los usuarios ya conocidos (en caché) no pagan esa cola.
+- **Cron (cambio de comportamiento)**: regla de días del cron estándar — si día del mes y día de la semana están restringidos a la vez, basta con que se cumpla **uno** (`0 9 13 * 5` = cada día 13 y cada viernes; antes, solo los viernes 13). Si uno empieza por `*`, se exigen ambos, como antes. Además, un paso sobre `*` cuenta desde el mínimo del campo: `*/3` en el mes es enero/abril/julio/octubre (antes marzo/junio/septiembre/diciembre) y `*/2` en el día del mes son los días impares (antes los pares).
+- La doc de `PluginSpec.install` decía que un `install` async que rechaza tumba el proceso; desde la ronda G va al evento `'error'` (sin revertir nada). Corregidos el TSDoc, la guía de plugins y `AGENTS.md`.
+
 ## @bot-wa/ai
 
 ### [0.1.0] — Unreleased

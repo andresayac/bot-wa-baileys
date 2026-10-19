@@ -19,6 +19,7 @@ export type {
   TelegramMessageEntity,
   TelegramPhotoSize,
   TelegramLocation,
+  TelegramVenue,
   TelegramContact,
   TelegramPoll,
 } from './types.js'

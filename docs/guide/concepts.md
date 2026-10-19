@@ -229,6 +229,9 @@ new Bot({ provider, dedupe: false })                      // turn it off
   still blocked).
 - If persistence fails before the handlers run (store down), the key is
   released so the transport's retry is processed.
+- A message still queued behind its chat's earlier messages when
+  `bot.stop()` runs is dropped unprocessed and its key is released, so the
+  same id redelivered after `bot.start()` is processed.
 - `size` is an LRU; `ttl` (ms or `'30s'`/`'10m'`/`'1h'`) counts from the
   first acceptance.
 - **Limit:** it lives in process memory. It does not deduplicate across

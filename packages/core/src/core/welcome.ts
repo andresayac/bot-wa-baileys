@@ -20,12 +20,17 @@
  *
  * Concurrency: the Dispatcher asks inside its per-chat FIFO, whose key is never
  * coarser-grained than a welcome key, so two messages of the same subject are
- * never decided concurrently. The positive result is cached in memory (bounded
- * LRU), so a known user costs no store reads afterwards.
+ * never decided concurrently. `reset()`/`forget()` come from outside that FIFO
+ * (a command handler of another chat, an admin API), so every store-touching
+ * operation is also serialized per chat id: a reset issued while a check is
+ * reading or recording a first contact runs after it, and is never undone by it.
+ * The positive result is cached in memory (bounded LRU), so a known user costs
+ * no store reads (and no queueing) afterwards.
  */
 
 import { createHash } from 'node:crypto'
 import { randomId } from '../utils/timers.js'
+import { KeyedQueue } from '../utils/keyedQueue.js'
 
 /** The slice of `IStore` the tracker uses. */
 export interface WelcomeStore {
@@ -57,6 +62,8 @@ export class WelcomeTracker {
   /** One decision per message object, shared by every WELCOME matcher of that dispatch. */
   private readonly decisions = new WeakMap<object, Promise<boolean>>()
   private readonly maxCached: number
+  /** Serializes checks, resets and erasures per chat id (see "Concurrency" above). */
+  private readonly lanes = new KeyedQueue()
 
   constructor(private readonly opts: WelcomeTrackerOptions = {}) {
     this.maxCached = Math.max(1, opts.maxCached ?? 10_000)
@@ -82,7 +89,11 @@ export class WelcomeTracker {
    * chat itself if it is a DM). Without it: the DM chat, or every participant
    * of the group chat.
    */
-  async reset(chatId: string, userId?: string): Promise<void> {
+  reset(chatId: string, userId?: string): Promise<void> {
+    return this.lanes.run(chatId, () => this.resetNow(chatId, userId))
+  }
+
+  private async resetNow(chatId: string, userId?: string): Promise<void> {
     const chatKey = subjectKey(chatId)
     this.welcomed.delete(chatKey)
     if (userId === undefined) {
@@ -109,14 +120,16 @@ export class WelcomeTracker {
    * subject was never greeted in.
    */
   async forget(userId: string, chatIds: Iterable<string>): Promise<void> {
-    const keys = new Set<string>([subjectKey(userId)])
-    for (const chatId of chatIds) keys.add(subjectKey(chatId, userId))
-    for (const key of keys) this.welcomed.delete(key)
-
-    const store = this.opts.store
-    if (!store?.getCursor || !store.setCursor) return
-    for (const key of keys) {
-      if (await store.getCursor(storeKey(key))) await store.setCursor(storeKey(key), '')
+    // welcome entry → lane (chat id): the DM whose chat id is the user, and each group.
+    const entries = new Map<string, string>([[subjectKey(userId), userId]])
+    for (const chatId of chatIds) entries.set(subjectKey(chatId, userId), chatId)
+    for (const [key, lane] of entries) {
+      await this.lanes.run(lane, async () => {
+        this.welcomed.delete(key)
+        const store = this.opts.store
+        if (!store?.getCursor || !store.setCursor) return
+        if (await store.getCursor(storeKey(key))) await store.setCursor(storeKey(key), '')
+      })
     }
   }
 
@@ -124,6 +137,15 @@ export class WelcomeTracker {
     const key = subjectKey(subject.from, subject.isGroup ? subject.sender : undefined)
     if (this.welcomed.has(key)) {
       this.remember(key) // refresh LRU position
+      return false
+    }
+    return this.lanes.run(subject.from, () => this.decideNow(subject, key))
+  }
+
+  private async decideNow(subject: WelcomeSubject, key: string): Promise<boolean> {
+    // Re-check: an earlier check of this subject may have completed while this one queued.
+    if (this.welcomed.has(key)) {
+      this.remember(key)
       return false
     }
 

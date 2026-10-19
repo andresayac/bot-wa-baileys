@@ -32,6 +32,7 @@ export type {
   MediaPayload,
   MediaSource,
   InboundEvent,
+  InboundLocation,
   InboundMessage,
   InboundInteraction,
   DeliveryStatus,
@@ -122,11 +123,17 @@ export interface PluginSpec<TConfig = Record<string, unknown>> {
   name: string
   version: string
   description?: string
+  /**
+   * Names of plugins that must already be plugged (`bot.plug()` throws a descriptive
+   * error before `install()` runs otherwise). Checked at plug time only.
+   */
   requires?: string[]
   /**
    * Register the plugin's handlers, hooks and tools. Keep it synchronous: `bot.plug()`
-   * does not await it, so a rejected promise becomes an unhandled rejection. Do async
-   * setup lazily on first use instead. (`Promise<void>` stays in the type for compatibility.)
+   * does not await it — a rejected promise is reported on the bot's `'error'` event
+   * (it does not crash the process), but the plugin is already considered installed and
+   * nothing is rolled back. Do async setup lazily on first use instead.
+   * (`Promise<void>` stays in the type for compatibility.)
    */
   install(ctx: PluginContext, config?: TConfig): void | Promise<void>
   uninstall?(ctx: PluginContext): void | Promise<void>

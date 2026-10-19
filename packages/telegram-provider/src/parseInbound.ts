@@ -18,6 +18,7 @@
 import type {
   ChatInfo,
   InboundEvent,
+  InboundLocation,
   InboundMessage,
   InboundInteraction,
   MediaRef,
@@ -25,6 +26,7 @@ import type {
   MessageType,
   SenderInfo,
 } from '@bot-wa/core'
+import { toInboundLocation } from '@bot-wa/core'
 import type {
   TelegramCallbackQuery,
   TelegramChat,
@@ -123,7 +125,7 @@ function messageRef(msg: TelegramMessage, chatId: string, updateId?: number): Me
   return undefined
 }
 
-function mediaOf(msg: TelegramMessage): { type: MessageType; body: string; media?: MediaRef } {
+function mediaOf(msg: TelegramMessage): { type: MessageType; body: string; media?: MediaRef; location?: InboundLocation } {
   const caption = msg.caption ?? ''
   if (msg.photo?.length) {
     const last = msg.photo[msg.photo.length - 1]
@@ -150,7 +152,19 @@ function mediaOf(msg: TelegramMessage): { type: MessageType; body: string; media
       }
     }
   }
-  if (msg.location) return { type: 'location', body: '' }
+  if (msg.venue || msg.location) {
+    // A venue (named place) also carries `location`; prefer the venue's own fields.
+    const v = msg.venue
+    const l = v?.location ?? msg.location
+    const location = toInboundLocation({
+      latitude: l?.latitude,
+      longitude: l?.longitude,
+      name: v?.title,
+      address: v?.address,
+      live: !v && typeof l?.live_period === 'number' && l.live_period > 0,
+    })
+    return { type: 'location', body: v?.title ?? v?.address ?? '', ...(location ? { location } : {}) }
+  }
   if (msg.contact) {
     const c = msg.contact
     return { type: 'contact', body: [c.first_name, c.last_name, c.phone_number].filter(Boolean).join(' ') }
@@ -178,6 +192,7 @@ function toMessage(msg: TelegramMessage, updateId: number, selfId?: string): Inb
   let type: MessageType
   let body: string
   let media: MediaRef | undefined
+  let location: InboundLocation | undefined
   if (msg.text != null) {
     type = 'text'
     body = msg.text
@@ -186,6 +201,7 @@ function toMessage(msg: TelegramMessage, updateId: number, selfId?: string): Inb
     type = parsed.type
     body = parsed.body
     media = parsed.media
+    location = parsed.location
   }
 
   const replied = msg.reply_to?.message ?? msg.reply_to_message
@@ -217,6 +233,7 @@ function toMessage(msg: TelegramMessage, updateId: number, selfId?: string): Inb
     mentions: mentionsOf(msg),
     quoted,
     media,
+    ...(location ? { location } : {}),
     raw: msg,
   }
 }

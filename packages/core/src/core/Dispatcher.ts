@@ -149,9 +149,14 @@ export class Dispatcher {
     return () => { this.catchAlls = this.catchAlls.filter((h) => h !== handler) }
   }
 
-  /** Serializa por chat-key: nunca dos mensajes del mismo chat en paralelo. */
-  dispatch(ctx: DispatchContext): Promise<void> {
-    return this.enqueue(ctx, () => this.run(ctx))
+  /**
+   * Serialized per chat key: never two messages of one chat in parallel. Resolves `false`
+   * when the message was dropped unprocessed because its turn came after the bot stopped
+   * (`isOpen`), so the caller can forget it (inbound dedupe) and a redelivery runs.
+   */
+  dispatch(ctx: DispatchContext): Promise<boolean> {
+    let ran = false
+    return this.enqueue(ctx, async () => { ran = await this.run(ctx) }).then(() => ran)
   }
 
   /**
@@ -196,7 +201,8 @@ export class Dispatcher {
    *   3. persistence — chat, contact and message upserts
    *   4. groupMode filter — a group message the bot must ignore stops here (still persisted)
    *  Dispatcher (per-chat FIFO queue, this method) — a job whose turn comes after
-   *  `bot.stop()` is dropped here (`isOpen`), before anything runs
+   *  `bot.stop()` is dropped here (`isOpen`), before anything runs, and its dedupe key is
+   *  released (a redelivery after a restart is processed)
    *   5. language resolution (`prepare`: `ctx.lang` from ctx.user → provider → detector
    *      → default, only while i18n is on), then before('message') hooks — may abort;
    *      if a hook rewrote `ctx.body` (voice transcript) the language is re-resolved
@@ -224,10 +230,17 @@ export class Dispatcher {
    * {@link runExclusive} (the chat's FIFO slot) → handoff gate → language resolution →
    * conversation start — no dedupe, persistence, message hooks, matchers or 'message' event.
    */
-  private async run(ctx: DispatchContext): Promise<void> {
+  private async run(ctx: DispatchContext): Promise<boolean> {
+    // Dropped unprocessed (bot stopped while the job was queued): reported to the caller.
+    if (this.deps.isOpen && !this.deps.isOpen()) return false
+    await this.route(ctx)
+    return true
+  }
+
+  /** Steps 5–12 of {@link run}. */
+  private async route(ctx: DispatchContext): Promise<void> {
     const { hooks, runtime, emit } = this.deps
     const prefix = this.deps.commandPrefix ?? '/'
-    if (this.deps.isOpen && !this.deps.isOpen()) return
     try {
       if (this.deps.prepare) await this.deps.prepare(ctx)
       const bodyBeforeHooks = ctx.body
