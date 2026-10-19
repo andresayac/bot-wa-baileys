@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 
 export interface EventContext {
@@ -228,14 +228,22 @@ export class FileEventJournal implements EventJournal {
   async fail(eventId: string, error: unknown, options?: FailEventOptions): Promise<void> { await this.memory.fail(eventId, error, options); await this.persist() }
   async replay(eventId: string, now?: number): Promise<void> { await this.memory.replay(eventId, now); await this.persist() }
   list(options?: { state?: EventRecordState; limit?: number }): Promise<EventRecord[]> { return this.memory.list(options) }
-  private async persist(): Promise<void> {
-    this.writeQueue = this.writeQueue.then(async () => {
+  private persist(): Promise<void> {
+    const write = this.writeQueue.then(async () => {
       await mkdir(dirname(this.filePath), { recursive: true })
       const temporary = `${this.filePath}.${randomUUID()}.tmp`
-      await writeFile(temporary, JSON.stringify({ version: 1, records: this.memory.snapshot() }), 'utf8')
-      await rename(temporary, this.filePath)
+      try {
+        await writeFile(temporary, JSON.stringify({ version: 1, records: this.memory.snapshot() }), 'utf8')
+        await rename(temporary, this.filePath)
+      } catch (error) {
+        await rm(temporary, { force: true }).catch(() => {})
+        throw error
+      }
     })
-    return this.writeQueue
+    // The caller sees this write's failure; the queue does not, so one failed
+    // write (full disk, a transient EPERM on Windows) never blocks later ones.
+    this.writeQueue = write.catch(() => {})
+    return write
   }
 }
 
@@ -252,7 +260,10 @@ export class EventWorker {
   on<TPayload>(eventType: string, handler: EventHandler<TPayload>): () => void {
     if (this.handlers.has(eventType)) throw new Error(`Handler already registered for ${eventType}`)
     this.handlers.set(eventType, handler as EventHandler)
-    return () => this.handlers.delete(eventType)
+    // Only remove THIS handler: a stale unsubscribe must not drop a later one.
+    return () => {
+      if (this.handlers.get(eventType) === handler) this.handlers.delete(eventType)
+    }
   }
 
   async runBatch(limit = 100): Promise<{ processed: number; failed: number }> {
