@@ -252,7 +252,7 @@ el `errorMessage` configurado en vez de tumbar el bot.
 | `apiKey` | `string` | fallback a env var | API key (si se omite, cada proveedor intenta su variable de entorno convencional) |
 | `baseUrl` | `string` | según preset | override de endpoint (`baseURL` de openai/anthropic / host de ollama) |
 | `persona` | `string` | — | system prompt |
-| `maxTokens` | `number` | `4096` (anthropic) / `1024` (openai, presets, gemini) | límite de tokens de salida (en ollama solo si lo fijas, como `options.num_predict`) |
+| `maxTokens` | `number` | `4096` (anthropic) / `1024` (openai, presets, gemini) | límite de tokens de salida (en ollama solo si lo fijas, como `options.num_predict`; el tope de 300 de la extracción de memoria no se aplica ahí) |
 | `effort` | `'low' \| 'medium' \| 'high' \| 'xhigh' \| 'max'` | — | esfuerzo de razonamiento (solo Anthropic) |
 | `timeoutMs` | `number` | `60000` | timeout por llamada no-streaming; al vencer aborta la petición y rechaza, para que un proveedor colgado no bloquee la cola del chat (`0` lo desactiva, no recomendado) |
 | `context.maxMessages` | `number` | `20` | ventana de historial guardada por chat (siempre empieza por un turno del usuario; las respuestas vacías no se guardan) |

@@ -37,6 +37,13 @@ export interface GenerateInput {
   messages: AIChatMessage[]
   model?: string
   maxTokens?: number
+  /**
+   * Soft output-token cap used when `maxTokens` is not set: providers with a
+   * built-in cap (Anthropic, OpenAI-compatible, Gemini) apply it instead of their
+   * configured/default one; providers without a default cap (Ollama) ignore it,
+   * so a reasoning model is not cut off by a budget nobody asked for.
+   */
+  defaultMaxTokens?: number
   effort?: Effort
   signal?: AbortSignal
   /** Tools the model may call this turn (native function/tool calling). */

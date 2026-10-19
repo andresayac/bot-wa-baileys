@@ -249,7 +249,7 @@ down.
 | `apiKey` | `string` | env var fallback | API key (if omitted, each provider tries its conventional env var) |
 | `baseUrl` | `string` | preset-dependent | endpoint override (openai/anthropic `baseURL` / ollama host) |
 | `persona` | `string` | — | system prompt |
-| `maxTokens` | `number` | `4096` (anthropic) / `1024` (openai, presets, gemini) | output token limit (ollama: only when set, as `options.num_predict`) |
+| `maxTokens` | `number` | `4096` (anthropic) / `1024` (openai, presets, gemini) | output token limit (ollama: only when set, as `options.num_predict`; memory extraction's 300 default does not apply there) |
 | `effort` | `'low' \| 'medium' \| 'high' \| 'xhigh' \| 'max'` | — | reasoning effort (Anthropic only) |
 | `timeoutMs` | `number` | `60000` | per-call timeout for non-streaming calls; on expiry the request is aborted and rejects, so a hung provider can't block the chat's queue (`0` disables it — not recommended) |
 | `context.maxMessages` | `number` | `20` | history window kept per chat (always starts with a user turn; empty answers are not stored) |

@@ -277,3 +277,46 @@ describe('resolveProvider — unknown name', () => {
     await expect(resolveProvider({ provider: 'claude' as never })).rejects.toThrow(/claude.*anthropic.*openai.*ollama.*gemini.*deepseek/)
   })
 })
+
+describe('memory extraction — default token cap', () => {
+  function memoryClient(provider: ConstructorParameters<typeof AIClient>[0], autoExtract: { maxTokens?: number } = {}) {
+    const store = new MemoryStore()
+    const users = new UserDataService(store)
+    const memory = new MemoryManager((id) => users.for(id), { autoExtract })
+    return new AIClient(provider, new ContextManager(store), { memory })
+  }
+
+  it('the 300-token default is a soft default (defaultMaxTokens), an explicit cap is maxTokens', async () => {
+    const mock = new MockAIProvider({ reply: '{"facts":[]}' })
+    await memoryClient(mock).extractMemory('u', 'hola', 'hola')
+    expect(mock.calls[0]!.maxTokens).toBeUndefined()
+    expect(mock.calls[0]!.defaultMaxTokens).toBe(300)
+    const capped = new MockAIProvider({ reply: '{"facts":[]}' })
+    await memoryClient(capped, { maxTokens: 80 }).extractMemory('u', 'hola', 'hola')
+    expect(capped.calls[0]!.maxTokens).toBe(80)
+  })
+
+  it('Ollama extraction is not capped unless memory.autoExtract.maxTokens is set (reasoning models)', async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async () => Response.json({ message: { content: '{"facts":["Se llama Ana"]}' } }))
+    const ai = memoryClient(new OllamaProvider({ model: 'qwen3' }, fetchImpl))
+    expect(await ai.extractMemory('u', 'me llamo Ana', 'hola Ana')).toEqual(['Se llama Ana'])
+    const body = JSON.parse(String(fetchImpl.mock.calls[0]![1]?.body)) as { options?: unknown }
+    expect(body.options).toBeUndefined()
+
+    const capped = vi.fn<typeof fetch>(async () => Response.json({ message: { content: '{"facts":[]}' } }))
+    await memoryClient(new OllamaProvider({ model: 'qwen3' }, capped), { maxTokens: 2000 }).extractMemory('u', 'x', 'y')
+    expect((JSON.parse(String(capped.mock.calls[0]![1]?.body)) as { options?: unknown }).options).toEqual({ num_predict: 2000 })
+  })
+
+  it('providers with a built-in cap apply defaultMaxTokens over their config default', async () => {
+    let args: Record<string, unknown> = {}
+    const client: OpenAILike = {
+      chat: { completions: { create: async (a: Record<string, unknown>) => { args = a; return { choices: [{ message: { content: 'ok' } }] } as OpenAIChatCompletion } } },
+    } as unknown as OpenAILike
+    const p = new OpenAIProvider(client, { model: 'gpt', maxTokens: 4000 })
+    await p.generate({ messages: [{ role: 'user', content: 'x' }], defaultMaxTokens: 300 })
+    expect(args.max_completion_tokens).toBe(300)
+    await p.generate({ messages: [{ role: 'user', content: 'x' }], defaultMaxTokens: 300, maxTokens: 50 })
+    expect(args.max_completion_tokens).toBe(50)
+  })
+})

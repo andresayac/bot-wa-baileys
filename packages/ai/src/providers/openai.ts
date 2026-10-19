@@ -69,7 +69,7 @@ export class OpenAIProvider implements AIProvider {
     const args: Record<string, unknown> = {
       model: this.model(input),
       messages: this.messagesFor(input),
-      [this.maxTokensField]: input.maxTokens ?? this.cfg.maxTokens ?? 1024,
+      [this.maxTokensField]: input.maxTokens ?? input.defaultMaxTokens ?? this.cfg.maxTokens ?? 1024,
     }
     if (input.tools?.length) {
       args.tools = input.tools.map((t) => ({

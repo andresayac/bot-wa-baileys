@@ -79,7 +79,7 @@ export class GeminiProvider implements AIProvider {
   private buildArgs(input: GenerateInput, withTools = true): Record<string, unknown> {
     const args: Record<string, unknown> = {
       contents: this.contents(input.messages),
-      generationConfig: { maxOutputTokens: input.maxTokens ?? this.cfg.maxTokens ?? 1024 },
+      generationConfig: { maxOutputTokens: input.maxTokens ?? input.defaultMaxTokens ?? this.cfg.maxTokens ?? 1024 },
     }
     if (input.system) args.systemInstruction = { text: input.system }
     if (withTools && input.tools?.length) {

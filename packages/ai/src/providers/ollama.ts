@@ -39,7 +39,9 @@ export class OllamaProvider implements AIProvider {
   /** Request body shared by `generate` and `stream`. */
   private body(input: GenerateInput, stream: boolean): Record<string, unknown> {
     const body: Record<string, unknown> = { model: this.model(input), messages: this.messagesFor(input), stream }
-    // Ollama has no default cap; only send one when the caller set it.
+    // Ollama has no default cap; only send one when the caller set it. `defaultMaxTokens`
+    // (a soft default, e.g. memory extraction's 300) is ignored on purpose: thinking
+    // models spend num_predict on reasoning and would be cut off.
     const maxTokens = input.maxTokens ?? this.cfg.maxTokens
     if (maxTokens !== undefined) body.options = { num_predict: maxTokens }
     // Streaming is text-only (like the other providers): tool definitions are not sent.

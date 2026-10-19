@@ -48,7 +48,7 @@ export class AnthropicProvider implements AIProvider {
   private buildArgs(input: GenerateInput): Record<string, unknown> {
     const args: Record<string, unknown> = {
       model: input.model ?? this.cfg.model ?? DEFAULT_MODEL,
-      max_tokens: input.maxTokens ?? this.cfg.maxTokens ?? DEFAULT_MAX_TOKENS,
+      max_tokens: input.maxTokens ?? input.defaultMaxTokens ?? this.cfg.maxTokens ?? DEFAULT_MAX_TOKENS,
       messages: input.messages.map(toAnthropicMessage),
       thinking: { type: 'adaptive' },
     }

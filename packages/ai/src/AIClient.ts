@@ -85,6 +85,8 @@ const NO_MEMORY = 'AI memory is not available: build the AIClient with `memory` 
 const DEFAULT_TIMEOUT_MS = 60_000
 const DEFAULT_RAG_TIMEOUT_MS = 10_000
 const DEFAULT_REFUSAL = 'No puedo ayudar con eso.'
+/** Soft output cap of a memory-extraction call when `autoExtract.maxTokens` is not set. */
+const DEFAULT_EXTRACT_MAX_TOKENS = 300
 
 /** Stop reasons meaning the answer hit the output-token cap (Anthropic, OpenAI-compatible, Ollama, Gemini). */
 const TRUNCATED = new Set(['max_tokens', 'length', 'MAX_TOKENS'])
@@ -603,7 +605,8 @@ export class AIClient {
           system: prompt.system,
           messages: [{ role: 'user', content: prompt.user }],
           model: cfg.model ?? this.opts.model,
-          maxTokens: cfg.maxTokens ?? 300,
+          // An explicit cap is binding; the 300 default is soft (Ollama ignores it).
+          ...(cfg.maxTokens !== undefined ? { maxTokens: cfg.maxTokens } : { defaultMaxTokens: DEFAULT_EXTRACT_MAX_TOKENS }),
           signal,
         }),
       opts?.signal,
@@ -611,7 +614,7 @@ export class AIClient {
     if (r.stopReason === 'refusal') return []
     const facts = parseFacts(r.text, maxItems, memory.maxFactLength)
     if (!facts) {
-      const maxTokens = cfg.maxTokens ?? 300
+      const maxTokens = cfg.maxTokens ?? DEFAULT_EXTRACT_MAX_TOKENS
       this.report(new Error(isTruncated(r.stopReason)
         ? `memory extraction answer was cut off by the token cap (maxTokens ${maxTokens}): ` +
           'raise memory.autoExtract.maxTokens (reasoning models spend part of it thinking)'
