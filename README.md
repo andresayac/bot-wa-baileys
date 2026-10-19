@@ -88,6 +88,14 @@ pnpm run docs           # TypeDoc + VitePress → sitio de documentación
 
 Por paquete: `pnpm --filter @bot-wa/ai test`, `pnpm --filter @bot-wa/core build`, etc.
 
+## Ejemplos
+
+| Ejemplo | Qué muestra |
+| --- | --- |
+| [`examples/bakery-ai`](examples/bakery-ai) | Asistente de pedidos con IA para una panadería (en inglés) en WhatsApp, vía Baileys (QR) o Twilio (webhook con `@bot-wa/server`). Herramientas con confirmación, totales calculados en código, `dedupe`, lista de acceso, configuración tipada y tests sin red. |
+
+Se compilan y prueban con el resto del workspace (`pnpm build`, `pnpm test`). Cada ejemplo trae su README con los comandos para ejecutarlo.
+
 ## Documentación
 
 - Guías: [`docs/`](docs) (inglés en `docs/guide/`, español en `docs/es/guide/`). No hay sitio publicado; para verlas como web en local: `pnpm docs:dev`.

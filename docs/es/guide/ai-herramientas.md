@@ -450,6 +450,11 @@ bot.plug(aiPlugin({
 La plantilla `ai-full` de [`create-bot-wa`](/es/guide/inicio) trae las mismas
 herramientas, con los pedidos guardados en `ctx.user`.
 
+Hay una versión completa y ejecutable (en inglés) en el
+[ejemplo del asistente de panadería](https://github.com/andresayac/bot-wa-baileys/tree/main/examples/bakery-ai) (`examples/bakery-ai`). Corre el
+mismo bot en WhatsApp con Baileys (QR) o con Twilio (webhook + `@bot-wa/server`)
+e incluye configuración tipada por variables de entorno y tests con `MockAIProvider`.
+
 ## Eventos de auditoría
 
 Cada paso del bucle emite un `AIToolEvent`, tanto a `onToolEvent` como en el
@@ -572,3 +577,4 @@ expect(buscados).toEqual(['centeno'])
 - [Plugin de IA](/es/guide/ai) — proveedores y la referencia completa de `aiPlugin`
 - [Memoria y RAG](/es/guide/ai-memoria-rag) — hechos por usuario y respuestas con tus documentos
 - [Flujos conversacionales](/es/guide/flujos) — el runtime que aloja las confirmaciones
+- [Ejemplo: asistente de panadería](https://github.com/andresayac/bot-wa-baileys/tree/main/examples/bakery-ai) — estas prácticas en un bot de WhatsApp ejecutable (Baileys o Twilio)

@@ -433,6 +433,11 @@ bot.plug(aiPlugin({
 The [`create-bot-wa`](/guide/getting-started) `ai-full` template ships the same
 tools, with the orders kept in `ctx.user`.
 
+For a complete, runnable version in English, see the
+[bakery AI assistant example](https://github.com/andresayac/bot-wa-baileys/tree/main/examples/bakery-ai) (`examples/bakery-ai`). It runs the same
+bot on WhatsApp through Baileys (QR) or Twilio (webhook + `@bot-wa/server`) and
+includes typed env config and tests with `MockAIProvider`.
+
 ## Audit events
 
 Every step of the loop emits an `AIToolEvent`, both to `onToolEvent` and on
@@ -553,3 +558,4 @@ expect(searched).toEqual(['rye'])
 - [AI plugin](/guide/ai) — providers and the full `aiPlugin` reference
 - [AI memory & RAG](/guide/ai-memory-rag) — per-user facts and answers from your documents
 - [Conversation flows](/guide/flows) — the runtime that hosts confirmations
+- [Bakery AI assistant example](https://github.com/andresayac/bot-wa-baileys/tree/main/examples/bakery-ai) — these practices in a runnable WhatsApp bot (Baileys or Twilio)
