@@ -27,9 +27,13 @@
  * everything is aborted (`'coordinator-down'`) before the server-side lease can expire,
  * so a replica always gives up before another one can take over.
  *
- * Limits: one Redis primary (standalone or Sentinel). A failover that loses the last
- * writes can grant a lease twice; Redis Cluster is not supported (the scripts touch keys
- * of several hash slots).
+ * Redis Cluster: pass a node-redis cluster client (or `cluster` options), or
+ * `layout: 'cluster'`. Each chat's turn keys and each leadership's keys then share one
+ * hash tag; a waiting turn probes another replica's heartbeat (another slot) with a
+ * separate call before skipping its ticket.
+ *
+ * Limits: a failover that loses the last acknowledged writes (asynchronous replication,
+ * Sentinel or Cluster alike) can grant a lease twice.
  *
  * @example
  * ```ts
@@ -45,7 +49,6 @@
  * ```
  */
 import { randomUUID } from 'node:crypto'
-import { createClient } from 'redis'
 import {
   CoordinationUnavailableError,
   LeaseLostError,
@@ -59,6 +62,12 @@ import {
   type Ticket,
 } from '@bot-wa/core'
 import type { NativeRedisClient, RedisLikeClient } from './RedisStore.js'
+import { PROBE_EXISTS_SCRIPT, TURN_CLUSTER_SCRIPT } from './clusterScripts.js'
+import { coordKeys, type CoordKeys, type RedisKeyLayout } from './layout.js'
+import {
+  createOwnRedisClient, resolveLayout, withClusterRetry,
+  type NativeRedisClusterClient, type RedisClusterConnectOptions,
+} from './client.js'
 import {
   HEARTBEAT_SCRIPT,
   LEAD_RELEASE_SCRIPT,
@@ -81,7 +90,14 @@ export interface RedisCoordinatorOptions {
    * Share an existing client (e.g. the one your `RedisStore` uses, or a fake in tests).
    * The coordinator never connects or closes it.
    */
-  client?: CoordinatorClient | NativeRedisClient
+  client?: CoordinatorClient | NativeRedisClient | NativeRedisClusterClient
+  /** Create (and own) a Redis Cluster client (not combinable with `url`/`client`). Implies `layout: 'cluster'`. */
+  cluster?: RedisClusterConnectOptions
+  /**
+   * Key layout (use the same on every replica). Default: `'cluster'` with a cluster client
+   * or `cluster` options, else `'legacy'`. See `RedisStoreOptions.layout`.
+   */
+  layout?: RedisKeyLayout
   /** Key prefix; use the same one on every replica of the bot. Default `'botwa'`. */
   prefix?: string
   /**
@@ -99,7 +115,11 @@ export interface RedisCoordinatorOptions {
   idleTtlMs?: string | number
   /** Longest pause between two polls while waiting for a turn or a leadership (ms). Default 100. */
   maxPollMs?: number
-  /** Receives backend errors of the watchdog. */
+  /**
+   * Receives backend errors of the watchdog, and the client errors (connection drops,
+   * failovers) of a coordinator-created client: an own client always has an `'error'`
+   * listener, so a dropped connection is retried instead of crashing the process.
+   */
   logger?: { warn?: (obj: object, msg?: string) => void }
 }
 
@@ -109,6 +129,8 @@ interface HeldLead { name: string; term: number; value: string; leadKey: string;
 type Listener = (payload: never) => void
 
 const DEFAULT_LEASE_MS = 15_000
+/** Holders a single cluster-layout turn wait remembers as dead (oldest forgotten first). */
+const MAX_DEAD_HOLDERS = 64
 const DEFAULT_IDLE_MS = 24 * 60 * 60 * 1000
 
 function positiveMs(value: string | number | undefined, fallback: number, name: string): number {
@@ -139,7 +161,9 @@ export class RedisCoordinator implements Coordinator {
   readonly leaseMs: number
   private readonly client: CoordinatorClient
   private readonly ownsClient: boolean
-  private readonly base: string
+  /** The key layout in use. */
+  readonly layout: RedisKeyLayout
+  private readonly keys: CoordKeys
   private readonly idleMs: number
   private readonly maxPollMs: number
   private readonly logger?: RedisCoordinatorOptions['logger']
@@ -167,20 +191,24 @@ export class RedisCoordinator implements Coordinator {
     this.leaseMs = positiveMs(opts.leaseMs, DEFAULT_LEASE_MS, 'leaseMs')
     this.idleMs = positiveMs(opts.idleTtlMs, DEFAULT_IDLE_MS, 'idleTtlMs')
     this.maxPollMs = opts.maxPollMs ?? 100
-    this.base = `${opts.prefix ?? 'botwa'}:co`
+    this.layout = resolveLayout('RedisCoordinator', opts)
+    this.keys = coordKeys(opts.prefix ?? 'botwa', this.layout)
     this.logger = opts.logger
     this.ownsClient = !opts.client
-    this.client = (opts.client ?? createClient({ url: opts.url ?? 'redis://localhost:6379' })) as CoordinatorClient
+    const raw = (opts.client ?? createOwnRedisClient({
+      url: opts.url,
+      cluster: opts.cluster,
+      // node-redis re-throws an unheard 'error' event: a dropped node connection would crash the process.
+      onError: (err: unknown) => this.logger?.warn?.({ err }, 'RedisCoordinator client error'),
+    })) as CoordinatorClient
+    // Cluster layout: TRYAGAIN/CLUSTERDOWN (replied before anything ran) are retried.
+    this.client = this.layout === 'cluster' ? (withClusterRetry(raw as RedisLikeClient) as CoordinatorClient) : raw
   }
 
   /* keys ------------------------------------------------------------------ */
 
-  private repKey(id: string): string { return `${this.base}:rep:${id}` }
-  private turnKeys(key: string) {
-    const k = `${this.base}:t:${key}`
-    return { seq: `${k}:seq`, tix: `${k}:tix`, serving: `${k}:serving`, owner: `${k}:owner`, last: `${k}:last` }
-  }
-  private leadKey(name: string): string { return `${this.base}:lead:${name}` }
+  private repKey(id: string): string { return this.keys.rep(id) }
+  private turnKeys(key: string) { return this.keys.turn(key) }
 
   private run(script: string, keys: string[], args: Array<string | number>): Promise<unknown> {
     return this.client.eval(script, { keys, arguments: args.map(String) })
@@ -278,6 +306,8 @@ export class RedisCoordinator implements Coordinator {
   async acquireTurn(ticket: Ticket, opts: AcquireTurnOptions = {}): Promise<ChatTurn> {
     const k = this.turnKeys(ticket.key)
     const deadline = opts.maxWaitMs !== undefined ? performance.now() + opts.maxWaitMs : undefined
+    // Cluster layout: holders seen without a heartbeat during this wait (see TURN_CLUSTER_SCRIPT).
+    const dead = this.layout === 'cluster' ? new Set<string>() : undefined
     let pause = 5
     for (;;) {
       if (opts.signal?.aborted) throw opts.signal.reason
@@ -285,11 +315,22 @@ export class RedisCoordinator implements Coordinator {
       const sentAt = performance.now()
       let reply: [number, string]
       try {
-        reply = (await this.run(TURN_SCRIPT, [k.serving, k.owner, k.tix, k.last], [ticket.seq, this.incarnation, this.leaseMs, `${this.base}:rep:`])) as [number, string]
+        reply = (dead
+          ? await this.run(TURN_CLUSTER_SCRIPT, [k.serving, k.owner, k.tix, k.last], [ticket.seq, this.incarnation, this.leaseMs, ...dead])
+          : await this.run(TURN_SCRIPT, [k.serving, k.owner, k.tix, k.last], [ticket.seq, this.incarnation, this.leaseMs, this.keys.repPrefix])) as [number, string]
       } catch (error) {
         throw new CoordinationUnavailableError(ticket.key, 'unavailable', { cause: error })
       }
       const status = Number(reply[0])
+      if (status === 2 && dead) {
+        // An earlier ticket whose holder's liveness the script could not see (another slot).
+        const holder = String(reply[1])
+        if (holder !== this.incarnation && !(await this.alive(ticket.key, holder))) {
+          if (dead.size >= MAX_DEAD_HOLDERS) dead.delete(dead.values().next().value!)
+          dead.add(holder)
+          continue
+        }
+      }
       if (status === 1) {
         const value = `${ticket.seq}|${this.incarnation}`
         const held: HeldTurn = { key: ticket.key, seq: ticket.seq, value, ownerKey: k.owner, ac: new AbortController() }
@@ -315,6 +356,15 @@ export class RedisCoordinator implements Coordinator {
       const wait = deadline !== undefined ? Math.min(pause, deadline - now) : pause
       await sleep(wait, opts.signal)
       pause = Math.min(this.maxPollMs, pause * 2)
+    }
+  }
+
+  /** Cluster layout: whether `holder`'s heartbeat exists right now (one-key probe in its own slot). */
+  private async alive(key: string, holder: string): Promise<boolean> {
+    try {
+      return Number(await this.run(PROBE_EXISTS_SCRIPT, [this.repKey(holder)], [])) === 1
+    } catch (error) {
+      throw new CoordinationUnavailableError(key, 'unavailable', { cause: error })
     }
   }
 
@@ -401,10 +451,10 @@ export class RedisCoordinator implements Coordinator {
 
   async tryLead(name: string): Promise<Leadership | null> {
     this.assertRunning(name)
-    const leadKey = this.leadKey(name)
+    const { lease: leadKey, term: termKey } = this.keys.lead(name)
     let term: number
     try {
-      term = Number(await this.run(LEAD_SCRIPT, [leadKey, `${leadKey}:term`], [this.incarnation, this.leaseMs]))
+      term = Number(await this.run(LEAD_SCRIPT, [leadKey, termKey], [this.incarnation, this.leaseMs]))
     } catch (error) {
       throw new CoordinationUnavailableError(name, 'unavailable', { cause: error })
     }

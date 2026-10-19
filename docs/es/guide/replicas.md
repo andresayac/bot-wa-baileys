@@ -144,9 +144,9 @@ se queda bloqueado detrás de una réplica viva.
   lock con fencing de abajo.
 - **Un paso de conversación más largo que `settleMs` se interrumpe** (ver
   arriba): sube `settleMs` para trabajo largo en `.do()` o delays.
-- **Redis**: un primario (standalone o Sentinel). Un failover que pierda las
-  últimas escrituras puede conceder un lease dos veces. Redis Cluster no está
-  soportado.
+- **Redis**: un failover que pierda las últimas escrituras puede conceder un
+  lease dos veces (standalone con Sentinel, o Redis Cluster). Redis Cluster
+  necesita el layout de claves `'cluster'`: ver [Redis Cluster](./redis-cluster.md).
 
 ## Cómo elegir `leaseMs`
 

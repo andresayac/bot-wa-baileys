@@ -45,6 +45,13 @@ import { matchKeys } from './keys.js'
 import {
   ACQUIRE_FENCED_LOCK_SCRIPT, DELETE_CHAT_SCRIPT, DROP_MESSAGE_SCRIPT, MERGE_CAS_SCRIPT, RELEASE_LOCK_SCRIPT, RENEW_LOCK_SCRIPT,
 } from './scripts.js'
+import { CAS_INDEXED_SCRIPT, DEL_INDEXED_SCRIPT, DROP_MESSAGES_SCRIPT, LIVE_INDEX_SCRIPT, SAVE_MESSAGE_SCRIPT } from './clusterScripts.js'
+import { LAYOUT_MARKER, storeKeys, type IndexedKind, type RedisKeyLayout, type StoreKeys } from './layout.js'
+import { assertOneSlot } from './slot.js'
+import {
+  createOwnRedisClient, isRedisClusterClient, resolveLayout, withClusterRetry,
+  type NativeRedisClusterClient, type RedisClusterConnectOptions,
+} from './client.js'
 import { RedisCoordinator, type RedisCoordinatorOptions } from './RedisCoordinator.js'
 import { RedisScheduleStore } from './schedules.js'
 import { RedisLeaseProvider } from './lease.js'
@@ -55,6 +62,15 @@ import { RedisLeaseProvider } from './lease.js'
  * the cap only turns pathological contention into an error instead of a spin.
  */
 const MERGE_MAX_ATTEMPTS = 50
+
+/** Messages dropped per script call by deleteChat in the cluster layout. */
+const DROP_CHUNK = 1000
+
+/** Keys the cluster-layout start() inspects at most, looking for legacy data under the prefix. */
+const LEGACY_SCAN_LIMIT = 10_000
+
+/** Longest a legacy-layout start() waits for the layout-marker check. */
+const MARKER_CHECK_TIMEOUT_MS = 2_000
 
 /** The native node-redis v4 client type produced by `createClient` (modules bundled by `redis`). */
 export type NativeRedisClient = ReturnType<typeof createClient>
@@ -149,7 +165,25 @@ export interface RedisStoreOptions {
    * REQUIRED for hermetic tests). The store then never connects or quits it —
    * the caller owns the lifecycle.
    */
-  client?: RedisLikeClient | NativeRedisClient
+  client?: RedisLikeClient | NativeRedisClient | NativeRedisClusterClient
+  /**
+   * Connect to a **Redis Cluster** with an own node-redis cluster client (created and
+   * closed by the store). Implies `layout: 'cluster'`. Not combinable with `url` or `client`.
+   */
+  cluster?: RedisClusterConnectOptions
+  /**
+   * Key layout. Default: `'cluster'` with a cluster client or `cluster` options, else
+   * `'legacy'` (the historical key names, which do not work on a cluster). `'cluster'` also
+   * runs on a single node: that is how an existing keyspace is migrated
+   * (`migrateToClusterLayout()`). See the Redis Cluster guide.
+   */
+  layout?: RedisKeyLayout
+  /**
+   * Cluster layout only: let `start()` proceed when it finds keys of the legacy layout
+   * under the prefix (they are then invisible to the store). Default false: `start()`
+   * throws and asks you to migrate.
+   */
+  allowLegacyData?: boolean
   /**
    * Optional TTL applied to ephemeral session-state keys (AI conversation
    * history and flow checkpoints): a duration (`'24h'`, `'30m'`) or a number of
@@ -179,9 +213,11 @@ export interface RedisStoreOptions {
   /**
    * Receives client errors (connection drops, failed reconnects) of a
    * store-created client, and lifecycle errors (e.g. quit failure). An
-   * injected client's errors are the caller's to handle.
+   * injected client's errors are the caller's to handle. `warn` (else `error`) also
+   * receives the warning of a legacy-layout `start()` on a prefix marked as migrated to
+   * the cluster layout.
    */
-  logger?: { error?: (...args: unknown[]) => void }
+  logger?: { error?: (...args: unknown[]) => void; warn?: (...args: unknown[]) => void }
 }
 
 /** node-redis' default reconnect backoff: 0, 50, 100 … capped at 500 ms. */
@@ -222,10 +258,18 @@ export class RedisStore implements IStore {
   private readonly client: RedisLikeClient
   private readonly ownsClient: boolean
   private readonly prefix: string
+  /** The key layout in use (see {@link RedisStoreOptions.layout}). */
+  readonly layout: RedisKeyLayout
+  private readonly keys: StoreKeys
+  /** Cluster layout: every multi-key script/MULTI is checked to stay in one hash slot. */
+  private readonly cluster: boolean
+  /** The client is a Redis Cluster client (no whole-keyspace scan). */
+  private readonly onCluster: boolean
+  private readonly allowLegacyData: boolean
   /** `sessionTtl` / `ttl` option converted to milliseconds (sent as PX: EX only takes whole seconds). */
   private readonly ttlMs?: number
   private readonly maxMessagesPerChat?: number
-  private readonly logger?: { error?: (...args: unknown[]) => void }
+  private readonly logger?: RedisStoreOptions['logger']
   /**
    * True between a successful start() and stop(): a dropped connection is then
    * retried with backoff. Before the first connect (and after stop()) the
@@ -264,12 +308,27 @@ export class RedisStore implements IStore {
     }
     this.maxMessagesPerChat = opts.maxMessagesPerChat
     this.logger = opts.logger
+    this.layout = resolveLayout('RedisStore', opts)
+    this.keys = storeKeys(this.prefix, this.layout)
+    this.cluster = this.layout === 'cluster'
+    this.onCluster = Boolean(opts.cluster) || isRedisClusterClient(opts.client)
+    this.allowLegacyData = opts.allowLegacyData === true
     // node-redis' generated command signatures aren't directly assignable to a
     // plain interface (union-rest + MaximumOneOf option types); the command
     // subset used here matches at runtime, so narrow at the boundary.
-    this.client = (opts.client ?? this.createOwnClient(opts.url ?? 'redis://localhost:6379')) as RedisLikeClient
+    const raw = (opts.client ?? (opts.cluster ? this.createOwnClusterClient(opts.cluster) : this.createOwnClient(opts.url ?? 'redis://localhost:6379'))) as RedisLikeClient
+    // Cluster layout: TRYAGAIN/CLUSTERDOWN (replied before anything runs) are retried.
+    this.client = this.cluster ? withClusterRetry(raw) : raw
     this.ownsClient = !opts.client
-    this.userData = new RedisUserData(this.client, this.prefix)
+    this.userData = new RedisUserData(this.client, this.prefix, this.layout)
+  }
+
+  private createOwnClusterClient(cluster: RedisClusterConnectOptions): NativeRedisClusterClient {
+    return createOwnRedisClient({
+      cluster,
+      reconnectStrategy: (retries: number, cause: Error) => (this.keepReconnecting ? reconnectDelay(retries) : cause),
+      onError: (err: unknown) => this.logger?.error?.({ err }, 'RedisStore client error'),
+    }) as NativeRedisClusterClient
   }
 
   private createOwnClient(url: string): NativeRedisClient {
@@ -301,35 +360,78 @@ export class RedisStore implements IStore {
    *   {prefix}:lockfence:{key}          INCR fence counter of acquireLockFenced (never expires)
    *   {prefix}:co:…                     RedisCoordinator (see coordScripts.ts)
    *   {prefix}:ud:{user}:{ns}:{key}     JSON user-data entry (native PX expiry; segments percent-encoded)
+   *
+   * That is the default 'legacy' layout. The 'cluster' layout (Redis Cluster safe) is
+   * documented in layout.ts.
    * ---------------------------------------------------------------------- */
 
   private msgSetKey(chatId: string): string {
-    return `${this.prefix}:msg:${chatId}`
+    return this.keys.msgSet(chatId)
   }
   /** Item key for a ZSET member (member === messageKey(ref), or legacyMessageKey(ref) for old rows). */
-  private msgItemKey(member: string): string {
-    return `${this.prefix}:msg:item:${member}`
+  private msgItemKey(chatId: string, member: string): string {
+    return this.keys.msgItem(chatId, member)
   }
   private chatKey(id: string): string {
-    return `${this.prefix}:chat:${id}`
+    return this.keys.chat(id)
   }
   private contactKey(id: string): string {
-    return `${this.prefix}:contact:${id}`
+    return this.keys.contact(id)
   }
   private checkpointKey(key: string): string {
-    return `${this.prefix}:cp:${key}`
+    return this.keys.checkpoint(key)
   }
   private conversationKey(key: string): string {
-    return `${this.prefix}:conv:${key}`
+    return this.keys.conversation(key)
   }
   private cursorKey(key: string): string {
-    return `${this.prefix}:cursor:${key}`
+    return this.keys.cursor(key)
   }
   private lockKey(key: string): string {
-    return `${this.prefix}:lock:${key}`
+    return this.keys.lock(key)
   }
   private lockFenceKey(key: string): string {
-    return `${this.prefix}:lockfence:${key}`
+    return this.keys.lockFence(key)
+  }
+
+  /** Cluster layout: fail before the network call when keys would span several slots. */
+  private oneSlot(keys: string[]): void {
+    if (this.cluster) assertOneSlot(keys)
+  }
+
+  /** Index entry of a record in the cluster layout (undefined in the legacy one). */
+  private indexOf(kind: IndexedKind, id: string): { key: string; member: string } | undefined {
+    const key = kind === 'chat' ? this.keys.chatIndex(id) : kind === 'contact' ? this.keys.contactIndex(id) : this.keys.checkpointIndex(id)
+    return key === undefined ? undefined : { key, member: id }
+  }
+
+  /**
+   * Cluster layout: every record of a kind, read through its bucket indexes (exact even
+   * while slots move between nodes, unlike a per-node SCAN). `live` prunes expired
+   * entries first (checkpoints carry their expiry as the index score).
+   */
+  private async listIndexed<T>(kind: IndexedKind, live: boolean): Promise<Array<{ id: string; value: T }>> {
+    const record = kind === 'chat' ? this.keys.chat : kind === 'contact' ? this.keys.contact : this.keys.checkpoint
+    const buckets = await Promise.all(this.keys.indexes(kind).map(async (idx) => {
+      const members = live
+        ? ((await this.client.eval(LIVE_INDEX_SCRIPT, { keys: [idx] })) as string[])
+        : await this.client.zRange(idx, 0, -1)
+      return members.map(String)
+    }))
+    const ids = buckets.flat()
+    const raws = await Promise.all(ids.map((id) => this.client.get(record(id))))
+    const out: Array<{ id: string; value: T }> = []
+    raws.forEach((raw, i) => {
+      if (raw != null) out.push({ id: ids[i]!, value: JSON.parse(toStr(raw)) as T })
+    })
+    return out
+  }
+
+  /** Cluster layout: delete a record and its index entry atomically. */
+  private async delIndexed(kind: IndexedKind, id: string, key: string): Promise<void> {
+    const index = this.indexOf(kind, id)!
+    this.oneSlot([key, index.key])
+    await this.client.eval(DEL_INDEXED_SCRIPT, { keys: [key, index.key], arguments: [index.member] })
   }
 
   /** SET with the configured TTL when one is set, plain SET otherwise. */
@@ -374,7 +476,8 @@ export class RedisStore implements IStore {
    * server would alter values. Upserts of one key are also chained in-process
    * so a single replica does not race (and retry) against itself.
    */
-  private mergeRecord(key: string, patch: object): Promise<void> {
+  private mergeRecord(key: string, patch: object, index?: { key: string; member: string }): Promise<void> {
+    if (index) this.oneSlot([key, index.key])
     const previous = this.mergeChains.get(key) ?? Promise.resolve()
     const run = previous.then(async () => {
       for (let attempt = 0; attempt < MERGE_MAX_ATTEMPTS; attempt++) {
@@ -382,11 +485,11 @@ export class RedisStore implements IStore {
         const current = raw == null ? null : toStr(raw)
         const existing = current == null ? undefined : (JSON.parse(current) as object)
         const merged = JSON.stringify({ ...existing, ...patch })
-        const written = await this.client.eval(MERGE_CAS_SCRIPT, {
-          keys: [key],
-          // ['0', ''] = "the key must still be absent"; ['1', raw] = "it must still be exactly raw".
-          arguments: current == null ? ['0', '', merged] : ['1', current, merged],
-        })
+        // ['0', ''] = "the key must still be absent"; ['1', raw] = "it must still be exactly raw".
+        const expected = current == null ? ['0', ''] : ['1', current]
+        const written = index
+          ? await this.client.eval(CAS_INDEXED_SCRIPT, { keys: [key, index.key], arguments: [...expected, merged, index.member, ''] })
+          : await this.client.eval(MERGE_CAS_SCRIPT, { keys: [key], arguments: [...expected, merged] })
         if (Number(written) === 1) return
       }
       throw new Error(`RedisStore: gave up upserting ${key} after ${MERGE_MAX_ATTEMPTS} attempts (write contention)`)
@@ -412,11 +515,19 @@ export class RedisStore implements IStore {
     // Atomic: the item write and the ZSET index entry commit together, so a
     // failure can never leave a ZSET member without its item (which would make
     // getMessagesByChat silently return fewer than `limit` rows).
-    await this.client
-      .multi()
-      .set(this.msgItemKey(member), JSON.stringify(msg))
-      .zAdd(this.msgSetKey(msg.chatId), { score: msg.timestamp, value: member })
-      .exec()
+    const itemKey = this.msgItemKey(msg.chatId, member)
+    const setKey = this.msgSetKey(msg.chatId)
+    if (this.cluster) {
+      // A routed script instead of MULTI (see SAVE_MESSAGE_SCRIPT).
+      this.oneSlot([itemKey, setKey])
+      await this.client.eval(SAVE_MESSAGE_SCRIPT, { keys: [itemKey, setKey], arguments: [JSON.stringify(msg), String(msg.timestamp), member] })
+    } else {
+      await this.client
+        .multi()
+        .set(itemKey, JSON.stringify(msg))
+        .zAdd(setKey, { score: msg.timestamp, value: member })
+        .exec()
+    }
     // A copy written under the legacy key by an older version would otherwise
     // show up twice in the window.
     await this.dropLegacy(msg.ref)
@@ -436,9 +547,10 @@ export class RedisStore implements IStore {
     const legacy = legacyMessageKey(ref)
     if (legacy === messageKey(ref)) return
     const setKey = this.msgSetKey(ref.chatId)
-    const itemKey = this.msgItemKey(legacy)
+    const itemKey = this.msgItemKey(ref.chatId, legacy)
     const raw = await this.client.get(itemKey)
     if (ownedMessage(raw, ref)) {
+      this.oneSlot([setKey, itemKey])
       await this.client.eval(DROP_MESSAGE_SCRIPT, { keys: [setKey, itemKey], arguments: [legacy] })
     } else if (!sameChatMessage(raw, ref.chatId)) {
       await this.client.zRem(setKey, legacy)
@@ -464,8 +576,18 @@ export class RedisStore implements IStore {
       LIMIT: { offset: cap, count: count - cap },
     })
     if (!stale.length) return
+    const items = stale.map((m) => this.msgItemKey(chatId, m))
+    if (this.cluster) {
+      // Script, not MULTI (see SAVE_MESSAGE_SCRIPT); every stale member is in the log, so its item goes too.
+      for (let i = 0; i < stale.length; i += DROP_CHUNK) {
+        const keys = [setKey, ...items.slice(i, i + DROP_CHUNK)]
+        this.oneSlot(keys)
+        await this.client.eval(DROP_MESSAGES_SCRIPT, { keys, arguments: stale.slice(i, i + DROP_CHUNK) })
+      }
+      return
+    }
     const tx = this.client.multi()
-    tx.del(stale.map((m) => this.msgItemKey(m)))
+    tx.del(items)
     tx.zRem(setKey, stale)
     await tx.exec()
   }
@@ -473,10 +595,10 @@ export class RedisStore implements IStore {
   async getMessage(ref: MessageRef): Promise<StoredMessage | undefined> {
     if (!ref.id || !ref.chatId) return undefined
     const key = messageKey(ref)
-    const found = ownedMessage(await this.client.get(this.msgItemKey(key)), ref)
+    const found = ownedMessage(await this.client.get(this.msgItemKey(ref.chatId, key)), ref)
     if (found) return found
     const legacy = legacyMessageKey(ref)
-    return legacy === key ? undefined : ownedMessage(await this.client.get(this.msgItemKey(legacy)), ref)
+    return legacy === key ? undefined : ownedMessage(await this.client.get(this.msgItemKey(ref.chatId, legacy)), ref)
   }
 
   async getMessagesByChat(chatId: string, limit = 50): Promise<StoredMessage[]> {
@@ -492,7 +614,7 @@ export class RedisStore implements IStore {
       REV: true,
       LIMIT: { offset: 0, count },
     })
-    const items = await Promise.all(members.map((m) => this.client.get(this.msgItemKey(m))))
+    const items = await Promise.all(members.map((m) => this.client.get(this.msgItemKey(chatId, m))))
     const messages: StoredMessage[] = []
     for (const raw of items) {
       if (raw == null) continue
@@ -506,13 +628,14 @@ export class RedisStore implements IStore {
   async deleteMessage(ref: MessageRef): Promise<void> {
     if (!ref.id || !ref.chatId) return
     const member = messageKey(ref)
-    const itemKey = this.msgItemKey(member)
+    const itemKey = this.msgItemKey(ref.chatId, member)
     const raw = await this.client.get(itemKey)
     // The escaped key can hold another message's LEGACY row (legacy 'c:%3A' of
     // ('c', '%3A') is the key of ('c', ':')): leave that one alone.
     if (raw == null || ownedMessage(raw, ref)) {
       // Atomic: drop the ZSET entry and its item together (no orphan member), and
       // only when the member is in THIS chat's log (see DROP_MESSAGE_SCRIPT).
+      this.oneSlot([this.msgSetKey(ref.chatId), itemKey])
       await this.client.eval(DROP_MESSAGE_SCRIPT, {
         keys: [this.msgSetKey(ref.chatId), itemKey],
         arguments: [member],
@@ -526,13 +649,14 @@ export class RedisStore implements IStore {
   async upsertChat(chat: StoredChat): Promise<void> {
     // Shallow-merge over any existing record so a partial upsert keeps prior
     // fields — consistent with MemoryStore/MongoStore.
-    await this.mergeRecord(this.chatKey(chat.id), chat)
+    await this.mergeRecord(this.chatKey(chat.id), chat, this.indexOf('chat', chat.id))
   }
   async getChat(chatId: string): Promise<StoredChat | undefined> {
     const raw = await this.client.get(this.chatKey(chatId))
     return raw == null ? undefined : (JSON.parse(toStr(raw)) as StoredChat)
   }
   async listChats(): Promise<StoredChat[]> {
+    if (this.cluster) return (await this.listIndexed<StoredChat>('chat', false)).map((r) => r.value)
     return (await this.listRecords<StoredChat>(`${this.prefix}:chat:`)).map((r) => r.value)
   }
   /**
@@ -541,28 +665,47 @@ export class RedisStore implements IStore {
    * script ({@link DELETE_CHAT_SCRIPT}), so a message saved concurrently either
    * lands before (and is deleted) or after (and survives intact), never as an
    * orphan item without its ZSET entry.
+   *
+   * Cluster layout: the log and the chat record live in different slots, so the messages
+   * of a snapshot of the log are dropped in chunks (each chunk atomic: an item only goes
+   * with its log entry) and then the record. A message saved meanwhile survives intact.
    */
   async deleteChat(chatId: string): Promise<void> {
+    if (this.cluster) return this.deleteChatCluster(chatId)
     await this.client.eval(DELETE_CHAT_SCRIPT, {
       keys: [this.msgSetKey(chatId), this.chatKey(chatId)],
-      arguments: [this.msgItemKey('')],
+      arguments: [this.msgItemKey(chatId, '')],
     })
+  }
+
+  private async deleteChatCluster(chatId: string): Promise<void> {
+    const setKey = this.msgSetKey(chatId)
+    const members = await this.client.zRange(setKey, 0, -1)
+    for (let i = 0; i < members.length; i += DROP_CHUNK) {
+      const chunk = members.slice(i, i + DROP_CHUNK).map(String)
+      const keys = [setKey, ...chunk.map((m) => this.msgItemKey(chatId, m))]
+      this.oneSlot(keys)
+      await this.client.eval(DROP_MESSAGES_SCRIPT, { keys, arguments: chunk })
+    }
+    await this.delIndexed('chat', chatId, this.chatKey(chatId))
   }
 
   /* Contacts -------------------------------------------------------------- */
 
   async upsertContact(contact: StoredContact): Promise<void> {
-    await this.mergeRecord(this.contactKey(contact.id), contact)
+    await this.mergeRecord(this.contactKey(contact.id), contact, this.indexOf('contact', contact.id))
   }
   async getContact(userId: string): Promise<StoredContact | undefined> {
     const raw = await this.client.get(this.contactKey(userId))
     return raw == null ? undefined : (JSON.parse(toStr(raw)) as StoredContact)
   }
   async listContacts(): Promise<StoredContact[]> {
+    if (this.cluster) return (await this.listIndexed<StoredContact>('contact', false)).map((r) => r.value)
     return (await this.listRecords<StoredContact>(`${this.prefix}:contact:`)).map((r) => r.value)
   }
 
   async deleteContact(userId: string): Promise<void> {
+    if (this.cluster) return this.delIndexed('contact', userId, this.contactKey(userId))
     await this.client.del(this.contactKey(userId))
   }
 
@@ -582,12 +725,24 @@ export class RedisStore implements IStore {
     return raw == null ? undefined : (JSON.parse(toStr(raw)) as FlowCheckpoint)
   }
   async setCheckpoint(key: string, cp: FlowCheckpoint): Promise<void> {
+    if (this.cluster) {
+      const recordKey = this.checkpointKey(key)
+      const index = this.indexOf('cp', key)!
+      this.oneSlot([recordKey, index.key])
+      await this.client.eval(CAS_INDEXED_SCRIPT, {
+        keys: [recordKey, index.key],
+        arguments: ['*', '', JSON.stringify(cp), index.member, this.ttlMs != null ? String(this.ttlMs) : ''],
+      })
+      return
+    }
     await this.setMaybeTtl(this.checkpointKey(key), JSON.stringify(cp))
   }
   async clearCheckpoint(key: string): Promise<void> {
+    if (this.cluster) return this.delIndexed('cp', key, this.checkpointKey(key))
     await this.client.del(this.checkpointKey(key))
   }
   async listCheckpoints(): Promise<Array<[string, FlowCheckpoint]>> {
+    if (this.cluster) return (await this.listIndexed<FlowCheckpoint>('cp', true)).map((r) => [r.id, r.value])
     return (await this.listRecords<FlowCheckpoint>(`${this.prefix}:cp:`)).map((r) => [r.id, r.value])
   }
 
@@ -634,7 +789,7 @@ export class RedisStore implements IStore {
    * `new Bot({ store, scheduler: { store: store.schedules() } })`. Always the same instance.
    */
   schedules(): RedisScheduleStore {
-    return (this.scheduleStore ??= new RedisScheduleStore({ client: this.client, prefix: this.prefix }))
+    return (this.scheduleStore ??= new RedisScheduleStore({ client: this.client, prefix: this.prefix, layout: this.layout }))
   }
 
   /**
@@ -643,7 +798,7 @@ export class RedisStore implements IStore {
    * monotonic fencing token. Always the same instance.
    */
   leases(): RedisLeaseProvider {
-    return (this.leaseProvider ??= new RedisLeaseProvider({ client: this.client, prefix: this.prefix }))
+    return (this.leaseProvider ??= new RedisLeaseProvider({ client: this.client, prefix: this.prefix, layout: this.layout }))
   }
 
   /**
@@ -696,6 +851,7 @@ export class RedisStore implements IStore {
       throw new RangeError(`RedisStore.acquireLockFenced: ttlMs must be a positive number, got ${ttlMs}`)
     }
     const token = randomUUID()
+    this.oneSlot([this.lockKey(key), this.lockFenceKey(key)])
     const fence = Number(await this.client.eval(ACQUIRE_FENCED_LOCK_SCRIPT, {
       keys: [this.lockKey(key), this.lockFenceKey(key)],
       arguments: [token, String(Math.ceil(ttlMs))],
@@ -724,8 +880,8 @@ export class RedisStore implements IStore {
    * enable `BotConfig.coordination` when the store already is Redis. Start the store
    * before the bot starts the coordinator (`bot.start()` does both, store first).
    */
-  coordinator(opts: Omit<RedisCoordinatorOptions, 'client' | 'url' | 'prefix'> = {}): RedisCoordinator {
-    return new RedisCoordinator({ ...opts, client: this.client, prefix: this.prefix })
+  coordinator(opts: Omit<RedisCoordinatorOptions, 'client' | 'url' | 'prefix' | 'cluster' | 'layout'> = {}): RedisCoordinator {
+    return new RedisCoordinator({ ...opts, client: this.client, prefix: this.prefix, layout: this.layout })
   }
 
   /**
@@ -748,8 +904,49 @@ export class RedisStore implements IStore {
    * connect). Rejects promptly with the socket error when the server is
    * unreachable — call it again to retry. Injected clients are caller-managed
    * and never connected here.
+   *
+   * Cluster layout: also writes (or checks) the layout marker, and on a single node
+   * refuses to start over legacy-layout data (see {@link RedisStoreOptions.allowLegacyData}).
    */
   async start(): Promise<void> {
+    if (!this.cluster) {
+      await this.connect()
+      await this.warnIfMigrated()
+      return
+    }
+    await this.connect()
+    await this.ensureLayoutMarker()
+  }
+
+  /**
+   * Legacy layout: warn when the prefix carries the cluster-layout marker. Replicas on
+   * different layouts of one prefix see different keyspaces (and their turns and locks
+   * stop excluding each other), so every replica must switch layouts at once. Best
+   * effort and bounded: a client that is not ready, a failed read or a slow server only
+   * skips the check (start() behaves as before).
+   */
+  private async warnIfMigrated(): Promise<void> {
+    if (this.client.isReady === false) return
+    let timer: ReturnType<typeof setTimeout> | undefined
+    try {
+      const marker = await Promise.race([
+        this.client.get(this.keys.meta()),
+        new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), MARKER_CHECK_TIMEOUT_MS); timer.unref?.() }),
+      ])
+      if (marker == null) return
+      const message = `RedisStore: prefix "${this.prefix}" is marked as migrated to the "${toStr(marker)}" key layout, but this store uses the legacy layout: `
+        + "its reads and writes are invisible to replicas on layout 'cluster' (and theirs to it). Configure layout: 'cluster' on every replica, or roll the data back with migrateToClusterLayout({ direction: 'cluster-to-legacy' })"
+      const logger = this.logger
+      if (logger?.warn) logger.warn({ prefix: this.prefix, marker: toStr(marker) }, message)
+      else logger?.error?.({ prefix: this.prefix, marker: toStr(marker) }, message)
+    } catch {
+      // A failed check never fails start(): the legacy layout predates the marker.
+    } finally {
+      if (timer) clearTimeout(timer)
+    }
+  }
+
+  private async connect(): Promise<void> {
     if (!this.ownsClient) return
     if (this.connecting) return this.connecting
     if (this.client.isOpen === true) return
@@ -765,6 +962,44 @@ export class RedisStore implements IStore {
       }
     })()
     return this.connecting
+  }
+
+  /** Cluster layout: claim the prefix for the cluster layout, or verify an existing claim. */
+  private async ensureLayoutMarker(): Promise<void> {
+    const key = this.keys.meta()
+    const existing = await this.client.get(key)
+    if (existing === LAYOUT_MARKER) return
+    if (existing != null) {
+      throw new Error(`RedisStore: prefix "${this.prefix}" holds key layout "${existing}", which this version does not know (expected "${LAYOUT_MARKER}")`)
+    }
+    if (!this.allowLegacyData && !this.onCluster) {
+      const legacy = await this.findLegacyKey()
+      if (legacy !== undefined) {
+        throw new Error(`RedisStore: found legacy-layout data under prefix "${this.prefix}" (e.g. ${legacy}); run migrateToClusterLayout() first, or pass allowLegacyData: true`)
+      }
+    }
+    await this.client.set(key, LAYOUT_MARKER, { NX: true })
+    const now = await this.client.get(key)
+    if (now !== LAYOUT_MARKER) throw new Error(`RedisStore: prefix "${this.prefix}" holds key layout "${String(now)}", expected "${LAYOUT_MARKER}"`)
+  }
+
+  /**
+   * A bounded look for legacy-layout keys under the prefix (SCAN only; clients without
+   * `scanIterator` skip it). A safety net, not a guarantee: it stops after
+   * {@link LEGACY_SCAN_LIMIT} keys.
+   */
+  private async findLegacyKey(): Promise<string | undefined> {
+    if (typeof this.client.scanIterator !== 'function') return undefined
+    const p = this.prefix
+    const legacy = ['msg:', 'chat:', 'contact:', 'cp:', 'ud:', 'lock:', 'lockfence:', 'sched:', 'co:t:', 'co:lead:'].map((ns) => `${p}:${ns}`)
+    let seen = 0
+    for await (const batch of this.client.scanIterator({ MATCH: `${escapeGlob(p)}:*`, COUNT: 1000 })) {
+      for (const key of Array.isArray(batch) ? batch : [batch]) {
+        if (legacy.some((ns) => key.startsWith(ns))) return key
+        if (++seen >= LEGACY_SCAN_LIMIT) return undefined
+      }
+    }
+    return undefined
   }
 
   /**

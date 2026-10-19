@@ -8,8 +8,12 @@
  * Lease deadlines compare the `now` the scheduler passes (the replica's clock): keep
  * replica clocks in sync (NTP) and `leaseMs` well above the expected skew.
  *
- * Usually obtained from {@link RedisStore.schedules}, which shares the store's client
- * and prefix; the client's lifecycle stays with whoever opened it.
+ * Usually obtained from {@link RedisStore.schedules}, which shares the store's client,
+ * prefix and key layout; the client's lifecycle stays with whoever opened it.
+ *
+ * Cluster key layout: `{prefix}:{sc:<b>}:r:<id>` plus the bucket index
+ * `{prefix}:{sc:<b>}:idx` in the same hash slot, written in the same script as the
+ * record; `list()` reads the indexes instead of scanning.
  *
  * @example
  * ```ts
@@ -26,29 +30,45 @@ import {
   type ScheduleRecord,
   type ScheduleStore,
 } from '@bot-wa/core'
-import type { NativeRedisClient, RedisLikeClient } from './RedisStore.js'
-import { casJson } from './cas.js'
+import type { RedisLikeClient } from './RedisStore.js'
+import { casJson, type CasIndex } from './cas.js'
 import { escapeGlob } from './glob.js'
 import { matchKeys } from './keys.js'
+import { scheduleKeys, type RedisKeyLayout, type ScheduleKeys } from './layout.js'
+import { asRedisLike, resolveLayout, type AnyRedisClient } from './client.js'
 
 export interface RedisScheduleStoreOptions {
-  /** A connected node-redis client or any {@link RedisLikeClient}; the caller owns its lifecycle. */
-  client: RedisLikeClient | NativeRedisClient
-  /** Key prefix (default `'botwa'`): records live at `{prefix}:sched:{id}`. */
+  /** A connected node-redis client (or cluster client) or any {@link RedisLikeClient}; the caller owns its lifecycle. */
+  client: AnyRedisClient
+  /** Key prefix (default `'botwa'`): records live at `{prefix}:sched:{id}` (legacy layout). */
   prefix?: string
+  /** Key layout; default `'cluster'` for a cluster client, else `'legacy'` (see `RedisStoreOptions.layout`). */
+  layout?: RedisKeyLayout
 }
 
 export class RedisScheduleStore implements ScheduleStore {
   private readonly client: RedisLikeClient
   private readonly ns: string
+  private readonly keys: ScheduleKeys
+  private readonly cluster: boolean
 
   constructor(opts: RedisScheduleStoreOptions) {
-    this.client = opts.client as RedisLikeClient
-    this.ns = `${opts.prefix ?? 'botwa'}:sched:`
+    this.client = asRedisLike(opts.client)
+    const prefix = opts.prefix ?? 'botwa'
+    const layout = resolveLayout('RedisScheduleStore', { layout: opts.layout, client: opts.client })
+    this.ns = `${prefix}:sched:`
+    this.keys = scheduleKeys(prefix, layout)
+    this.cluster = layout === 'cluster'
   }
 
   private key(id: string): string {
-    return this.ns + id
+    return this.keys.record(id)
+  }
+
+  /** Cluster layout: the bucket index the record must be listed in. */
+  private index(id: string): CasIndex | undefined {
+    const key = this.keys.index(id)
+    return key === undefined ? undefined : { key, member: id }
   }
 
   async get(id: string): Promise<ScheduleRecord | null> {
@@ -68,7 +88,7 @@ export class RedisScheduleStore implements ScheduleStore {
       if (current.kind === rec.kind && current.spec === rec.spec) return { result: current }
       const respec: ScheduleRecord = { ...current, kind: rec.kind, spec: rec.spec, nextRunAt: rec.nextRunAt, updatedAt: now }
       return { next: respec, result: respec }
-    })
+    }, this.index(rec.id))
   }
 
   claimDue(id: string, owner: string, now: number, leaseMs: number): Promise<ClaimResult | null> {
@@ -83,7 +103,7 @@ export class RedisScheduleStore implements ScheduleStore {
         updatedAt: now,
       }
       return { next: claimed, result: { record: claimed, fencingToken: claimed.fencingToken } }
-    })
+    }, this.index(id))
   }
 
   renew(id: string, fencingToken: number, leaseUntil: number): Promise<boolean> {
@@ -91,7 +111,7 @@ export class RedisScheduleStore implements ScheduleStore {
       const current = live(stored)
       if (!current || current.fencingToken !== fencingToken || current.leaseOwner === undefined) return { result: false }
       return { next: { ...current, leaseUntil }, result: true }
-    })
+    }, this.index(id))
   }
 
   complete(id: string, fencingToken: number, patch: CompletePatch, now: number): Promise<boolean> {
@@ -99,7 +119,7 @@ export class RedisScheduleStore implements ScheduleStore {
       const current = live(stored)
       if (!current || current.fencingToken !== fencingToken || current.leaseOwner === undefined) return { result: false }
       return { next: applyScheduleComplete(current, patch, now), result: true }
-    })
+    }, this.index(id))
   }
 
   /** Replaces the record with a small marker that keeps its fencing token (a high-water mark). */
@@ -108,16 +128,22 @@ export class RedisScheduleStore implements ScheduleStore {
       const current = live(stored)
       if (!current) return { result: undefined }
       return { next: { id: current.id, deleted: true, fencingToken: current.fencingToken }, result: undefined }
-    })
+    }, this.index(id))
   }
 
   async list(): Promise<ScheduleRecord[]> {
-    const keys = await matchKeys(this.client, `${escapeGlob(this.ns)}*`)
+    const keys = this.cluster ? await this.indexedKeys() : await matchKeys(this.client, `${escapeGlob(this.ns)}*`)
     const raws = await Promise.all(keys.map((k) => this.client.get(k)))
     return raws
       .filter((r) => r != null)
       .map((r) => live(JSON.parse(String(r)) as StoredSchedule))
       .filter((r): r is ScheduleRecord => r !== null)
+  }
+
+  /** Cluster layout: record keys of every id in the bucket indexes. */
+  private async indexedKeys(): Promise<string[]> {
+    const buckets = await Promise.all(this.keys.all().map((idx) => this.client.zRange(idx, 0, -1)))
+    return buckets.flat().map((id) => this.keys.record(String(id)))
   }
 }
 

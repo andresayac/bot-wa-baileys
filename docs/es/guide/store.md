@@ -138,6 +138,8 @@ const bot = new Bot({
 duración) hace expirar el historial de IA y los checkpoints de flujos; los mensajes,
 chats y contactos nunca expiran. Sustituye a la opción obsoleta `ttl`, que iba en segundos.
 
+En un Redis Cluster, pasa un cliente cluster (u opciones `cluster`): ver [Redis Cluster](./redis-cluster.md).
+
 ## Tablas de datos de usuario
 
 Los perfiles de [`ctx.user`](./datos-usuario) se guardan junto al resto del
