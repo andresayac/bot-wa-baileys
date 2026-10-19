@@ -10,6 +10,10 @@
     ".": {
       "types": "./lib/index.d.ts",
       "default": "./lib/index.js"
+    },
+    "./durability": {
+      "types": "./lib/durability.d.ts",
+      "default": "./lib/durability.js"
     }
   },
   "engines": { "node": ">=22" },
@@ -28,7 +32,14 @@
     "prepublishOnly": "pnpm build",
     "typecheck": "tsc -p tsconfig.test.json"
   },
+  "peerDependencies": {
+    "@bot-wa/core": "workspace:*"
+  },
+  "peerDependenciesMeta": {
+    "@bot-wa/core": { "optional": true }
+  },
   "devDependencies": {
+    "@bot-wa/core": "workspace:*",
     "@types/node": "^26.1.1",
     "typescript": "^7.0.2",
     "vite": "^7.3.6",
