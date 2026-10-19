@@ -175,6 +175,17 @@ describe('SharedFileEventJournal: several journals on one file', () => {
     await j.close()
     await expect(j.append(env('late'))).rejects.toThrow(/closed/)
   })
+
+  it('close() lets operations accepted before it finish (they are not rejected as closed)', async () => {
+    const j = await SharedFileEventJournal.open(file)
+    const ops = [j.append(env('a')), j.append(env('b')), j.append(env('c'))]
+    const closing = j.close()
+    await expect(Promise.all(ops)).resolves.toEqual([true, true, true])
+    await closing
+    await expect(j.append(env('late'))).rejects.toThrow(/closed/)
+    const k = await journal()
+    expect((await k.list()).map((r) => r.envelope.eventId).sort()).toEqual(['a', 'b', 'c'])
+  })
 })
 
 describe('SharedFileEventJournal mutex', () => {

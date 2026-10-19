@@ -108,7 +108,10 @@ const bot = new Bot({ provider, durability: { journal: eventsDurability({ journa
   It is meant for a few processes on one host (or a filesystem with atomic rename and
   exclusive create; not NFS): every write rereads and rewrites the whole file. A mutex
   left by a dead process is broken at once, and one held longer than `staleLockMs`
-  (default 30 s) is treated as abandoned; nothing is ever killed. The file format is the
+  (default 30 s) is treated as abandoned; nothing is ever killed (keep it well above the
+  slowest rewrite: if three processes race to break an already stale mutex, two of them can
+  briefly hold it and one write may be lost; use a database journal where that matters).
+  `close()` lets the operations already called finish and rejects later ones. The file format is the
   `FileEventJournal` one, but never open a file with both at the same time (the shared
   journal refuses a file a live locked `FileEventJournal` holds, also when that journal
   opens it later: every shared operation then rejects instead of losing records). The same-chat rule of

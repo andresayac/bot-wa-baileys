@@ -4,7 +4,7 @@
  * container) is taken over, and a lock file that is still being written is not mistaken for a
  * stale one.
  */
-import { mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -84,4 +84,13 @@ describe('FileDurability lock', () => {
     await a.close()
     await b.close()
   })
+
+  it('gives up with a clear error when the lock file exists but cannot be read (no endless retry)', async () => {
+    mkdirSync(`${file}.lock`) // open('wx') says EEXIST, readFile fails every time
+    await expect(FileDurability.open(file, { lockWaitMs: 50 })).rejects.toThrow(/cannot read durability journal lock/)
+    // The in-process claim is freed: once the path is fixed, the journal opens.
+    rmSync(`${file}.lock`, { recursive: true, force: true })
+    const j = await FileDurability.open(file)
+    await j.close()
+  }, 5_000)
 })

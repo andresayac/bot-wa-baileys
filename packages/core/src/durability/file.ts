@@ -79,8 +79,12 @@ const EMPTY_LOCK_STALE_MS = 10_000
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
 
+/** How many times in a row the lock may vanish between `open('wx')` and its read before giving up. */
+const MAX_LOCK_VANISHED = 50
+
 async function acquireLock(lockPath: string, waitMs: number): Promise<void> {
   const deadline = Date.now() + waitMs
+  let vanished = 0
   for (let takeovers = 0; takeovers < 3;) {
     try {
       const handle = await open(lockPath, 'wx')
@@ -92,8 +96,17 @@ async function acquireLock(lockPath: string, waitMs: number): Promise<void> {
       return
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
-      const text = await readFile(lockPath, 'utf8').catch(() => undefined)
-      if (text === undefined) continue // released meanwhile: try again
+      let text: string
+      try {
+        text = await readFile(lockPath, 'utf8')
+      } catch (readError) {
+        const code = (readError as NodeJS.ErrnoException).code
+        // Released meanwhile: try again (bounded, so lock churn cannot spin forever).
+        if (code === 'ENOENT' && ++vanished < MAX_LOCK_VANISHED) continue
+        // Anything else (a directory in its place, no permission...) fails the same way every
+        // time: retrying would loop forever.
+        throw new Error(`cannot read durability journal lock ${lockPath}: ${code ?? String(readError)}`, { cause: readError })
+      }
       const holder = /^\s*\d+\s*$/.test(text) ? Number.parseInt(text, 10) : Number.NaN
       if (Number.isNaN(holder)) {
         // Empty or garbled: another opener may be between creating the file and writing its

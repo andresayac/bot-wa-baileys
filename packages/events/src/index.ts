@@ -787,7 +787,18 @@ async function acquireMutex(path: string, timeoutMs: number, staleMs: number): P
   }
 }
 
-/** Break a stale mutex: move it aside, and put it back if it changed after it was inspected. */
+/**
+ * Break a stale mutex: move it aside, and put it back if it changed after it was inspected.
+ *
+ * Residual race (accepted): between the inspection and the rename, another process may break
+ * the stale mutex and take a fresh one; the rename then moves THAT one aside and it is linked
+ * back. If, in the short window between the rename and the link, a third process creates a new
+ * mutex, the link fails and two processes briefly both believe they hold it: their
+ * read-modify-write cycles can overlap and the last rename wins (one operation's change may be
+ * lost). It needs three processes contending on a mutex that was already stale (its holder died
+ * or stalled past `staleLockMs`), so keep `staleLockMs` well above the slowest rewrite; where
+ * strict mutual exclusion matters under such contention, use a database journal.
+ */
 async function breakMutex(path: string, seen: string): Promise<void> {
   const aside = `${path}.${randomUUID()}.stale`
   try {
@@ -936,7 +947,11 @@ export class SharedFileEventJournal implements LeasedEventJournal {
     })
   }
 
-  /** Wait for operations in flight; later operations reject. Idempotent. Nothing is held between operations. */
+  /**
+   * Operations accepted before `close()` (even those still queued behind the mutex) run to
+   * completion and `close()` waits for them; operations called after it reject. Idempotent.
+   * Nothing is held between operations.
+   */
   async close(): Promise<void> {
     if (this.closed) return
     this.closed = true
@@ -948,8 +963,8 @@ export class SharedFileEventJournal implements LeasedEventJournal {
     if (this.closed) throw new Error(`event journal is closed: ${this.filePath}`)
   }
 
+  /** The current snapshot. No closed check: write() admitted the operation, and close() waits for it. */
   private async read(): Promise<{ memory: MemoryEventJournal; sidecars: Record<string, unknown> }> {
-    this.assertOpen()
     let text: string
     try {
       text = await retrying(() => readFile(this.filePath, 'utf8'))

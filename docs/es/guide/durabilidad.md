@@ -111,7 +111,11 @@ const bot = new Bot({ provider, durability: { journal: eventsDurability({ journa
   Está pensado para pocos procesos en un mismo host (o un sistema de archivos con rename
   atómico y creación exclusiva; no NFS): cada escritura relee y reescribe el archivo
   entero. Un mutex que dejó un proceso muerto se rompe al momento, y uno retenido más de
-  `staleLockMs` (30 s por defecto) se da por abandonado; nunca se mata nada. El formato
+  `staleLockMs` (30 s por defecto) se da por abandonado; nunca se mata nada (déjalo muy por
+  encima de la reescritura más lenta: si tres procesos compiten por romper un mutex ya
+  abandonado, dos pueden tenerlo un instante y perderse una escritura; usa un journal de base
+  de datos si eso importa). `close()` deja terminar las operaciones ya llamadas y rechaza las
+  posteriores. El formato
   del archivo es el de `FileEventJournal`, pero no abras un archivo con los dos a la vez
   (el journal compartido rechaza un archivo que tiene un `FileEventJournal` vivo con
   `lock`, también si ese journal lo abre después: cada operación compartida se rechaza
