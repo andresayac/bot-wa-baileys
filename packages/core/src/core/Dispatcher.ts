@@ -5,7 +5,6 @@ import { matchTrigger, triggerSpecificity, normalizeText } from './matching.js'
 import { isTypeTrigger, isWelcomeTrigger, typeTrigger } from './triggers.js'
 import { WelcomeTracker } from './welcome.js'
 import type { ConversationRuntime, RuntimeMessage } from '../conversations/ConversationRuntime.js'
-import type { TurnRunner } from '../coordination/turns.js'
 
 export interface DispatchContext extends RuntimeMessage {
   pass(): void
@@ -67,7 +66,7 @@ export interface DispatcherDeps {
    * Omitted (the default): jobs only use the in-process queue.
    */
   turns?: {
-    schedule(key: string): TurnRunner
+    schedule(key: string): (job: () => Promise<void>) => Promise<void>
     onDrop(error: unknown, ctx: DispatchContext): void
   }
 }

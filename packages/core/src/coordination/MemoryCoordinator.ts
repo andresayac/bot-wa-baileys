@@ -35,16 +35,16 @@ interface LeadState {
   holder?: string
 }
 
-/** Shared state of the replicas of one in-process cluster. */
-export class MemoryCoordinationHub {
-  /** @internal */ readonly keys = new Map<string, KeyState>()
-  /** @internal */ readonly leads = new Map<string, LeadState>()
-  /** @internal */ readonly alive = new Set<string>()
+/** Internal state of a {@link MemoryCoordinationHub}, kept off the public class. */
+class HubState {
+  readonly keys = new Map<string, KeyState>()
+  readonly leads = new Map<string, LeadState>()
+  readonly alive = new Set<string>()
   private waiters = new Set<() => void>()
-  /** @internal Bumped by every {@link notify}; lets a waiter detect a change it raced with. */
+  /** Bumped by every {@link notify}; lets a waiter detect a change it raced with. */
   version = 0
 
-  /** @internal Wake every waiter (a turn was released, a replica died, a leadership freed). */
+  /** Wake every waiter (a turn was released, a replica died, a leadership freed). */
   notify(): void {
     this.version++
     const waiters = [...this.waiters]
@@ -52,13 +52,12 @@ export class MemoryCoordinationHub {
     for (const w of waiters) w()
   }
 
-  /** @internal Resolve on the next {@link notify} (at once when one happened since `version` `since`). */
+  /** Resolve on the next {@link notify} (at once when one happened since version `since`). */
   changed(since: number): Promise<void> {
     if (this.version !== since) return Promise.resolve()
     return new Promise((resolve) => { this.waiters.add(resolve) })
   }
 
-  /** @internal */
   state(key: string): KeyState {
     let s = this.keys.get(key)
     if (!s) {
@@ -67,6 +66,16 @@ export class MemoryCoordinationHub {
     }
     return s
   }
+}
+
+const hubStates = new WeakMap<MemoryCoordinationHub, HubState>()
+
+/**
+ * Shared state of the replicas of one in-process cluster: pass the same hub to every
+ * {@link MemoryCoordinator} that should coordinate with the others.
+ */
+export class MemoryCoordinationHub {
+  constructor() { hubStates.set(this, new HubState()) }
 }
 
 export interface MemoryCoordinatorOptions {
@@ -80,14 +89,14 @@ type Listener = (payload: never) => void
 
 export class MemoryCoordinator implements Coordinator {
   readonly replicaId: string
-  private readonly hub: MemoryCoordinationHub
+  private readonly hub: HubState
   private readonly turns = new Set<{ key: string; seq: number; ac: AbortController }>()
   private readonly leaderships = new Set<{ name: string; term: number; ac: AbortController }>()
   private readonly listeners = new Map<string, Set<Listener>>()
   private running = false
 
   constructor(opts: MemoryCoordinatorOptions = {}) {
-    this.hub = opts.hub ?? new MemoryCoordinationHub()
+    this.hub = hubStates.get(opts.hub ?? new MemoryCoordinationHub())!
     this.replicaId = opts.replicaId ?? randomUUID()
   }
 

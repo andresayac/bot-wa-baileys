@@ -367,7 +367,7 @@ export class ConversationRuntime {
     }
   }
 
-  /** Consume the handover flag of `handle`'s conversation (see {@link WaitTrackerDeps.skipPrompt}). */
+  /** Consume the handover flag of `handle`'s conversation: its first wait then skips its prompt (once). */
   takeHandover(handle: ConversationHandle): boolean {
     const entry = handle as ActiveConversation
     if (!entry.handover) return false
