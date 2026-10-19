@@ -36,13 +36,17 @@ export function toEmailProviderError(err: unknown, chatId: ChatId): ProviderErro
   if (code === 'EAUTH' || reply === 530 || reply === 534 || reply === 535) {
     return new ProviderError(`SMTP authentication failed — check smtp.user/pass (${message})`)
   }
+  // 552 is overloaded ("storage allocation exceeded"): the enhanced status says
+  // whether the MAILBOX is full (5.2.2, the recipient cannot take mail) or the
+  // MESSAGE is too big (5.3.4). Check the mailbox case first.
+  if (enhanced === '5.2.2') return new RecipientUnreachableError(chatId, message)
   if (reply === 552 || enhanced === '5.3.4' || enhanced === '5.2.3' || /message (size|too (big|large))|exceeds.*size/i.test(response)) {
     return new PayloadTooLargeError(message)
   }
   if (reply !== undefined && reply >= 400 && reply < 500) {
     return new RateLimitedError(DEFAULT_SMTP_RETRY_MS, message)
   }
-  if (reply === 550 || reply === 551 || reply === 553 || enhanced?.startsWith('5.1.') || enhanced === '5.2.1' || enhanced === '5.2.2') {
+  if (reply === 550 || reply === 551 || reply === 553 || enhanced?.startsWith('5.1.') || enhanced === '5.2.1') {
     return new RecipientUnreachableError(chatId, message)
   }
   if (code === 'EENVELOPE') return new RecipientUnreachableError(chatId, message)
