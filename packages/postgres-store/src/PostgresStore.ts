@@ -92,8 +92,14 @@ export interface PostgresStoreOptions {
   /**
    * Max messages retained per chat. When set, `saveMessage` prunes the oldest
    * rows (by timestamp) beyond the cap. Default: undefined = unbounded.
+   * Must be a non-negative integer, else the constructor throws a `RangeError`.
    */
   maxMessagesPerChat?: number
+  /**
+   * Receives lifecycle errors (pool end failure) and the connection errors of
+   * idle clients of a store-created pool. An injected pool's 'error' events are
+   * the caller's to handle (node-postgres crashes the process without a listener).
+   */
   logger?: { error?: (...args: unknown[]) => void }
 }
 
@@ -136,6 +142,9 @@ export class PostgresStore implements IStore {
   private readonly userData: PostgresUserData
 
   constructor(opts: PostgresStoreOptions = {}) {
+    if (opts.maxMessagesPerChat != null && !(Number.isInteger(opts.maxMessagesPerChat) && opts.maxMessagesPerChat >= 0)) {
+      throw new RangeError(`PostgresStore: maxMessagesPerChat must be a non-negative integer, got ${opts.maxMessagesPerChat}`)
+    }
     this.connectionString = opts.connectionString ?? 'postgres://localhost:5432/botwa'
     this.maxMessagesPerChat = opts.maxMessagesPerChat
     const prefix = opts.tablePrefix ?? ''
@@ -202,7 +211,13 @@ export class PostgresStore implements IStore {
 
   /* Messages ---------------------------------------------------------------- */
 
+  /**
+   * Upsert keyed by `messageKey(ref)`. A message without `ref.id` or `chatId`
+   * is ignored, like MemoryStore: providers send `''` when they have no stable
+   * id, and keying those would make them overwrite each other.
+   */
   async saveMessage(msg: StoredMessage): Promise<void> {
+    if (!msg.ref?.id || !msg.chatId) return
     await this.query(
       `INSERT INTO ${this.table('messages')} (id, chat_id, timestamp, msg) VALUES ($1, $2, $3, $4) ON CONFLICT (id) DO UPDATE SET chat_id = EXCLUDED.chat_id, timestamp = EXCLUDED.timestamp, msg = EXCLUDED.msg`,
       [messageKey(msg.ref), msg.chatId, sortKey(msg.timestamp), toJsonb(msg)],
@@ -222,6 +237,7 @@ export class PostgresStore implements IStore {
   }
 
   async getMessage(ref: MessageRef): Promise<StoredMessage | undefined> {
+    if (!ref.id || !ref.chatId) return undefined
     const { rows } = await this.query<{ msg: unknown }>(
       `SELECT msg FROM ${this.table('messages')} WHERE id = $1`,
       [messageKey(ref)],
@@ -231,12 +247,17 @@ export class PostgresStore implements IStore {
   }
 
   async getMessagesByChat(chatId: string, limit = 50): Promise<StoredMessage[]> {
+    // MemoryStore's window for ANY number: non-positive/NaN gives nothing, a
+    // fraction rounds up, Infinity means everything (LIMIT NULL = no limit).
+    // Raw, PostgreSQL rejected a negative LIMIT and a non-integer BIGINT.
+    if (!(limit > 0)) return []
+    const count = Number.isFinite(limit) ? Math.min(Math.ceil(limit), Number.MAX_SAFE_INTEGER) : null
     // Latest `limit` rows, newest first — then reversed to oldest -> newest.
     // Timestamp ties break by id, the same order trimChat keeps, so the window
     // is deterministic and shows exactly the rows a capped store retains.
     const { rows } = await this.query<{ msg: unknown }>(
       `SELECT msg FROM ${this.table('messages')} WHERE chat_id = $1 ORDER BY timestamp DESC, id DESC LIMIT $2`,
-      [chatId, limit],
+      [chatId, count],
     )
     return rows.map((r) => this.asJson<StoredMessage>(r.msg)).reverse()
   }
@@ -384,6 +405,7 @@ export class PostgresStore implements IStore {
   async getUserData(userId: UserId, namespace: string, key: string): Promise<UserDataEntry | undefined> {
     return this.userData.get(userId, namespace, key, Date.now())
   }
+  /** Upsert one entry; rejects with a `TypeError` when `value` is not JSON-serialisable. */
   async setUserData(entry: UserDataEntry): Promise<void> {
     await this.userData.set(entry)
   }
@@ -408,9 +430,22 @@ export class PostgresStore implements IStore {
    */
   async start(): Promise<void> {
     if (this.started) return
-    if (!this.pool) this.pool = new Pool({ connectionString: this.connectionString })
+    if (!this.pool) this.pool = this.createOwnPool()
     for (const stmt of this.schemaStatements()) await this.createSchemaObject(this.pool, stmt)
     this.started = true
+  }
+
+  private createOwnPool(): PostgresPoolLike {
+    const pool = new Pool({ connectionString: this.connectionString })
+    // pg emits 'error' on the pool when an IDLE client loses its connection
+    // (server restart, failover, pg_terminate_backend, network drop). With no
+    // listener that is an uncaught exception that crashed the bot; the pool
+    // already discards the dead client and opens a new one on the next query,
+    // so reporting it is all that is left to do. Guarded for test doubles.
+    if (typeof pool.on === 'function') {
+      pool.on('error', (err: Error) => this.logger?.error?.({ err }, 'PostgresStore idle client error (the pool reconnects on the next query)'))
+    }
+    return pool
   }
 
   /** Run one idempotent DDL statement, retrying a lost catalog race (see CATALOG_RACE_CODES). */

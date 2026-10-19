@@ -64,8 +64,8 @@ await store.start()
 | `connectionString` | `string`            | `postgres://localhost:5432/botwa` | PostgreSQL connection URL. Ignored when `pool` is provided. |
 | `tablePrefix`      | `string`            | `''`                           | Identifier prefix for every table (`'mybot_'` → `mybot_messages`). Plain identifier characters only. |
 | `pool`             | `PostgresPoolLike`  | —                              | Inject an existing `pg` `Pool`-like client (required for tests). The store never creates/ends it. |
-| `maxMessagesPerChat` | `number`          | unbounded                      | Per-chat cap: `saveMessage` prunes the oldest rows (by timestamp) beyond it. |
-| `logger`           | `{ error? }`        | —                              | Receives lifecycle errors (e.g. pool end failure). |
+| `maxMessagesPerChat` | `number`          | unbounded                      | Per-chat cap: `saveMessage` prunes the oldest rows (by timestamp) beyond it. Must be a non-negative integer (else `RangeError`). |
+| `logger`           | `{ error? }`        | —                              | Receives lifecycle errors (e.g. pool end failure) and the connection errors of idle clients of a store-created pool (the pool reconnects on the next query). An injected pool needs its own `pool.on('error', …)`: without one, node-postgres crashes the process when the server drops an idle connection. |
 
 ## Schema
 

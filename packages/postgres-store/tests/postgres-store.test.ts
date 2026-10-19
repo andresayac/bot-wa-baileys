@@ -222,9 +222,28 @@ describe('PostgresStore — lifecycle', () => {
     expect(fake.ended).toBe(false)
   })
 
+  it('reports an idle-client error of its own pool instead of crashing the process', async () => {
+    const error = vi.fn()
+    const store = new PostgresStore({ logger: { error } })
+    await store.start()
+    const pool = (store as unknown as { pool: FakePool }).pool
+    // Without a listener, EventEmitter throws on 'error' (what crashed real bots).
+    expect(() => pool.emit('error', new Error('terminating connection due to administrator command'))).not.toThrow()
+    expect(error).toHaveBeenCalledWith(expect.objectContaining({ err: expect.any(Error) }), expect.stringMatching(/idle client/))
+    await store.stop()
+  })
+
   it('rejects queries before start when no pool was injected', async () => {
     const store = new PostgresStore()
     await expect(store.getChat('x')).rejects.toThrow(/start/)
     await store.stop() // nothing to end — must not throw
+  })
+})
+
+describe('PostgresStore — options validation', () => {
+  it('rejects an invalid maxMessagesPerChat up front (RangeError)', () => {
+    for (const bad of [-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(() => new PostgresStore({ pool: new FakePool(), maxMessagesPerChat: bad })).toThrow(RangeError)
+    }
   })
 })
