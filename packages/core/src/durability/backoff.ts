@@ -1,3 +1,8 @@
+/**
+ * Retry delays of the durability journal: the default capped exponential policy with
+ * jitter, and {@link computeBackoff}, which also accepts a user function policy.
+ */
+
 import type { RetryBackoff } from './types.js'
 
 /** Default retry policy: 1s, 2s, 4s… capped at 60s, ±20% jitter. */

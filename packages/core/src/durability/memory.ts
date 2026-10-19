@@ -1,3 +1,8 @@
+/**
+ * `MemoryDurability`: the in-process journal backend (the default), a `KvDurability`
+ * over a `MemoryKv`.
+ */
+
 import { KvDurability } from './journal.js'
 import { MemoryKv } from './kv.js'
 

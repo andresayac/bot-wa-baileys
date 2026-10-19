@@ -1,4 +1,8 @@
 /**
+ * Per-key FIFO task queue used to serialize the bot's own chat upserts.
+ */
+
+/**
  * KeyedQueue — run async tasks one at a time per key (FIFO), concurrently across keys.
  *
  * The Bot routes its own chat upserts through one of these: every store merges a chat

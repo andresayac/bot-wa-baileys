@@ -1,3 +1,9 @@
+/**
+ * Errors of the durability layer: a stale fencing token on a journal completion, and
+ * the provider-level error of a durable send that missed its inline window and was
+ * left to the outbox sweeper.
+ */
+
 import { ProviderError } from '../core/provider.js'
 
 /**

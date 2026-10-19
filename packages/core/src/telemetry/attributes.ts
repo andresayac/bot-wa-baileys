@@ -1,4 +1,8 @@
 /**
+ * Span names and attribute keys of the tracing hooks.
+ */
+
+/**
  * Every span name and attribute key the core and `@bot-wa/ai` write, in one place (so a
  * rename of the OpenTelemetry semantic conventions is a one-line change). The `gen_ai.*`
  * keys follow the OpenTelemetry GenAI conventions (experimental).

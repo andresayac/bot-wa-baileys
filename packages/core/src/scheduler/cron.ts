@@ -1,4 +1,4 @@
-/* =============================================================================
+/** =============================================================================
  * MINIMAL CRON PARSER — five fields: minute hour day-of-month month weekday.
  * Each field takes '*', a number, a range (1-5), a step (`*` + `/15`, 1-30/5, 5/15) or a
  * comma list of those; weekday 0 and 7 are Sunday. A `*` step counts from the field's
