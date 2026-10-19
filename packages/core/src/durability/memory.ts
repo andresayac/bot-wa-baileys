@@ -11,5 +11,5 @@ import { MemoryKv } from './kv.js'
  * (`@bot-wa/postgres-store`, `@bot-wa/redis-store`) to survive a crash.
  */
 export class MemoryDurability extends KvDurability {
-  constructor() { super(new MemoryKv()) }
+  constructor() { super(new MemoryKv(), { exclusive: true }) }
 }

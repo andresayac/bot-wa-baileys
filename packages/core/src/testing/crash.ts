@@ -29,7 +29,7 @@ import { MockProvider } from './MockProvider.js'
 /** A journal operation, as `'inbox.append'`, `'outbox.markSent'`, … */
 export type JournalOp =
   | `inbox.${'append' | 'claim' | 'claimOne' | 'ack' | 'fail' | 'release' | 'extend' | 'replay' | 'get' | 'list' | 'purge'}`
-  | `outbox.${'put' | 'begin' | 'markSent' | 'markFailed' | 'claimDue' | 'resolveAmbiguous' | 'get' | 'list' | 'retry' | 'discard' | 'purge'}`
+  | `outbox.${'put' | 'begin' | 'extend' | 'markSent' | 'markFailed' | 'claimDue' | 'resolveAmbiguous' | 'get' | 'list' | 'retry' | 'discard' | 'purge'}`
 
 /** A {@link DurabilityBackend} that can be crashed (see {@link crashable}). */
 export interface CrashableBackend extends DurabilityBackend {
@@ -47,22 +47,33 @@ export interface CrashableBackend extends DurabilityBackend {
   crashAfter(op: JournalOp, nth?: number): void
   /** Number of calls of each operation so far. */
   readonly calls: ReadonlyMap<JournalOp, number>
+  /** A crashable view of `inner.scope(name)` sharing this wrapper's crash state and counters. */
+  scope?(name: string): CrashableBackend
 }
 
 const never = <T>(): Promise<T> => new Promise<T>(() => {})
 
+interface CrashState {
+  crashed: boolean
+  onCrash: () => void
+  whenCrashed: Promise<void>
+  calls: Map<JournalOp, number>
+  armed: Array<{ op: JournalOp; nth: number; when: 'before' | 'after' }>
+}
+
 /** Wrap `inner` so it can be crashed at a chosen journal operation. */
 export function crashable(inner: DurabilityBackend): CrashableBackend {
-  let crashed = false
   let onCrash!: () => void
   const whenCrashed = new Promise<void>((r) => { onCrash = r })
-  const calls = new Map<JournalOp, number>()
-  const armed: Array<{ op: JournalOp; nth: number; when: 'before' | 'after' }> = []
+  return crashableView(inner, { crashed: false, onCrash, whenCrashed, calls: new Map(), armed: [] })
+}
 
+function crashableView(inner: DurabilityBackend, state: CrashState): CrashableBackend {
+  const { calls, armed } = state
   const crash = () => {
-    if (crashed) return
-    crashed = true
-    onCrash()
+    if (state.crashed) return
+    state.crashed = true
+    state.onCrash()
   }
 
   function wrap<J extends object>(journal: J, prefix: 'inbox' | 'outbox'): J {
@@ -72,13 +83,13 @@ export function crashable(inner: DurabilityBackend): CrashableBackend {
         if (typeof value !== 'function' || typeof prop !== 'string') return value
         const op = `${prefix}.${prop}` as JournalOp
         return async (...args: unknown[]) => {
-          if (crashed) return never()
+          if (state.crashed) return never()
           const n = (calls.get(op) ?? 0) + 1
           calls.set(op, n)
           const trap = armed.find((a) => a.op === op && a.nth === n)
           if (trap?.when === 'before') { crash(); return never() }
           const result: unknown = await (value as (...a: unknown[]) => unknown).apply(target, args)
-          if (trap?.when === 'after' || crashed) { crash(); return never() }
+          if (trap?.when === 'after' || state.crashed) { crash(); return never() }
           return result
         }
       },
@@ -87,18 +98,21 @@ export function crashable(inner: DurabilityBackend): CrashableBackend {
 
   const inbox = wrap(inner.inbox, 'inbox') as InboxJournal
   const outbox = wrap(inner.outbox, 'outbox') as OutboxJournal
+  const scope = inner.scope
   return {
     inner,
     inbox,
     outbox,
-    get crashed() { return crashed },
-    whenCrashed,
+    ...(inner.exclusive !== undefined ? { exclusive: inner.exclusive } : {}),
+    get crashed() { return state.crashed },
+    whenCrashed: state.whenCrashed,
     crash,
     crashBefore(op, nth = 1) { armed.push({ op, nth, when: 'before' }) },
     crashAfter(op, nth = 1) { armed.push({ op, nth, when: 'after' }) },
     calls,
-    start: async () => { if (!crashed) await inner.start?.() },
-    stop: async () => { if (crashed) return never(); await inner.stop?.() },
+    ...(scope ? { scope: (name: string) => crashableView(scope.call(inner, name), state) } : {}),
+    start: async () => { if (!state.crashed) await inner.start?.() },
+    stop: async () => { if (state.crashed) return never(); await inner.stop?.() },
   }
 }
 

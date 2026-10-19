@@ -82,10 +82,11 @@ function leased<R extends { fencingToken: number; attempts: number }>(r: R, o: L
 
 /** {@link InboxJournal} over a {@link DurableKv}. */
 export class KvInbox implements InboxJournal {
-  constructor(private readonly kv: DurableKv) {}
+  /** @param table The KV table (`'inbox'`, or `'inbox:<scope>'` for a scoped view). */
+  constructor(private readonly kv: DurableKv, private readonly table: DurableTable = 'inbox') {}
 
   private mutate<T>(id: string, fn: (r: InboxRecord | undefined) => Outcome<InboxRecord>): Promise<T> {
-    return mutate<InboxRecord, T>(this.kv, 'inbox', id, inboxIndex, fn)
+    return mutate<InboxRecord, T>(this.kv, this.table, id, inboxIndex, fn)
   }
 
   async append(input: InboxAppend, now: number, lease?: LeaseOptions): Promise<{ status: 'appended' | 'duplicate'; record: InboxRecord }> {
@@ -110,10 +111,10 @@ export class KvInbox implements InboxJournal {
   async claim(o: ClaimOptions): Promise<InboxRecord[]> {
     const reclaimOwn = o.reclaimOwn === true
     const max = reclaimOwn ? Number.POSITIVE_INFINITY : o.now
-    const ids = await this.kv.range('inbox', 'due', max, reclaimOwn ? SCAN_LIMIT : Math.max(o.limit * 4, 64))
+    const ids = await this.kv.range(this.table, 'due', max, reclaimOwn ? SCAN_LIMIT : Math.max(o.limit * 4, 64))
     const candidates: InboxRecord[] = []
     for (const id of ids) {
-      const entry = await this.kv.get('inbox', id)
+      const entry = await this.kv.get(this.table, id)
       if (!entry) continue
       const r = JSON.parse(entry.value) as InboxRecord
       if (!inboxClaimable(r, o.now, o.owner, reclaimOwn)) continue
@@ -171,25 +172,25 @@ export class KvInbox implements InboxJournal {
   }
 
   async get(id: string): Promise<InboxRecord | undefined> {
-    const entry = await this.kv.get('inbox', id)
+    const entry = await this.kv.get(this.table, id)
     return entry ? (JSON.parse(entry.value) as InboxRecord) : undefined
   }
 
   async list(filter: { state?: InboxState; limit?: number } = {}): Promise<InboxRecord[]> {
-    const all = (await readAll<InboxRecord>(this.kv, 'inbox')).filter((r) => !filter.state || r.state === filter.state)
+    const all = (await readAll<InboxRecord>(this.kv, this.table)).filter((r) => !filter.state || r.state === filter.state)
     all.sort((a, b) => a.receivedAt - b.receivedAt || (a.id < b.id ? -1 : 1))
     return filter.limit !== undefined ? all.slice(0, filter.limit) : all
   }
 
   async purge(o: { doneBefore: number; includeDead?: boolean }): Promise<number> {
     let n = 0
-    for (const id of await this.kv.range('inbox', 'done', o.doneBefore, SCAN_LIMIT)) {
-      const entry = await this.kv.get('inbox', id)
+    for (const id of await this.kv.range(this.table, 'done', o.doneBefore, SCAN_LIMIT)) {
+      const entry = await this.kv.get(this.table, id)
       if (!entry) continue
       const r = JSON.parse(entry.value) as InboxRecord
       const terminal = r.state === 'done' || (o.includeDead === true && r.state === 'dead')
       if (!terminal || (r.completedAt ?? 0) >= o.doneBefore) continue
-      if (await this.kv.remove('inbox', id, entry.version)) n++
+      if (await this.kv.remove(this.table, id, entry.version)) n++
     }
     return n
   }
@@ -218,10 +219,11 @@ function outboxClaimable(r: OutboxRecord, now: number, owner: string, reclaimOwn
 
 /** {@link OutboxJournal} over a {@link DurableKv}. */
 export class KvOutbox implements OutboxJournal {
-  constructor(private readonly kv: DurableKv) {}
+  /** @param table The KV table (`'outbox'`, or `'outbox:<scope>'` for a scoped view). */
+  constructor(private readonly kv: DurableKv, private readonly table: DurableTable = 'outbox') {}
 
   private mutate<T>(key: string, fn: (r: OutboxRecord | undefined) => Outcome<OutboxRecord>): Promise<T> {
-    return mutate<OutboxRecord, T>(this.kv, 'outbox', key, outboxIndex, fn)
+    return mutate<OutboxRecord, T>(this.kv, this.table, key, outboxIndex, fn)
   }
 
   put(input: OutboxPut, now: number, lease?: LeaseOptions): Promise<{ status: 'created' | 'exists'; record: OutboxRecord }> {
@@ -232,6 +234,7 @@ export class KvOutbox implements OutboxJournal {
       op: 'send',
       content: input.content,
       ...(input.options !== undefined ? { options: input.options } : {}),
+      ...(input.fingerprint !== undefined ? { fingerprint: input.fingerprint } : {}),
       state: 'pending',
       attempts: 0,
       nextAttemptAt: now,
@@ -262,6 +265,10 @@ export class KvOutbox implements OutboxJournal {
     return this.complete(key, token, (r) => ({ ...clearLease(r), state: 'sent', result: { ref: { ...result.ref } }, sentAt: now, completedAt: now, lastError: undefined }))
   }
 
+  extend(key: string, token: number, leaseUntil: number): Promise<void> {
+    return this.complete(key, token, (r) => ({ ...r, leaseUntil }))
+  }
+
   markFailed(key: string, token: number, error: OutboxError, o: { now: number; retryAt?: number; dead?: boolean }): Promise<void> {
     return this.complete(key, token, (r) => o.dead
       ? { ...clearLease(r), state: 'dead', lastError: error, completedAt: o.now }
@@ -271,10 +278,10 @@ export class KvOutbox implements OutboxJournal {
   async claimDue(o: ClaimOptions): Promise<ClaimedSend[]> {
     const reclaimOwn = o.reclaimOwn === true
     const max = reclaimOwn ? Number.POSITIVE_INFINITY : o.now
-    const ids = await this.kv.range('outbox', 'due', max, reclaimOwn ? SCAN_LIMIT : Math.max(o.limit * 4, 64))
+    const ids = await this.kv.range(this.table, 'due', max, reclaimOwn ? SCAN_LIMIT : Math.max(o.limit * 4, 64))
     const candidates: OutboxRecord[] = []
     for (const id of ids) {
-      const entry = await this.kv.get('outbox', id)
+      const entry = await this.kv.get(this.table, id)
       if (!entry) continue
       const r = JSON.parse(entry.value) as OutboxRecord
       if (!outboxClaimable(r, o.now, o.owner, reclaimOwn)) continue
@@ -302,12 +309,12 @@ export class KvOutbox implements OutboxJournal {
   }
 
   async get(key: string): Promise<OutboxRecord | undefined> {
-    const entry = await this.kv.get('outbox', key)
+    const entry = await this.kv.get(this.table, key)
     return entry ? (JSON.parse(entry.value) as OutboxRecord) : undefined
   }
 
   async list(filter: { state?: OutboxState; chatId?: string; limit?: number } = {}): Promise<OutboxRecord[]> {
-    const all = (await readAll<OutboxRecord>(this.kv, 'outbox'))
+    const all = (await readAll<OutboxRecord>(this.kv, this.table))
       .filter((r) => (!filter.state || r.state === filter.state) && (filter.chatId === undefined || r.chatId === filter.chatId))
     all.sort((a, b) => a.createdAt - b.createdAt || (a.key < b.key ? -1 : 1))
     return filter.limit !== undefined ? all.slice(0, filter.limit) : all
@@ -321,22 +328,30 @@ export class KvOutbox implements OutboxJournal {
 
   async discard(key: string): Promise<void> {
     for (let i = 0; i < MAX_CAS_ATTEMPTS; i++) {
-      const entry = await this.kv.get('outbox', key)
-      if (!entry || await this.kv.remove('outbox', key, entry.version)) return
+      const entry = await this.kv.get(this.table, key)
+      if (!entry || await this.kv.remove(this.table, key, entry.version)) return
     }
   }
 
   async purge(o: { before: number }): Promise<number> {
     let n = 0
-    for (const key of await this.kv.range('outbox', 'done', o.before, SCAN_LIMIT)) {
-      const entry = await this.kv.get('outbox', key)
+    for (const key of await this.kv.range(this.table, 'done', o.before, SCAN_LIMIT)) {
+      const entry = await this.kv.get(this.table, key)
       if (!entry) continue
       const r = JSON.parse(entry.value) as OutboxRecord
       if ((r.state !== 'sent' && r.state !== 'dead' && r.state !== 'unknown') || (r.completedAt ?? 0) >= o.before) continue
-      if (await this.kv.remove('outbox', key, entry.version)) n++
+      if (await this.kv.remove(this.table, key, entry.version)) n++
     }
     return n
   }
+}
+
+/** Options of {@link KvDurability}. */
+export interface KvDurabilityOptions {
+  /** Only one process uses this storage at a time (see `DurabilityBackend.exclusive`). */
+  exclusive?: boolean
+  /** Store the journals in the tables of this scope (see `DurabilityBackend.scope`). */
+  scope?: string
 }
 
 /**
@@ -346,9 +361,22 @@ export class KvOutbox implements OutboxJournal {
 export class KvDurability implements DurabilityBackend {
   readonly inbox: InboxJournal
   readonly outbox: OutboxJournal
-  constructor(readonly kv: DurableKv) {
-    this.inbox = new KvInbox(kv)
-    this.outbox = new KvOutbox(kv)
+  readonly exclusive: boolean
+  /** The scope of this view (`undefined` = the unscoped tables). */
+  readonly scopeName: string | undefined
+  constructor(readonly kv: DurableKv, options: KvDurabilityOptions = {}) {
+    this.exclusive = options.exclusive === true
+    this.scopeName = options.scope
+    const suffix = options.scope === undefined ? '' : `:${options.scope}`
+    this.inbox = new KvInbox(kv, `inbox${suffix}`)
+    this.outbox = new KvOutbox(kv, `outbox${suffix}`)
+  }
+
+  /** A view over the same KV holding only the records of `name` (tables `inbox:<name>` / `outbox:<name>`). */
+  scope(name: string): KvDurability {
+    if (typeof name !== 'string' || name === '') throw new TypeError('KvDurability.scope(): name must be a non-empty string')
+    const scope = this.scopeName === undefined ? name : `${this.scopeName}:${name}`
+    return new KvDurability(this.kv, { exclusive: this.exclusive, scope })
   }
   async start(): Promise<void> { await this.kv.start?.() }
   async stop(): Promise<void> { await this.kv.stop?.() }

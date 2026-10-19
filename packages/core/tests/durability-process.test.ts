@@ -37,10 +37,10 @@ describe.skipIf(!built)('durability across a killed process', () => {
       const runs: string[] = []
       bot.when('hola', async (ctx) => { runs.push(ctx.body); await ctx.reply('uno'); await ctx.reply('dos') })
       await bot.start()
-      await vi.waitFor(async () => expect((await journal.inbox.list())[0]?.state).toBe('done'))
+      await vi.waitFor(async () => expect((await bot.durability!.inbox.list())[0]?.state).toBe('done'))
       expect(runs).toEqual(['hola'])
       expect(provider.outbox.map((m) => (m.content as { text: string }).text)).toEqual(['dos'])
-      expect((await journal.outbox.list()).map((r) => r.state)).toEqual(['sent', 'sent'])
+      expect((await bot.durability!.outbox.list()).map((r) => r.state)).toEqual(['sent', 'sent'])
       await bot.stop()
       await journal.close()
     } finally {

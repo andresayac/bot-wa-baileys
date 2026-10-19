@@ -74,7 +74,7 @@ async function acquireLock(lockPath: string): Promise<void> {
 
 /** {@link DurabilityBackend} persisted to a JSON file (single process). */
 export class FileDurability extends KvDurability {
-  private constructor(kv: FileKv, private readonly lockPath: string | undefined) { super(kv) }
+  private constructor(kv: FileKv, private readonly lockPath: string | undefined) { super(kv, { exclusive: true }) }
 
   /**
    * Open (or create) the journal at `filePath`.

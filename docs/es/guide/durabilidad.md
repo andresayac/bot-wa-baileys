@@ -41,12 +41,19 @@ código que antes, en memoria y en un solo proceso.
 | --- | --- | --- | --- |
 | `MemoryDurability` (el de `durability: {}`) | `@bot-wa/core` | No (solo reintentos, backoff y DLQ) | No |
 | `FileDurability.open(ruta)` | `@bot-wa/core` | Sí | No (un archivo de lock rechaza un segundo proceso vivo) |
-| `PostgresDurability({ pool \| connectionString, tablePrefix })` | `@bot-wa/postgres-store` | Sí | Sí |
-| `RedisDurability({ client \| url, prefix })` | `@bot-wa/redis-store` | Sí (con la persistencia de Redis activada) | Sí |
+| `PostgresDurability({ pool \| connectionString, tablePrefix })` | `@bot-wa/postgres-store` | Sí | Sí, con enrutado fijo por chat (ver *Varias réplicas*) |
+| `RedisDurability({ client \| url, prefix })` | `@bot-wa/redis-store` | Sí (con la persistencia de Redis activada) | Sí, con enrutado fijo por chat (ver *Varias réplicas*) |
 
 PostgreSQL crea una tabla, `{tablePrefix}durable`, de forma idempotente al
-arrancar. Redis usa claves bajo `{prefix}:{durable:inbox}` y
-`{prefix}:{durable:outbox}`. Ninguno toca las tablas ni las claves del store.
+arrancar. Redis usa claves bajo `{prefix}:{durable:inbox:<scope>}` y
+`{prefix}:{durable:outbox:<scope>}`. Ninguno toca las tablas ni las claves del store.
+
+**Varios bots pueden compartir un backend.** Cada bot trabaja en su propia vista del
+backend, acotada por su namespace (`tenantId`, `environmentId`, `botId`,
+`connectionId`; `bot.durability.scope` es el id derivado). Un bot solo toma, reprocesa
+y deduplica sus propios registros, y las claves de idempotencia explícitas son por
+bot: dos bots que encolan `recordatorio:1` envían cada uno el suyo. Un backend propio
+sin `scope()` no debe compartirse entre bots.
 Todos los backends pasan la misma suite de conformidad
 (`test-utils/durability-conformance.ts`), y puedes escribir el tuyo implementando la
 pequeña interfaz `DurableKv` (compare-and-set con versión más dos índices
@@ -70,6 +77,8 @@ anotara.
 | entre "voy a llamar al provider" y anotar "enviado" | **Ambiguo.** `onAmbiguous: 'skip'` (por defecto) marca el envío como `unknown`: nunca se duplica, puede perderse. `'resend'` lo envía otra vez: nunca se pierde, puede duplicarse. En ambos casos se emite `'durability:ambiguous'`. |
 | después de anotar el envío, antes de confirmar el mensaje entrante | El mensaje se reprocesa; todas las respuestas se responden desde el outbox. |
 | mientras un flow persistente espera una respuesta | El flow sigue desde su checkpoint. La pregunta pendiente no se repite y el siguiente mensaje se toma como su respuesta. |
+| mientras un flow **no persistente** espera una respuesta | La conversación se perdió (vivía en memoria). La respuesta reprocesada pasa por el enrutado normal como un mensaje nuevo, y su respuesta se envía (ver `onDiverged` más abajo). Los flows que deban sobrevivir a un reinicio tienen que ser `.persistent()`. |
+| en cada ejecución del mismo mensaje (tumba el proceso) | El mensaje se reprocesa hasta que se cobran `inbox.maxAttempts` ejecuciones sin terminar; después va a la DLQ (`'durability:dead'`) en vez de tumbar otra vez el siguiente arranque. |
 
 Los handlers son **al menos una vez**: un mensaje reprocesado vuelve a ejecutar su
 handler y solo se deduplican sus envíos. Haz idempotentes los demás efectos (un
@@ -93,6 +102,17 @@ reproceso hace otro número de envíos, o los hace en otro orden, las claves dej
 cuadrar: salen envíos de más y los que desaparecieron no se reconocen. Para envíos
 cuyo orden depende del tiempo (`bot.broadcast` con `concurrency > 1`, un
 `Promise.all` de respuestas) pasa claves explícitas.
+
+El outbox guarda además una huella de cada envío (chat + contenido, antes de los
+hooks `before('send')`). Cuando un reproceso produce **otro contenido** bajo una clave
+de la regla 2, el handler tomó otro camino (un flow no persistente perdido en la
+caída, una condición que cambió). `outbox.onDiverged` decide: `'send'` (por defecto)
+envía el contenido nuevo con una clave nueva, para que ninguna respuesta se trague en
+silencio; `'skip'` lo responde desde el envío anotado, como antes. En ambos casos lo
+cuenta `metrics().outboxDiverged` y se registra un aviso. Elige `'skip'` cuando las
+respuestas no son deterministas (texto generado por IA) y una segunda respuesta
+distinta sería peor que ninguna. Las claves explícitas nunca se comparan: la clave que
+pasas nombra el envío.
 
 El provider nunca ve `idempotencyKey`: el core la quita antes de llamar al provider.
 
@@ -139,18 +159,25 @@ await d.retrySend(key)                         // enviarlo otra vez (dead, faile
 await d.outbox.discard(key)                    // olvidarlo
 d.metrics()  // { inboundJournaled, inboundDuplicates, inboundReplayed, inboundDead,
              //   outboxJournaled, outboxDeduped, outboxRetried, outboxDeferred,
-             //   outboxDead, outboxAmbiguous, outboxBypassed, staleLeases }
+             //   outboxDead, outboxAmbiguous, outboxBypassed, staleLeases, outboxDiverged }
 ```
 
 - **Leases y fencing.** Un registro en proceso se presta a `instanceId` durante
-  `inbox.leaseMs` (60 s por defecto), y un latido extiende el préstamo mientras
-  corre. Si el préstamo vence, otra réplica, o esta misma tras reiniciar, toma el
-  registro con un nuevo token de fencing. Entonces se rechaza la confirmación del
-  dueño anterior y se cuenta en `staleLeases`.
+  `inbox.leaseMs` (60 s por defecto), y un envío en curso durante `outbox.leaseMs`
+  (60 s por defecto). Un latido extiende ambos mientras corren el handler o la llamada
+  al provider, así que una subida lenta nunca se toma por un envío abandonado. Si un
+  préstamo vence (el proceso murió o se congeló), otra réplica, o esta misma tras
+  reiniciar, toma el registro con un nuevo token de fencing. Entonces se rechaza la
+  confirmación del dueño anterior y se cuenta en `staleLeases`.
 - **`instanceId`.** Mantenlo estable entre reinicios de un despliegue, para que un
   proceso reiniciado recupere enseguida sus registros sin terminar en vez de esperar
-  a que venzan sus préstamos. Hazlo único por réplica que corra a la vez. Por
-  defecto es `<hostname>/<botId>/<connectionId>`.
+  a que venzan sus préstamos. Hazlo único por réplica que corra a la vez (el nombre
+  del pod de un StatefulSet, por ejemplo): dos procesos vivos con el mismo id se
+  quitarían los préstamos. En un backend de un solo proceso (memoria, archivo) el valor
+  por defecto es `<hostname>/<botId>/<connectionId>`. En un backend compartido
+  (Postgres, Redis) se le añade un sufijo por arranque, para que dos procesos del mismo
+  host nunca lo compartan; entonces un reinicio espera a que venzan los préstamos
+  anteriores. Fíjalo explícitamente para evitar esa espera.
 - **Retención.** Los registros `done` y `sent` se purgan tras `retention` (por
   defecto `7d`). Mantenla más larga que la ventana de reentrega más larga de tus
   canales, porque una reentrega solo se reconoce mientras su registro existe.
@@ -168,6 +195,23 @@ d.metrics()  // { inboundJournaled, inboundDuplicates, inboundReplayed, inboundD
   `ctx.media` no esté disponible en un reproceso.
 - **Ediciones, borradores e indicadores de escritura** no se anotan. Las ediciones
   son idempotentes, y los borradores y los indicadores son pasajeros.
+
+## Varias réplicas
+
+Los journals se pueden compartir sin riesgo: dos réplicas nunca toman el mismo
+registro y un dueño caducado no puede completarlo. El resto del bot sigue siendo por
+proceso: las conversaciones activas, su `ask` pendiente y la cola por chat viven en la
+memoria de la réplica que las ejecuta. Por eso:
+
+- **Envía cada chat a una sola réplica a la vez** (enrutado fijo por id de chat en el
+  balanceador, o reparte los chats entre réplicas). Si dos réplicas reciben mensajes
+  del mismo chat, la respuesta a un `ask` que una réplica tiene pendiente llega a la
+  otra como un mensaje nuevo.
+- **La conmutación va por préstamos.** Cuando una réplica muere o se congela, otra toma
+  sus registros sin terminar en cuanto vencen sus préstamos (`inbox.leaseMs`) y los
+  reprocesa. Una réplica viva conserva sus préstamos gracias al latido, tarde lo que
+  tarde su handler.
+- Da a cada réplica su propio `instanceId` explícito.
 
 ## Probar la recuperación ante caídas
 

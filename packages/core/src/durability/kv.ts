@@ -9,8 +9,12 @@
  * `@bot-wa/redis-store` (compare-and-set script + sorted sets).
  */
 
-/** The two journals a backend stores. */
-export type DurableTable = 'inbox' | 'outbox'
+/**
+ * A journal table: `'inbox'` / `'outbox'`, or a scoped one (`'inbox:<scope>'`, see
+ * `DurabilityBackend.scope`). A backend stores any table name as an opaque string and
+ * keeps tables fully separate (ids, indexes, ranges).
+ */
+export type DurableTable = string
 
 /** A stored document and its opaque version (changes on every write). */
 export interface DurableKvEntry {
@@ -59,20 +63,26 @@ interface MemoryRow {
 /** Serializable state of a {@link MemoryKv} (the file backend's snapshot). */
 export interface MemoryKvSnapshot {
   version: 1
-  tables: Record<DurableTable, Array<[id: string, value: string, version: number, due: number | null, done: number | null]>>
+  tables: Record<string, Array<[id: string, value: string, version: number, due: number | null, done: number | null]>>
 }
 
 /** In-process {@link DurableKv}: the reference implementation. */
 export class MemoryKv implements DurableKv {
-  private readonly tables: Record<DurableTable, Map<string, MemoryRow>> = { inbox: new Map(), outbox: new Map() }
+  private tables = new Map<DurableTable, Map<string, MemoryRow>>()
+
+  private rowsOf(table: DurableTable): Map<string, MemoryRow> {
+    let rows = this.tables.get(table)
+    if (!rows) { rows = new Map(); this.tables.set(table, rows) }
+    return rows
+  }
 
   async get(table: DurableTable, id: string): Promise<DurableKvEntry | undefined> {
-    const row = this.tables[table].get(id)
+    const row = this.rowsOf(table).get(id)
     return row ? { value: row.value, version: String(row.version) } : undefined
   }
 
   async insert(table: DurableTable, id: string, value: string, index: DurableKvIndex): Promise<string | undefined> {
-    const rows = this.tables[table]
+    const rows = this.rowsOf(table)
     if (rows.has(id)) return undefined
     rows.set(id, { value, version: 1, index: { ...index } })
     await this.changed()
@@ -80,7 +90,7 @@ export class MemoryKv implements DurableKv {
   }
 
   async replace(table: DurableTable, id: string, version: string, value: string, index: DurableKvIndex): Promise<string | undefined> {
-    const row = this.tables[table].get(id)
+    const row = this.rowsOf(table).get(id)
     if (!row || String(row.version) !== version) return undefined
     row.value = value
     row.version += 1
@@ -90,7 +100,7 @@ export class MemoryKv implements DurableKv {
   }
 
   async remove(table: DurableTable, id: string, version: string): Promise<boolean> {
-    const rows = this.tables[table]
+    const rows = this.rowsOf(table)
     const row = rows.get(id)
     if (!row || String(row.version) !== version) return false
     rows.delete(id)
@@ -100,7 +110,7 @@ export class MemoryKv implements DurableKv {
 
   async range(table: DurableTable, index: keyof DurableKvIndex, max: number, limit: number): Promise<string[]> {
     const hits: Array<[string, number]> = []
-    for (const [id, row] of this.tables[table]) {
+    for (const [id, row] of this.rowsOf(table)) {
       const score = row.index[index]
       if (score !== null && score <= max) hits.push([id, score])
     }
@@ -110,8 +120,11 @@ export class MemoryKv implements DurableKv {
 
   /** Copy of the whole state. */
   snapshot(): MemoryKvSnapshot {
-    const dump = (t: DurableTable) => [...this.tables[t]].map(([id, r]) => [id, r.value, r.version, r.index.due, r.index.done] as [string, string, number, number | null, number | null])
-    return { version: 1, tables: { inbox: dump('inbox'), outbox: dump('outbox') } }
+    const tables: MemoryKvSnapshot['tables'] = {}
+    for (const [t, rows] of this.tables) {
+      tables[t] = [...rows].map(([id, r]) => [id, r.value, r.version, r.index.due, r.index.done] as [string, string, number, number | null, number | null])
+    }
+    return { version: 1, tables }
   }
 
   /** Replace the whole state with `snapshot`. @throws {Error} on an invalid snapshot. */
@@ -119,11 +132,14 @@ export class MemoryKv implements DurableKv {
     if (snapshot?.version !== 1 || typeof snapshot.tables !== 'object' || snapshot.tables === null) {
       throw new Error('invalid durability snapshot')
     }
-    for (const t of ['inbox', 'outbox'] as const) {
+    const tables = new Map<DurableTable, Map<string, MemoryRow>>()
+    for (const [t, dump] of Object.entries(snapshot.tables)) {
+      if (!Array.isArray(dump)) throw new Error('invalid durability snapshot')
       const rows = new Map<string, MemoryRow>()
-      for (const [id, value, version, due, done] of snapshot.tables[t] ?? []) rows.set(id, { value, version, index: { due, done } })
-      this.tables[t] = rows
+      for (const [id, value, version, due, done] of dump) rows.set(id, { value, version, index: { due, done } })
+      tables.set(t, rows)
     }
+    this.tables = tables
   }
 
   /** Called after every committed write (the file backend persists here). */

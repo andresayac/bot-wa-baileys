@@ -173,6 +173,11 @@ export interface OutboxRecord {
   fencingToken: number
   /** The provider's message ref, written by the same operation that sets `sent`. */
   result?: { ref: MessageRef }
+  /**
+   * Hash of the chat + encoded content the record was journaled with (before `before('send')`
+   * hooks). A replay whose derived key matches but whose content differs is a new send.
+   */
+  fingerprint?: string
   createdAt: number
   sentAt?: number
   /** When the record reached a terminal state (`sent`, `dead`, `unknown`). */
@@ -184,6 +189,7 @@ export interface OutboxRecord {
 export type OutboxPut = Pick<OutboxRecord, 'key' | 'chatId' | 'content' | 'createdAt'> & {
   causationId?: string
   options?: JsonValue
+  fingerprint?: string
 }
 
 /** A record returned by {@link OutboxJournal.claimDue}. */
@@ -207,6 +213,8 @@ export interface OutboxJournal {
   begin(key: string, options: LeaseOptions): Promise<OutboxRecord | null>
   /** `sending` → `sent` with the provider ref. @throws {StaleLeaseError} */
   markSent(key: string, token: number, result: { ref: MessageRef }, now: number): Promise<void>
+  /** Extend the lease of a `sending` record (heartbeat while the provider call runs). @throws {StaleLeaseError} */
+  extend(key: string, token: number, leaseUntil: number): Promise<void>
   /** `sending` → `failed` (due at `retryAt`) or `dead`. @throws {StaleLeaseError} */
   markFailed(key: string, token: number, error: OutboxError, options: { now: number; retryAt?: number; dead?: boolean }): Promise<void>
   /**
@@ -236,6 +244,18 @@ export interface OutboxJournal {
 export interface DurabilityBackend {
   readonly inbox: InboxJournal
   readonly outbox: OutboxJournal
+  /**
+   * `true` when only one process can use the backend at a time (memory, file). A restarted
+   * process then knows every lease of its `instanceId` is its own dead incarnation's.
+   */
+  readonly exclusive?: boolean
+  /**
+   * A view of the same storage holding only the records of `name`. The bot opens the view
+   * of its namespace (tenant, environment, bot, connection), so several bots can share one
+   * backend: each claims, replays and deduplicates only its own records, and explicit
+   * idempotency keys are per bot. A backend without `scope` must not be shared between bots.
+   */
+  scope?(name: string): DurabilityBackend
   /** Called by `bot.start()` before anything is replayed. */
   start?(): Promise<void>
   /** Called by `bot.stop()` after the provider stopped. */
@@ -255,8 +275,13 @@ export interface DurabilityConfig {
   journal?: DurabilityBackend
   /**
    * Lease owner of this process. Keep it STABLE across restarts of the same deployment
-   * (a restarted process then reclaims its own in-flight records at once) and UNIQUE per
-   * concurrently running replica. Default: `<hostname>/<botId>/<connectionId>`.
+   * (a restarted process then reclaims its own in-flight records at once, without waiting
+   * for their leases to expire) and UNIQUE per concurrently running replica (two live
+   * processes with one id would take each other's leases).
+   *
+   * Default: `<hostname>/<botId>/<connectionId>` on a single-process backend (memory, file);
+   * on a shared backend (Postgres, Redis) that id plus a per-boot suffix, so two processes
+   * on one host never share it — a restart then waits for the old leases to expire.
    */
   instanceId?: string
   /**
@@ -291,8 +316,16 @@ export interface DurabilityConfig {
     onAmbiguous?: 'skip' | 'resend'
     /** Encoded payloads above this size bypass the outbox (sent directly, with a warning). Default 1 MiB. */
     maxPayloadBytes?: number
-    /** Lease of a send in flight. Default `60_000` ms. */
+    /** Lease of a send in flight (heartbeat-extended while the provider call runs). Default `60_000` ms. */
     leaseMs?: number | string
+    /**
+     * A replayed handler whose n-th send differs from the one recorded under the same derived
+     * key (`<inboundId>:<n>`) took another path (e.g. a non-persistent flow lost on a crash):
+     * `'send'` (default) sends the new content under a new key — never a lost reply;
+     * `'skip'` answers it with the recorded ref, as if it were the same send. Explicit
+     * `idempotencyKey`s are never compared: the caller names the send.
+     */
+    onDiverged?: 'send' | 'skip'
   }
   /** Background sweeper period (retries, expired leases). Default `1000` ms. */
   pollMs?: number | string

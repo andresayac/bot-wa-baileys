@@ -39,6 +39,17 @@ export function runDurableKvConformance(name: string, harness: DurableKvHarness)
       expect(await kv.get('outbox', 'a')).toBeUndefined() // tables are separate
     })
 
+    it('any table name is a separate table (scoped journals)', async () => {
+      await kv.insert('inbox', 'a', '"plain"', idx(1))
+      await kv.insert('inbox:s1', 'a', '"s1"', idx(2))
+      await kv.insert('inbox:s2', 'b', '"s2"', idx(3))
+      expect((await kv.get('inbox:s1', 'a'))?.value).toBe('"s1"')
+      expect(await kv.get('inbox:s2', 'a')).toBeUndefined()
+      expect(await kv.range('inbox:s1', 'due', Number.POSITIVE_INFINITY, 10)).toEqual(['a'])
+      expect(await kv.range('inbox:s2', 'due', Number.POSITIVE_INFINITY, 10)).toEqual(['b'])
+      expect(await kv.range('inbox', 'due', Number.POSITIVE_INFINITY, 10)).toEqual(['a'])
+    })
+
     it('replace is a compare-and-set on the version', async () => {
       const v1 = (await kv.insert('outbox', 'k', '"one"', idx(1)))!
       const v2 = await kv.replace('outbox', 'k', v1, '"two"', idx(2))
@@ -296,6 +307,49 @@ export function runDurabilityConformance(name: string, harness: DurabilityHarnes
       expect(new Set(keys).size).toBe(20)
       const begins = await Promise.all(Array.from({ length: 5 }, (_, w) => backend.outbox.begin('k0', { owner: `x${w}`, leaseMs: 1_000, now: T0 })))
       expect(begins.filter(Boolean)).toHaveLength(0) // all already sending
+    })
+
+    it('extend moves the lease of a `sending` record, under its current token only', async () => {
+      const r = (await backend.outbox.put(put('k1'), T0, { ...LEASE, now: T0 })).record
+      await backend.outbox.extend('k1', r.fencingToken, T0 + 5_000)
+      expect((await backend.outbox.get('k1'))?.leaseUntil).toBe(T0 + 5_000)
+      // still leased past the original expiry: not ambiguous for another claimer
+      expect(await backend.outbox.claimDue({ owner: 'w2', leaseMs: 1_000, now: T0 + 2_000, limit: 10 })).toEqual([])
+      await expect(backend.outbox.extend('k1', r.fencingToken + 1, T0 + 9_000)).rejects.toMatchObject({ name: 'StaleLeaseError' })
+      await backend.outbox.markSent('k1', r.fencingToken, { ref: { id: 'm1', chatId: 'c1' } }, T0 + 1)
+      await expect(backend.outbox.extend('k1', r.fencingToken, T0 + 9_000)).rejects.toMatchObject({ name: 'StaleLeaseError' })
+    })
+
+    it('put keeps the fingerprint', async () => {
+      const a = await backend.outbox.put({ ...put('k1'), fingerprint: 'abc' }, T0)
+      expect(a.record.fingerprint).toBe('abc')
+      expect((await backend.outbox.get('k1'))?.fingerprint).toBe('abc')
+    })
+  })
+
+  describe(`${name} — scoped views`, () => {
+    let backend: DurabilityBackend
+    let teardown: () => Promise<void>
+    beforeEach(async () => { ({ backend, teardown } = await harness.make()) })
+    afterEach(async () => { await teardown() })
+
+    const put = (key: string, content: string) => ({ key, chatId: 'c1', content, createdAt: T0 })
+
+    it('share the storage but never each other’s records, claims or keys', async () => {
+      expect(typeof backend.scope).toBe('function')
+      const a = backend.scope!('bot-a')
+      const b = backend.scope!('bot-b')
+      await a.inbox.append(msg('e1'), T0)
+      expect((await a.outbox.put(put('reminder:1', 'a'), T0)).status).toBe('created')
+      expect((await b.outbox.put(put('reminder:1', 'b'), T0)).status).toBe('created') // keys are per scope
+      expect(await b.inbox.get('e1')).toBeUndefined()
+      expect(await b.inbox.claim({ ...LEASE, now: T0 + 10, limit: 10, reclaimOwn: true })).toEqual([])
+      expect((await b.outbox.claimDue({ ...LEASE, now: T0 + 10, limit: 10 })).map((c) => c.record.content)).toEqual(['b'])
+      expect(await backend.inbox.list()).toEqual([]) // the unscoped tables are separate too
+      expect(await backend.outbox.list()).toEqual([])
+      // the same scope name opens the same records (another process of the same bot)
+      expect(await backend.scope!('bot-a').inbox.get('e1')).toMatchObject({ id: 'e1', state: 'pending' })
+      expect((await backend.scope!('bot-a').outbox.get('reminder:1'))?.content).toBe('a')
     })
   })
 }

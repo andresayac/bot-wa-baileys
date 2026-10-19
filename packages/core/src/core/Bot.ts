@@ -606,7 +606,7 @@ export class Bot extends EventEmitter {
     // Durability: an idempotency key already sent is answered from the outbox (no hooks, no provider call).
     const durable = this.durable?.prepareSend(options)
     if (durable) {
-      const prior = await durable.prior()
+      const prior = await durable.prior(chatId, content)
       if (prior) return prior
       options = durable.options
     }

@@ -40,12 +40,19 @@ before, in memory and in a single process.
 | --- | --- | --- | --- |
 | `MemoryDurability` (the default with `durability: {}`) | `@bot-wa/core` | No (retries, backoff and DLQ only) | No |
 | `FileDurability.open(path)` | `@bot-wa/core` | Yes | No (a lock file refuses a second live process) |
-| `PostgresDurability({ pool \| connectionString, tablePrefix })` | `@bot-wa/postgres-store` | Yes | Yes |
-| `RedisDurability({ client \| url, prefix })` | `@bot-wa/redis-store` | Yes (with Redis persistence on) | Yes |
+| `PostgresDurability({ pool \| connectionString, tablePrefix })` | `@bot-wa/postgres-store` | Yes | Yes, with sticky per-chat routing (see [Several replicas](#several-replicas)) |
+| `RedisDurability({ client \| url, prefix })` | `@bot-wa/redis-store` | Yes (with Redis persistence on) | Yes, with sticky per-chat routing (see [Several replicas](#several-replicas)) |
 
 PostgreSQL creates one table, `{tablePrefix}durable`, idempotently on start.
-Redis uses keys under `{prefix}:{durable:inbox}` and `{prefix}:{durable:outbox}`.
-Neither touches the store's own tables or keys. Every backend passes the same
+Redis uses keys under `{prefix}:{durable:inbox:<scope>}` and `{prefix}:{durable:outbox:<scope>}`.
+Neither touches the store's own tables or keys.
+
+**Several bots can share one backend.** Each bot works in its own view of the
+backend, scoped by its namespace (`tenantId`, `environmentId`, `botId`,
+`connectionId`; `bot.durability.scope` is the derived id). A bot claims, replays and
+deduplicates only its own records, and explicit idempotency keys are per bot: two bots
+enqueueing `reminder:1` each send their own. A custom backend that has no `scope()`
+must not be shared between bots. Every backend passes the same
 conformance suite (`test-utils/durability-conformance.ts`), and you can write your
 own by implementing the small `DurableKv` interface (versioned compare-and-set plus
 two sorted indexes) and wrapping it in `KvDurability`.
@@ -66,6 +73,8 @@ dies after the provider accepted a message but before the outbox recorded it.
 | between "about to call the provider" and "sent" being recorded | **Ambiguous.** `onAmbiguous: 'skip'` (default) marks the send `unknown`: never a duplicate, possibly lost. `'resend'` sends it again: never lost, possibly a duplicate. Either way `'durability:ambiguous'` fires. |
 | after the send is recorded, before the inbound is acknowledged | The message is replayed; every reply is answered from the outbox. |
 | while a persistent flow waits for an answer | The flow resumes from its checkpoint. The pending question is not repeated and the next message is taken as its answer. |
+| while a **non-persistent** flow waits for an answer | The conversation is gone (it lived in memory). The replayed answer goes through the normal routing as a new message, and its reply is sent (see `onDiverged` below). Make flows that must survive a restart `.persistent()`. |
+| on every run of the same message (it crashes the process) | The message is replayed until `inbox.maxAttempts` runs were charged without completing, then dead-lettered (`'durability:dead'`) instead of crashing the next start again. |
 
 Handlers are **at least once**: a replayed message runs its handler again, and only
 its sends are deduplicated. Keep other side effects idempotent (an upsert, a
@@ -87,6 +96,16 @@ replay makes a different number of sends, or sends them in another order, the ke
 no longer line up: extra sends go out, and sends that disappeared are not
 recognised. For sends whose order depends on timing (`bot.broadcast` with
 `concurrency > 1`, `Promise.all` of replies) pass explicit keys.
+
+The outbox also stores a fingerprint of each send (chat + content, before the
+`before('send')` hooks). When a replay produces **different content** under a key of
+rule 2, the handler took another path (a non-persistent flow lost on the crash, a
+condition that changed). `outbox.onDiverged` decides: `'send'` (default) sends the new
+content under a new key, so no reply is silently swallowed; `'skip'` answers it from the
+recorded send, as before. Either way `metrics().outboxDiverged` counts it and a warning
+is logged. Choose `'skip'` when replies are not deterministic (AI-generated text) and a
+second, different answer would be worse than none. Explicit keys are never compared:
+the key you pass names the send.
 
 The provider never sees `idempotencyKey`: core strips it before calling the provider.
 
@@ -133,18 +152,24 @@ await d.retrySend(key)                         // send it again (dead, failed or
 await d.outbox.discard(key)                    // forget it
 d.metrics()  // { inboundJournaled, inboundDuplicates, inboundReplayed, inboundDead,
              //   outboxJournaled, outboxDeduped, outboxRetried, outboxDeferred,
-             //   outboxDead, outboxAmbiguous, outboxBypassed, staleLeases }
+             //   outboxDead, outboxAmbiguous, outboxBypassed, staleLeases, outboxDiverged }
 ```
 
 - **Leases and fencing.** A record being processed is leased to `instanceId` for
-  `inbox.leaseMs` (default 60 s), and a heartbeat extends the lease while it runs. If
-  the lease expires, another replica, or this one after a restart, claims the record
+  `inbox.leaseMs` (default 60 s), and a send in flight for `outbox.leaseMs` (default
+  60 s). A heartbeat extends both while the handler or the provider call runs, so a
+  slow upload is never taken for an abandoned send. If a lease expires (the process
+  died or froze), another replica, or this one after a restart, claims the record
   under a new fencing token. The old holder's completion is then rejected and
   counted in `staleLeases`.
 - **`instanceId`.** Keep it stable across restarts of one deployment, so a restarted
   process reclaims its own unfinished records at once instead of waiting for their
-  leases to expire. Make it unique per replica that runs at the same time. The
-  default is `<hostname>/<botId>/<connectionId>`.
+  leases to expire. Make it unique per replica that runs at the same time (a pod name
+  of a StatefulSet, for example): two live processes with one id would take each
+  other's leases. On a single-process backend (memory, file) the default is
+  `<hostname>/<botId>/<connectionId>`. On a shared backend (Postgres, Redis) the
+  default adds a per-boot suffix, so two processes on one host never share it; a
+  restart then waits for the old leases to expire. Set it explicitly to skip that wait.
 - **Retention.** `done` and `sent` records are purged after `retention` (default
   `7d`). Keep it longer than the longest redelivery window of your channels, because
   a redelivery is only recognised while its record still exists.
@@ -161,6 +186,23 @@ d.metrics()  // { inboundJournaled, inboundDuplicates, inboundReplayed, inboundD
   that depend on media should cope with `ctx.media` being unavailable on a replay.
 - **Edits, drafts and typing indicators** are not journaled. Edits are idempotent,
   and drafts and indicators are transient.
+
+## Several replicas
+
+The journals are safe to share: two replicas never both claim a record, and a stale
+holder cannot complete one. The rest of the bot is still per process: active
+conversations, their pending `ask`, and the per-chat queue live in the memory of the
+replica that runs them. So:
+
+- **Route each chat to one replica at a time** (sticky routing by chat id at the load
+  balancer, or partition chats between replicas). If two replicas receive messages of
+  the same chat, the answer to an `ask` that one replica is holding arrives at the other
+  as a new message.
+- **Failover is by lease.** When a replica dies or freezes, its unfinished records are
+  claimed by another replica once their leases expire (`inbox.leaseMs`), and replayed
+  there. A replica that is alive keeps its leases through the heartbeat, however long
+  its handler takes.
+- Give every replica its own explicit `instanceId`.
 
 ## Testing crash recovery
 

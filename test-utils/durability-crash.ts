@@ -24,7 +24,7 @@ interface JournalLike {
   inbox: { list(f?: { state?: string }): Promise<Array<{ id: string; state: string }>> }
   outbox: { list(f?: { state?: string }): Promise<Array<{ key: string; state: string; content: unknown }>> }
 }
-type Backend = JournalLike & { start?(): Promise<void>; stop?(): Promise<void> }
+type Backend = JournalLike & { start?(): Promise<void>; stop?(): Promise<void>; scope?(name: string): Backend }
 interface CrashableLike extends Backend {
   readonly crashed: boolean
   readonly whenCrashed: Promise<void>
@@ -43,6 +43,7 @@ interface BotLike {
   stop(): Promise<void>
   on(event: string, fn: (p: never) => void): unknown
   when(trigger: string, handler: unknown): unknown
+  readonly durability?: { readonly scope?: string }
 }
 
 export interface CrashMatrixDeps {
@@ -145,13 +146,16 @@ export async function runCrashScenario(
   const botA = new deps.Bot({ provider: pa, store, logger: silentLogger(), durability: durability(a) })
   define(botA, true)
   await botA.start()
+  // The bot keeps its records in its namespace's view of the backend.
+  const scope = botA.durability?.scope
+  const view = scope !== undefined && shared.scope ? shared.scope(scope) : shared
 
   // Drive A one message at a time until it dies.
   let inFlight = -1
   for (let i = 0; i < SCRIPT.length; i++) {
     const [body, id] = SCRIPT[i]
     pa.incoming(body, { from: CHAT, id })
-    const done = until(async () => a.crashed || (await shared.inbox.list({ state: 'done' })).length >= i + 1, `A to process ${id}`)
+    const done = until(async () => a.crashed || (await view.inbox.list({ state: 'done' })).length >= i + 1, `A to process ${id}`)
     await Promise.race([done, a.whenCrashed])
     if (a.crashed) { inFlight = i; break }
   }
@@ -163,22 +167,22 @@ export async function runCrashScenario(
   define(botB, false)
   await botB.start()
   const settledAll = async () => {
-    const open = (await shared.inbox.list()).filter((r) => r.state !== 'done')
-    const sending = (await shared.outbox.list()).filter((r) => r.state === 'pending' || r.state === 'sending' || r.state === 'failed')
+    const open = (await view.inbox.list()).filter((r) => r.state !== 'done')
+    const sending = (await view.outbox.list()).filter((r) => r.state === 'pending' || r.state === 'sending' || r.state === 'failed')
     return open.length === 0 && sending.length === 0
   }
   for (let i = inFlight; i < SCRIPT.length; i++) {
     const [body, id] = SCRIPT[i]
     pb.incoming(body, { from: CHAT, id })
-    await until(async () => (await shared.inbox.list({ state: 'done' })).length >= i + 1 && await settledAll(), `B to process ${id}`)
+    await until(async () => (await view.inbox.list({ state: 'done' })).length >= i + 1 && await settledAll(), `B to process ${id}`)
   }
   await new Promise((r) => setTimeout(r, 30)) // let any stray duplicate surface
 
   const result = {
     delivered: [...textsOf(pa), ...textsOf(pb)],
     ambiguous,
-    inboxStates: (await shared.inbox.list()).map((r) => r.state),
-    outboxStates: (await shared.outbox.list()).map((r) => r.state),
+    inboxStates: (await view.inbox.list()).map((r) => r.state),
+    outboxStates: (await view.outbox.list()).map((r) => r.state),
   }
   await botB.stop()
   await teardown()

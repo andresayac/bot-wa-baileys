@@ -64,6 +64,8 @@ export interface DurabilityMetrics {
   outboxBypassed: number
   /** Completions rejected because their lease had been superseded. */
   staleLeases: number
+  /** Replayed sends whose content differed from the one recorded under the same derived key. */
+  outboxDiverged: number
 }
 
 /** `bot.durability`: the journals plus operator controls. */
@@ -73,6 +75,11 @@ export interface DurabilityControl {
   readonly outbox: OutboxJournal
   /** This process's lease owner id. */
   readonly instanceId: string
+  /**
+   * The scope of this bot's records in a shared backend (derived from its namespace), or
+   * `undefined` when the backend has no `scope()`. `journal.scope(scope)` opens the same view.
+   */
+  readonly scope: string | undefined
   /** Operator replay of an inbound record (e.g. from the DLQ): it is processed again by the sweeper. */
   replayInbound(id: string): Promise<void>
   /** Operator retry of a `failed`/`dead`/`unknown` send. */
@@ -111,13 +118,23 @@ export interface DurableEngineDeps {
 
 /** A send prepared by {@link DurableEngine.prepareSend}. */
 export interface DurableSend {
+  /** The idempotency key (final once {@link prior} resolved: a diverged replay gets a new one). */
   readonly key: string
   /** The caller's options without `idempotencyKey`. */
   readonly options: SendOptions | undefined
-  /** The recorded result when this key was already sent (the send must not run again). */
-  prior(): Promise<SendResult | undefined>
+  /**
+   * The recorded result when this send already went out (it must not run again). `content`
+   * is the send as the caller made it (before `before('send')` hooks).
+   */
+  prior(chatId: string, content: OutboundContent): Promise<SendResult | undefined>
   /** Journal + send + record, with inline retries. `call` invokes the provider. */
   run(payload: { chatId: string; content: OutboundContent; options?: SendOptions }, call: () => Promise<SendResult>): Promise<SendResult>
+}
+
+/** A reserved turn in a partition queue (see `DurableEngine.reserve`). */
+interface PartitionSlot {
+  run<T>(task: () => Promise<T>): Promise<T>
+  cancel(): void
 }
 
 const SKIPPED = (chatId: string): SendResult => ({ ref: { id: 'skipped', chatId }, skipped: true })
@@ -171,6 +188,10 @@ export class DurableEngine implements DurabilityControl {
   private readonly outboxBackoff: RetryBackoff | undefined
   private readonly inlineMaxMs: number
   private readonly onAmbiguous: 'skip' | 'resend'
+  private readonly onDiverged: 'send' | 'skip'
+  /** Reclaim this instanceId's unexpired leases at start (it is stable and cannot be a live sibling). */
+  private readonly reclaimOwn: boolean
+  readonly scope: string | undefined
   private readonly maxPayloadBytes: number
   private readonly outboxLeaseMs: number
   private readonly pollMs: number
@@ -183,7 +204,7 @@ export class DurableEngine implements DurabilityControl {
   private readonly counters: DurabilityMetrics = {
     inboundJournaled: 0, inboundDuplicates: 0, inboundReplayed: 0, inboundDead: 0,
     outboxJournaled: 0, outboxDeduped: 0, outboxRetried: 0, outboxDeferred: 0, outboxDead: 0,
-    outboxAmbiguous: 0, outboxBypassed: 0, staleLeases: 0,
+    outboxAmbiguous: 0, outboxBypassed: 0, staleLeases: 0, outboxDiverged: 0,
   }
   /** The journals are in use (between `resume()` and `stop()`). */
   private running = false
@@ -209,12 +230,28 @@ export class DurableEngine implements DurabilityControl {
     if (typeof journal !== 'object' || journal === null || typeof journal.inbox?.append !== 'function' || typeof journal.outbox?.put !== 'function') {
       throw new ConfigValidationError('durability.journal', 'a DurabilityBackend ({ inbox, outbox })', journal)
     }
-    this.backend = journal
-    this.inbox = journal.inbox
-    this.outbox = journal.outbox
     const ns = deps.namespace
-    this.instanceId = config.instanceId ?? `${hostname()}/${ns.botId}/${ns.connectionId}`
-    if (typeof this.instanceId !== 'string' || this.instanceId === '') throw new ConfigValidationError('durability.instanceId', 'a non-empty string', config.instanceId)
+    // Several bots may share one backend: each works in the view of its own namespace.
+    this.scope = typeof journal.scope === 'function'
+      ? createHash('sha256').update(JSON.stringify([ns.tenantId, ns.environmentId, ns.botId, ns.connectionId])).digest('hex').slice(0, 16)
+      : undefined
+    const view = this.scope !== undefined && journal.scope ? journal.scope(this.scope) : journal
+    this.backend = view
+    this.inbox = view.inbox
+    this.outbox = view.outbox
+    if (config.instanceId !== undefined && (typeof config.instanceId !== 'string' || config.instanceId === '')) {
+      throw new ConfigValidationError('durability.instanceId', 'a non-empty string', config.instanceId)
+    }
+    // A stable default is only safe where no sibling process can hold the same id (single-process
+    // backends). On a shared backend the default is unique per boot and own leases are never
+    // reclaimed early: they may belong to a live process on the same host.
+    const exclusive = journal.exclusive === true
+    const base = `${hostname()}/${ns.botId}/${ns.connectionId}`
+    this.instanceId = config.instanceId ?? (exclusive ? base : `${base}/${process.pid}-${randomUUID().slice(0, 8)}`)
+    this.reclaimOwn = config.instanceId !== undefined || exclusive
+    if (!this.reclaimOwn) {
+      deps.logger.debug({ instanceId: this.instanceId }, 'durability.instanceId not set on a shared backend: a restart waits for its old leases to expire')
+    }
     this.inboxLeaseMs = Math.max(1, ms(config.inbox?.leaseMs, 60_000, 'durability.inbox.leaseMs'))
     this.maxAttempts = int(config.inbox?.maxAttempts, 5, 'durability.inbox.maxAttempts', 1)
     this.inboxBackoff = config.inbox?.backoff
@@ -224,6 +261,9 @@ export class DurableEngine implements DurabilityControl {
     const amb = config.outbox?.onAmbiguous ?? 'skip'
     if (amb !== 'skip' && amb !== 'resend') throw new ConfigValidationError('durability.outbox.onAmbiguous', "'skip' | 'resend'", amb)
     this.onAmbiguous = amb
+    const div = config.outbox?.onDiverged ?? 'send'
+    if (div !== 'send' && div !== 'skip') throw new ConfigValidationError('durability.outbox.onDiverged', "'send' | 'skip'", div)
+    this.onDiverged = div
     this.maxPayloadBytes = int(config.outbox?.maxPayloadBytes, 1024 * 1024, 'durability.outbox.maxPayloadBytes', 1)
     this.outboxLeaseMs = Math.max(1, ms(config.outbox?.leaseMs, 60_000, 'durability.outbox.leaseMs'))
     this.pollMs = Math.max(10, ms(config.pollMs, 1_000, 'durability.pollMs'))
@@ -244,12 +284,12 @@ export class DurableEngine implements DurabilityControl {
     const now = this.now()
     // Sends a previous incarnation of this instance left `sending` are ambiguous: settle them
     // before anything is replayed, so a replayed handler finds them resolved.
-    const leftovers = await this.outbox.claimDue({ owner: this.instanceId, leaseMs: this.outboxLeaseMs, now, limit: 10_000, reclaimOwn: true })
+    const leftovers = await this.outbox.claimDue({ owner: this.instanceId, leaseMs: this.outboxLeaseMs, now, limit: 10_000, reclaimOwn: this.reclaimOwn })
     for (const c of leftovers) {
       if (c.ambiguous) await this.resolveAmbiguous(c)
       else await this.settleSend(c.record, () => this.outbox.resolveAmbiguous(c.record.key, c.record.fencingToken, 'pending', now))
     }
-    this.recovered = await this.inbox.claim({ owner: this.instanceId, leaseMs: this.inboxLeaseMs, now, limit: 10_000, reclaimOwn: true })
+    this.recovered = await this.inbox.claim({ owner: this.instanceId, leaseMs: this.inboxLeaseMs, now, limit: 10_000, reclaimOwn: this.reclaimOwn })
   }
 
   /**
@@ -264,7 +304,7 @@ export class DurableEngine implements DurabilityControl {
     for (const record of recovered) this.spawnReplay(record)
     this.timer = setInterval(() => { void this.sweep() }, this.pollMs)
     this.timer.unref?.()
-    void this.runSweep(true)
+    void this.runSweep(this.reclaimOwn)
   }
 
   /**
@@ -325,12 +365,16 @@ export class DurableEngine implements DurabilityControl {
     if (!this.running || payload === undefined) return (await handle()) !== false
     const chatId = event.kind === 'message' ? event.message.chatId : event.kind === 'interaction' ? event.interaction.chatId : ''
     const { id, idempotencyKey } = this.recordId(event)
+    const partitionKey = this.partitionOf(chatId)
+    // Take this event's place in its chat's queue NOW (events arrive in order, appends may
+    // finish out of order): the slot runs the event or is given up, never left waiting.
+    const slot = this.reserve(partitionKey)
     const lease = { owner: this.instanceId, leaseMs: this.inboxLeaseMs, now: this.now() }
     let record: InboxRecord | null
     try {
       const appended = await this.inbox.append({
         id, ...(idempotencyKey ? { idempotencyKey } : {}),
-        partitionKey: this.partitionOf(chatId),
+        partitionKey,
         kind: event.kind === 'interaction' ? 'interaction' : 'message',
         payload,
         receivedAt: lease.now,
@@ -341,6 +385,7 @@ export class DurableEngine implements DurabilityControl {
       } else {
         record = this.inFlight.has(id) ? null : await this.inbox.claimOne(id, lease)
         if (!record) {
+          slot.cancel()
           this.counters.inboundDuplicates++
           this.deps.logger.debug({ id, state: appended.record.state }, 'inbound redelivery already journaled')
           return true
@@ -348,13 +393,32 @@ export class DurableEngine implements DurabilityControl {
       }
     } catch (error) {
       this.deps.reportError(error)
-      if (this.failOpen) return (await handle()) !== false
+      if (this.failOpen) return (await slot.run(handle)) !== false
+      slot.cancel()
       return false
     }
-    return this.process(record, handle, false)
+    return this.process(record, handle, false, slot)
+  }
+
+  /** Reserve the next turn of `partitionKey`'s queue; it waits until `run` or `cancel` is called. */
+  private reserve(partitionKey: string): PartitionSlot {
+    let start!: (task: () => Promise<unknown>) => void
+    const given = new Promise<() => Promise<unknown>>((r) => { start = r })
+    const turn = this.partitions.run(partitionKey, async () => (await given)())
+    return {
+      run: <T>(task: () => Promise<T>) => { start(task); return turn as Promise<T> },
+      cancel: () => { start(async () => undefined); void turn.catch(() => {}) },
+    }
   }
 
   private spawnReplay(record: InboxRecord): void {
+    // Each claim is charged: a record past maxAttempts never completed any of them (the
+    // process died while running it, e.g. a message that crashes it). Dead-letter it
+    // instead of replaying it into another crash.
+    if (record.attempts > this.maxAttempts) {
+      void this.complete(record, 'dead', new Error(`not completed after ${record.attempts - 1} attempts (the process stopped while running it)`))
+      return
+    }
     let event: InboundEvent
     try { event = decodeInbound(record.payload) } catch (error) {
       void this.complete(record, 'dead', error)
@@ -367,12 +431,20 @@ export class DurableEngine implements DurabilityControl {
 
   /**
    * Process a claimed record in its partition's order; settle → ack outside the queue.
-   * Synchronously enqueues on the partition (callers rely on that for FIFO).
+   * Runs in `slot`: reserved by `admit` before the append (live events keep their arrival
+   * order), or by default taken synchronously here.
    */
-  private process(record: InboxRecord, handle: () => Promise<boolean>, replay: boolean): Promise<boolean> {
+  private process(
+    record: InboxRecord,
+    handle: () => Promise<boolean>,
+    replay: boolean,
+    slot: PartitionSlot = this.reserve(record.partitionKey),
+  ): Promise<boolean> {
     this.inFlight.add(record.id)
     const lease = { id: record.id, token: record.fencingToken }
     const heartbeat = setInterval(() => {
+      // Once the journals are closed the lease is left to expire (the record is replayed later).
+      if (!this.running) return
       this.inbox.extend(lease.id, lease.token, this.now() + this.inboxLeaseMs).catch((error) => {
         if (error instanceof StaleLeaseError) this.counters.staleLeases++
         this.deps.logger.warn({ err: error, id: lease.id }, 'inbox lease heartbeat failed')
@@ -381,7 +453,7 @@ export class DurableEngine implements DurabilityControl {
     heartbeat.unref?.()
 
     type Step = { kind: 'ok'; ref: CauseRef } | { kind: 'stopped' } | { kind: 'error'; error: unknown }
-    const step = this.partitions.run(record.partitionKey, async (): Promise<Step> => {
+    const step = slot.run(async (): Promise<Step> => {
       try {
         const { ref, result } = runWithCause(record.id, handle, { replay })
         return (await result) === false ? { kind: 'stopped' } : { kind: 'ok', ref }
@@ -451,21 +523,50 @@ export class DurableEngine implements DurabilityControl {
       stripped = rest
     }
     const cause = currentCause()
-    const key = explicit ?? nextSendKey() ?? `rnd:${randomUUID()}`
+    const derived = explicit === undefined ? nextSendKey() : undefined
+    let key = explicit ?? derived ?? `rnd:${randomUUID()}`
+    let fingerprint: string | undefined
     const active = this.running
     return {
-      key,
+      get key() { return key },
       options: stripped,
-      prior: async () => {
+      prior: async (chatId, content) => {
         if (!active) return undefined
-        const r = await this.outbox.get(key)
+        fingerprint = this.fingerprintOf(chatId, content)
+        const resolved = await this.resolveKey(key, derived !== undefined, fingerprint, chatId)
+        key = resolved.key
+        const r = resolved.record
         if (!r) return undefined
         if (r.state === 'sent' && r.result) { this.counters.outboxDeduped++; return { ref: { ...r.result.ref } } }
         if (r.state === 'unknown' || r.state === 'dead') { this.counters.outboxDeduped++; return SKIPPED(r.chatId) }
         return undefined
       },
-      run: (payload, call) => active ? this.runSend(key, cause?.id, payload, call) : call(),
+      run: (payload, call) => active ? this.runSend(key, cause?.id, payload, call, fingerprint) : call(),
     }
+  }
+
+  /** Hash of a send's chat + encoded content (`undefined` when it cannot be encoded). */
+  private fingerprintOf(chatId: string, content: OutboundContent): string | undefined {
+    const encoded = encodeJson(content)
+    if (encoded === undefined) return undefined
+    return createHash('sha256').update(JSON.stringify([chatId, encoded])).digest('hex').slice(0, 32)
+  }
+
+  /**
+   * The record under `key`, unless `key` is derived (`<inboundId>:<n>`) and the record holds
+   * different content: the replay took another path, so (policy `'send'`) the send moves to
+   * `<key>~<fingerprint>` — itself idempotent across later replays.
+   */
+  private async resolveKey(key: string, derived: boolean, fingerprint: string | undefined, chatId: string): Promise<{ key: string; record: OutboxRecord | undefined }> {
+    const record = await this.outbox.get(key)
+    if (!record || !derived || fingerprint === undefined || record.fingerprint === undefined || record.fingerprint === fingerprint) {
+      return { key, record }
+    }
+    this.counters.outboxDiverged++
+    this.deps.logger.warn({ key, chatId, policy: this.onDiverged }, 'replayed send differs from the one recorded under its key')
+    if (this.onDiverged === 'skip') return { key, record }
+    const moved = `${key}~${fingerprint.slice(0, 12)}`
+    return { key: moved, record: await this.outbox.get(moved) }
   }
 
   private encodeSend(payload: { content: OutboundContent; options?: SendOptions }): { content: JsonValue; options?: JsonValue } | undefined {
@@ -481,6 +582,7 @@ export class DurableEngine implements DurabilityControl {
     causationId: string | undefined,
     payload: { chatId: string; content: OutboundContent; options?: SendOptions },
     call: () => Promise<SendResult>,
+    fingerprint: string | undefined,
   ): Promise<SendResult> {
     const encoded = this.encodeSend(payload)
     if (!encoded) {
@@ -496,7 +598,8 @@ export class DurableEngine implements DurabilityControl {
       let record: OutboxRecord | null
       try {
         const put = await this.outbox.put({
-          key, chatId: payload.chatId, ...(causationId ? { causationId } : {}), ...encoded, createdAt: startedAt,
+          key, chatId: payload.chatId, ...(causationId ? { causationId } : {}), ...encoded,
+          ...(fingerprint ? { fingerprint } : {}), createdAt: startedAt,
         }, startedAt, lease)
         record = put.record
         if (put.status === 'created') this.counters.outboxJournaled++
@@ -546,7 +649,7 @@ export class DurableEngine implements DurabilityControl {
     for (;;) {
       let result: SendResult
       try {
-        result = await call()
+        result = await this.withSendLease(record, call)
       } catch (error) {
         const now = this.now()
         if (isTerminal(error) || record.attempts > this.retries) {
@@ -587,6 +690,31 @@ export class DurableEngine implements DurabilityControl {
     }
   }
 
+  /**
+   * Run the provider call while extending the record's lease, so a slow send (large upload,
+   * provider-side queue) is never taken for an abandoned one by another replica's sweeper.
+   */
+  private async withSendLease(record: OutboxRecord, call: () => Promise<SendResult>): Promise<SendResult> {
+    const { key, fencingToken } = record
+    let beat: Promise<void> | undefined
+    const heartbeat = setInterval(() => {
+      if (!this.running || beat) return
+      beat = this.outbox.extend(key, fencingToken, this.now() + this.outboxLeaseMs)
+        .catch((error: unknown) => {
+          if (error instanceof StaleLeaseError) this.counters.staleLeases++
+          this.deps.logger.warn({ err: error, key }, 'outbox lease heartbeat failed')
+        })
+        .finally(() => { beat = undefined })
+    }, Math.max(5, Math.floor(this.outboxLeaseMs / 3)))
+    heartbeat.unref?.()
+    try {
+      return await call()
+    } finally {
+      clearInterval(heartbeat)
+      await beat
+    }
+  }
+
   private async settleSend(record: OutboxRecord, write: () => Promise<void>): Promise<void> {
     try { await write() } catch (error) {
       if (error instanceof StaleLeaseError) {
@@ -605,8 +733,10 @@ export class DurableEngine implements DurabilityControl {
    */
   async enqueue(chatId: string, content: OutboundContent, opts: SendOptions & { idempotencyKey?: string } = {}): Promise<{ key: string; status: 'queued' | 'exists' | 'skipped' }> {
     const { idempotencyKey, ...options } = opts
-    const key = idempotencyKey ?? nextSendKey() ?? `rnd:${randomUUID()}`
-    if (await this.outbox.get(key)) return { key, status: 'exists' }
+    const derived = idempotencyKey === undefined ? nextSendKey() : undefined
+    const fingerprint = this.fingerprintOf(chatId, content)
+    const { key, record: existing } = await this.resolveKey(idempotencyKey ?? derived ?? `rnd:${randomUUID()}`, derived !== undefined, fingerprint, chatId)
+    if (existing) return { key, status: 'exists' }
     const payload: { chatId: string; content: OutboundContent; options?: SendOptions } = {
       chatId, content, ...(Object.keys(options).length ? { options } : {}),
     }
@@ -615,7 +745,9 @@ export class DurableEngine implements DurabilityControl {
     if (!encoded) throw new TypeError('bot.enqueue(): content cannot be journaled (a stream, or larger than durability.outbox.maxPayloadBytes)')
     const now = this.now()
     const cause = currentCause()
-    const put = await this.outbox.put({ key, chatId: payload.chatId, ...(cause ? { causationId: cause.id } : {}), ...encoded, createdAt: now }, now)
+    const put = await this.outbox.put({
+      key, chatId: payload.chatId, ...(cause ? { causationId: cause.id } : {}), ...encoded, ...(fingerprint ? { fingerprint } : {}), createdAt: now,
+    }, now)
     if (put.status === 'created') this.counters.outboxJournaled++
     if (this.sweeperOn) void this.sweep()
     return { key, status: put.status === 'created' ? 'queued' : 'exists' }

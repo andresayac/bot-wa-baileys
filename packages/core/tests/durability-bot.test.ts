@@ -228,8 +228,8 @@ describe('durability on', () => {
 
   it('fail-closed: when the journal is down the event is not dispatched; failOpen dispatches it', async () => {
     for (const failOpen of [false, true]) {
-      const journal = new MemoryDurability()
-      journal.inbox.append = async () => { throw new Error('journal down') }
+      const inner = new MemoryDurability()
+      const journal = { inbox: Object.create(inner.inbox, { append: { value: async () => { throw new Error('journal down') } } }), outbox: inner.outbox }
       const { bot, provider } = await makeBot({ durability: { journal, failOpen } })
       const errors = vi.fn()
       bot.on('error', errors)
@@ -251,7 +251,7 @@ describe('durability on', () => {
     provider.incoming('go', { from: 'u1', id: 'm1' })
     await running
     await bot.stop()
-    expect((await journal.inbox.list())[0]).toMatchObject({ state: 'pending', attempts: 0 })
+    expect((await bot.durability!.inbox.list())[0]).toMatchObject({ state: 'pending', attempts: 0 })
   })
 
   it('validates the configuration', () => {
