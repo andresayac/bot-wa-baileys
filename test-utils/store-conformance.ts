@@ -191,13 +191,15 @@ export function runStoreConformance(name: string, h: ConformanceHarness): void {
       expect(await store.getMessagesByChat('c@x')).toEqual([full])
     })
 
-    it('normalises the window limit like MemoryStore (0/negative → none, fraction rounds up, Infinity → all)', async () => {
+    it('normalises the window limit like MemoryStore (0/negative → none, fraction rounds up, huge or Infinity → all)', async () => {
       for (let i = 0; i < 5; i++) await store.saveMessage(msg('c@x', `m${i}`, `msg ${i}`, 1000 + i))
       expect(await store.getMessagesByChat('c@x', 0)).toEqual([])
       expect(await store.getMessagesByChat('c@x', -1)).toEqual([])
       expect((await store.getMessagesByChat('c@x', 2.5)).map((m) => m.body)).toEqual(['msg 2', 'msg 3', 'msg 4'])
       expect(await store.getMessagesByChat('c@x', Number.POSITIVE_INFINITY)).toHaveLength(5)
       expect(await store.getMessagesByChat('c@x', 1_000_000)).toHaveLength(5)
+      expect(await store.getMessagesByChat('c@x', 1e20)).toHaveLength(5)
+      expect(await store.getMessagesByChat('c@x', Number.MAX_VALUE)).toHaveLength(5)
     })
 
     it('an own field set to undefined UNSETS it on upsert (chats and contacts)', async () => {

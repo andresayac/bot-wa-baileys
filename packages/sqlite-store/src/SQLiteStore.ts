@@ -48,12 +48,14 @@ export interface SQLiteStoreOptions {
 /**
  * Window size for `getMessagesByChat`, with MemoryStore's semantics for any
  * number: non-positive/NaN gives nothing (`0`), a fraction rounds up, Infinity
- * means everything (`-1`, SQLite's "no limit"). Passed through raw, SQLite read
+ * means everything (`-1`, SQLite's "no limit"), and a huge finite limit is
+ * clamped to `Number.MAX_SAFE_INTEGER` (better-sqlite3 binds anything larger as
+ * a REAL, which LIMIT rejects). Passed through raw, SQLite read
  * a negative LIMIT as "all" and rejected a fraction.
  */
 function windowLimit(limit: number): number {
   if (!(limit > 0)) return 0
-  return Number.isFinite(limit) ? Math.ceil(limit) : -1
+  return Number.isFinite(limit) ? Math.min(Math.ceil(limit), Number.MAX_SAFE_INTEGER) : -1
 }
 
 /** Prepared statements, compiled once per store instead of on every call. */
