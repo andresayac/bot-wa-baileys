@@ -90,3 +90,10 @@ describe('BaileysProvider.send rejects only with ProviderError subclasses', () =
     await expect(queued).rejects.toBeInstanceOf(ProviderError)
   })
 })
+
+describe('BaileysProvider actions while disconnected', () => {
+  it('downloadMedia rejects with a ProviderError instead of a TypeError', async () => {
+    const p = new BaileysProvider({ session: 'test' })
+    await expect(p.downloadMedia({ kind: 'image', token: { key: { id: 'x' }, message: {} } })).rejects.toBeInstanceOf(ProviderError)
+  })
+})

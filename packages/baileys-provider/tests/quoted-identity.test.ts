@@ -42,7 +42,7 @@ describe('quoted.senderId identity', () => {
   it('maps a learned LID to its PN, like the message sender', async () => {
     const h = await connect(BaileysProvider)
     await h.emit(upsert([reply(MEMBER_LID)])) // the key teaches MEMBER_LID ↔ MEMBER_PN
-    expect(quotedOf(h)).toEqual([{ body: 'original', senderId: MEMBER_PN }])
+    expect(quotedOf(h)).toMatchObject([{ body: 'original', senderId: MEMBER_PN, ref: { id: 'ORIG', chatId: GROUP } }])
     expect(h.ofKind('message')[0]?.message.senderId).toBe(MEMBER_PN)
   })
 

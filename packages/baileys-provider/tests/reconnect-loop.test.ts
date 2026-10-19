@@ -70,3 +70,20 @@ describe('BaileysProvider reconnect resilience', () => {
     expect(calls).toBe(0) // scheduleReconnect bails immediately when shutting down
   })
 })
+
+describe('BaileysProvider stop() cancels a pending reconnect', () => {
+  it('a reconnect scheduled before stop() never fires after a later start()', async () => {
+    const p = new BaileysProvider({ session: 'test' })
+    vi.useFakeTimers()
+    const start = vi.fn(async () => {})
+    ;(p as unknown as Internals).start = start
+
+    ;(p as unknown as Internals).scheduleReconnect(5_000)
+    await p.stop()
+    // The host restarts the provider before the old backoff timer elapses.
+    ;(p as unknown as Internals).isShuttingDown = false
+    await vi.advanceTimersByTimeAsync(10_000)
+
+    expect(start).not.toHaveBeenCalled() // the stale timer would have built a second socket
+  })
+})
