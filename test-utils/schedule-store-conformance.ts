@@ -149,6 +149,30 @@ export function runScheduleStoreConformance(name: string, h: ScheduleStoreHarnes
       expect(again.nextRunAt).toBe(T0 + 7)
     })
 
+    it('never reuses a fencing token for an id, even after delete and a new register', async () => {
+      await store.register({ id: 'f', kind: 'interval', spec: '1000', nextRunAt: T0 }, T0)
+      const c1 = await store.claimDue('f', 'a', T0, 1000)
+      await store.complete('f', c1!.fencingToken, { nextRunAt: T0 + 1000 }, T0)
+      const c2 = await store.claimDue('f', 'a', T0 + 1000, 1000)
+      expect(c2!.fencingToken).toBe(2)
+      await store.delete('f')
+      const again = await store.register({ id: 'f', kind: 'interval', spec: '1000', nextRunAt: T0 + 5000 }, T0 + 2000)
+      expect(again.fencingToken).toBe(2)
+      // The deleted generation's late commit is still rejected (the new record holds no lease).
+      expect(await store.complete('f', 2, { nextRunAt: T0 + 9000 }, T0 + 2000)).toBe(false)
+      const c3 = await store.claimDue('f', 'b', T0 + 5000, 1000)
+      expect(c3!.fencingToken).toBe(3)
+      // A deleted id stays invisible to every other call.
+      await store.delete('f')
+      expect(await store.get('f')).toBeNull()
+      expect((await store.list()).map((r) => r.id)).toEqual([])
+      expect(await store.claimDue('f', 'a', T0 + 99_000, 1000)).toBeNull()
+      expect(await store.renew('f', 3, T0 + 99_000)).toBe(false)
+      expect(await store.complete('f', 3, { nextRunAt: null }, T0 + 99_000)).toBe(false)
+      await store.delete('f')
+      expect((await store.register({ id: 'f', kind: 'once', spec: '5', nextRunAt: T0 }, T0)).fencingToken).toBe(3)
+    })
+
     it('lists every record', async () => {
       await store.register({ id: 'a', kind: 'interval', spec: '1000', nextRunAt: T0 }, T0)
       await store.register({ id: 'b', kind: 'once', spec: '1000', nextRunAt: null }, T0)

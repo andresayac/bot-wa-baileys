@@ -26,7 +26,10 @@ export interface ScheduleRecord {
   nextRunAt: number | null
   lastRunAt?: number
   lastStatus?: 'ok' | 'error'
-  /** Bumped by every successful {@link ScheduleStore.claimDue}; starts at 0. */
+  /**
+   * Bumped by every successful {@link ScheduleStore.claimDue}; starts at 0 for a new id.
+   * Never goes backwards for an id, even across `delete` and a new `register`.
+   */
   fencingToken: number
   leaseOwner?: string
   leaseUntil?: number
@@ -71,6 +74,10 @@ export interface ScheduleStore {
    * lease and set `updatedAt = now`. `false` when stale (claimed again since) or deleted.
    */
   complete(id: string, fencingToken: number, patch: CompletePatch, now: number): Promise<boolean>
+  /**
+   * Remove the record. The id's fencing token is kept as a high-water mark: a later
+   * `register()` of the same id starts from it, so tokens never go backwards per id.
+   */
   delete(id: string): Promise<void>
   /** Every stored record (orphans included), in no particular order. */
   list(): Promise<ScheduleRecord[]>
@@ -88,9 +95,10 @@ export interface SchedulerOptions {
    */
   store?: ScheduleStore
   /**
-   * Optional coarse leadership: only the replica holding the `scheduler:leader` lease
-   * claims occurrences, which saves store round-trips with many replicas. Correctness
-   * never depends on it — per-occurrence claims are fenced anyway.
+   * Optional leadership, which saves store round-trips with many replicas: the replica
+   * holding the `scheduler:leader` lease claims occurrences on time; the others only claim
+   * one left overdue for `leaderTtlMs` (a task only they registered, or a dead leader).
+   * Correctness never depends on it: per-occurrence claims are fenced anyway.
    */
   lease?: LeaseProvider
   /** This process's lease-owner id. Default: a random id per scheduler. */
@@ -98,8 +106,8 @@ export interface SchedulerOptions {
   /**
    * Poll period for durable tasks (duration or ms, default `'1s'`): picks up occurrences
    * whose runner crashed (once its lease expires) and retries after store errors. It is
-   * also the grace period: an occurrence overdue by less than this at start is run
-   * normally instead of counting as missed.
+   * also the grace period (plus twice `leaderTtlMs` with a `lease`): a slot claimed later
+   * than that after it fell due counts as missed (no replica ran it in time).
    */
   tickMs?: string | number
   /** TTL of the `scheduler:leader` lease when {@link lease} is set (duration or ms, default `'30s'`). */
@@ -113,6 +121,8 @@ const clone = (r: ScheduleRecord): ScheduleRecord => ({ ...r })
 /** Reference, in-process {@link ScheduleStore}. Nothing survives the process. */
 export class MemoryScheduleStore implements ScheduleStore {
   private readonly rows = new Map<string, ScheduleRecord>()
+  /** Fencing token of deleted ids (high-water marks). */
+  private readonly fences = new Map<string, number>()
 
   async get(id: string): Promise<ScheduleRecord | null> {
     const row = this.rows.get(id)
@@ -130,7 +140,8 @@ export class MemoryScheduleStore implements ScheduleStore {
       }
       return clone(row)
     }
-    const created: ScheduleRecord = { id: rec.id, kind: rec.kind, spec: rec.spec, nextRunAt: rec.nextRunAt, fencingToken: 0, updatedAt: now }
+    const fencingToken = this.fences.get(rec.id) ?? 0
+    const created: ScheduleRecord = { id: rec.id, kind: rec.kind, spec: rec.spec, nextRunAt: rec.nextRunAt, fencingToken, updatedAt: now }
     this.rows.set(rec.id, created)
     return clone(created)
   }
@@ -162,6 +173,9 @@ export class MemoryScheduleStore implements ScheduleStore {
   }
 
   async delete(id: string): Promise<void> {
+    const row = this.rows.get(id)
+    if (!row) return
+    this.fences.set(id, Math.max(row.fencingToken, this.fences.get(id) ?? 0))
     this.rows.delete(id)
   }
 

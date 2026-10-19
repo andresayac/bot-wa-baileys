@@ -53,13 +53,16 @@ export class RedisScheduleStore implements ScheduleStore {
 
   async get(id: string): Promise<ScheduleRecord | null> {
     const raw = await this.client.get(this.key(id))
-    return raw == null ? null : (JSON.parse(String(raw)) as ScheduleRecord)
+    return raw == null ? null : live(JSON.parse(String(raw)) as StoredSchedule)
   }
 
   register(rec: Pick<ScheduleRecord, 'id' | 'kind' | 'spec' | 'nextRunAt'>, now: number): Promise<ScheduleRecord> {
-    return casJson<ScheduleRecord, ScheduleRecord>(this.client, this.key(rec.id), (current) => {
+    return casJson<StoredSchedule, ScheduleRecord>(this.client, this.key(rec.id), (stored) => {
+      const current = live(stored)
       if (!current) {
-        const created: ScheduleRecord = { id: rec.id, kind: rec.kind, spec: rec.spec, nextRunAt: rec.nextRunAt, fencingToken: 0, updatedAt: now }
+        // A deleted id starts from its last fencing token (tokens never go backwards).
+        const fencingToken = stored?.fencingToken ?? 0
+        const created: ScheduleRecord = { id: rec.id, kind: rec.kind, spec: rec.spec, nextRunAt: rec.nextRunAt, fencingToken, updatedAt: now }
         return { next: created, result: created }
       }
       if (current.kind === rec.kind && current.spec === rec.spec) return { result: current }
@@ -69,7 +72,8 @@ export class RedisScheduleStore implements ScheduleStore {
   }
 
   claimDue(id: string, owner: string, now: number, leaseMs: number): Promise<ClaimResult | null> {
-    return casJson<ScheduleRecord, ClaimResult | null>(this.client, this.key(id), (current) => {
+    return casJson<StoredSchedule, ClaimResult | null>(this.client, this.key(id), (stored) => {
+      const current = live(stored)
       if (!current || !isScheduleClaimable(current, now)) return { result: null }
       const claimed: ScheduleRecord = {
         ...current,
@@ -83,26 +87,49 @@ export class RedisScheduleStore implements ScheduleStore {
   }
 
   renew(id: string, fencingToken: number, leaseUntil: number): Promise<boolean> {
-    return casJson<ScheduleRecord, boolean>(this.client, this.key(id), (current) => {
+    return casJson<StoredSchedule, boolean>(this.client, this.key(id), (stored) => {
+      const current = live(stored)
       if (!current || current.fencingToken !== fencingToken || current.leaseOwner === undefined) return { result: false }
       return { next: { ...current, leaseUntil }, result: true }
     })
   }
 
   complete(id: string, fencingToken: number, patch: CompletePatch, now: number): Promise<boolean> {
-    return casJson<ScheduleRecord, boolean>(this.client, this.key(id), (current) => {
+    return casJson<StoredSchedule, boolean>(this.client, this.key(id), (stored) => {
+      const current = live(stored)
       if (!current || current.fencingToken !== fencingToken || current.leaseOwner === undefined) return { result: false }
       return { next: applyScheduleComplete(current, patch, now), result: true }
     })
   }
 
+  /** Replaces the record with a small marker that keeps its fencing token (a high-water mark). */
   async delete(id: string): Promise<void> {
-    await this.client.del(this.key(id))
+    await casJson<StoredSchedule, void>(this.client, this.key(id), (stored) => {
+      const current = live(stored)
+      if (!current) return { result: undefined }
+      return { next: { id: current.id, deleted: true, fencingToken: current.fencingToken }, result: undefined }
+    })
   }
 
   async list(): Promise<ScheduleRecord[]> {
     const keys = await matchKeys(this.client, `${escapeGlob(this.ns)}*`)
     const raws = await Promise.all(keys.map((k) => this.client.get(k)))
-    return raws.filter((r) => r != null).map((r) => JSON.parse(String(r)) as ScheduleRecord)
+    return raws
+      .filter((r) => r != null)
+      .map((r) => live(JSON.parse(String(r)) as StoredSchedule))
+      .filter((r): r is ScheduleRecord => r !== null)
   }
+}
+
+/** A deleted id: only its fencing token is kept, so a new registration never reuses a token. */
+interface DeletedSchedule {
+  id: string
+  deleted: true
+  fencingToken: number
+}
+
+type StoredSchedule = ScheduleRecord | DeletedSchedule
+
+function live(stored: StoredSchedule | null): ScheduleRecord | null {
+  return stored === null || 'deleted' in stored ? null : stored
 }

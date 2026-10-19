@@ -166,7 +166,10 @@ export interface ScheduledTask {
 
 /**
  * What a durable task does with the occurrences that fell due while no scheduler was
- * running (the bot was down, or every replica was stopped), applied once at start:
+ * running (the bot was down, or every replica was stopped). A slot is missed when it is
+ * claimed more than the grace period after it fell due (`SchedulerOptions.tickMs`, plus
+ * twice `leaderTtlMs` with a leader lease); a slot interrupted by a crashed runner is
+ * retried as itself instead:
  * - `'skip'` (default): run none of them and wait for the next slot after now.
  * - `'run-once'`: run one occurrence (`missed: true`, `scheduledAt` = the first missed
  *   slot), then wait for the next slot after now.
@@ -192,7 +195,7 @@ export interface DurableTaskOptions {
   id: string
   /** Policy for occurrences missed while no scheduler ran. Default `'skip'`. */
   missed?: MissedRunPolicy
-  /** Most missed slots `'catch-up'` runs at start. Default `10`. Positive integer. */
+  /** Most missed slots one `'catch-up'` runs. Default `10`. Positive integer. */
   maxCatchUp?: number
   /**
    * How long one claimed occurrence stays leased to this process: a duration (`'2m'`)
@@ -213,7 +216,10 @@ export interface ScheduledRun {
    * after a crash or a lost lease reuses it. Use it as an idempotency key.
    */
   occurrenceKey: string
-  /** Fencing token of this claim: strictly increasing per task. Pass it downstream to reject stale writes. */
+  /**
+   * Fencing token of this claim: strictly increasing per task id (also across deletes).
+   * Pass it downstream to reject stale writes. The runs of one catch-up share their claim.
+   */
   fencingToken: number
   /** `true` when the run comes from the `'run-once'`/`'catch-up'` missed-run policy. */
   missed: boolean

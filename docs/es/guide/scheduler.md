@@ -97,7 +97,8 @@ estable y pasa a ser **durable**:
 - las ejecuciones perdidas mientras el bot estaba caído siguen una política
   (`missed`);
 - cada ejecución se reclama con un lease con fencing en el store compartido, así
-  que con N réplicas corre en exactamente una.
+  que N réplicas nunca la ejecutan a la vez (sigue siendo al menos una vez: ver
+  [Garantías y límites](#garantias-y-limites)).
 
 Es opt-in: las tareas sin `id` y los bots sin `scheduler` se comportan igual que
 antes.
@@ -114,8 +115,12 @@ bot.schedule('0 9 * * 1-5', { id: 'resumen-matinal', missed: 'run-once' }, async
   await enviarResumen({ idempotencyKey: run.occurrenceKey })
 })
 bot.every('15m', { id: 'sync-crm', missed: 'catch-up', maxCatchUp: 4 }, async (run) => { /* ... */ })
-bot.delay('2h', { id: `seguimiento:${pedidoId}` }, async () => { /* ... */ })
 ```
+
+Registra las tareas durables **al arrancar, en todas las réplicas**: solo se
+guarda el calendario, nunca el handler, así que tras un reinicio una tarea solo
+corre si el código vuelve a registrar su id (ver
+[Registrar tareas](#registrar-tareas)).
 
 El handler recibe un `ScheduledRun`:
 
@@ -124,7 +129,7 @@ El handler recibe un `ScheduledRun`:
 | `taskId` | El `id` de la tarea. |
 | `scheduledAt` | El hueco que cubre esta ejecución (no la hora real a la que empezó). |
 | `occurrenceKey` | `` `${taskId}@${scheduledAt.toISOString()}` ``: estable por ejecución, úsalo como clave de idempotencia. |
-| `fencingToken` | Estrictamente creciente por tarea; pásalo a los sistemas que escribes para rechazar escrituras obsoletas. |
+| `fencingToken` | Token del reclamo: estrictamente creciente por id de tarea, también tras `cancel()` y un nuevo registro. Pásalo a los sistemas que escribes para rechazar escrituras obsoletas. Las ejecuciones de un mismo catch-up comparten su reclamo y, por tanto, su token. |
 | `missed` | `true` cuando la ejecución viene de la política de ejecuciones perdidas. |
 | `signal` | Se aborta cuando el bot se detiene o se pierde el lease de esta ejecución. |
 
@@ -139,24 +144,64 @@ El handler recibe un `ScheduledRun`:
 
 ### Ejecuciones perdidas
 
-Se aplica una vez, cuando el scheduler arranca y encuentra un hueco vencido hace
-más de `tickMs` (1 s por defecto):
+Un hueco está **perdido** cuando se reclama más de un periodo de gracia después
+de vencer, lo que pasa cuando ninguna réplica lo estaba ejecutando (el bot
+estaba caído o todas las réplicas paradas). El periodo de gracia es `tickMs`
+(1 s por defecto), más dos veces `leaderTtlMs` si hay un `lease` de líder (un
+seguidor o un failover pueden tardar eso en entrar, y eso no es una ejecución
+perdida). Cada réplica lo decide solo con el estado guardado, así que todas
+coinciden. Los huecos perdidos siguen la política de la tarea:
 
 - `'skip'`: no ejecuta ninguna y espera al siguiente hueco después de ahora.
 - `'run-once'`: ejecuta una (`missed: true`, `scheduledAt` es el primer hueco
   perdido) y espera al siguiente hueco.
 - `'catch-up'`: ejecuta en orden cada hueco perdido, cada uno con su propio
   `scheduledAt` y `occurrenceKey`, hasta `maxCatchUp`; el resto se salta y se
-  registra en el log.
+  registra en el log. Todo el catch-up corre bajo un único reclamo en una sola
+  réplica y se confirma al final: si ese proceso muere a medias, el catch-up
+  vuelve a empezar desde su primer hueco (deduplica con `run.occurrenceKey`); si
+  se detiene, sigue desde el primer hueco que no ejecutó.
+
+Una ejecución interrumpida por una caída (su ejecutor murió con el lease) no
+está perdida: cuando vence el lease se ejecuta otra vez como tal
+(`missed: false`), y la política se aplica a los huecos posteriores.
 
 Un `delay` de una sola vez cuenta como un hueco: `'skip'` descarta un
 recordatorio que venció con el bot caído, así que usa `'run-once'` para
 recordatorios. Su hora se fija cuando el id se guarda por primera vez; un
-reinicio no la retrasa. Tras ejecutarse, la fila queda como tombstone (no vuelve
-a dispararse en el siguiente arranque) hasta que `cancel()` la borra.
+reinicio no la retrasa. Tras ejecutarse, la fila queda como tombstone (volver a
+registrar el id no la ejecuta otra vez) hasta que `cancel()` o
+`bot.forgetTask(id)` la borra.
 
 Los intervalos no derivan: el siguiente hueco es el anterior más el intervalo,
 no "ahora" más el intervalo. El cron sigue en hora local.
+
+### Registrar tareas
+
+- Registra las tareas recurrentes al arrancar, en todas las réplicas, con el
+  mismo id y la misma especificación. También se puede registrar una tarea con
+  el bot en marcha (la primera tarea durable arranca el motor durable), pero
+  solo es durable mientras algún código la vuelva a registrar tras cada
+  reinicio.
+- Los recordatorios por entidad (un id por pedido, por usuario...) funcionan si
+  puedes reconstruirlos al arrancar con tus propios datos: volver a registrar el
+  mismo id conserva su hora original.
+
+```ts
+// Al arrancar: vuelve a registrar los seguimientos pendientes de tu base de datos.
+for (const pedido of await pedidos.seguimientosPendientes()) programarSeguimiento(pedido.id)
+
+// Y cuando se crea un pedido (desde un handler):
+function programarSeguimiento(pedidoId: string) {
+  bot.delay('2h', { id: `seguimiento:${pedidoId}`, missed: 'run-once' }, async (run) => {
+    await enviarSeguimiento(pedidoId, { idempotencyKey: run.occurrenceKey })
+    await bot.forgetTask(run.taskId) // hecho: borra el tombstone
+  })
+}
+```
+
+Un id por entidad que ningún código registra tras un reinicio es un huérfano:
+se conserva y nunca se ejecuta.
 
 ### Backends
 
@@ -165,7 +210,7 @@ no "ahora" más el intervalo. El cron sigue en hora local.
 | Opción | Por defecto | Significado |
 |---|---|---|
 | `store` | en memoria | Dónde se guardan los calendarios. `SQLiteStore#schedules()` (tabla `schedules`, misma conexión) o `RedisStore#schedules()` (`{prefix}:sched:{id}`, mismo cliente). Sin él las tareas durables funcionan pero no sobreviven a un reinicio, y se avisa una vez en el log. |
-| `lease` | ninguno | Liderazgo opcional: solo la réplica que tiene `scheduler:leader` reclama, lo que ahorra viajes al store con muchas réplicas. `RedisStore#leases()` da uno con fencing. La corrección nunca depende de él. |
+| `lease` | ninguno | Liderazgo opcional, que ahorra viajes al store con muchas réplicas: la réplica que tiene `scheduler:leader` reclama a tiempo y las demás solo reclaman una ejecución que lleva `leaderTtlMs` vencida (una tarea que solo ellas registran, p. ej. durante un despliegue gradual, o un líder caído), así que esa tarea corre hasta `leaderTtlMs` tarde. `RedisStore#leases()` da uno con fencing. La corrección nunca depende de él. |
 | `owner` | aleatorio | Id de dueño de lease de este proceso. |
 | `tickMs` | `'1s'` | Periodo de sondeo: recoge una ejecución cuyo ejecutor cayó (cuando vence su lease) y reintenta tras errores del store. |
 | `leaderTtlMs` | `'30s'` | TTL del lease de líder. |
@@ -176,15 +221,21 @@ Postgres, MySQL y Mongo aún no existen.
 
 ### Garantías y límites
 
-- **Al menos una vez por ejecución.** Si un ejecutor cae, o se queda parado más
-  que `leaseMs`, su lease vence y otra réplica (o el reinicio) vuelve a ejecutar
-  el mismo hueco. El `signal` del ejecutor obsoleto se aborta y su commit se
-  rechaza (queda en el log). Haz los handlers idempotentes con
+- **Al menos una vez por ejecución**, nunca dos ejecuciones de una tarea a la
+  vez (mientras los leases se respeten). Si un ejecutor cae, o se queda parado
+  más que `leaseMs`, su lease vence y otra réplica (o el proceso reiniciado)
+  vuelve a ejecutar el mismo hueco. El `signal` del ejecutor obsoleto se aborta
+  y su commit se rechaza (queda en el log). Haz los handlers idempotentes con
   `run.occurrenceKey`.
 - **Solo se guarda el calendario**, no el handler. Un id guardado que ninguna
   tarea registrada reclama es un **huérfano**: se registra una vez al arrancar,
-  se conserva y nunca se ejecuta. Bórralo con `store.schedules().delete(id)` (un
-  `Scheduler` independiente también tiene `forget(id)`).
+  se conserva y nunca se ejecuta. Bórralo con `bot.forgetTask(id)` (un
+  `Scheduler` independiente tiene `forget(id)`), que aplica el namespace del bot
+  por ti. Ese namespace incluye el `botId`, el provider y el id de conexión:
+  cambiar cualquiera de ellos deja las filas antiguas como huérfanas.
+- Los ids borrados conservan una marca pequeña con su último token de fencing
+  (así los tokens nunca retroceden), y las tareas de una sola vez conservan su
+  tombstone: con muchos ids por entidad, olvídalos al terminar.
 - Cambiar la especificación de una tarea (cron o intervalo) entre despliegues la
   vuelve a planificar desde ahora; la política de perdidas no se aplica a la
   especificación anterior.

@@ -5,11 +5,18 @@
  *
  * Flow per task:
  * - activation (at start, or on registration while running): `register()` keeps the stored
- *   `nextRunAt` when the spec is unchanged; an occurrence overdue by more than the grace
- *   period gets the task's missed-run policy on its first fire.
+ *   `nextRunAt` when the spec is unchanged.
  * - fire (timer at `nextRunAt`, or the poll): `claimDue` -> handler (lease renewed every
  *   third of `leaseMs`) -> `complete` with the next slot. A failed claim means another
  *   replica runs it or it is not due yet: re-read the record and follow it.
+ * - missed runs are decided per claim, from the stored state only (so every replica agrees
+ *   whatever it saw before): a claimed slot overdue by more than the grace period (`tickMs`,
+ *   plus twice `leaderTtlMs` with a leader lease) was missed, unless the record still carried
+ *   the lease of a runner that died on that very slot: then the slot is retried as itself
+ *   and the slots after it go through the policy. A catch-up runs every missed slot under
+ *   ONE claim (committed once at the end), so no other replica can interleave.
+ * - leadership (`lease`) is an optimisation: the leader claims on time; a follower steps in
+ *   for an occurrence left overdue for `leaderTtlMs` (a task only it registered, a failover).
  * - poll (`tickMs`): activates tasks whose registration failed, retries overdue
  *   occurrences (a crashed runner's lease expires) and backs off on store errors.
  */
@@ -24,6 +31,7 @@ import {
   MemoryScheduleStore,
   prefixScheduleStore,
   type ClaimResult,
+  type CompletePatch,
   type ScheduleKind,
   type ScheduleStore,
   type SchedulerOptions,
@@ -51,8 +59,8 @@ interface DurableEntry {
   activated: boolean
   /** Pending `register()`; `cancel()` deletes the row only after it settles. */
   activation?: Promise<void>
-  /** The next fire applies the missed-run policy (the stored slot was overdue at activation). */
-  missedCheck: boolean
+  /** A one-shot task that has run (its row is a tombstone): dropped from the registry. */
+  done: boolean
   busy: boolean
   timer?: ReturnType<typeof setTimeout>
   generation: number
@@ -76,6 +84,8 @@ export class DurableScheduler {
   private readonly leaderKey: string
   private readonly tickMs: number
   private readonly leaderTtlMs: number
+  /** How overdue a claimed slot must be to count as missed. */
+  private readonly graceMs: number
   private readonly now: () => number
   readonly owner: string
   private logger?: Logger
@@ -96,6 +106,9 @@ export class DurableScheduler {
     this.owner = opts.owner ?? randomId('replica')
     this.tickMs = parseIdlePeriod(opts.tickMs ?? 1000, 'scheduler.tickMs')
     this.leaderTtlMs = parseIdlePeriod(opts.leaderTtlMs ?? 30_000, 'scheduler.leaderTtlMs')
+    // With a leader lease, a follower only steps in after `leaderTtlMs`, and a dead leader's
+    // lease takes up to `leaderTtlMs` to expire: neither delay makes a slot "missed".
+    this.graceMs = this.tickMs + (this.lease ? 2 * this.leaderTtlMs : 0)
     this.now = opts.now ?? Date.now
   }
 
@@ -136,8 +149,10 @@ export class DurableScheduler {
     }
 
     const cancel = (): void => {
-      if (this.entries.get(id) !== entry) return
-      this.entries.delete(id)
+      // A finished one-shot is no longer registered, but cancel() still deletes its tombstone.
+      if (this.entries.get(id) !== entry && !entry.done) return
+      if (this.entries.get(id) === entry) this.entries.delete(id)
+      entry.done = false
       this.disarm(entry)
       const pending = entry.activation ?? Promise.resolve()
       void pending
@@ -157,7 +172,7 @@ export class DurableScheduler {
       handler,
       nextRunAt: null,
       activated: false,
-      missedCheck: false,
+      done: false,
       busy: false,
       generation: 0,
       failures: 0,
@@ -186,12 +201,20 @@ export class DurableScheduler {
     return this.entries.size > 0 || this.explicitStore
   }
 
+  /** Started (and not stopped since). */
+  get isRunning(): boolean {
+    return this.running
+  }
+
   /**
-   * Start: register every durable task (missed-run policies are applied on their first
-   * fire, after this resolves) and start the poll. Rejects when the store fails, so a bot
-   * start rolls back instead of silently losing reminders.
+   * Start: register every durable task (missed-run policies are applied when an overdue
+   * slot is claimed, after this resolves) and start the poll. Rejects when the store fails,
+   * so a bot start rolls back instead of silently losing reminders.
+   *
+   * `tolerant` (a late start, when the first durable task is registered on a running
+   * scheduler): store failures are logged and retried by the poll instead of rejecting.
    */
-  async start(logger?: Logger): Promise<void> {
+  async start(logger?: Logger, opts: { tolerant?: boolean } = {}): Promise<void> {
     if (this.running) return
     this.logger = logger ?? this.logger
     this.running = true
@@ -202,15 +225,26 @@ export class DurableScheduler {
         'durable scheduler tasks use an in-memory ScheduleStore: their schedule does not survive a restart (set BotConfig.scheduler.store)',
       )
     }
-    await this.store.start?.()
-    const records = await this.store.list()
-    if (epoch !== this.epoch) return
-    for (const rec of records) {
-      if (this.entries.has(rec.id) || this.orphansLogged.has(rec.id)) continue
-      this.orphansLogged.add(rec.id)
-      this.logger?.warn?.({ taskId: rec.id }, 'durable task stored but not registered (orphan): it is kept, never run; delete it with forget()')
+    try {
+      await this.store.start?.()
+      const records = await this.store.list()
+      if (epoch !== this.epoch) return
+      for (const rec of records) {
+        if (this.entries.has(rec.id) || this.orphansLogged.has(rec.id)) continue
+        this.orphansLogged.add(rec.id)
+        this.logger?.warn?.(
+          { taskId: rec.id },
+          'durable task stored but not registered (orphan): it is kept, never run; delete it with bot.forgetTask(id) or scheduler.forget(id)',
+        )
+      }
+      for (const entry of [...this.entries.values()]) {
+        if (!opts.tolerant) await this.activate(entry, epoch)
+        else await this.activate(entry, epoch).catch((err: unknown) => this.reportFailure(entry, err, 'registering'))
+      }
+    } catch (err) {
+      if (!opts.tolerant) throw err
+      this.logger?.error?.({ err }, 'durable scheduler: starting failed; the poll retries registering its tasks')
     }
-    for (const entry of [...this.entries.values()]) await this.activate(entry, epoch)
     if (epoch !== this.epoch) return
     this.poll = setInterval(() => this.tick(), this.tickMs)
   }
@@ -228,7 +262,6 @@ export class DurableScheduler {
     for (const entry of this.entries.values()) {
       this.disarm(entry)
       entry.activated = false
-      entry.missedCheck = false
       entry.running?.abort(new Error('scheduler stopped'))
     }
     const leader = this.leader
@@ -264,9 +297,12 @@ export class DurableScheduler {
       entry.failures = 0
       entry.retryAt = 0
       entry.nextRunAt = rec.nextRunAt
-      if (rec.nextRunAt === null) return
-      entry.missedCheck = rec.nextRunAt < now - this.tickMs
-      this.arm(entry, entry.missedCheck ? now : rec.nextRunAt)
+      if (rec.nextRunAt === null) {
+        this.finish(entry)
+        this.logger?.info?.({ taskId: entry.id }, 'durable one-shot task already ran (tombstone): forget its id to schedule it again')
+        return
+      }
+      this.arm(entry, rec.nextRunAt)
     }
     const p = run()
     entry.activation = p
@@ -295,18 +331,35 @@ export class DurableScheduler {
     entry.busy = true
     const epoch = this.epoch
     try {
-      if (!(await this.isLeader())) return
+      if (!(await this.isLeader())) {
+        // The leader runs what it knows on time. A follower steps in only for an occurrence
+        // left overdue for `leaderTtlMs`: a task the leader does not have (a rolling deploy,
+        // a task registered on this replica only) or a leader that died.
+        if (!this.overdue(entry, this.leaderTtlMs)) return
+        await this.follow(entry)
+        if (!this.overdue(entry, this.leaderTtlMs)) return
+      }
+      // An overdue slot still leased (expired) to someone is a runner that died mid-run.
+      let interrupted: number | undefined
+      if (this.overdue(entry, this.graceMs)) {
+        const rec = await this.store.get(entry.id)
+        if (rec && rec.leaseOwner !== undefined && rec.nextRunAt !== null) interrupted = rec.nextRunAt
+      }
       const now = this.now()
       const claim = await this.store.claimDue(entry.id, this.owner, now, entry.leaseMs)
-      const missedCheck = entry.missedCheck
-      entry.missedCheck = false
       if (!claim) {
         await this.follow(entry)
-      } else if (missedCheck) {
-        await this.runMissed(entry, claim, now)
       } else {
         const slot = claim.record.nextRunAt as number
-        await this.runOccurrence(entry, claim, slot, false, this.nextAfter(entry, slot, now))
+        if (slot === interrupted) {
+          // Retry the interrupted occurrence as itself; overdue slots after it are claimed
+          // next, as missed.
+          await this.runSlots(entry, claim, [slot], false, () => this.slotAfter(entry, slot))
+        } else if (slot < now - this.graceMs) {
+          await this.runMissed(entry, claim, slot, now)
+        } else {
+          await this.runSlots(entry, claim, [slot], false, (at) => this.nextAfter(entry, slot, at))
+        }
       }
       entry.failures = 0
       entry.retryAt = 0
@@ -321,49 +374,57 @@ export class DurableScheduler {
     }
   }
 
-  private async runMissed(entry: DurableEntry, claim: ClaimResult, now: number): Promise<void> {
-    const first = claim.record.nextRunAt as number
+  /** The last known slot of `entry` is overdue by more than `ms`. */
+  private overdue(entry: DurableEntry, ms: number): boolean {
+    return entry.nextRunAt !== null && entry.nextRunAt < this.now() - ms
+  }
+
+  /** Apply the missed-run policy to a claimed slot that no scheduler ran in time. */
+  private async runMissed(entry: DurableEntry, claim: ClaimResult, first: number, now: number): Promise<void> {
     if (entry.missed === 'skip') {
       const next = this.nextAfter(entry, first, now)
       this.logger?.info?.({ taskId: entry.id, missedSlot: new Date(first).toISOString() }, 'durable task: missed occurrence skipped')
-      if (await this.store.complete(entry.id, claim.fencingToken, { nextRunAt: next }, now)) entry.nextRunAt = next
+      if (await this.store.complete(entry.id, claim.fencingToken, { nextRunAt: next }, now)) this.committed(entry, next)
       else await this.follow(entry)
       return
     }
     if (entry.missed === 'run-once') {
-      await this.runOccurrence(entry, claim, first, true, this.nextAfter(entry, first, now))
+      await this.runSlots(entry, claim, [first], true, (at) => this.nextAfter(entry, first, at))
       return
     }
-    // catch-up: every missed slot in order, each under its own claim.
-    let current: ClaimResult | null = claim
-    let slot = first
-    for (let count = 1; current; count++) {
-      const following = this.slotAfter(entry, slot)
-      const caughtUp = following === null || following > now
-      const capped = !caughtUp && count >= entry.maxCatchUp
-      if (capped) {
-        this.logger?.warn?.(
-          { taskId: entry.id, maxCatchUp: entry.maxCatchUp, firstSkipped: new Date(following as number).toISOString() },
-          'durable task: catch-up capped at maxCatchUp; the remaining missed occurrences are skipped',
-        )
-      }
-      const last = caughtUp || capped
-      const next = last ? this.nextAfter(entry, slot, Math.max(now, this.now())) : following
-      const ok = await this.runOccurrence(entry, current, slot, true, next)
-      if (last || !ok || !this.running || this.entries.get(entry.id) !== entry) return
-      current = await this.store.claimDue(entry.id, this.owner, this.now(), entry.leaseMs)
-      if (!current) { await this.follow(entry); return }
-      slot = current.record.nextRunAt as number
+    // catch-up: every missed slot in order, all under this one claim. A slot within the
+    // grace period is not missed: it becomes the next slot, run normally.
+    const missedBefore = now - this.graceMs
+    const slots = [first]
+    let following = this.slotAfter(entry, first)
+    while (following !== null && following < missedBefore && slots.length < entry.maxCatchUp) {
+      slots.push(following)
+      following = this.slotAfter(entry, following)
     }
+    const capped = following !== null && following < missedBefore
+    if (capped) {
+      this.logger?.warn?.(
+        { taskId: entry.id, maxCatchUp: entry.maxCatchUp, firstSkipped: new Date(following as number).toISOString() },
+        'durable task: catch-up capped at maxCatchUp; the remaining missed occurrences are skipped',
+      )
+    }
+    const last = slots[slots.length - 1]
+    const after = following
+    await this.runSlots(entry, claim, slots, true, capped ? (at) => this.nextAfter(entry, last, at) : () => after)
   }
 
-  /** Run one occurrence under its claim; `true` when `complete()` committed it. */
-  private async runOccurrence(
+  /**
+   * Run `slots` in order under one claim (its lease renewed throughout), then commit once
+   * with `next(now)`. When the run is aborted between slots (stop, lost lease), the first
+   * slot not run is committed instead, so a later claim resumes there. `true` when the
+   * commit went through.
+   */
+  private async runSlots(
     entry: DurableEntry,
     claim: ClaimResult,
-    slot: number,
+    slots: readonly number[],
     missed: boolean,
-    next: number | null,
+    next: (now: number) => number | null,
   ): Promise<boolean> {
     const token = claim.fencingToken
     const ac = new AbortController()
@@ -375,38 +436,63 @@ export class DurableScheduler {
       )
     }, Math.max(1, Math.floor(entry.leaseMs / 3)))
     renewal.unref?.()
-    const startedAt = this.now()
+    let lastRunAt: number | undefined
     let status: 'ok' | 'error' = 'ok'
+    let ran = 0
     try {
-      const scheduledAt = new Date(slot)
-      await entry.handler({
-        taskId: entry.id,
-        scheduledAt,
-        occurrenceKey: `${entry.id}@${scheduledAt.toISOString()}`,
-        fencingToken: token,
-        missed,
-        signal: ac.signal,
-      })
-    } catch (err) {
-      status = 'error'
-      this.logger?.error?.({ err, taskId: entry.id }, 'scheduled task failed')
+      for (const slot of slots) {
+        if (ac.signal.aborted || this.entries.get(entry.id) !== entry) break
+        lastRunAt = this.now()
+        status = 'ok'
+        const scheduledAt = new Date(slot)
+        try {
+          await entry.handler({
+            taskId: entry.id,
+            scheduledAt,
+            occurrenceKey: `${entry.id}@${scheduledAt.toISOString()}`,
+            fencingToken: token,
+            missed,
+            signal: ac.signal,
+          })
+        } catch (err) {
+          status = 'error'
+          this.logger?.error?.({ err, taskId: entry.id }, 'scheduled task failed')
+        }
+        ran++
+      }
     } finally {
       clearInterval(renewal)
       if (entry.running === ac) entry.running = undefined
     }
-    // Cancelled while running: its row is (being) deleted — nothing to commit.
+    // Cancelled while running: its row is (being) deleted, nothing to commit.
     if (this.entries.get(entry.id) !== entry) return false
-    const ok = await this.store.complete(entry.id, token, { nextRunAt: next, lastRunAt: startedAt, lastStatus: status }, this.now())
+    const nextRunAt = ran < slots.length ? slots[ran] : next(this.now())
+    const patch: CompletePatch = lastRunAt === undefined ? { nextRunAt } : { nextRunAt, lastRunAt, lastStatus: status }
+    const ok = await this.store.complete(entry.id, token, patch, this.now())
     if (ok) {
-      entry.nextRunAt = next
+      this.committed(entry, nextRunAt)
     } else {
       this.logger?.warn?.(
-        { taskId: entry.id, fencingToken: token, scheduledAt: new Date(slot).toISOString() },
+        { taskId: entry.id, fencingToken: token, scheduledAt: new Date(slots[0]).toISOString() },
         'durable task: lease lost while running; the occurrence may run twice (use run.occurrenceKey to deduplicate)',
       )
       await this.follow(entry)
     }
     return ok
+  }
+
+  /** A commit went through: track the next slot, and drop a one-shot task that has run. */
+  private committed(entry: DurableEntry, next: number | null): void {
+    entry.nextRunAt = next
+    if (next === null) this.finish(entry)
+  }
+
+  /** A one-shot task whose row is a tombstone never runs again: stop tracking it. */
+  private finish(entry: DurableEntry): void {
+    if (this.entries.get(entry.id) !== entry) return
+    this.entries.delete(entry.id)
+    this.disarm(entry)
+    entry.done = true
   }
 
   /** Re-read the stored record (another replica ran or holds the occurrence). */

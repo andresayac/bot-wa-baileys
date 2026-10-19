@@ -26,7 +26,10 @@ import {
   type ScheduleStore,
 } from '@bot-wa/core'
 
-/** Idempotent schema of the schedules table. */
+/**
+ * Idempotent schema of the schedules table, plus `schedule_fences`: the last fencing token
+ * of each deleted id, so a new registration of the id never reuses a token.
+ */
 export const SCHEDULES_SCHEMA = `
   CREATE TABLE IF NOT EXISTS schedules (
     id TEXT PRIMARY KEY, kind TEXT NOT NULL, spec TEXT NOT NULL,
@@ -34,6 +37,7 @@ export const SCHEDULES_SCHEMA = `
     fencing_token INTEGER NOT NULL DEFAULT 0,
     lease_owner TEXT, lease_until INTEGER, updated_at INTEGER NOT NULL
   );
+  CREATE TABLE IF NOT EXISTS schedule_fences (id TEXT PRIMARY KEY, token INTEGER NOT NULL);
 `
 
 interface ScheduleRow {
@@ -72,19 +76,22 @@ export class SQLiteScheduleStore implements ScheduleStore {
     respec: BetterSqlite3.Statement
     write: BetterSqlite3.Statement
     renew: BetterSqlite3.Statement
+    fence: BetterSqlite3.Statement
     delete: BetterSqlite3.Statement
     list: BetterSqlite3.Statement
   }
   private readonly registerTx: (rec: Pick<ScheduleRecord, 'id' | 'kind' | 'spec' | 'nextRunAt'>, now: number) => ScheduleRecord
   private readonly claimTx: (id: string, owner: string, now: number, leaseMs: number) => ClaimResult | null
   private readonly completeTx: (id: string, token: number, patch: CompletePatch, now: number) => boolean
+  private readonly deleteTx: (id: string) => void
 
   constructor(private readonly db: BetterSqlite3.Database) {
     db.exec(SCHEDULES_SCHEMA)
     this.stmts = {
       get: db.prepare('SELECT * FROM schedules WHERE id = ?'),
       insert: db.prepare(
-        'INSERT INTO schedules (id, kind, spec, next_run_at, fencing_token, updated_at) VALUES (?, ?, ?, ?, 0, ?)',
+        `INSERT INTO schedules (id, kind, spec, next_run_at, fencing_token, updated_at)
+           VALUES (?, ?, ?, ?, COALESCE((SELECT token FROM schedule_fences WHERE id = ?), 0), ?)`,
       ),
       respec: db.prepare('UPDATE schedules SET kind = ?, spec = ?, next_run_at = ?, updated_at = ? WHERE id = ?'),
       write: db.prepare(
@@ -93,6 +100,10 @@ export class SQLiteScheduleStore implements ScheduleStore {
       ),
       renew: db.prepare(
         'UPDATE schedules SET lease_until = ? WHERE id = ? AND fencing_token = ? AND lease_owner IS NOT NULL',
+      ),
+      fence: db.prepare(
+        `INSERT INTO schedule_fences (id, token) SELECT id, fencing_token FROM schedules WHERE id = ?
+           ON CONFLICT(id) DO UPDATE SET token = MAX(token, excluded.token)`,
       ),
       delete: db.prepare('DELETE FROM schedules WHERE id = ?'),
       list: db.prepare('SELECT * FROM schedules'),
@@ -108,7 +119,7 @@ export class SQLiteScheduleStore implements ScheduleStore {
     this.registerTx = db.transaction((rec: Pick<ScheduleRecord, 'id' | 'kind' | 'spec' | 'nextRunAt'>, now: number) => {
       const current = read(rec.id)
       if (!current) {
-        s.insert.run(rec.id, rec.kind, rec.spec, rec.nextRunAt, now)
+        s.insert.run(rec.id, rec.kind, rec.spec, rec.nextRunAt, rec.id, now)
       } else if (current.kind !== rec.kind || current.spec !== rec.spec) {
         s.respec.run(rec.kind, rec.spec, rec.nextRunAt, now, rec.id)
       }
@@ -133,6 +144,10 @@ export class SQLiteScheduleStore implements ScheduleStore {
       write(applyScheduleComplete(current, patch, now))
       return true
     }).immediate
+    this.deleteTx = db.transaction((id: string) => {
+      s.fence.run(id)
+      s.delete.run(id)
+    }).immediate
   }
 
   async get(id: string): Promise<ScheduleRecord | null> {
@@ -156,8 +171,9 @@ export class SQLiteScheduleStore implements ScheduleStore {
     return this.completeTx(id, fencingToken, patch, now)
   }
 
+  /** Deletes the row, keeping its fencing token in `schedule_fences`. */
   async delete(id: string): Promise<void> {
-    this.stmts.delete.run(id)
+    this.deleteTx(id)
   }
 
   async list(): Promise<ScheduleRecord[]> {

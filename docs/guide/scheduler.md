@@ -94,8 +94,9 @@ becomes **durable**:
 - its next run time is stored, so a restart keeps the schedule instead of
   planning again from "now";
 - the occurrences missed while the bot was down follow a policy (`missed`);
-- each occurrence is claimed under a fenced lease in the shared store, so with
-  N replicas it runs on exactly one of them.
+- each occurrence is claimed under a fenced lease in the shared store, so N
+  replicas never run it at the same time (it is still at least once: see
+  [Guarantees and limits](#guarantees-and-limits)).
 
 It is opt-in: tasks without `id` and bots without `scheduler` behave exactly as
 before.
@@ -112,8 +113,11 @@ bot.schedule('0 9 * * 1-5', { id: 'morning-digest', missed: 'run-once' }, async 
   await sendDigest({ idempotencyKey: run.occurrenceKey })
 })
 bot.every('15m', { id: 'sync-crm', missed: 'catch-up', maxCatchUp: 4 }, async (run) => { /* ... */ })
-bot.delay('2h', { id: `follow-up:${orderId}` }, async () => { /* ... */ })
 ```
+
+Register durable tasks **at boot, on every replica**: only the schedule is
+stored, never the handler, so after a restart a task runs only if the code
+registers its id again (see [Registering tasks](#registering-tasks)).
 
 The handler receives a `ScheduledRun`:
 
@@ -122,7 +126,7 @@ The handler receives a `ScheduledRun`:
 | `taskId` | The task's `id`. |
 | `scheduledAt` | The slot this run covers (not the wall clock it started at). |
 | `occurrenceKey` | `` `${taskId}@${scheduledAt.toISOString()}` ``: stable per occurrence, use it as an idempotency key. |
-| `fencingToken` | Strictly increasing per task; pass it downstream to reject stale writes. |
+| `fencingToken` | Token of the claim: strictly increasing per task id, also across `cancel()` and a new registration. Pass it downstream to reject stale writes. The runs of one catch-up share their claim, and so their token. |
 | `missed` | `true` when the run comes from the missed-run policy. |
 | `signal` | Aborted when the bot stops or the lease on this occurrence is lost. |
 
@@ -137,24 +141,62 @@ The handler receives a `ScheduledRun`:
 
 ### Missed runs
 
-Applied once, when the scheduler starts and finds a slot overdue by more than
-`tickMs` (1 s by default):
+A slot is **missed** when it is claimed more than a grace period after it fell
+due, which happens when no replica was running it (the bot was down, or every
+replica was stopped). The grace period is `tickMs` (1 s by default), plus twice
+`leaderTtlMs` when a leader `lease` is set (a follower or a failover can take
+that long to step in, and that is not a missed run). Every replica decides it
+from the stored state alone, so they all agree. Missed slots follow the task's
+policy:
 
 - `'skip'`: run none of them and wait for the next slot after now.
 - `'run-once'`: run one occurrence (`missed: true`, `scheduledAt` is the first
   missed slot), then wait for the next slot.
 - `'catch-up'`: run every missed slot in order, each with its own
   `scheduledAt` and `occurrenceKey`, up to `maxCatchUp`; the rest are skipped
-  and logged.
+  and logged. The whole catch-up runs under one claim on one replica and is
+  committed at the end: if that process dies halfway, the catch-up starts over
+  from its first slot (deduplicate with `run.occurrenceKey`); if it is stopped,
+  it resumes from the first slot it did not run.
+
+An occurrence interrupted by a crash (its runner died holding the lease) is not
+missed: once the lease expires it runs again as itself (`missed: false`), and
+the policy applies to the slots after it.
 
 A one-shot `delay` counts as one slot: `'skip'` drops a reminder that fell due
 while the bot was down, so use `'run-once'` for reminders. Its run time is
 fixed when the id is first stored; a restart does not push it back. After it
-runs, the row stays as a tombstone (it does not fire again on the next boot)
-until `cancel()` deletes it.
+runs, the row stays as a tombstone (registering the id again does not run it
+again) until `cancel()` or `bot.forgetTask(id)` deletes it.
 
 Interval slots do not drift: the next slot is the previous slot plus the
 interval, not "now" plus the interval. Cron stays in local time.
+
+### Registering tasks
+
+- Register recurring tasks at boot, on every replica, with the same id and
+  spec. A task can also be registered while the bot runs (the first durable
+  task starts the durable engine), but it is only durable for as long as some
+  code registers it again after each restart.
+- Per-entity reminders (one id per order, per user...) are fine as long as you
+  can rebuild them at boot from your own data: registering the same id again
+  keeps its original run time.
+
+```ts
+// At boot: re-register the follow-ups still pending in your database.
+for (const order of await orders.pendingFollowUps()) scheduleFollowUp(order.id)
+
+// And when an order is created (from a handler):
+function scheduleFollowUp(orderId: string) {
+  bot.delay('2h', { id: `follow-up:${orderId}`, missed: 'run-once' }, async (run) => {
+    await sendFollowUp(orderId, { idempotencyKey: run.occurrenceKey })
+    await bot.forgetTask(run.taskId) // done: drop the tombstone
+  })
+}
+```
+
+A per-entity id that no code registers after a restart is an orphan: it is
+kept and never run.
 
 ### Backends
 
@@ -163,7 +205,7 @@ interval, not "now" plus the interval. Cron stays in local time.
 | Option | Default | Meaning |
 |---|---|---|
 | `store` | in memory | Where schedules persist. `SQLiteStore#schedules()` (table `schedules`, same connection) or `RedisStore#schedules()` (`{prefix}:sched:{id}`, same client). Without it durable tasks work but do not survive a restart, and a warning is logged once. |
-| `lease` | none | Optional leadership: only the replica holding `scheduler:leader` claims, which saves store round-trips with many replicas. `RedisStore#leases()` gives a fenced one. Correctness never depends on it. |
+| `lease` | none | Optional leadership, which saves store round-trips with many replicas: the replica holding `scheduler:leader` claims on time, and the others only claim an occurrence left overdue for `leaderTtlMs` (a task only they registered, e.g. during a rolling deploy, or a dead leader), so such a task runs up to `leaderTtlMs` late. `RedisStore#leases()` gives a fenced one. Correctness never depends on it. |
 | `owner` | random | This process's lease-owner id. |
 | `tickMs` | `'1s'` | Poll period: picks up an occurrence whose runner crashed (once its lease expires) and retries after store errors. |
 | `leaderTtlMs` | `'30s'` | TTL of the leader lease. |
@@ -174,14 +216,20 @@ and Mongo backends are not written yet.
 
 ### Guarantees and limits
 
-- **At least once per occurrence.** If a runner crashes, or stalls longer than
-  `leaseMs`, its lease expires and another replica (or the restart) runs the
+- **At least once per occurrence**, never two runs of a task at the same time
+  (while leases hold). If a runner crashes, or stalls longer than `leaseMs`,
+  its lease expires and another replica (or the restarted process) runs the
   same slot again. The stale runner's `signal` aborts and its commit is
   rejected (logged). Make handlers idempotent with `run.occurrenceKey`.
 - **Only the schedule is stored**, not the handler. A stored id that no
   registered task claims is an **orphan**: it is logged once at start, kept, and
-  never run. Remove it with `store.schedules().delete(id)` (a standalone
-  `Scheduler` also has `forget(id)`).
+  never run. Remove it with `bot.forgetTask(id)` (a standalone `Scheduler` has
+  `forget(id)`), which applies the bot's namespace for you. That namespace
+  includes the `botId`, the provider and the connection id: changing any of
+  them leaves the old rows as orphans.
+- Deleted ids keep a small marker with their last fencing token (so tokens never
+  go backwards), and one-shot tasks keep their tombstone: with many per-entity
+  ids, forget them once done.
 - Changing a task's spec (cron or interval) between deploys plans it again from
   now; the missed policy does not apply to the old spec.
 - `stop()` pauses: rows are kept. `task.cancel()` deletes the row.

@@ -1344,12 +1344,19 @@ export class Bot extends EventEmitter {
   delay(duration: string | number, fn: () => void | Promise<void>): ScheduledTask
   /**
    * Durable one-shot task: its run time is fixed when `opts.id` is first stored, so a
-   * restart does not push it back (see the durable {@link schedule} overload).
+   * restart does not push it back, provided the code registers the id again at boot (only
+   * the schedule is stored, not the handler). See the durable {@link schedule} overload.
    */
   delay(duration: string | number, opts: DurableTaskOptions, fn: DurableTaskHandler): ScheduledTask
   delay(duration: string | number, a: (() => void | Promise<void>) | DurableTaskOptions, b?: DurableTaskHandler): ScheduledTask {
     return typeof a === 'function' ? this.scheduler.delay(duration, a) : this.scheduler.delay(duration, a, b as DurableTaskHandler)
   }
+  /**
+   * Delete the stored schedule of a durable task `id` (the bot's store namespace is
+   * applied, as on registration): an orphan logged at start (stored, no longer registered
+   * in code), a one-shot tombstone, or a registered task, which is cancelled as well.
+   */
+  forgetTask(id: string): Promise<void> { return this.scheduler.forget(id) }
 
   /* =========================================================================
    * IDLE (per-chat inactivity)

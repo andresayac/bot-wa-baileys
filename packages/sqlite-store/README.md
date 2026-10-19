@@ -60,6 +60,7 @@ With a durable store, `flow(...).persistent()` checkpoints survive a restart: th
 | `conversations` | key                                 | `AIMessage[]` (JSON), the `@bot-wa/ai` history |
 | `cursors`       | key                                 | delivery cursor string (e.g. Telegram `update_id`) |
 | `schedules`     | task id                             | durable scheduler tasks (`store.schedules()`): spec, next/last run, fencing token, lease |
+| `schedule_fences` | task id                           | last fencing token of each deleted durable task (tokens never go backwards) |
 
 ## Semantics
 

@@ -166,7 +166,8 @@ describe('Scheduler: durable tasks', () => {
     expect(runs.map((r) => r.scheduledAt.getTime() - T0)).toEqual([MIN, 2 * MIN, 3 * MIN])
     expect(runs.every((r) => r.missed)).toBe(true)
     expect(new Set(runs.map((r) => r.occurrenceKey)).size).toBe(3)
-    expect(runs.map((r) => r.fencingToken)).toEqual([1, 2, 3])
+    // One claim covers the whole catch-up (no other replica can interleave).
+    expect(runs.map((r) => r.fencingToken)).toEqual([1, 1, 1])
     expect((await store.get('job'))?.nextRunAt).toBe(T0 + 4 * MIN)
     s.stop()
   })

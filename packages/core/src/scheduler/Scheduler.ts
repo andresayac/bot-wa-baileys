@@ -10,7 +10,7 @@
 import type { Logger } from 'pino'
 import type { DurableTaskHandler, DurableTaskOptions, ScheduledTask } from '../core/types.js'
 import { DurableScheduler, type DurableSchedulerOptions } from './durable.js'
-import type { SchedulerOptions } from './ScheduleStore.js'
+import type { ScheduleKind, SchedulerOptions } from './ScheduleStore.js'
 import { parseDuration, randomId } from '../utils/timers.js'
 import { assertCron, cronNextRun } from './cron.js'
 
@@ -65,7 +65,7 @@ export class Scheduler {
   /** Add a durable cron-style task (see {@link DurableTaskOptions}). */
   cron(cronExpr: string, opts: DurableTaskOptions, fn: DurableTaskHandler): ScheduledTask
   cron(cronExpr: string, a: (() => void | Promise<void>) | DurableTaskOptions, b?: DurableTaskHandler): ScheduledTask {
-    if (typeof a !== 'function') return this.durable.add('cron', cronExpr, a, b as DurableTaskHandler)
+    if (typeof a !== 'function') return this.addDurable('cron', cronExpr, a, b as DurableTaskHandler)
     return this.add(cronExpr, undefined, undefined, a)
   }
 
@@ -74,7 +74,7 @@ export class Scheduler {
   /** Add a durable interval task: slots are `previous slot + interval`, so they do not drift. */
   every(interval: string | number, opts: DurableTaskOptions, fn: DurableTaskHandler): ScheduledTask
   every(interval: string | number, a: (() => void | Promise<void>) | DurableTaskOptions, b?: DurableTaskHandler): ScheduledTask {
-    if (typeof a !== 'function') return this.durable.add('interval', interval, a, b as DurableTaskHandler)
+    if (typeof a !== 'function') return this.addDurable('interval', interval, a, b as DurableTaskHandler)
     return this.add(undefined, interval, undefined, a)
   }
 
@@ -82,13 +82,25 @@ export class Scheduler {
   delay(duration: string | number, fn: () => void | Promise<void>): ScheduledTask
   /**
    * Add a durable one-shot task: its run time is fixed when the id is first stored, so a
-   * restart does not push it back. After it runs, its row stays as a tombstone (it does not
-   * run again on the next boot) until {@link forget} or `cancel()` removes it.
+   * restart does not push it back (as long as the code registers the id again at boot).
+   * After it runs, its row stays as a tombstone (registering the id again does not run it
+   * again) until {@link forget} or `cancel()` removes it.
    */
   delay(duration: string | number, opts: DurableTaskOptions, fn: DurableTaskHandler): ScheduledTask
   delay(duration: string | number, a: (() => void | Promise<void>) | DurableTaskOptions, b?: DurableTaskHandler): ScheduledTask {
-    if (typeof a !== 'function') return this.durable.add('once', duration, a, b as DurableTaskHandler)
+    if (typeof a !== 'function') return this.addDurable('once', duration, a, b as DurableTaskHandler)
     return this.add(undefined, undefined, duration, a)
+  }
+
+  /**
+   * Register a durable task. On a running scheduler whose durable engine was not started
+   * (nothing durable existed at start), the first durable task starts it: store failures
+   * are then logged and retried by its poll, since there is no `start()` to reject.
+   */
+  private addDurable(kind: ScheduleKind, spec: string | number, opts: DurableTaskOptions, fn: DurableTaskHandler): ScheduledTask {
+    const task = this.durable.add(kind, spec, opts, fn)
+    if (this.isRunning && !this.durable.isRunning) void this.durable.start(this.logger, { tolerant: true })
+    return task
   }
 
   /**

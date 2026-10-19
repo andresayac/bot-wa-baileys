@@ -86,7 +86,7 @@ const store = new RedisStore({ client: fake })
 | `{prefix}:conv:{key}` | string (JSON) | `AIMessage[]` | `sessionTtl` |
 | `{prefix}:cursor:{key}` | string | delivery cursor (e.g. Telegram `update_id`) | — |
 | `{prefix}:lock:{key}` | string | lock token (`SET NX PX`) | lock `ttlMs` |
-| `{prefix}:sched:{id}` | string (JSON) | durable scheduler task (`ScheduleRecord`, see `schedules()`) | — |
+| `{prefix}:sched:{id}` | string (JSON) | durable scheduler task (`ScheduleRecord`, see `schedules()`); a deleted task leaves a small `{ deleted, fencingToken }` marker so its tokens never go backwards | — |
 | `{prefix}:lease:{key}` | string (JSON) | fenced lease (owner, deadline, token; see `leases()`) | — |
 
 `getMessagesByChat(chatId, limit)` reads the latest `limit` entries from the ZSET (`ZRANGE … BYSCORE REV LIMIT`) and fetches the JSON items, returning them oldest→newest — same windowing semantics as `@bot-wa/sqlite-store`.
