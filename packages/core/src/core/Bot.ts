@@ -1533,19 +1533,23 @@ export class Bot extends EventEmitter {
     return false
   }
 
-  /** Inbound idempotency gate: a redelivered message/interaction never reaches handlers twice. */
-  private async runInboundOnce(event: InboundEvent, handle: () => Promise<void>): Promise<void> {
-    if (!this.inboundDedupe) return handle()
+  /**
+   * Inbound idempotency gate: a redelivered message/interaction never reaches handlers twice.
+   * `handle` resolving `false` (dropped unprocessed because the bot stopped) forgets the key.
+   */
+  private async runInboundOnce(event: InboundEvent, handle: () => Promise<boolean>): Promise<void> {
+    if (!this.inboundDedupe) { await handle(); return }
     await this.inboundDedupe.run(event, handle, () => {
       this.counters.duplicateDropped()
       this.logger.debug({ kind: event.kind }, 'duplicate inbound event dropped')
     })
   }
 
+  /** Persist and dispatch one inbound message; `false` when it was dropped because the bot stopped. */
   private async handleInbound(
     inbound: InboundMessage,
     interaction?: { id: string; data: string; respondBy?: number },
-  ): Promise<void> {
+  ): Promise<boolean> {
     // The access lists already admitted this sender (admitsSender, before dedupe).
     this.counters.inbound()
     const timestamp = receiveTimestamp(inbound.timestamp)
@@ -1586,11 +1590,11 @@ export class Bot extends EventEmitter {
       }),
       this.store.saveMessage(stored),
     ])
-    await this.processMessage(inbound, interaction)
+    return this.processMessage(inbound, interaction)
   }
 
   /** Project an interaction (button/slash/callback) into a message-shaped context. */
-  private async handleInteraction(it: InboundInteraction): Promise<void> {
+  private async handleInteraction(it: InboundInteraction): Promise<boolean> {
     const inbound: InboundMessage = {
       ref: it.ref,
       chat: it.chat,
@@ -1608,7 +1612,7 @@ export class Bot extends EventEmitter {
       mentions: [],
       raw: it.raw,
     }
-    await this.handleInbound(inbound, { id: it.interactionId, data: it.data, respondBy: it.respondBy })
+    return this.handleInbound(inbound, { id: it.interactionId, data: it.data, respondBy: it.respondBy })
   }
 
   /**
@@ -1624,7 +1628,8 @@ export class Bot extends EventEmitter {
     }
   }
 
-  private async processMessage(inbound: InboundMessage, interaction?: { id: string; data: string; respondBy?: number }): Promise<void> {
+  /** `false` only when the message was dropped unprocessed because the bot stopped. */
+  private async processMessage(inbound: InboundMessage, interaction?: { id: string; data: string; respondBy?: number }): Promise<boolean> {
     const ctx = this.contextFor(inbound, {
       markRead: async (ref) => { await this.provider.markRead?.([ref]) },
       deleteMessage: async (ref) => { await this.provider.deleteMessage?.(ref) },
@@ -1641,13 +1646,13 @@ export class Bot extends EventEmitter {
       if (this.config.groupMode === 'mentions') {
         const self = this.provider.selfId ?? null
         const mentioned = self ? ctx.mentions.includes(self) : ctx.mentions.length > 0
-        if (!mentioned) return
+        if (!mentioned) return true
       }
-      if (this.config.groupMode === 'commands' && !ctx.body.startsWith(prefix)) return
+      if (this.config.groupMode === 'commands' && !ctx.body.startsWith(prefix)) return true
     }
 
     this.logger.debug({ from: ctx.from, type: ctx.type }, 'dispatching message')
-    await this.dispatcher.dispatch(ctx as unknown as DispatchContext)
+    return this.dispatcher.dispatch(ctx as unknown as DispatchContext)
   }
 
   /**
