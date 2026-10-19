@@ -222,6 +222,13 @@ reprocesar o entregar un registro. Con una sesión de transporte solo en la líd
 espera nunca llama al transporte (el intento se rechaza con `ProviderNotLeaderError` y
 se reintenta); lo entrega la líder.
 
+Con coordinación, un registro que alimentó un paso de conversación se confirma solo
+cuando aterriza la escritura del checkpoint que guarda su efecto (la marca de espera, o
+la respuesta de un paso cortado); si un paso suspendido no pudo escribirla, libera el
+registro y este se reprocesa. Una respuesta guardada apunta a su registro de entrada,
+así que mantén `retention` por encima de tu pausa de conversación más larga. Ver
+[Relevo de conversaciones](./replicas.md#relevo-de-conversaciones).
+
 ## Probar la recuperación ante caídas
 
 `@bot-wa/core/testing` exporta `crashable(backend)`, que puede "matar" un bot en una
