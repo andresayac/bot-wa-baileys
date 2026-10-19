@@ -160,6 +160,10 @@ interface ActiveConversation extends ConversationHandle {
   life?: { info: ConversationStartInfo; startedAt: number; ended: boolean }
   /** Most recent inbound message routed to this conversation (drives c.t / built-in messages). */
   latest?: RuntimeMessage
+  /** Resolves once the conversation function has fully unwound (see {@link ConversationRuntime.suspend}). */
+  unwound?: Promise<void>
+  /** Multi-replica handover: the first wait skips its prompt (see {@link ConversationRuntime.refreshDormant}). */
+  handover?: boolean
 }
 
 const INBOX_CAP = 10
@@ -195,6 +199,12 @@ export class ConversationRuntime {
   private registrations: ConversationRegistration[] = []
   /** Set by {@link close} (bot stopped): no conversation starts until {@link open}. */
   private closed = false
+  /** Callers of {@link whenSettled}, per key. */
+  private settleWaiters = new Map<string, Set<() => void>>()
+  /** Keys whose dormant checkpoint was handed over by another replica (see {@link refreshDormant}). */
+  private handovers = new Set<string>()
+  /** Waking message of a handover resume, consumed by the entry {@link run} creates next for its key. */
+  private handoverAnswers = new Map<string, RuntimeMessage>()
 
   constructor(private cfg: RuntimeConfig = {}) {}
 
@@ -281,6 +291,7 @@ export class ConversationRuntime {
     if (!this.store) return
     const checkpoints = await this.store.listCheckpoints()
     this.dormant.clear()
+    this.handovers.clear()
     for (const [key, cp] of checkpoints) this.dormant.set(key, cp)
   }
 
@@ -295,18 +306,21 @@ export class ConversationRuntime {
     const cp = this.dormant.get(key)
     if (!cp) return false
     this.dormant.delete(key)
+    const handover = this.handovers.delete(key)
     const flow = this.compiled.get(cp.flowId)
     if (!flow) { await this.store?.clearCheckpoint(key).catch(() => {}); return false }
     const resumed: ConversationFn = async (c, rctx) => {
       Object.assign((c as ConversationControlsBase).state, cp.state)
       await this.wrapCompiled(flow, cp.step)(c, rctx)
     }
+    if (handover) this.handoverAnswers.set(key, ctx)
     // enter() is fire-and-forget (it only resolves when the resumed flow ends); a rejection
     // here (e.g. a bad goto target) would otherwise become an unhandled rejection → crash.
     void this.enter(resumed, ctx, { name: cp.flowId }).catch((e) => {
       this.cfg.onError?.(e, ctx)
       this.cfg.logger?.error?.('resume failed', e)
     })
+    this.handoverAnswers.delete(key)   // consumed synchronously by run(); never left behind
     return true
   }
 
@@ -319,6 +333,7 @@ export class ConversationRuntime {
 
   /** Drop `key`'s dormant checkpoint (memory + store). Returns whether one existed. */
   discardDormant(key: string): boolean {
+    this.handovers.delete(key)
     if (!this.dormant.delete(key)) return false
     if (this.store) {
       // Tracked per key so a persistent flow entered right after this waits for the clear
@@ -330,6 +345,78 @@ export class ConversationRuntime {
       this.pendingClears.set(key, clear)
     }
     return true
+  }
+
+  /**
+   * Multi-replica: re-read `key`'s checkpoint from the store into the dormant map (or
+   * drop the dormant entry when the store has none). Another replica may have advanced
+   * or finished the flow since this one loaded it.
+   */
+  async refreshDormant(key: string): Promise<void> {
+    this.handovers.delete(key)
+    if (!this.store) return
+    await this.pendingClears.get(key)
+    const cp = await this.store.getCheckpoint(key)
+    if (cp) {
+      this.dormant.set(key, cp)
+      // The replica that wrote it held the chat until the flow was parked on a wait, so its
+      // prompt was already sent: the waking message is the ANSWER, not just a wake-up.
+      this.handovers.add(key)
+    } else {
+      this.dormant.delete(key)
+    }
+  }
+
+  /** Consume the handover flag of `handle`'s conversation (see {@link WaitTrackerDeps.skipPrompt}). */
+  takeHandover(handle: ConversationHandle): boolean {
+    const entry = handle as ActiveConversation
+    if (!entry.handover) return false
+    entry.handover = false
+    return true
+  }
+
+  /**
+   * Multi-replica: silently abort `key`'s live conversation KEEPING its persistent
+   * checkpoint (like a shutdown), because another replica now owns the key and resumes
+   * it from the store. Resolves once the aborted conversation has unwound (bounded by
+   * `maxWaitMs`), so its cleanup cannot clear a checkpoint written afterwards.
+   */
+  async suspend(key: string, maxWaitMs = 5_000): Promise<boolean> {
+    const entry = this.active.get(key)
+    if (!entry) return false
+    this.preserveOnAbort.add(key)
+    if (!this.abort(key)) { this.preserveOnAbort.delete(key); return false }
+    let timer: ReturnType<typeof setTimeout> | undefined
+    await Promise.race([
+      entry.unwound ?? Promise.resolve(),
+      new Promise<void>((resolve) => { timer = setTimeout(resolve, maxWaitMs) }),
+    ])
+    if (timer) clearTimeout(timer)
+    return true
+  }
+
+  /**
+   * Resolves when `key` has no running conversation step: no live conversation, or the
+   * live one is blocked waiting for the next message. Multi-replica coordination holds
+   * the chat's turn until then, so no other replica processes the chat mid-step.
+   */
+  whenSettled(key: string): Promise<void> {
+    const entry = this.active.get(key)
+    if (!entry || entry.pending) return Promise.resolve()
+    return new Promise<void>((resolve) => {
+      let set = this.settleWaiters.get(key)
+      if (!set) this.settleWaiters.set(key, (set = new Set()))
+      set.add(resolve)
+    })
+  }
+
+  private notifySettled(key: string): void {
+    const set = this.settleWaiters.get(key)
+    if (!set) return
+    const entry = this.active.get(key)
+    if (entry && !entry.pending) return
+    this.settleWaiters.delete(key)
+    for (const resolve of set) resolve()
   }
 
   /** Number of live conversations (every key). */
@@ -391,6 +478,16 @@ export class ConversationRuntime {
     this.discardDormant(key)
 
     const entry: ActiveConversation = { key, state: opts.state ? { ...opts.state } : {}, inbox: [], ...(latest ? { latest } : {}) }
+    let markUnwound!: () => void
+    entry.unwound = new Promise<void>((resolve) => { markUnwound = resolve })
+    const answer = this.handoverAnswers.get(key)
+    if (answer) {
+      // Multi-replica handover resume: the waking message answers the parked wait.
+      this.handoverAnswers.delete(key)
+      entry.handover = true
+      entry.inbox.push(answer)
+      entry.latest = answer
+    }
     this.active.set(key, entry)
     const startInfo: ConversationStartInfo = { id: randomId('conv'), name, key, ctx }
     entry.life = { info: startInfo, startedAt: Date.now(), ended: false }
@@ -429,6 +526,7 @@ export class ConversationRuntime {
       }
     } finally {
       this.cleanup(entry)
+      markUnwound()
       // An aborted conversation already reported its end (as cancelled) from abort().
       this.reportEnd(entry, entry.cancelled ? 'cancelled' : outcome, entry.cancelled ? undefined : goto?.target)
     }
@@ -567,6 +665,7 @@ export class ConversationRuntime {
       }
       if (timeoutMs > 0) pending.timer = setTimeout(() => pending.reject(new ConversationTimeout()), timeoutMs)
       entry.pending = pending
+      if (this.settleWaiters.size > 0) this.notifySettled(entry.key)
     })
   }
 
@@ -664,6 +763,7 @@ export class ConversationRuntime {
     // already owns the key (one started after the abort deleted the flag itself anyway).
     if (!this.active.has(entry.key)) this.preserveOnAbort.delete(entry.key)
     this.notifyEnd(entry)
+    if (this.settleWaiters.size > 0) this.notifySettled(entry.key)
   }
 
   private async safeReply(ctx: RuntimeMessage, text: string): Promise<void> {

@@ -13,6 +13,7 @@
 
 import type { HandoffConfig, HandoffOptions, StoredHandoff } from '../gates/handoff.js'
 import type { InboundDedupeOptions } from './dedupe.js'
+import type { CoordinationConfig } from '../coordination/types.js'
 import type { UserData } from '../user/types.js'
 import type { EditOptions, EditResult, MessagingFeature, MessagingSupport, ReplyOptions, TypingConfig } from './messaging.js'
 import type { I18nConfig, LangSource, TranslateParams } from '../i18n/types.js'
@@ -431,6 +432,14 @@ export interface ProviderCapabilities {
   interactionsRequireAck: boolean
   /** Delivery is push-to-us (webhook) rather than a socket the provider owns. */
   pushIngress: boolean
+  /**
+   * The transport allows ONE live connection per account (a WhatsApp Web session,
+   * Telegram long polling, a Discord gateway shard): two processes connecting the same
+   * session fight over it. With multi-replica coordination (`BotConfig.coordination`,
+   * `providerSession: 'auto'`) only the elected replica starts such a provider.
+   * Omitted → `false` (webhook transports: every replica can receive traffic).
+   */
+  exclusiveSession?: boolean
   /**
    * How `flow().form()` renders: `'native'` = the provider accepts `form`
    * OutboundContent and emits `'form'` inbound messages with the submission
@@ -1239,4 +1248,12 @@ export interface BotConfig {
   /** Built-in logger at `debug` level. Without it (and without `logger`) the default level is `warn`. */
   debug?: boolean
   logger?: LoggerLike
+  // --- multi-replica coordination -------------------------------------------
+  /**
+   * Run this bot as one of N replicas sharing a backend (opt-in). Each chat is processed
+   * by one replica at a time, in ingress order, and an exclusive transport session
+   * (Baileys) is connected by the elected replica only. Omitted: a single process, as
+   * always. See {@link CoordinationConfig} and the "Running N replicas" guide.
+   */
+  coordination?: CoordinationConfig
 }

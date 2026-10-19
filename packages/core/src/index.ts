@@ -401,3 +401,13 @@ export type { FlowGraphFormInfo } from './flows/describe.js'
 // plugins such as @bot-wa/voice that need the bytes before routing.
 export { loadMediaOf } from './core/context.js'
 export type { LoadMediaOptions } from './core/context.js'
+// multi-replica coordination
+// `BotConfig.coordination`: per-chat turns (cross-replica FIFO) and leader-elected
+// provider sessions. Backends: MemoryCoordinator here, RedisCoordinator in @bot-wa/redis-store.
+export {
+  LeaseLostError, CoordinationUnavailableError, MemoryCoordinator, MemoryCoordinationHub, ProviderNotLeaderError,
+} from './coordination/index.js'
+export type {
+  Fence, LeaseLossReason, LeaseInfo, Ticket, ChatTurn, Leadership, Coordinator, CoordinatorEvents,
+  AcquireTurnOptions, CoordinationConfig, MemoryCoordinatorOptions,
+} from './coordination/index.js'

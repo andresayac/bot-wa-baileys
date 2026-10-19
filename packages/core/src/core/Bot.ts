@@ -95,6 +95,8 @@ import { deleteSubjectData, exportSubjectData, type SubjectDataDeps, type Subjec
 import { MessageLog, receiveTimestamp, toStoredError } from './ledger.js'
 import { assertTriggerArgs, triggerInbound, type TriggerOptions, type TriggerResult } from '../ops/trigger.js'
 import { I18n } from '../i18n/I18n.js'
+import { BotCoordination } from '../coordination/botCoordination.js'
+import type { CoordinatorEvents, Fence, LeaseLossReason } from '../coordination/types.js'
 import type { I18nConfig, LocaleMessages, TranslateParams } from '../i18n/types.js'
 
 /** A user message handler — receives the full inbound {@link MessageContext}. */
@@ -146,6 +148,12 @@ export interface BotEvents {
   'conversation:started': ConversationStartedEvent
   /** A conversation/flow ended — completed, cancelled, timed out, out of retries or errored. */
   'conversation:ended': ConversationEndedEvent
+  /** Multi-replica (`coordination`): this replica was elected for a singleton (`provider:<id>`) and starts it. */
+  'coordination:leader': { name: string; fence: Fence }
+  /** Multi-replica: this replica lost (or gave up) a singleton leadership and stands by. */
+  'coordination:follower': { name: string; reason?: LeaseLossReason }
+  /** Multi-replica: a chat turn or leadership was lost before its release (pause, partition, backend down). */
+  'coordination:lease-lost': CoordinatorEvents['lease-lost']
 }
 
 export type BotEventArgs<K extends keyof BotEvents> = BotEvents[K] extends void ? [] : [BotEvents[K]]
@@ -257,6 +265,8 @@ export class Bot extends EventEmitter {
   private flowRegistry: DynamicFlowRegistry
   /** Names of the plugins currently plugged (with a count), for `PluginSpec.requires`. */
   private readonly pluggedNames = new Map<string, number>()
+  /** Multi-replica coordination (`BotConfig.coordination`); `undefined` for a single process. */
+  private coordination?: BotCoordination
 
   constructor(config: BotConfig) {
     super()
@@ -356,6 +366,17 @@ export class Bot extends EventEmitter {
 
     this.welcome = new WelcomeTracker({ store: this.store, onError: (error) => this.emitError({ error }) })
 
+    if (config.coordination) {
+      this.coordination = new BotCoordination({
+        config: config.coordination,
+        provider: this.provider,
+        runtime: this.runtime,
+        logger: this.logger.child({ module: 'coordination' }),
+        emit: (event, payload) => { this.emit(event, payload) },
+        reportError: (error, ctx) => this.emitError({ error, ctx: ctx as unknown as MessageContext | undefined }),
+      })
+    }
+
     this.dispatcher = new Dispatcher({
       hooks: this.hooks,
       runtime: this.runtime,
@@ -363,6 +384,7 @@ export class Bot extends EventEmitter {
       firstContact: (ctx) => this.welcome.isFirstContact(ctx),
       // A message queued before stop() is dropped when its turn comes after it.
       isOpen: () => this.acceptingInbound,
+      turns: this.coordination?.turns,
       logger: this.logger.child({ module: 'dispatcher' }),
       emit: (event, payload) => {
         if (event === 'error') {
@@ -461,9 +483,12 @@ export class Bot extends EventEmitter {
     if (this.isStarted) return
     let storeAttempted = false
     let providerAttempted = false
+    let coordinationAttempted = false
     try {
       storeAttempted = true
       await this.store.start()
+      coordinationAttempted = this.coordination !== undefined
+      await this.coordination?.start()
       this.runtime.open()
       await this.runtime.loadDormant()
       await this.handoffs.load()   // never rejects: restore failures go to 'error'
@@ -472,7 +497,8 @@ export class Bot extends EventEmitter {
       // failed / never ran before a crash.
       for (const { chatId } of this.handoffs.list()) this.runtime.abortChat(chatId)
       providerAttempted = true
-      await this.provider.start()
+      if (this.coordination) await this.coordination.startProvider()
+      else await this.provider.start()
       this.scheduler.start(this.logger.child({ module: 'scheduler' }))
       if (this.lifecycleAbort.signal.aborted) this.lifecycleAbort = new AbortController()
       if (this.sendsAbort.signal.aborted) this.sendsAbort = new AbortController()
@@ -485,8 +511,12 @@ export class Bot extends EventEmitter {
       this.acceptingInbound = false
       this.scheduler.stop()
       if (providerAttempted) {
-        try { await this.provider.stop() }
+        try { await (this.coordination ? this.coordination.stopProvider() : this.provider.stop()) }
         catch (rollbackError) { this.logger.error({ err: rollbackError }, 'provider start rollback failed') }
+      }
+      if (coordinationAttempted) {
+        try { await this.coordination?.stop() }
+        catch (rollbackError) { this.logger.error({ err: rollbackError }, 'coordination start rollback failed') }
       }
       if (storeAttempted) {
         try { await this.store.stop() }
@@ -534,8 +564,12 @@ export class Bot extends EventEmitter {
     // Abort every conversation (checkpoints kept) and refuse new ones until start().
     this.runtime.close()
     let stopError: unknown
-    try { await this.provider.stop() }
+    try { await (this.coordination ? this.coordination.stopProvider() : this.provider.stop()) }
     catch (error) { stopError = error }
+    if (this.coordination) {
+      try { await this.coordination.stop() }
+      catch (error) { stopError ??= error }
+    }
     try { await this.store.stop() }
     catch (error) { stopError ??= error }
     this.isStarted = false
@@ -576,6 +610,7 @@ export class Bot extends EventEmitter {
     if (!proceed) {
       return { ref: { id: 'skipped', chatId: payload.chatId }, skipped: true }
     }
+    this.coordination?.assertSend(this.dispatcher.currentKey())
     const localRef = { id: randomId('out'), chatId: payload.chatId }
     const op = this.provider.send(payload.chatId, payload.content, payload.options)
     this.inflightSends.add(op)
@@ -623,6 +658,7 @@ export class Bot extends EventEmitter {
     }
     const proceed = await this.hooks.runBefore('send', payload as typeof payload & { abort(): void })
     if (!proceed) return { ref, skipped: true }
+    this.coordination?.assertSend(this.dispatcher.currentKey())
     const op = this.provider.editMessage!(ref, payload.content)
     this.inflightSends.add(op)
     try {

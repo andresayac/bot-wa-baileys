@@ -104,6 +104,12 @@ export interface WaitTrackerDeps {
    * replaced — so a flow delay never outlives its conversation or `bot.stop()`.
    */
   sleep?(ms: number): Promise<void>
+  /**
+   * Multi-replica handover: `true` (consumed once) when the conversation resumed on this
+   * replica with the answer to a wait whose prompt another replica already sent — the
+   * first wait then does not send its prompt again.
+   */
+  skipPrompt?(): boolean
 }
 
 /** Rewind carried from a caught {@link ConversationRetry} into the target step's first wait. */
@@ -182,7 +188,8 @@ export class WaitTracker {
     this.deps.assertAlive()
     const rewind = this.takeRewind()
     const text = promptFor(rewind?.prompt)
-    if (text) await this.deps.reply(text)
+    const skip = this.deps.skipPrompt?.() === true && rewind === undefined
+    if (text && !skip) await this.deps.reply(text)
     const rec: WaitRecord = {
       retries,
       attempts: rewind?.attempts ?? 0,

@@ -69,6 +69,21 @@ export function validateConfig<T extends Partial<BotConfig>>(config: T): T {
     }
   }
 
+  if (config.coordination !== undefined) {
+    const c = config.coordination as unknown as Record<string, unknown> | null
+    const coordinator = c?.coordinator as Record<string, unknown> | undefined
+    if (typeof c !== 'object' || c === null || typeof coordinator !== 'object' || coordinator === null ||
+        typeof coordinator.reserve !== 'function' || typeof coordinator.acquireTurn !== 'function' ||
+        typeof coordinator.lead !== 'function') {
+      throw new ConfigValidationError('coordination.coordinator', 'a Coordinator (e.g. new RedisCoordinator(...))', c?.coordinator)
+    }
+    assertStringOrNumber('coordination.turnWaitMs', c.turnWaitMs)
+    assertStringOrNumber('coordination.settleMs', c.settleMs)
+    if (c.providerSession !== undefined && !['leader', 'shared', 'auto'].includes(c.providerSession as string)) {
+      throw new ConfigValidationError('coordination.providerSession', "'leader' | 'shared' | 'auto'", c.providerSession)
+    }
+  }
+
   if (config.rateLimit !== undefined && (typeof config.rateLimit !== 'object' || config.rateLimit === null)) {
     throw new ConfigValidationError('rateLimit', 'object', config.rateLimit)
   }
