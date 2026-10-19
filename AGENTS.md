@@ -125,7 +125,7 @@ Son los errores que más caro han salido. Respétalos aunque un cambio "parezca"
 
 ## Tests
 
-- **Nada de red ni de credenciales reales.** Inyecta `fetch`, sockets y clientes falsos (como hacen los tests de cada provider). La única excepción son las suites de integración de stores, opt-in por `BOTWA_TEST_*_URL`.
+- **Nada de red ni de credenciales reales.** Inyecta `fetch`, sockets y clientes falsos (como hacen los tests de cada provider). Las únicas excepciones son las suites de integración de stores, opt-in por `BOTWA_TEST_*_URL`, y la de `email-provider` contra GreenMail, opt-in por `BOTWA_TEST_EMAIL` (ver `CONTRIBUTING.md`).
 - Para probar bots, usa `createTestBot` y `MockProvider` de `@bot-wa/core/testing`. Para IA, `MockAIProvider` de `@bot-wa/ai`.
 - `MockProvider` usa un `from` estable. Si tocas identidad, añade casos con identidades que cambian (mira el patrón de `baileys-provider/tests/lid-identity.test.ts`), usa `aliases` del kit de caos (`ChaosProvider`/`withChaos`) y comprueba el contrato con `assertStableIdentity`/`checkIdentityContract` de `@bot-wa/core/testing` (ejemplo en `baileys-provider/tests/identity-contract.test.ts`).
 - Los ids de entrada forman parte del contrato: el core deduplica por `chatId` + `ref.id` / `interactionId` (activado por defecto). Un provider nunca emite un id constante por usuario o un placeholder compartido; si no puede garantizar un id único y estable, emite `''`.

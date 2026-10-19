@@ -439,6 +439,9 @@ const provider = new EmailProvider({
 
 - `threading: 'thread'` (por defecto, un chat por hilo) o `'sender'` (un chat
   por dirección); persiste los hilos con `threadStore: cursorThreadStore(store)`.
+  Ese store guarda también el cursor de UID del buzón, así que tras un
+  reinicio el bot sigue después del último mensaje que procesó y no vuelve a
+  entregar correo (ni siquiera con `markSeen: false`).
 - Protección contra bucles de respuestas automáticas y listas de correo,
   gestión de rebotes (eventos `status: 'failed'`, supresión de direcciones con
   rebote permanente).

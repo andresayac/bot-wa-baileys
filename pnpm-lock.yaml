@@ -319,12 +319,6 @@ importers:
       '@bot-wa/http':
         specifier: workspace:*
         version: link:../http
-      imapflow:
-        specifier: ^1.0.0
-        version: 1.7.8
-      nodemailer:
-        specifier: ^6.9.0 || ^7.0.0
-        version: 7.0.13
       pino:
         specifier: ^10.3.1
         version: 10.3.1
@@ -332,6 +326,12 @@ importers:
       '@types/node':
         specifier: ^26.1.1
         version: 26.1.1
+      imapflow:
+        specifier: ^1.7.8
+        version: 1.7.8
+      nodemailer:
+        specifier: ^7.0.13
+        version: 7.0.13
       typescript:
         specifier: ^7.0.2
         version: 7.0.2

@@ -7,8 +7,9 @@ import {
   UnsupportedContentError,
   type InboundEvent,
   type InboundMessage,
+  MemoryStore,
 } from '@bot-wa/core'
-import { EmailProvider, type EmailProviderConfig, type EmailRaw } from '../src/index.js'
+import { cursorThreadStore, EmailProvider, MemoryThreadStore, type EmailProviderConfig, type EmailRaw } from '../src/index.js'
 import { email, FakeImapServer, FakeSmtp, waitFor } from './support/fakes.js'
 
 const silent = { debug() {}, info() {}, warn() {}, error() {} }
@@ -76,6 +77,8 @@ describe('EmailProvider inbound (IMAP)', () => {
     current = t.provider
     t.server.add(ana('before@example.com'))
     await t.provider.start()
+    // imapflow only IDLEs while no mailbox lock is held: the provider must not keep one.
+    expect(t.server.current!.locks).toBe(0)
     t.server.deliver(ana('after@example.com'))
     await waitFor(() => t.messages().length === 1)
     expect(t.messages()[0]!.ref.id).toBe('after@example.com')
@@ -382,6 +385,62 @@ describe('EmailProvider lifecycle', () => {
     expect(t.messages().map((m) => m.ref.id)).toEqual(['a@example.com', 'b@example.com'])
     const states = t.events.filter((e) => e.kind === 'connection').map((e) => (e as Extract<InboundEvent, { kind: 'connection' }>).update.state)
     expect(states).toEqual(['connecting', 'ready', 'closed', 'connecting', 'ready'])
+  })
+
+  it('keeps the UID cursor across stop()/start() with markSeen: false (no replay)', async () => {
+    const t = setup({ markSeen: false })
+    current = t.provider
+    t.server.add(ana('a@example.com'))
+    await t.provider.start()
+    await waitFor(() => t.messages().length === 1)
+    await t.provider.stop()
+    t.server.add(ana('b@example.com')) // arrives while stopped
+    await t.provider.start()
+    await waitFor(() => t.messages().length === 2)
+    t.server.deliver(ana('c@example.com'))
+    await waitFor(() => t.messages().length === 3)
+    await new Promise((r) => setTimeout(r, 20))
+    expect(t.messages().map((m) => m.ref.id)).toEqual(['a@example.com', 'b@example.com', 'c@example.com'])
+  })
+
+  it('persists the UID cursor in the thread store so a new process resumes without replay', async () => {
+    const store = new MemoryStore()
+    const server = new FakeImapServer()
+    const make = () => {
+      const t = setup({ markSeen: false, threadStore: cursorThreadStore(store), createImapClient: server.createClient })
+      return { ...t, server }
+    }
+    const a = make()
+    server.add(ana('a@example.com'))
+    server.add(ana('b@example.com'))
+    await a.provider.start()
+    await waitFor(() => a.messages().length === 2)
+    await a.provider.stop()
+
+    server.add(ana('c@example.com'))
+    server.add(ana('d@example.com'), true) // read by a human in their client: still new to the bot
+    const b = make()
+    current = b.provider
+    await b.provider.start()
+    await waitFor(() => b.messages().length === 2)
+    await new Promise((r) => setTimeout(r, 20))
+    expect(b.messages().map((m) => m.ref.id)).toEqual(['c@example.com', 'd@example.com'])
+  })
+
+  it('ignores a persisted cursor from another UIDVALIDITY and resumes from UIDNEXT', async () => {
+    const threadStore = new MemoryThreadStore()
+    const server = new FakeImapServer()
+    await threadStore.setMailboxCursor('bot@acme.test/INBOX', { uidValidity: '1', uid: 1 })
+    server.add(ana('a@example.com'))
+    server.add(ana('b@example.com'))
+    const t = setup({ markSeen: false, threadStore, createImapClient: server.createClient })
+    current = t.provider
+    await t.provider.start()
+    server.deliver(ana('c@example.com'))
+    await waitFor(() => t.messages().length === 1)
+    await new Promise((r) => setTimeout(r, 20))
+    expect(t.messages().map((m) => m.ref.id)).toEqual(['c@example.com'])
+    expect(await threadStore.getMailboxCursor('bot@acme.test/INBOX')).toEqual({ uidValidity: '7', uid: 3 })
   })
 
   it('rejects start on IMAP auth failure and reports sessionInvalid', async () => {

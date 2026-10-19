@@ -96,6 +96,12 @@ const provider = new EmailProvider({ ..., threadStore: cursorThreadStore(store) 
 const bot = new Bot({ provider, store })
 ```
 
+`cursorThreadStore` guarda también el **cursor de UID** del buzón (`getMailboxCursor`/`setMailboxCursor`, opcionales en `EmailThreadStore`): tras un reinicio el bot sigue después del último UID que procesó, así que con `markSeen: false` no vuelve a entregar nada, y un correo que llegó con el bot parado y que alguien ya leyó en su cliente se procesa igual. Si el `UIDVALIDITY` del buzón cambió, el cursor no vale y el bot empieza desde `UIDNEXT`. Sin cursor guardado se aplica `processExisting`. Entre `stop()` y `start()` de la misma instancia el cursor se conserva siempre.
+
+## IMAP IDLE
+
+El bot selecciona el buzón y queda en IDLE: el servidor avisa de cada correo nuevo y el bot lo descarga por UID. `imapflow` entra en IDLE tras un periodo sin comandos; el provider lo baja a 1 s (`autoIdleDelay: 1000`, el valor de `imapflow` es 15 s) para que el correo nuevo llegue enseguida. Se puede cambiar con `imap.options.autoIdleDelay`.
+
 ## Webhook de correo entrante
 
 Sin IMAP, `ingest()` acepta el MIME crudo (Buffer/string) de SES, Mailgun ("raw MIME"), un pipe de Postfix, etc., y devuelve `{ status, accepted, reason? }` (`413` si supera `maxInboundBytes`; limita también el body en tu servidor HTTP):
@@ -126,7 +132,7 @@ app.post('/inbound-email', async (req, res) => {
 | `smtp` | — | `{ host, port=465, secure, user, pass \| accessToken, verify=false, options }`. |
 | `threading` | `'thread'` | `'thread'` o `'sender'`. |
 | `threadStore` | memoria | `MemoryThreadStore` o `cursorThreadStore(store)`. |
-| `processExisting` | `'unseen'` | Al primer arranque: procesar los no leídos o empezar desde ahora (`'none'`). |
+| `processExisting` | `'unseen'` | Al primer arranque (sin cursor de UID guardado): procesar los no leídos o empezar desde ahora (`'none'`). |
 | `markSeen` | `true` | Marcar como leídos los emails procesados. |
 | `stripQuotes` | `true` | Quitar historial citado y firma del `body`. |
 | `defaultSubject` | `'(no subject)'` | Asunto de hilos nuevos sin asunto. |
@@ -141,3 +147,21 @@ app.post('/inbound-email', async (req, res) => {
 | `reconnect` | `{ baseMs: 1000, maxMs: 60000 }` | Backoff de reconexión IMAP. |
 | `http` | — | Opciones de `secureFetch` para adjuntos por URL. |
 | `createImapClient` / `smtpTransport` | — | Inyectar clientes propios (o fakes en tests). |
+
+## Tests de integración
+
+Los tests de `tests/*.test.ts` son herméticos: IMAP y SMTP falsos en memoria. `tests/integration.test.ts` carga los peers reales (`imapflow` y `nodemailer`, `devDependencies` del paquete) y habla IMAP IDLE + SMTP con un servidor de verdad, [GreenMail](https://greenmail-mail-test.github.io/greenmail/), en Docker. Se salta si no defines `BOTWA_TEST_EMAIL`:
+
+```bash
+docker run -d --name botwa-it-greenmail \
+  -e GREENMAIL_OPTS="-Dgreenmail.setup.test.all -Dgreenmail.hostname=0.0.0.0 -Dgreenmail.auth.disabled" \
+  -p 127.0.0.1:3025:3025 -p 127.0.0.1:3143:3143 greenmail/standalone:2.1.3
+
+BOTWA_TEST_EMAIL=1 pnpm --filter @bot-wa/email test
+
+docker rm -f botwa-it-greenmail
+```
+
+En PowerShell: `$env:BOTWA_TEST_EMAIL = '1'`. El host y los puertos se cambian con `BOTWA_TEST_EMAIL_HOST` (`127.0.0.1`), `BOTWA_TEST_EMAIL_SMTP_PORT` (`3025`) y `BOTWA_TEST_EMAIL_IMAP_PORT` (`3143`), los puertos sin TLS de GreenMail. Con `greenmail.auth.disabled` cualquier login vale y los buzones se crean al vuelo; cada test usa direcciones nuevas, así que se puede repetir contra el mismo contenedor.
+
+Qué cubre: entrada por IMAP IDLE con `chatId`/`senderId` estables; hilos por `Message-ID`/`In-Reply-To`/`References`; respuestas que llegan al buzón del usuario con `In-Reply-To`, `References`, `Re:` y `Auto-Submitted`; adjuntos como `MediaRef` y `downloadMedia` (desde la caché y volviendo a pedirlos por IMAP); HTML a texto; descarte de respuestas automáticas, listas y `Precedence: bulk`; reinicios sin volver a entregar correo (con `markSeen` y con el cursor de UID persistido), y un flujo `ask()` del `Bot` contestado por email.

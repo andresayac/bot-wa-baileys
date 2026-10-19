@@ -19,6 +19,6 @@
   "dependencies": { "@bot-wa/core": "workspace:*", "@bot-wa/http": "workspace:*", "pino": "^10.3.1" },
   "peerDependencies": { "imapflow": "^1.0.0", "nodemailer": "^6.9.0 || ^7.0.0" },
   "peerDependenciesMeta": { "imapflow": { "optional": true }, "nodemailer": { "optional": true } },
-  "devDependencies": { "@types/node": "^26.1.1", "typescript": "^7.0.2", "vite": "^7.3.6", "vitest": "^4.1.10" },
+  "devDependencies": { "@types/node": "^26.1.1", "imapflow": "^1.7.8", "nodemailer": "^7.0.13", "typescript": "^7.0.2", "vite": "^7.3.6", "vitest": "^4.1.10" },
   "publishConfig": { "access": "public" }
 }
