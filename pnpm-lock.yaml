@@ -31,7 +31,7 @@ importers:
         version: 1.6.4(@algolia/client-search@5.56.0)(@types/node@26.1.1)(postcss@8.5.19)(search-insights@2.17.3)(typescript@5.9.3)
       vitest:
         specifier: ^4.1.10
-        version: 4.1.10(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
+        version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
 
   examples/bakery-ai:
     dependencies:
@@ -65,7 +65,7 @@ importers:
         version: 7.3.6(@types/node@26.1.1)(yaml@2.9.0)
       vitest:
         specifier: ^4.1.10
-        version: 4.1.10(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
+        version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
 
   packages/ai:
     dependencies:
@@ -154,7 +154,7 @@ importers:
         version: 7.3.6(@types/node@26.1.1)(yaml@2.9.0)
       vitest:
         specifier: ^4.1.10
-        version: 4.1.10(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
+        version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
 
   packages/campaigns:
     devDependencies:
@@ -169,7 +169,7 @@ importers:
         version: 7.3.6(@types/node@26.1.1)(yaml@2.9.0)
       vitest:
         specifier: ^4.1.10
-        version: 4.1.10(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
+        version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
 
   packages/chatwoot:
     dependencies:
@@ -191,7 +191,7 @@ importers:
         version: 7.3.6(@types/node@26.1.1)(yaml@2.9.0)
       vitest:
         specifier: ^4.1.10
-        version: 4.1.10(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
+        version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
 
   packages/core:
     dependencies:
@@ -210,7 +210,7 @@ importers:
         version: 7.3.6(@types/node@26.1.1)(yaml@2.9.0)
       vitest:
         specifier: ^4.1.10
-        version: 4.1.10(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
+        version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
 
   packages/create-bot-wa:
     devDependencies:
@@ -225,7 +225,7 @@ importers:
         version: 7.3.6(@types/node@26.1.1)(yaml@2.9.0)
       vitest:
         specifier: ^4.1.10
-        version: 4.1.10(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
+        version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
 
   packages/crm:
     devDependencies:
@@ -240,7 +240,7 @@ importers:
         version: 7.3.6(@types/node@26.1.1)(yaml@2.9.0)
       vitest:
         specifier: ^4.1.10
-        version: 4.1.10(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
+        version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
 
   packages/deployments:
     dependencies:
@@ -259,7 +259,7 @@ importers:
         version: 7.3.6(@types/node@26.1.1)(yaml@2.9.0)
       vitest:
         specifier: ^4.1.10
-        version: 4.1.10(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
+        version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
 
   packages/dialogflow:
     dependencies:
@@ -281,7 +281,7 @@ importers:
         version: 7.3.6(@types/node@26.1.1)(yaml@2.9.0)
       vitest:
         specifier: ^4.1.10
-        version: 4.1.10(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
+        version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
 
   packages/discord-provider:
     dependencies:
@@ -312,7 +312,7 @@ importers:
         version: 7.3.6(@types/node@26.1.1)(yaml@2.9.0)
       vitest:
         specifier: ^4.1.10
-        version: 4.1.10(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
+        version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
 
   packages/email-provider:
     dependencies:
@@ -343,7 +343,7 @@ importers:
         version: 7.3.6(@types/node@26.1.1)(yaml@2.9.0)
       vitest:
         specifier: ^4.1.10
-        version: 4.1.10(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
+        version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
 
   packages/eslint-plugin:
     devDependencies:
@@ -367,7 +367,7 @@ importers:
         version: 7.3.6(@types/node@26.1.1)(yaml@2.9.0)
       vitest:
         specifier: ^4.1.10
-        version: 4.1.10(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
+        version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
 
   packages/events:
     devDependencies:
@@ -382,7 +382,7 @@ importers:
         version: 7.3.6(@types/node@26.1.1)(yaml@2.9.0)
       vitest:
         specifier: ^4.1.10
-        version: 4.1.10(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
+        version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
 
   packages/evolution-provider:
     dependencies:
@@ -410,7 +410,7 @@ importers:
         version: 7.3.6(@types/node@26.1.1)(yaml@2.9.0)
       vitest:
         specifier: ^4.1.10
-        version: 4.1.10(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
+        version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
 
   packages/gohighlevel-provider:
     dependencies:
@@ -435,7 +435,7 @@ importers:
         version: 7.3.6(@types/node@26.1.1)(yaml@2.9.0)
       vitest:
         specifier: ^4.1.10
-        version: 4.1.10(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
+        version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
 
   packages/graph-core:
     dependencies:
@@ -454,7 +454,7 @@ importers:
         version: 7.3.6(@types/node@26.1.1)(yaml@2.9.0)
       vitest:
         specifier: ^4.1.10
-        version: 4.1.10(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
+        version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
 
   packages/gupshup-provider:
     dependencies:
@@ -479,7 +479,7 @@ importers:
         version: 7.3.6(@types/node@26.1.1)(yaml@2.9.0)
       vitest:
         specifier: ^4.1.10
-        version: 4.1.10(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
+        version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
 
   packages/http:
     dependencies:
@@ -498,7 +498,7 @@ importers:
         version: 7.3.6(@types/node@26.1.1)(yaml@2.9.0)
       vitest:
         specifier: ^4.1.10
-        version: 4.1.10(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
+        version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
 
   packages/hub:
     devDependencies:
@@ -513,7 +513,7 @@ importers:
         version: 7.3.6(@types/node@26.1.1)(yaml@2.9.0)
       vitest:
         specifier: ^4.1.10
-        version: 4.1.10(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
+        version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
 
   packages/inbox:
     dependencies:
@@ -532,7 +532,7 @@ importers:
         version: 7.3.6(@types/node@26.1.1)(yaml@2.9.0)
       vitest:
         specifier: ^4.1.10
-        version: 4.1.10(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
+        version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
 
   packages/instagram-provider:
     dependencies:
@@ -560,7 +560,7 @@ importers:
         version: 7.3.6(@types/node@26.1.1)(yaml@2.9.0)
       vitest:
         specifier: ^4.1.10
-        version: 4.1.10(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
+        version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
 
   packages/manager:
     dependencies:
@@ -585,7 +585,7 @@ importers:
         version: 7.3.6(@types/node@26.1.1)(yaml@2.9.0)
       vitest:
         specifier: ^4.1.10
-        version: 4.1.10(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
+        version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
 
   packages/messenger-provider:
     dependencies:
@@ -613,7 +613,7 @@ importers:
         version: 7.3.6(@types/node@26.1.1)(yaml@2.9.0)
       vitest:
         specifier: ^4.1.10
-        version: 4.1.10(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
+        version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
 
   packages/meta-provider:
     dependencies:
@@ -641,7 +641,7 @@ importers:
         version: 7.3.6(@types/node@26.1.1)(yaml@2.9.0)
       vitest:
         specifier: ^4.1.10
-        version: 4.1.10(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
+        version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
 
   packages/moderation:
     dependencies:
@@ -660,7 +660,7 @@ importers:
         version: 7.3.6(@types/node@26.1.1)(yaml@2.9.0)
       vitest:
         specifier: ^4.1.10
-        version: 4.1.10(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
+        version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
 
   packages/mongo-store:
     dependencies:
@@ -682,7 +682,7 @@ importers:
         version: 7.3.6(@types/node@26.1.1)(yaml@2.9.0)
       vitest:
         specifier: ^4.1.10
-        version: 4.1.10(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
+        version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
 
   packages/mysql-store:
     dependencies:
@@ -704,7 +704,7 @@ importers:
         version: 7.3.6(@types/node@26.1.1)(yaml@2.9.0)
       vitest:
         specifier: ^4.1.10
-        version: 4.1.10(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
+        version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
 
   packages/nlu:
     dependencies:
@@ -723,7 +723,38 @@ importers:
         version: 7.3.6(@types/node@26.1.1)(yaml@2.9.0)
       vitest:
         specifier: ^4.1.10
-        version: 4.1.10(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
+        version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
+
+  packages/otel:
+    dependencies:
+      '@bot-wa/core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      '@opentelemetry/api':
+        specifier: 1.9.1
+        version: 1.9.1
+      '@opentelemetry/context-async-hooks':
+        specifier: 2.11.0
+        version: 2.11.0(@opentelemetry/api@1.9.1)
+      '@opentelemetry/sdk-metrics':
+        specifier: 2.11.0
+        version: 2.11.0(@opentelemetry/api@1.9.1)
+      '@opentelemetry/sdk-trace-base':
+        specifier: 2.11.0
+        version: 2.11.0(@opentelemetry/api@1.9.1)
+      '@types/node':
+        specifier: ^26.1.1
+        version: 26.1.1
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
+      vite:
+        specifier: ^7.3.6
+        version: 7.3.6(@types/node@26.1.1)(yaml@2.9.0)
+      vitest:
+        specifier: ^4.1.10
+        version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
 
   packages/postgres-store:
     dependencies:
@@ -748,7 +779,7 @@ importers:
         version: 7.3.6(@types/node@26.1.1)(yaml@2.9.0)
       vitest:
         specifier: ^4.1.10
-        version: 4.1.10(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
+        version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
 
   packages/rag:
     dependencies:
@@ -776,7 +807,7 @@ importers:
         version: 7.3.6(@types/node@26.1.1)(yaml@2.9.0)
       vitest:
         specifier: ^4.1.10
-        version: 4.1.10(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
+        version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
 
   packages/redis-store:
     dependencies:
@@ -798,7 +829,7 @@ importers:
         version: 7.3.6(@types/node@26.1.1)(yaml@2.9.0)
       vitest:
         specifier: ^4.1.10
-        version: 4.1.10(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
+        version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
 
   packages/server:
     devDependencies:
@@ -834,7 +865,7 @@ importers:
         version: 7.3.6(@types/node@26.1.1)(yaml@2.9.0)
       vitest:
         specifier: ^4.1.10
-        version: 4.1.10(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
+        version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
 
   packages/sqlite-store:
     dependencies:
@@ -856,7 +887,7 @@ importers:
         version: 7.3.6(@types/node@26.1.1)(yaml@2.9.0)
       vitest:
         specifier: ^4.1.10
-        version: 4.1.10(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
+        version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
 
   packages/telegram-provider:
     dependencies:
@@ -881,7 +912,7 @@ importers:
         version: 7.3.6(@types/node@26.1.1)(yaml@2.9.0)
       vitest:
         specifier: ^4.1.10
-        version: 4.1.10(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
+        version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
 
   packages/tickets:
     dependencies:
@@ -900,7 +931,7 @@ importers:
         version: 7.3.6(@types/node@26.1.1)(yaml@2.9.0)
       vitest:
         specifier: ^4.1.10
-        version: 4.1.10(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
+        version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
 
   packages/tiktok-provider:
     dependencies:
@@ -925,7 +956,7 @@ importers:
         version: 7.3.6(@types/node@26.1.1)(yaml@2.9.0)
       vitest:
         specifier: ^4.1.10
-        version: 4.1.10(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
+        version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
 
   packages/twilio-provider:
     dependencies:
@@ -950,7 +981,7 @@ importers:
         version: 7.3.6(@types/node@26.1.1)(yaml@2.9.0)
       vitest:
         specifier: ^4.1.10
-        version: 4.1.10(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
+        version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
 
   packages/voice:
     dependencies:
@@ -972,7 +1003,7 @@ importers:
         version: 7.3.6(@types/node@26.1.1)(yaml@2.9.0)
       vitest:
         specifier: ^4.1.10
-        version: 4.1.10(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
+        version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
 
   packages/wa-gateway-kit:
     dependencies:
@@ -994,7 +1025,7 @@ importers:
         version: 7.3.6(@types/node@26.1.1)(yaml@2.9.0)
       vitest:
         specifier: ^4.1.10
-        version: 4.1.10(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
+        version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
 
   packages/wppconnect-provider:
     dependencies:
@@ -1022,7 +1053,7 @@ importers:
         version: 7.3.6(@types/node@26.1.1)(yaml@2.9.0)
       vitest:
         specifier: ^4.1.10
-        version: 4.1.10(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
+        version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
 
 packages:
 
@@ -1942,6 +1973,50 @@ packages:
   '@napi-rs/canvas@0.1.80':
     resolution: {integrity: sha512-DxuT1ClnIPts1kQx8FBmkk4BQDTfI5kIzywAaMjQSXfNnra5UFU9PwurXrl+Je3bJ6BGsp/zmshVVFbCmyI+ww==}
     engines: {node: '>= 10'}
+
+  '@opentelemetry/api@1.9.1':
+    resolution: {integrity: sha512-gLyJlPHPZYdAk1JENA9LeHejZe1Ti77/pTeFm/nMXmQH/HFZlcS/O2XJB+L8fkbrNSqhdtlvjBVjxwUYanNH5Q==}
+    engines: {node: '>=8.0.0'}
+
+  '@opentelemetry/context-async-hooks@2.11.0':
+    resolution: {integrity: sha512-Tr79DyWI8itsBdg+jH+opjfrwLzX+erk1/ExkIwhWoAVjVrJIn2y5+cGjTC0Vy8fyNIA/y8wuJPZwr1T3xCZeQ==}
+    engines: {node: ^18.19.0 || >=20.6.0}
+    peerDependencies:
+      '@opentelemetry/api': '>=1.0.0 <1.10.0'
+
+  '@opentelemetry/core@2.11.0':
+    resolution: {integrity: sha512-7YP44XH0tV6+Mb54x2YGf84i7yi+31MBZlE8JwvozkxyTvXbSp10X7cI7YE49ChJ3shMJoBmCJF3+1QFBJctGA==}
+    engines: {node: ^18.19.0 || >=20.6.0}
+    peerDependencies:
+      '@opentelemetry/api': '>=1.0.0 <1.10.0'
+
+  '@opentelemetry/resources@2.11.0':
+    resolution: {integrity: sha512-Ie7+8q8MDF4FAEQCKVMTx3ReUvxiIAgIiiW3c9JdmP8+HMcDy20puT+AHjexnExgnbvBxjQ9fjkFDWrikJ2jQA==}
+    engines: {node: ^18.19.0 || >=20.6.0}
+    peerDependencies:
+      '@opentelemetry/api': '>=1.3.0 <1.10.0'
+
+  '@opentelemetry/sdk-metrics@2.11.0':
+    resolution: {integrity: sha512-7GXXcObyHyDUUSG+L+kJoquty01bzm7ivE7+SSgXXJcHuPzGviptxwARmI2c+bnnxjexGQbJnyNlN8HxBP/Y7A==}
+    engines: {node: ^18.19.0 || >=20.6.0}
+    peerDependencies:
+      '@opentelemetry/api': '>=1.9.0 <1.10.0'
+
+  '@opentelemetry/sdk-trace-base@2.11.0':
+    resolution: {integrity: sha512-H19x/TX/LZdqiYOjM7fqtSxwlplC5pgelavqbQdHbhdq0q/AI/TGkM2dfGuuynTXmJPeF2HoZVoPDu+TGoW78A==}
+    engines: {node: ^18.19.0 || >=20.6.0}
+    peerDependencies:
+      '@opentelemetry/api': '>=1.3.0 <1.10.0'
+
+  '@opentelemetry/sdk-trace@2.11.0':
+    resolution: {integrity: sha512-fFnTqGm8/G73GQVnxYi7LXa1ZVYEUvgL6XI1LpvV0bPC7WQ/ZGgKxCSl8FnlZBKto9JHHEFTO6s6CUpvvtwFrA==}
+    engines: {node: ^18.19.0 || >=20.6.0}
+    peerDependencies:
+      '@opentelemetry/api': '>=1.3.0 <1.10.0'
+
+  '@opentelemetry/semantic-conventions@1.43.0':
+    resolution: {integrity: sha512-eSYWTm620tTk45EKSedaUL8MFYI8hW164hIXsgIHyxu3VobUB3fFCu5t0hQby6OoWRPsG1KkKUG2M5UadiLiVg==}
+    engines: {node: '>=14'}
 
   '@pinojs/redact@0.4.0':
     resolution: {integrity: sha512-k2ENnmBugE/rzQfEcdWHcCY+/FM3VLzH9cYEsbdsoqrvzAKRhUZeRNhAZvB8OitQJ1TBed3yqWtdjzS6wJKBwg==}
@@ -4926,6 +5001,46 @@ snapshots:
       '@napi-rs/canvas-linux-x64-musl': 0.1.80
       '@napi-rs/canvas-win32-x64-msvc': 0.1.80
 
+  '@opentelemetry/api@1.9.1': {}
+
+  '@opentelemetry/context-async-hooks@2.11.0(@opentelemetry/api@1.9.1)':
+    dependencies:
+      '@opentelemetry/api': 1.9.1
+
+  '@opentelemetry/core@2.11.0(@opentelemetry/api@1.9.1)':
+    dependencies:
+      '@opentelemetry/api': 1.9.1
+      '@opentelemetry/semantic-conventions': 1.43.0
+
+  '@opentelemetry/resources@2.11.0(@opentelemetry/api@1.9.1)':
+    dependencies:
+      '@opentelemetry/api': 1.9.1
+      '@opentelemetry/core': 2.11.0(@opentelemetry/api@1.9.1)
+      '@opentelemetry/semantic-conventions': 1.43.0
+
+  '@opentelemetry/sdk-metrics@2.11.0(@opentelemetry/api@1.9.1)':
+    dependencies:
+      '@opentelemetry/api': 1.9.1
+      '@opentelemetry/core': 2.11.0(@opentelemetry/api@1.9.1)
+      '@opentelemetry/resources': 2.11.0(@opentelemetry/api@1.9.1)
+
+  '@opentelemetry/sdk-trace-base@2.11.0(@opentelemetry/api@1.9.1)':
+    dependencies:
+      '@opentelemetry/api': 1.9.1
+      '@opentelemetry/core': 2.11.0(@opentelemetry/api@1.9.1)
+      '@opentelemetry/resources': 2.11.0(@opentelemetry/api@1.9.1)
+      '@opentelemetry/sdk-trace': 2.11.0(@opentelemetry/api@1.9.1)
+      '@opentelemetry/semantic-conventions': 1.43.0
+
+  '@opentelemetry/sdk-trace@2.11.0(@opentelemetry/api@1.9.1)':
+    dependencies:
+      '@opentelemetry/api': 1.9.1
+      '@opentelemetry/core': 2.11.0(@opentelemetry/api@1.9.1)
+      '@opentelemetry/resources': 2.11.0(@opentelemetry/api@1.9.1)
+      '@opentelemetry/semantic-conventions': 1.43.0
+
+  '@opentelemetry/semantic-conventions@1.43.0': {}
+
   '@pinojs/redact@0.4.0': {}
 
   '@pnpm/deps.graph-sequencer@1100.0.1': {}
@@ -7091,7 +7206,7 @@ snapshots:
       - typescript
       - universal-cookie
 
-  vitest@4.1.10(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0)):
+  vitest@4.1.10(@opentelemetry/api@1.9.1)(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0)):
     dependencies:
       '@vitest/expect': 4.1.10
       '@vitest/mocker': 4.1.10(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
@@ -7114,6 +7229,7 @@ snapshots:
       vite: 7.3.6(@types/node@26.1.1)(yaml@2.9.0)
       why-is-node-running: 2.3.0
     optionalDependencies:
+      '@opentelemetry/api': 1.9.1
       '@types/node': 26.1.1
     transitivePeerDependencies:
       - msw
