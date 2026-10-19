@@ -204,13 +204,14 @@ export function aiPlugin(config: AIPluginConfig = {}): PluginSpec<AIPluginConfig
         // out, /reset) is acknowledged (stops the Telegram spinner, meets Discord's deadline)
         // and dropped BEFORE routing, so it never answers a later question of a conversation
         // (`confirmWith(c)`). Where the buttons stay on screen (no edit), a short notice tells
-        // the user why nothing happens.
+        // the user why nothing happens. Before-hooks run ahead of the handoff gate, so a chat
+        // handed off to a human gets the acknowledge only: the bot says nothing there.
         const expiredNotice = cfg.toolConfirm?.expiredNotice !== false
         bot.before('message', async (mctx: MessageContext, next: () => Promise<void>) => {
           if (mctx.type !== 'buttons' || !isConfirmButtonId(mctx.body) || isLiveConfirmButton(mctx.body)) return next()
           ctx.logger.debug('ai confirmation button pressed after it was answered (ignored)')
           try { await mctx.acknowledge?.() } catch { /* best effort */ }
-          if (expiredNotice && !editsMessages(mctx)) {
+          if (expiredNotice && !editsMessages(mctx) && !bot.isHandedOff(mctx.from)) {
             await mctx.reply(aiText(mctx, AI_MESSAGES.confirmExpired)).catch(() => {})
           }
         })

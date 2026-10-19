@@ -205,7 +205,8 @@ coletilla de respuesta escrita (`ai.tools.confirmButtons`:
   confirmación que ya no está pendiente recibe una respuesta corta localizada
   (`ai.tools.confirmExpired`: "Esa confirmación ya no está activa." / "That
   confirmation is no longer active."); `toolConfirm.expiredNotice: false` la
-  descarta en silencio. Opcionalmente, `toolConfirm.answeredNotice: true`
+  descarta en silencio. Un chat en handoff con un humano nunca recibe este aviso
+  (la pulsación solo se reconoce). Opcionalmente, `toolConfirm.answeredNotice: true`
   responde también `ai.tools.confirmAnswered` ("Respuesta recibida: Sí." /
   "Answer received: Yes.") cuando una pulsación responde; va apagado por
   defecto porque esos canales ya muestran la elección como mensaje del

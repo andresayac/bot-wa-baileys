@@ -118,6 +118,22 @@ describe('tool confirmations with native buttons', () => {
     expect(provider.acks).toHaveLength(2)
   })
 
+  it('a stale press in a chat handed off to a human is acknowledged but gets no notice', async () => {
+    const { bot, chat, buttonsSent, press, provider, runs } = await setup()
+    await chat.send('borra')
+    await chat.expectReply(/Confirmas/)
+    const yes = buttonsSent()[0]!.buttons[0]!.id
+    await press(yes)
+    await chat.expectReply('resultado: borrado')
+    await bot.handoff(chat.jid)
+    const before = provider.outbox.length
+    await press(yes)
+    await tick()
+    expect(provider.outbox.slice(before).map((m) => m.content)).toEqual([])
+    expect(provider.acks).toHaveLength(2)
+    expect(runs).toHaveLength(1)
+  })
+
   it('toolConfirm.expiredNotice: false drops the stale press silently', async () => {
     const { chat, buttonsSent, press, provider } = await setup({ cfg: { toolConfirm: { expiredNotice: false } } })
     await chat.send('borra')

@@ -194,7 +194,8 @@ typed-answer hint (`ai.tools.confirmButtons`: `Voy a: {tool}{args}\n¿Confirmas?
   Instagram) leave the buttons on screen. There, a press on a confirmation that
   is no longer pending gets a short localized reply (`ai.tools.confirmExpired`:
   "Esa confirmación ya no está activa." / "That confirmation is no longer
-  active."); `toolConfirm.expiredNotice: false` drops it silently. Optionally,
+  active."); `toolConfirm.expiredNotice: false` drops it silently. A chat handed off to a
+  human never gets this notice (the press is only acknowledged). Optionally,
   `toolConfirm.answeredNotice: true` also replies `ai.tools.confirmAnswered`
   ("Respuesta recibida: Sí." / "Answer received: Yes.") when a press answers;
   it is off by default because those channels already show the user's pick as

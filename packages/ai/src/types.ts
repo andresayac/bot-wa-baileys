@@ -134,7 +134,7 @@ export interface AIConfig {
      * On a channel that cannot edit messages, reply a short localized
      * `ai.tools.confirmExpired` ("That confirmation is no longer active.") to a press on a
      * confirmation that is no longer pending (answered, superseded, timed out). The press
-     * is always acknowledged and ignored. Default `true`.
+     * is always acknowledged and ignored; a chat in human handoff gets no notice. Default `true`.
      */
     expiredNotice?: boolean
     /**
