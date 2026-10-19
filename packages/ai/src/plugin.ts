@@ -158,7 +158,10 @@ export function aiPlugin(config: AIPluginConfig = {}): PluginSpec<AIPluginConfig
           const replyOpts = typedAhead ? { typing: false } : undefined
           const turn = (async () => {
             try {
-              if (typedAhead) await mctx.typing()
+              // Best-effort: a failing indicator (e.g. a channel answering 4xx) must not cost the reply.
+              if (typedAhead) {
+                try { await mctx.typing() } catch (err) { ctx.logger.debug({ err }, 'ai typing indicator failed (ignored)') }
+              }
               const text = await client.replyInChat(key, body, {
                 userId: mctx.sender,
                 isGroup: mctx.isGroup,

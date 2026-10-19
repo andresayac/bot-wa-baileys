@@ -175,6 +175,7 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/). Versionado po
 **Corregido**
 - Una herramienta con efectos (`confirm`/`dedupe`) cuyo handler devuelve un objeto con `error` no vacío (p. ej. `{ error: 'No existe el pedido P-1' }`) ya no se recuerda como acción hecha: no dispara el aviso de repetición, la nota de acciones ya ejecutadas ni el bloqueo de `dedupe`.
 - La autorespuesta one-shot ya no muestra "escribiendo…" dos veces con `BotConfig.typing` activo: con `humanizeTyping` el indicador sale mientras se genera la respuesta y esta se envía con `typing: false`.
+- Un indicador de escritura que falla (p. ej. el canal responde 4xx) ya no convierte la autorespuesta en `errorMessage`: el `ctx.typing()` previo a generar se ignora si falla, en el camino one-shot, con herramientas y en streaming.
 
 ### create-bot-wa (2026-10)
 - **Cambiado**: la CLI (y `scaffold()`) se niega a generar un proyecto dentro de una copia del propio monorepo de bot-wa (`pnpm-workspace.yaml` + `packages/core` = `@bot-wa/core`), donde acabaría formando parte del workspace del framework; `--force` (`force: true`) lo permite. Otros workspaces pnpm no se ven afectados. Exporta `findBotWaMonorepo()`.

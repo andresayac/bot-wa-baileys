@@ -131,3 +131,41 @@ describe('aiPlugin — one typing indicator per one-shot autoreply', () => {
     await bot.stop()
   })
 })
+
+describe('aiPlugin — a failing typing indicator never kills the reply', () => {
+  async function failingTypingBot(cfg: AIPluginConfig, mode: 'reject' | 'throw', botTyping = false) {
+    const t = await createTestBot(botTyping ? { typing: { enabled: true, minMs: 5, maxMs: 10 } } : {})
+    const typing = mode === 'reject'
+      ? async () => { throw new Error('400: Request input may be invalid') }
+      : () => { throw new Error('sync typing boom') }
+    Object.assign(t.provider, { typing })
+    t.bot.plug(aiPlugin({ __provider: new MockAIProvider({ reply: 'IA responde' }), errorMessage: 'sin servicio', ...cfg }))
+    return t
+  }
+
+  for (const mode of ['reject', 'throw'] as const) {
+    it(`one-shot autoreply still answers when typing ${mode}s`, async () => {
+      const { bot, chat } = await failingTypingBot({}, mode)
+      await chat.send('hola')
+      await chat.expectReply('IA responde')
+      expect(chat.replies()).not.toContain('sin servicio')
+      await bot.stop()
+    })
+
+    it(`streamed autoreply still answers when typing ${mode}s`, async () => {
+      const { bot, chat } = await failingTypingBot({ stream: true }, mode, true)
+      await chat.send('hola')
+      await chat.expectReply('IA responde')
+      expect(chat.replies()).not.toContain('sin servicio')
+      await bot.stop()
+    })
+
+    it(`tool-enabled autoreply still answers when typing ${mode}s`, async () => {
+      const { bot, chat } = await failingTypingBot({ tools: { hora: { description: 'Hora', handler: () => '12:00' } } }, mode, true)
+      await chat.send('hola')
+      await chat.expectReply('IA responde')
+      expect(chat.replies()).not.toContain('sin servicio')
+      await bot.stop()
+    })
+  }
+})
