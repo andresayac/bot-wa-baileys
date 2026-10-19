@@ -220,3 +220,11 @@ describe('MongoStore — lifecycle', () => {
     expect(fake.closeCount).toBe(0) // never closed
   })
 })
+
+describe('MongoStore — options validation', () => {
+  it('rejects an invalid maxMessagesPerChat up front (RangeError)', () => {
+    for (const bad of [-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(() => new MongoStore({ client: new FakeMongoClient(), maxMessagesPerChat: bad })).toThrow(RangeError)
+    }
+  })
+})

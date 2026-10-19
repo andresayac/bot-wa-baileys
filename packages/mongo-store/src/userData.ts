@@ -63,6 +63,8 @@ export class MongoUserData {
   }
 
   async set(entry: UserDataEntry): Promise<void> {
+    const value = JSON.stringify(entry.value) as string | undefined
+    if (value === undefined) throw new TypeError('user data value must be JSON-serialisable')
     const _id = docId(entry.userId, entry.namespace, entry.key)
     await this.collection.updateOne(
       { _id },
@@ -71,7 +73,7 @@ export class MongoUserData {
           userId: entry.userId,
           namespace: entry.namespace,
           key: entry.key,
-          value: JSON.stringify(entry.value),
+          value,
           expiresAt: entry.expiresAt ?? null,
           updatedAt: entry.updatedAt,
         },

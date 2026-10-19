@@ -116,6 +116,7 @@ export interface MongoStoreOptions {
   /**
    * Max messages retained per chat. When set, `saveMessage` prunes the oldest
    * documents (by timestamp) beyond the cap. Default: undefined = unbounded.
+   * Must be a non-negative integer, else the constructor throws a `RangeError`.
    */
   maxMessagesPerChat?: number
   logger?: { error?: (...args: unknown[]) => void }
@@ -171,6 +172,9 @@ const READ = { promoteBuffers: true } as const
  */
 export const TRIM_DELETE_BATCH = 10_000
 
+/** Largest `limit` sent to the server (int32); a larger window simply reads without a limit. */
+const MAX_LIMIT = 2_147_483_647
+
 /**
  * Shallow-merge update with object-spread semantics (`{ ...existing, ...patch }`,
  * as in MemoryStore): defined fields are `$set`; fields explicitly present as
@@ -205,6 +209,9 @@ export class MongoStore implements IStore {
   private readonly userData: MongoUserData
 
   constructor(opts: MongoStoreOptions = {}) {
+    if (opts.maxMessagesPerChat != null && !(Number.isInteger(opts.maxMessagesPerChat) && opts.maxMessagesPerChat >= 0)) {
+      throw new RangeError(`MongoStore: maxMessagesPerChat must be a non-negative integer, got ${opts.maxMessagesPerChat}`)
+    }
     this.dbName = opts.dbName ?? 'botwa'
     this.logger = opts.logger
     this.maxMessagesPerChat = opts.maxMessagesPerChat
@@ -228,7 +235,13 @@ export class MongoStore implements IStore {
 
   /* Messages -------------------------------------------------------------- */
 
+  /**
+   * Upsert keyed by `messageKey(ref)`. A message without `ref.id` or `chatId`
+   * is ignored, like MemoryStore: providers send `''` when they have no stable
+   * id, and keying those would make them overwrite each other.
+   */
   async saveMessage(msg: StoredMessage): Promise<void> {
+    if (!msg.ref?.id || !msg.chatId) return
     await this.messages.updateOne(
       { _id: messageKey(msg.ref) },
       { $set: { chatId: msg.chatId, timestamp: msg.timestamp, msg } },
@@ -255,20 +268,20 @@ export class MongoStore implements IStore {
   }
 
   async getMessage(ref: MessageRef): Promise<StoredMessage | undefined> {
+    if (!ref.id || !ref.chatId) return undefined
     const doc = await this.messages.findOne({ _id: messageKey(ref) }, READ)
     return doc?.msg
   }
 
   async getMessagesByChat(chatId: string, limit = 50): Promise<StoredMessage[]> {
-    // MongoDB reads limit(0) as "no limit" and limit(-n) as n; the contract
-    // (MemoryStore) returns nothing for a non-positive limit.
-    if (limit <= 0) return []
+    // MemoryStore's window for ANY number: non-positive/NaN gives nothing, a
+    // fraction rounds up, Infinity means everything. MongoDB reads limit(0) as
+    // "no limit" and limit(-n) as n, and rejects a fraction, so normalize first.
+    if (!(limit > 0)) return []
     // Latest `limit` messages, newest first, then flipped to oldest -> newest.
-    const docs = await this.messages
-      .find({ chatId }, READ)
-      .sort({ timestamp: -1 })
-      .limit(limit)
-      .toArray()
+    const cursor = this.messages.find({ chatId }, READ).sort({ timestamp: -1 })
+    if (limit <= MAX_LIMIT) cursor.limit(Math.ceil(limit)) // beyond: every message, i.e. no limit at all
+    const docs = await cursor.toArray()
     return docs.reverse().map((d) => d.msg)
   }
 
@@ -359,6 +372,7 @@ export class MongoStore implements IStore {
   async getUserData(userId: UserId, namespace: string, key: string): Promise<UserDataEntry | undefined> {
     return this.userData.get(userId, namespace, key, Date.now())
   }
+  /** Upsert one entry; rejects with a `TypeError` when `value` is not JSON-serialisable. */
   async setUserData(entry: UserDataEntry): Promise<void> {
     await this.userData.set(entry)
   }
