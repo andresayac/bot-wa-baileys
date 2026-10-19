@@ -177,6 +177,13 @@ export function aiPlugin(config: AIPluginConfig = {}): PluginSpec<AIPluginConfig
                 ctx.logger.debug('ai autoreply dropped: a conversation is active on the chat')
                 return
               }
+              // The model ended without a single character: never leave the user in silence
+              // (nor send a blank message, which several channels reject).
+              if (!text.trim()) {
+                ctx.logger.warn('ai autoreply: the model returned an empty answer (if it was cut off, raise maxTokens)')
+                await mctx.reply(errorMessage, replyOpts)
+                return
+              }
               await mctx.reply(shown(text), replyOpts)
             } catch (err) {
               // Cancelled confirmation or turn (/reset, timeout, superseded turn): nothing to say.

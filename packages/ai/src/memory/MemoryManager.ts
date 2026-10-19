@@ -32,7 +32,10 @@ export interface MemoryFact {
 export interface AIMemoryExtractConfig {
   /** Model used for extraction (default: the plugin's model). */
   model?: string
-  /** Token budget of the extraction call. Default 300. */
+  /**
+   * Token budget of the extraction call. Default 300 on providers with a built-in
+   * cap; Ollama sends no cap unless this (or the plugin's `maxTokens`) is set.
+   */
   maxTokens?: number
   /** Max new facts accepted per turn. Default 5. */
   maxFactsPerTurn?: number

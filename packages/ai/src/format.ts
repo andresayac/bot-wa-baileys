@@ -31,6 +31,9 @@ function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
 
+/** An (already text-escaped) URL inside a double-quoted `href`: a `"` must not close the attribute. */
+const hrefOf = (url: string): string => url.replace(/"/g, '&quot;')
+
 /** Inline Markdown of one line fragment (no code spans inside). */
 function inlineText(text: string, format: Exclude<TextFormat, 'markdown'>, opts: { noBold?: boolean } = {}): string {
   const saved: string[] = []
@@ -38,9 +41,9 @@ function inlineText(text: string, format: Exclude<TextFormat, 'markdown'>, opts:
   let s = format === 'html' ? escapeHtml(text) : text
   // Images and links first, then bare URLs: their characters (_ * ~) are never emphasis.
   s = s.replace(/!\[([^\]\n]*)\]\(([^)\s]+)\)/g, (_m, alt: string, url: string) =>
-    keep(format === 'html' ? `<a href="${url}">${alt || url}</a>` : url))
+    keep(format === 'html' ? `<a href="${hrefOf(url)}">${alt || url}</a>` : url))
   s = s.replace(/\[([^\]\n]+)\]\(([^)\s]+)\)/g, (_m, label: string, url: string) => {
-    if (format === 'html') return keep(`<a href="${url}">${inlineText(label, 'plain')}</a>`)
+    if (format === 'html') return keep(`<a href="${hrefOf(url)}">${inlineText(label, 'plain')}</a>`)
     const shown = inlineText(label, format)
     return keep(shown === url ? url : `${shown} (${url})`)
   })

@@ -153,12 +153,21 @@ describe('GeminiProvider tools', () => {
     const [args] = generateContent.mock.calls[1]!
     expect((args.contents as Args[])[1]).toEqual({ role: 'model', parts: raw })
   })
-  it('a blocked response (text() throws, no tool calls) still rejects', async () => {
+  it('a blocked response (text() throws, no tool calls) is a refusal', async () => {
     const { client } = fakeGemini({
       text: () => { throw new Error('Response was blocked due to SAFETY') },
       candidates: [{ finishReason: 'SAFETY' }],
     })
-    await expect(new GeminiProvider(client, {}).generate({ messages: [{ role: 'user', content: 'x' }] })).rejects.toThrow(/SAFETY/)
+    const r = await new GeminiProvider(client, {}).generate({ messages: [{ role: 'user', content: 'x' }] })
+    expect(r).toMatchObject({ text: '', stopReason: 'refusal' })
+    expect(r.toolCalls).toBeUndefined()
+  })
+  it('a text() failure that is not a block (no tool calls) still rejects', async () => {
+    const { client } = fakeGemini({
+      text: () => { throw new Error('unexpected shape') },
+      candidates: [{ finishReason: 'MALFORMED_FUNCTION_CALL' }],
+    })
+    await expect(new GeminiProvider(client, {}).generate({ messages: [{ role: 'user', content: 'x' }] })).rejects.toThrow(/unexpected shape/)
   })
   it('maps history to model functionCall + function functionResponse parts', async () => {
     const { client, generateContent } = fakeGemini({ text: () => 'listo' })
