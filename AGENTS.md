@@ -51,6 +51,7 @@ pnpm pack:smoke                           # empaqueta los paquetes públicos y l
 pnpm test:scripts                         # tests de los helpers de scripts/ (semver del smoke test, enlaces de los README)
 
 pnpm docs:dev                             # sitio VitePress en local (http://localhost:5173/)
+pnpm run docs:site && pnpm docs:check     # build del sitio + enlaces/anclas rotos y diagramas sin renderizar
 pnpm docs                                 # TypeDoc + VitePress (CI lo compila en Node 24; no se publica en ningún hosting)
 pnpm docs:site                            # solo VitePress (rápido; falla con enlaces muertos)
 ```
@@ -178,6 +179,8 @@ Son los errores que más caro han salido. Respétalos aunque un cambio "parezca"
 - El sitio VitePress vive en `docs/`, con dos idiomas en espejo: `docs/guide/` + `docs/examples/` (inglés) y `docs/es/guide/` + `docs/es/ejemplos/` (español). Si cambias API pública, actualiza ambas versiones y `docs/public/llms.txt` si aplica.
 - Anota los cambios relevantes en la sección `[Unreleased]` de [`CHANGELOG.md`](CHANGELOG.md) (Keep a Changelog, versionado por paquete). Además, todo cambio visible de un paquete público lleva su changeset (`pnpm changeset`); los `CHANGELOG.md` de cada paquete los escribe `changeset version`, no se editan a mano.
 - El sitio no se publica en ningún hosting (sin GitHub Pages); se previsualiza con `pnpm docs:dev` y se sirve desde la raíz (`base: "/"`). Los enlaces a la referencia TypeDoc (`/api/...`) salen del SPA de VitePress: `docs/.vitepress/config.ts` ya les pone `target="_self"` y el prefijo `base` en el markdown y en el nav. Ese archivo también resuelve `vue` a través de `vitepress`, porque pnpm no lo expone en la raíz; no quites ese plugin salvo que `vue` pase a estar en las `devDependencies` raíz.
+- Los bloques ```mermaid se dibujan en el cliente: `markdown.config` los convierte en `<Mermaid>` (`docs/.vitepress/theme/Mermaid.vue`, `mermaid` en las `devDependencies` raíz, con `import()` perezoso). El selector de idioma usa `docs/.vitepress/theme/langs.ts` (plugin `bot-wa:locale-links`), que empareja cada página con su traducción por la **posición** en los sidebars: añade o mueve páginas a la vez en el sidebar inglés y en el español (si no cuadran, el build falla).
+- Tras `pnpm run docs:site`, `pnpm docs:check` revisa enlaces y anclas internos, sidebars duplicados, diagramas sin renderizar y títulos repetidos en una misma página (usa títulos únicos, p. ej. `Chatwoot options`, no varios `Options`). Es local, no va en CI.
 - Las decisiones de diseño y los planes históricos están en `docs/superpowers/specs/` y `docs/superpowers/plans/`. La dirección del producto está en [`ROADMAP.md`](ROADMAP.md) (la seguridad es el primer gate).
 - Las versiones `@bot-wa/*` que `create-bot-wa` estampa en los proyectos generados salen de `create-bot-wa/src/versions.ts`, que **se genera** (`packages/create-bot-wa/scripts/gen-versions.mjs`) desde el `package.json` de cada paquete público como `^<versión exacta>` (con prerelease, p. ej. `^2.0.0-alpha.2`, para que npm la resuelva). Lo regeneran `pnpm build` y `pnpm version-packages`; un test falla si queda desfasado. No lo edites a mano.
 

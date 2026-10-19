@@ -122,7 +122,7 @@ de cursores (`chatwoot:chat:<chatId>`, `chatwoot:conv:<id>`), así que
 sobrevive a reinicios con un store persistente. Los ids de chat solo se
 usan como claves opacas.
 
-### Opciones
+### Opciones de Chatwoot
 
 | Opción | Por defecto | Descripción |
 | --- | --- | --- |
@@ -169,7 +169,7 @@ pendiente, útil al apagar y en tests) y `client` (`ChatwootClient`).
 - Con `syncMode: 'all'` todas las conversaciones se copian a Chatwoot. Usa
   `syncMode: 'handoff'` si solo los chats escalados deben salir del bot.
 
-### Limitaciones
+### Limitaciones de Chatwoot
 
 - Los medios entrantes se reflejan como texto (`[image] caption`), no se
   suben como adjuntos.
@@ -226,7 +226,7 @@ Estados: `open` (en cola), `assigned`, `pending` (esperando al cliente,
 fuera de la cola) y `closed`. Los ids son strings secuenciales (`'1'`,
 `'2'`…).
 
-### Opciones
+### Opciones de tickets
 
 | Opción | Por defecto | Descripción |
 | --- | --- | --- |
@@ -255,7 +255,7 @@ serializan: si falla una escritura en el store, la llamada se rechaza y la
 memoria no cambia. `TicketDesk` también se puede usar sin bot:
 `new TicketDesk({ storage: memoryTicketStorage() })`.
 
-### Limitaciones
+### Limitaciones de tickets
 
 - No hay interfaz ni identidad de agentes: `assignee` es un string libre.
   Construye el panel sobre `bot.injectTools.tickets` y protégelo tú.
@@ -346,7 +346,7 @@ todo el grupo; el plugin avisa en el log al instalarse si detecta un modo
 restrictivo.
 :::
 
-### Limitaciones
+### Limitaciones de la moderación
 
 - El estado (ventanas de spam, advertencias, silencios) vive en memoria y
   se pierde al reiniciar.
@@ -413,7 +413,7 @@ resultados de fallback / no-match, así que esos mensajes nunca llegan a tu
 `onMessage` ni al catch-all de `aiPlugin`. Deja `'off'` o `'unrouted'` si
 un LLM debe responder lo que Dialogflow no entiende.
 
-### Opciones
+### Opciones de Dialogflow
 
 | Opción | Por defecto | Descripción |
 | --- | --- | --- |
@@ -446,7 +446,7 @@ un LLM debe responder lo que Dialogflow no entiende.
   números de teléfono se envían a Google. El **texto** del mensaje sí.
 - Guarda el JSON de la cuenta de servicio en un secreto, nunca en el repo.
 
-### Limitaciones
+### Limitaciones de Dialogflow
 
 - Solo se envía texto (ni audio ni eventos). En CX el rellenado de
   formularios vive en las páginas: `allRequiredParamsPresent` siempre es

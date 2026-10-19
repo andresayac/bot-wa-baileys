@@ -2,7 +2,7 @@
 
 `@bot-wa/core` v2 (antes `@bot-wa/bot-wa-baileys`) es un **rewrite del core**, no un parche sobre la v1. Cambian los nombres (`BaileysClass` → `Bot`), pero también cambia el motor por debajo: el viejo "router de mensajes" y el engine de flujos por arrays de pasos desaparecen, reemplazados por un **Dispatcher** con prioridad por especificidad y un **runtime de conversaciones async** sobre el que se compila el DSL declarativo (`flow()`).
 
-Además, la v2 es **agnóstica de transporte**: el core ya no sabe de WhatsApp. Todo lo específico de la conexión (QR, sesión, JIDs, auth) vive en un **provider** que tú construyes e inyectas: `new Bot({ provider: new BaileysProvider({...}) })`. Ver la sección de [reorganización de paquetes](#reorganización-de-paquetes-core-transportes-stores) para el mapa completo.
+Además, la v2 es **agnóstica de transporte**: el core ya no sabe de WhatsApp. Todo lo específico de la conexión (QR, sesión, JIDs, auth) vive en un **provider** que tú construyes e inyectas: `new Bot({ provider: new BaileysProvider({...}) })`. Ver la sección de [reorganización de paquetes](#reorganizacion-de-paquetes-core-transportes-stores) para el mapa completo.
 
 Si tu bot v1 es simple (unos cuantos `addKeyword`/respuestas de texto), la migración es mecánica. Si usa flujos con `capture` anidados, botones, o depende de que `bot.on('message')` reciba *todos* los mensajes, lee también la sección de [cambios de comportamiento](#cambios-de-comportamiento-en-v2) — hay diferencias de semántica, no solo de nombres.
 
@@ -238,4 +238,4 @@ Alternativa sin dependencias: `storeConfig: { file: './store.json' }` (dump JSON
 ## Ver también
 
 - [README — Quickstart](https://github.com/andresayac/bot-wa-baileys#readme)
-- [`docs/public/llms.txt`](public/llms.txt) — resumen de la API completa en un solo archivo
+- [`docs/public/llms.txt`](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/public/llms.txt) — resumen de la API completa en un solo archivo

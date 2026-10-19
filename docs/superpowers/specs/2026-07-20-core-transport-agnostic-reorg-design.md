@@ -262,7 +262,7 @@ export interface IProvider<TRaw = unknown> {
 (`StoredMessage`/`StoredChat`/`StoredContact` + cursor opcional), `messageKey(ref)` y
 `BotConfig` (con `provider: IProvider` **requerido**, y los campos WhatsApp movidos a
 `BaileysProviderConfig`) están definidos en el artefacto completo
-[`2026-07-20-iprovider-v2-contract.ts`](./2026-07-20-iprovider-v2-contract.ts) (autoritativo)
+[`2026-07-20-iprovider-v2-contract.ts`](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/superpowers/specs/2026-07-20-iprovider-v2-contract.ts) (autoritativo)
 y se copian al core en la Tarea 1. Notas clave:
 - `MessageContext` conserva **firmas idénticas** de `reply/photo/poll/react/...`; solo cambia
   el cuerpo privado (arma `OutboundContent` y llama `provider.send`). Añade `ref`, `raw`,
