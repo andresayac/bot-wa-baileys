@@ -102,8 +102,25 @@ export class Scheduler {
     const next = task.computeNextRun()
     if (!next) return
     task.nextRunDate = next
-    const delayMs = Math.max(0, next.getTime() - Date.now())
     const generation = ++task.generation
+    this.arm(task, next.getTime(), generation)
+  }
+
+  /**
+   * Arm the timer of `task` for `at`. Node clamps a delay above 2^31-1 ms (~24.8 days) to
+   * 1 ms, so a far run (a quarterly cron, `delay('40d')`) waits in chunks and rechecks
+   * the clock before running the handler.
+   */
+  private arm(task: InternalTask, at: number, generation: number): void {
+    const remaining = at - Date.now()
+    if (remaining > MAX_TIMER_MS) {
+      task.timer = setTimeout(() => {
+        task.timer = undefined
+        if (task.generation === generation && this.isRunning && this.tasks.has(task.id)) this.arm(task, at, generation)
+      }, MAX_TIMER_MS)
+      return
+    }
+    const delayMs = Math.max(0, remaining)
     task.timer = setTimeout(async () => {
       task.timer = undefined
       // A one-shot task is done the moment it fires: a stop()/start() cycle while its
@@ -132,6 +149,9 @@ export class Scheduler {
  * and macros (@daily) are rejected when the task is created.
  * (For full cron support, swap to a real parser like `cron-parser`.)
  * ========================================================================== */
+
+/** Longest delay `setTimeout` honours (2^31-1 ms); longer ones fire after 1 ms. */
+const MAX_TIMER_MS = 2 ** 31 - 1
 
 const CRON_FIELDS = ['minute', 'hour', 'day-of-month', 'month', 'weekday'] as const
 const CRON_FIELD = /^(\*|\d+(-\d+)?)(\/\d+)?(,(\*|\d+(-\d+)?)(\/\d+)?)*$/

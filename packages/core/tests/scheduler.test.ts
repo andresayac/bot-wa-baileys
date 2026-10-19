@@ -50,3 +50,44 @@ describe('Scheduler lifecycle', () => {
     expect(task.nextRun!.getUTCDate()).toBe(1)
   })
 })
+
+describe('Scheduler: runs further away than the 32-bit timer limit', () => {
+  const MAX_TIMER = 2 ** 31 - 1
+  const DAY = 24 * 60 * 60 * 1000
+
+  it('never arms a timer longer than the platform limit', () => {
+    vi.useFakeTimers()
+    const spy = vi.spyOn(globalThis, 'setTimeout')
+    const scheduler = new Scheduler()
+    scheduler.start()
+    scheduler.delay('40d', () => {})
+    scheduler.cron('0 0 1 */3 *', () => {})
+    for (const call of spy.mock.calls) expect(Number(call[1] ?? 0)).toBeLessThanOrEqual(MAX_TIMER)
+    spy.mockRestore()
+    scheduler.stop()
+  })
+
+  it('a far one-shot task waits for its date and a quarterly cron runs once per date', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(2026, 0, 2, 0, 0))
+    const scheduler = new Scheduler()
+    scheduler.start()
+    const once = vi.fn()
+    const quarterly = vi.fn()
+    scheduler.delay('40d', once)
+    scheduler.cron('0 0 1 */3 *', quarterly) // next: Apr 1
+
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(once).not.toHaveBeenCalled()
+    expect(quarterly).not.toHaveBeenCalled()
+
+    await vi.advanceTimersByTimeAsync(39 * DAY)
+    expect(once).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(DAY)
+    expect(once).toHaveBeenCalledOnce()
+
+    await vi.advanceTimersByTimeAsync(60 * DAY) // past Apr 1
+    expect(quarterly).toHaveBeenCalledOnce()
+    scheduler.stop()
+  })
+})

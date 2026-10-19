@@ -184,6 +184,8 @@ export class ConversationRuntime {
   private compiled = new Map<string, CompiledFlow>()
   private store?: CheckpointStore
   private dormant = new Map<string, FlowCheckpoint>()
+  /** Store clears of discarded dormant checkpoints still in flight, by key. */
+  private pendingClears = new Map<string, Promise<void>>()
   /** Keys whose persistent checkpoint must NOT be cleared on unwind (shutdown teardown). */
   private preserveOnAbort = new Set<string>()
   /** Registration history for introspection — see {@link listRegistrations}. */
@@ -245,6 +247,9 @@ export class ConversationRuntime {
       const key = this.keyFor(ctx)
       try {
         await runSteps(flow, ctx, c as ConversationControls, startAt, async (stepIndex) => {
+          // A clear of the checkpoint this conversation replaced may still be in flight:
+          // let it land first, or it would wipe this conversation's fresh checkpoint.
+          await this.pendingClears.get(key)
           await this.store!.setCheckpoint(key, {
             flowId: flow.id,
             step: stepIndex + 1,
@@ -312,7 +317,15 @@ export class ConversationRuntime {
   /** Drop `key`'s dormant checkpoint (memory + store). Returns whether one existed. */
   discardDormant(key: string): boolean {
     if (!this.dormant.delete(key)) return false
-    void this.store?.clearCheckpoint(key).catch(() => {})
+    if (this.store) {
+      // Tracked per key so a persistent flow entered right after this waits for the clear
+      // before writing its own checkpoint (async stores do not order the two writes).
+      const clear: Promise<void> = Promise.resolve(this.pendingClears.get(key))
+        .then(() => this.store?.clearCheckpoint(key))
+        .catch(() => {})
+        .finally(() => { if (this.pendingClears.get(key) === clear) this.pendingClears.delete(key) })
+      this.pendingClears.set(key, clear)
+    }
     return true
   }
 

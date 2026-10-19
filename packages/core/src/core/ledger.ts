@@ -27,10 +27,15 @@ export function receiveTimestamp(timestamp: number, now = Date.now()): number {
 }
 
 type StoredStatus = NonNullable<StoredMessage['status']>
+/**
+ * `failed` outranks `delivered`: a provider can report a failure after a delivery receipt
+ * (e.g. an expired or rejected message), and that terminal error must not be dropped.
+ * `read` is proof the user saw the message, so nothing regresses it.
+ */
 const DELIVERY_RANK: Record<StoredStatus, number> = {
-  received: 0, queued: 0, sent: 1, failed: 1, delivered: 2, read: 3,
+  received: 0, queued: 0, sent: 1, delivered: 2, failed: 3, read: 4,
 }
-/** Pick the further-along delivery status so a late 'sent' write can't regress a delivered/read receipt. */
+/** Pick the further-along delivery status so a late 'sent' write can't regress a delivered/failed/read receipt. */
 export function higherDeliveryStatus(existing: StoredStatus | undefined, incoming: StoredStatus): StoredStatus {
   if (!existing) return incoming
   return (DELIVERY_RANK[existing] ?? 0) > (DELIVERY_RANK[incoming] ?? 0) ? existing : incoming
@@ -158,8 +163,9 @@ export class MessageLog {
 
   /**
    * Record a delivery/read receipt. Receipts can arrive out of order (a `delivered` after
-   * the `read`), so the stored status only ever moves forward; a receipt without an error
-   * keeps the one already recorded.
+   * the `read`), so the stored status only ever moves forward. A receipt's error is always
+   * recorded, even when its status does not advance the row (a `failed` after `read`), so the
+   * provider diagnostic is never lost; a receipt without an error keeps the one already recorded.
    */
   async receipt(status: DeliveryStatus): Promise<void> {
     await this.write(status.ref, (existing) => {
@@ -175,7 +181,7 @@ export class MessageLog {
         }),
         ...this.deps.namespace,
         status: next,
-        error: next === status.status && status.error !== undefined ? status.error : existing?.error,
+        error: status.error !== undefined ? status.error : existing?.error,
         timestamp: existing?.timestamp ?? normalizeTimestamp(status.timestamp),
       }
     })

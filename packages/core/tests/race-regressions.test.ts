@@ -82,6 +82,29 @@ describe('ConversationRuntime: dormant checkpoints', () => {
     expect(await rt.resumeDormant(msg('hola'))).toBe(false)
   })
 
+  it('a slow clear of the replaced checkpoint never wipes the checkpoint of the new flow', async () => {
+    class SlowClearStore extends MemoryStore {
+      override async clearCheckpoint(key: string): Promise<void> {
+        await tick(30)
+        await super.clearCheckpoint(key)
+      }
+    }
+    const store = new SlowClearStore()
+    await store.setCheckpoint('u1', { flowId: 'registrar', step: 1, state: { name: 'Old' }, updatedAt: Date.now() })
+    const rt = new ConversationRuntime({ controlsFactory: createControls })
+    rt.attachStore(store)
+    rt.registerCompiled(persistentFlow())
+    await rt.loadDormant()
+
+    void rt.enter('registrar', msg('registrar')).catch(() => {})
+    await tick(5)
+    rt.deliver(msg('Ana'))
+    await tick(80)
+
+    expect(await store.getCheckpoint('u1')).toMatchObject({ flowId: 'registrar', step: 1, state: { name: 'Ana' } })
+    rt.abortAll()
+  })
+
   it('loadDormant() mirrors the store: a checkpoint cleared since the last load is gone', async () => {
     const store = new MemoryStore()
     await store.setCheckpoint('u1', { flowId: 'registrar', step: 1, state: {}, updatedAt: Date.now() })
@@ -213,6 +236,36 @@ describe('Bot: delivery receipts', () => {
     emit('delivered')
     await tick()
     expect((await bot.getStore().getMessage(sent.ref))?.status).toBe('read')
+    await bot.stop()
+  })
+})
+
+describe('Bot: failed receipts', () => {
+  it('a "failed" receipt after "delivered" is recorded with its error', async () => {
+    const { bot, provider } = await createTestBot()
+    const sent = await bot.send('user-1', 'x')
+    const ts = Math.floor(Date.now() / 1000)
+    provider['emitEvent']({ kind: 'status', status: { ref: sent.ref, status: 'delivered', timestamp: ts } })
+    provider['emitEvent']({ kind: 'status', status: { ref: sent.ref, status: 'failed', timestamp: ts, error: { code: 131047, message: 'expired' } } })
+    await vi.waitFor(async () => {
+      const row = await bot.getStore().getMessage(sent.ref)
+      expect(row?.status).toBe('failed')
+      expect(row?.error).toEqual({ code: 131047, message: 'expired' })
+    })
+    await bot.stop()
+  })
+
+  it('a late "failed" receipt never regresses a "read" one, but keeps its error', async () => {
+    const { bot, provider } = await createTestBot()
+    const sent = await bot.send('user-1', 'x')
+    const ts = Math.floor(Date.now() / 1000)
+    provider['emitEvent']({ kind: 'status', status: { ref: sent.ref, status: 'read', timestamp: ts } })
+    provider['emitEvent']({ kind: 'status', status: { ref: sent.ref, status: 'failed', timestamp: ts, error: { code: 1, message: 'late' } } })
+    await vi.waitFor(async () => {
+      const row = await bot.getStore().getMessage(sent.ref)
+      expect(row?.status).toBe('read')
+      expect(row?.error).toEqual({ code: 1, message: 'late' })
+    })
     await bot.stop()
   })
 })
