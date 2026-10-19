@@ -161,7 +161,30 @@ export interface ScheduledTask {
    * in-memory tasks.
    */
   readonly durable?: boolean
+  /**
+   * The IANA zone a cron task's fields are read in (`CronTaskOptions.timeZone`,
+   * `DurableTaskOptions.timeZone` or `SchedulerOptions.timeZone`). Absent when they are
+   * read in the process zone, and on interval and one-shot tasks.
+   */
+  readonly timeZone?: string
   cancel(): void
+}
+
+/**
+ * Options of a plain (in-memory) cron task: `bot.schedule(cron, { timeZone }, fn)`.
+ * Add an `id` (see {@link DurableTaskOptions}) to make it durable.
+ */
+export interface CronTaskOptions {
+  /**
+   * IANA zone the five cron fields are read in (`'America/Bogota'`, `'Europe/Madrid'`,
+   * `'UTC'`), or `'local'` (the process zone). Default: `SchedulerOptions.timeZone`, else
+   * the process zone. Daylight-saving rules: a fixed-hour slot in a skipped hour runs once,
+   * shifted forward by the gap (02:30 → 03:30); in a repeated hour it runs once, at the
+   * first occurrence; wildcard-hour slots (an hour field starting with `*`) follow the real
+   * clock (none in a skipped hour, both passes of a repeated one). An unknown zone throws a
+   * `RangeError` when the task is registered.
+   */
+  timeZone?: string
 }
 
 /**
@@ -203,6 +226,13 @@ export interface DurableTaskOptions {
    * occurrence is retried by another process once it expires. Default `'60s'`.
    */
   leaseMs?: string | number
+  /**
+   * Cron tasks only (a `TypeError` on `every`/`delay`): the IANA zone the cron fields are
+   * read in, with the daylight-saving rules of {@link CronTaskOptions.timeZone}. Default:
+   * `SchedulerOptions.timeZone`, else the process zone. The zone is part of the stored spec
+   * (`TZ=<zone> <cron>`), so adding or changing it recomputes the task's next run.
+   */
+  timeZone?: string
 }
 
 /** One occurrence of a durable task, passed to its handler. */

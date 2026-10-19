@@ -28,6 +28,7 @@ import type { DurableTaskHandler, DurableTaskOptions, MissedRunPolicy, Scheduled
 import { parseDuration } from '../utils/duration.js'
 import { parseIdlePeriod, randomId } from '../utils/timers.js'
 import { assertCron, cronNextRun } from './cron.js'
+import { assertTimeZone } from './cronZone.js'
 import {
   MemoryScheduleStore,
   prefixScheduleStore,
@@ -48,6 +49,8 @@ interface DurableEntry {
   readonly kind: ScheduleKind
   readonly spec: string
   readonly cron?: string
+  /** IANA zone of the cron fields (absent: the process zone). */
+  readonly timeZone?: string
   /** Interval or one-shot delay, in ms. */
   readonly ms?: number
   readonly missed: MissedRunPolicy
@@ -88,6 +91,8 @@ export class DurableScheduler {
   /** How overdue a claimed slot must be to count as missed. */
   private readonly graceMs: number
   private readonly now: () => number
+  /** Default zone of durable cron tasks (`SchedulerOptions.timeZone`). */
+  private readonly timeZone?: string
   readonly owner: string
   private logger?: Logger
   private running = false
@@ -120,6 +125,8 @@ export class DurableScheduler {
     // lease takes up to `leaderTtlMs` to expire: neither delay makes a slot "missed".
     this.graceMs = this.tickMs + (this.lease ? 2 * this.leaderTtlMs : 0)
     this.now = opts.now ?? Date.now
+    if (opts.timeZone !== undefined) assertTimeZone(opts.timeZone, 'scheduler')
+    this.timeZone = opts.timeZone
   }
 
   /** Register a durable task (validated synchronously). */
@@ -143,13 +150,23 @@ export class DurableScheduler {
     }
     const leaseMs = parseIdlePeriod(opts.leaseMs ?? 60_000, `durable task "${id}" leaseMs`)
 
+    if (opts.timeZone !== undefined) {
+      if (kind !== 'cron') throw new TypeError('timeZone only applies to cron tasks')
+      assertTimeZone(opts.timeZone, `Durable task "${id}"`)
+    }
+
     let cron: string | undefined
     let ms: number | undefined
+    let timeZone: string | undefined
     let storedSpec: string
     if (kind === 'cron') {
       assertCron(spec as string)
       cron = (spec as string).trim().split(/\s+/).join(' ')
-      storedSpec = cron
+      const zone = opts.timeZone ?? this.timeZone
+      timeZone = zone !== undefined && zone !== 'local' ? zone : undefined
+      // cronie-style: the zone is part of the stored spec, so adding or changing it makes
+      // register() recompute nextRunAt; a task without a zone keeps today's spec exactly.
+      storedSpec = timeZone ? `TZ=${timeZone} ${cron}` : cron
     } else {
       ms = parseDuration(spec)
       if (!(Number.isFinite(ms) && ms > 0)) {
@@ -175,6 +192,7 @@ export class DurableScheduler {
       kind,
       spec: storedSpec,
       cron,
+      timeZone,
       ms,
       missed,
       maxCatchUp,
@@ -195,6 +213,7 @@ export class DurableScheduler {
         get nextRun() { return entry.nextRunAt === null ? null : new Date(entry.nextRunAt) },
         isRecurring: kind !== 'once',
         durable: true,
+        ...(timeZone !== undefined ? { timeZone } : {}),
         cancel,
       },
     }
@@ -564,22 +583,27 @@ export class DurableScheduler {
 
   /* -------------------------------- slots -------------------------------- */
 
+  /** The cron slot strictly after `from`, in the entry's zone (every replica computes the same). */
+  private cronNext(entry: DurableEntry, from: number): number | null {
+    return cronNextRun(entry.cron as string, new Date(from), entry.timeZone)?.getTime() ?? null
+  }
+
   private initialNext(entry: DurableEntry, now: number): number | null {
-    if (entry.kind === 'cron') return cronNextRun(entry.cron as string, new Date(now))?.getTime() ?? null
+    if (entry.kind === 'cron') return this.cronNext(entry, now)
     return now + (entry.ms as number)
   }
 
   /** The slot right after `slot` (`null` for a one-shot task). */
   private slotAfter(entry: DurableEntry, slot: number): number | null {
     if (entry.kind === 'once') return null
-    if (entry.kind === 'cron') return cronNextRun(entry.cron as string, new Date(slot))?.getTime() ?? null
+    if (entry.kind === 'cron') return this.cronNext(entry, slot)
     return slot + (entry.ms as number)
   }
 
   /** The first slot after both `slot` and `now` (drift-free for intervals). */
   private nextAfter(entry: DurableEntry, slot: number, now: number): number | null {
     if (entry.kind === 'once') return null
-    if (entry.kind === 'cron') return cronNextRun(entry.cron as string, new Date(Math.max(slot, now)))?.getTime() ?? null
+    if (entry.kind === 'cron') return this.cronNext(entry, Math.max(slot, now))
     const ms = entry.ms as number
     const steps = now < slot ? 1 : Math.floor((now - slot) / ms) + 1
     return slot + steps * ms

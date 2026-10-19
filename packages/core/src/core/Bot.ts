@@ -44,6 +44,7 @@ import type {
   OutboundContent,
   Plugin,
   ScheduledTask,
+  CronTaskOptions,
   DurableTaskHandler,
   DurableTaskOptions,
   SendOptions,
@@ -876,8 +877,17 @@ export class Bot extends EventEmitter {
    * survives restarts with the `opts.missed` policy, and each occurrence runs on one replica.
    */
   schedule(cron: string, opts: DurableTaskOptions, fn: DurableTaskHandler): ScheduledTask
-  schedule(cron: string, a: (() => void | Promise<void>) | DurableTaskOptions, b?: DurableTaskHandler): ScheduledTask {
-    return typeof a === 'function' ? this.scheduler.cron(cron, a) : this.scheduler.cron(cron, a, b as DurableTaskHandler)
+  /**
+   * Cron task read in a time zone: `bot.schedule('0 9 * * 1-5', { timeZone: 'America/Bogota' }, fn)`
+   * (see {@link CronTaskOptions} for the daylight-saving rules). Add an `id` to make it durable.
+   */
+  schedule(cron: string, opts: CronTaskOptions, fn: () => void | Promise<void>): ScheduledTask
+  schedule(
+    cron: string,
+    a: (() => void | Promise<void>) | DurableTaskOptions | CronTaskOptions,
+    b?: DurableTaskHandler | (() => void | Promise<void>),
+  ): ScheduledTask {
+    return typeof a === 'function' ? this.scheduler.cron(cron, a) : this.scheduler.cron(cron, a as DurableTaskOptions, b as DurableTaskHandler)
   }
   /** Run `fn` every `interval` (a duration such as `'10m'`, or ms). */
   every(interval: string | number, fn: () => void | Promise<void>): ScheduledTask

@@ -8,11 +8,25 @@
  */
 
 import type { Logger } from 'pino'
-import type { DurableTaskHandler, DurableTaskOptions, ScheduledTask } from '../core/types.js'
+import type { CronTaskOptions, DurableTaskHandler, DurableTaskOptions, ScheduledTask } from '../core/types.js'
 import { DurableScheduler, type DurableSchedulerOptions } from './durable.js'
 import type { ScheduleKind, SchedulerOptions } from './ScheduleStore.js'
 import { parseDuration, randomId } from '../utils/timers.js'
 import { assertCron, cronNextRun } from './cron.js'
+import { assertTimeZone } from './cronZone.js'
+
+/** `opts` of `cron(expr, opts, fn)` selects a plain (in-memory) task with a time zone. */
+function isPlainCronOptions(opts: object): opts is CronTaskOptions {
+  const o = opts as Partial<DurableTaskOptions>
+  return o.id === undefined && 'timeZone' in o && o.missed === undefined && o.maxCatchUp === undefined && o.leaseMs === undefined
+}
+
+/** `every`/`delay` reject a time zone (it only applies to cron fields). */
+function rejectTimeZone(opts: unknown): void {
+  if (opts !== null && typeof opts === 'object' && (opts as { timeZone?: unknown }).timeZone !== undefined) {
+    throw new TypeError('timeZone only applies to cron tasks')
+  }
+}
 
 interface InternalTask extends ScheduledTask {
   handler: () => void | Promise<void>
@@ -28,9 +42,16 @@ export class Scheduler {
   private logger?: Logger
   private isRunning = false
   private readonly durable: DurableScheduler
+  /** Default zone of cron tasks (`SchedulerOptions.timeZone`). */
+  private readonly timeZone?: string
 
-  /** `opts` only affect durable tasks; `new Scheduler()` keeps the in-memory behaviour. */
+  /**
+   * `opts` only affect durable tasks, except `timeZone` (the default zone of every cron
+   * task); `new Scheduler()` keeps the in-memory behaviour.
+   */
   constructor(opts: SchedulerOptions = {}) {
+    if (opts.timeZone !== undefined) assertTimeZone(opts.timeZone, 'scheduler')
+    this.timeZone = opts.timeZone
     this.durable = new DurableScheduler(opts as DurableSchedulerOptions)
   }
 
@@ -64,8 +85,21 @@ export class Scheduler {
   cron(cronExpr: string, fn: () => void | Promise<void>): ScheduledTask
   /** Add a durable cron-style task (see {@link DurableTaskOptions}). */
   cron(cronExpr: string, opts: DurableTaskOptions, fn: DurableTaskHandler): ScheduledTask
-  cron(cronExpr: string, a: (() => void | Promise<void>) | DurableTaskOptions, b?: DurableTaskHandler): ScheduledTask {
-    if (typeof a !== 'function') return this.addDurable('cron', cronExpr, a, b as DurableTaskHandler)
+  /** Add a cron-style task read in a time zone (see {@link CronTaskOptions}). */
+  cron(cronExpr: string, opts: CronTaskOptions, fn: () => void | Promise<void>): ScheduledTask
+  cron(
+    cronExpr: string,
+    a: (() => void | Promise<void>) | DurableTaskOptions | CronTaskOptions,
+    b?: DurableTaskHandler | (() => void | Promise<void>),
+  ): ScheduledTask {
+    if (typeof a !== 'function') {
+      if (a !== null && typeof a === 'object' && isPlainCronOptions(a)) {
+        if (typeof b !== 'function') throw new TypeError('A cron task needs a handler function as its last argument')
+        if (a.timeZone !== undefined) assertTimeZone(a.timeZone, `cron task "${cronExpr}"`)
+        return this.add(cronExpr, undefined, undefined, b as () => void | Promise<void>, a.timeZone)
+      }
+      return this.addDurable('cron', cronExpr, a as DurableTaskOptions, b as DurableTaskHandler)
+    }
     return this.add(cronExpr, undefined, undefined, a)
   }
 
@@ -74,6 +108,7 @@ export class Scheduler {
   /** Add a durable interval task: slots are `previous slot + interval`, so they do not drift. */
   every(interval: string | number, opts: DurableTaskOptions, fn: DurableTaskHandler): ScheduledTask
   every(interval: string | number, a: (() => void | Promise<void>) | DurableTaskOptions, b?: DurableTaskHandler): ScheduledTask {
+    rejectTimeZone(a)
     if (typeof a !== 'function') return this.addDurable('interval', interval, a, b as DurableTaskHandler)
     return this.add(undefined, interval, undefined, a)
   }
@@ -88,6 +123,7 @@ export class Scheduler {
    */
   delay(duration: string | number, opts: DurableTaskOptions, fn: DurableTaskHandler): ScheduledTask
   delay(duration: string | number, a: (() => void | Promise<void>) | DurableTaskOptions, b?: DurableTaskHandler): ScheduledTask {
+    rejectTimeZone(a)
     if (typeof a !== 'function') return this.addDurable('once', duration, a, b as DurableTaskHandler)
     return this.add(undefined, undefined, duration, a)
   }
@@ -115,16 +151,20 @@ export class Scheduler {
     cronExpr: string | undefined,
     interval: string | number | undefined,
     once: string | number | undefined,
-    handler: () => void | Promise<void>
+    handler: () => void | Promise<void>,
+    taskZone?: string,
   ): ScheduledTask {
     if (cronExpr !== undefined) assertCron(cronExpr)
+    // The task's zone, else the scheduler's default; 'local' is the process zone.
+    const zone = cronExpr !== undefined ? (taskZone ?? this.timeZone) : undefined
+    const timeZone = zone !== undefined && zone !== 'local' ? zone : undefined
     const id = randomId('task')
     const runAt = once !== undefined
       ? new Date(Date.now() + parseDuration(once))
       : undefined
 
     const computeNextRun = (): Date | null => {
-      if (cronExpr) return cronNextRun(cronExpr)
+      if (cronExpr) return cronNextRun(cronExpr, new Date(), timeZone)
       if (interval !== undefined) {
         return new Date(Date.now() + parseDuration(interval))
       }
@@ -138,6 +178,7 @@ export class Scheduler {
       interval: interval !== undefined ? String(interval) : undefined,
       runAt,
       isRecurring: cronExpr !== undefined || interval !== undefined,
+      ...(timeZone !== undefined ? { timeZone } : {}),
       handler,
       generation: 0,
       nextRunDate: computeNextRun(),
