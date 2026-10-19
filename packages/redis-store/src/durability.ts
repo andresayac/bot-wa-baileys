@@ -21,16 +21,21 @@
  * ```
  */
 
-import { createClient } from 'redis'
 import { KvDurability, type DurableKv, type DurableKvEntry, type DurableKvIndex, type DurableTable } from '@bot-wa/core'
-import type { NativeRedisClient, RedisLikeClient } from './RedisStore.js'
+import type { RedisLikeClient } from './RedisStore.js'
 import { DURABLE_WRITE_SCRIPT } from './durabilityScripts.js'
+import { asRedisLike, createOwnRedisClient, type AnyRedisClient, type RedisClusterConnectOptions } from './client.js'
 
 export interface RedisDurabilityOptions {
-  /** An existing client (e.g. the one given to `RedisStore`). The backend never closes it. */
-  client?: RedisLikeClient | NativeRedisClient
+  /** An existing client or cluster client (e.g. the one given to `RedisStore`). The backend never closes it. */
+  client?: AnyRedisClient
   /** Used to create (and own) a client when `client` is not given. Default `redis://localhost:6379`. */
   url?: string
+  /**
+   * Create (and own) a Redis Cluster client instead (not combinable with `url`/`client`).
+   * The journal's keys already share one hash tag per table, so nothing else changes.
+   */
+  cluster?: RedisClusterConnectOptions
   /** Key prefix. Default `'botwa'` (same default as `RedisStore`; the keys never collide). */
   prefix?: string
 }
@@ -50,8 +55,10 @@ export class RedisDurableKv implements DurableKv {
 
   constructor(opts: RedisDurabilityOptions = {}) {
     this.prefix = opts.prefix ?? 'botwa'
+    if (opts.cluster && (opts.url !== undefined || opts.client)) throw new RangeError('RedisDurability: pass either cluster, url or client')
     this.owned = !opts.client
-    this.client = (opts.client ?? createClient({ url: opts.url ?? 'redis://localhost:6379' })) as RedisLikeClient
+    // A cluster client is adapted (EVAL routed by its first key); any other client is used as is.
+    this.client = asRedisLike((opts.client ?? createOwnRedisClient({ url: opts.url, cluster: opts.cluster })) as AnyRedisClient)
   }
 
   private base(tbl: DurableTable): string { return `${this.prefix}:{durable:${tbl}}` }

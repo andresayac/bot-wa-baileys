@@ -8,10 +8,15 @@
  *
  * Unlike {@link RedisStore.acquireLock}, every grant carries a monotonic token, so a
  * protected resource can reject a stale holder.
+ *
+ * Every operation touches one key, so the same key names work on Redis Cluster; the
+ * `layout` option only validates the prefix for the cluster layout.
  */
 import type { LeaseGrant, LeaseProvider } from '@bot-wa/core'
-import type { NativeRedisClient, RedisLikeClient } from './RedisStore.js'
+import type { RedisLikeClient } from './RedisStore.js'
 import { casJson } from './cas.js'
+import { asRedisLike, resolveLayout, type AnyRedisClient } from './client.js'
+import { assertLayoutPrefix, type RedisKeyLayout } from './layout.js'
 
 interface LeaseRecord {
   owner?: string
@@ -21,9 +26,11 @@ interface LeaseRecord {
 
 export interface RedisLeaseProviderOptions {
   /** A connected node-redis client or any {@link RedisLikeClient}; the caller owns its lifecycle. */
-  client: RedisLikeClient | NativeRedisClient
+  client: AnyRedisClient
   /** Key prefix (default `'botwa'`): leases live at `{prefix}:lease:{key}`. */
   prefix?: string
+  /** Key layout (same key names in both; `'cluster'` rejects a prefix with hash-tag braces). Default as `RedisStoreOptions.layout`. */
+  layout?: RedisKeyLayout
   /** Clock (epoch ms). Default `Date.now`. */
   now?: () => number
 }
@@ -40,7 +47,9 @@ export class RedisLeaseProvider implements LeaseProvider {
   private readonly now: () => number
 
   constructor(opts: RedisLeaseProviderOptions) {
-    this.client = opts.client as RedisLikeClient
+    this.client = asRedisLike(opts.client)
+    const layout = resolveLayout('RedisLeaseProvider', { layout: opts.layout, client: opts.client })
+    assertLayoutPrefix(opts.prefix ?? 'botwa', layout, 'RedisLeaseProvider')
     this.ns = `${opts.prefix ?? 'botwa'}:lease:`
     this.now = opts.now ?? Date.now
   }
