@@ -80,7 +80,8 @@ afterEach(async () => {
 })
 
 async function startBakery() {
-  const provider = new MockProvider()
+  // Both channels of the example (Baileys, Twilio sandbox) have no native buttons.
+  const provider = new MockProvider({ buttons: false })
   const model = scriptedModel()
   const orders = new InMemoryOrderStore()
   bot = createBakeryBot(provider, { aiProvider: model, orders, allowedUsers: [ALICE], ai: { memory: false } })

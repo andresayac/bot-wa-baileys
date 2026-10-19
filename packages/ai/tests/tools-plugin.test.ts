@@ -23,7 +23,8 @@ function scripted(tool: string, args: unknown, trigger = 'borra') {
 }
 
 async function botWithTools(tools: AIToolSet, mock: MockAIProvider, cfg: Partial<AIPluginConfig> = {}) {
-  const { bot, chat } = await createTestBot()
+  // A channel without native buttons: the typed yes/no question (buttons: tools-confirm-buttons.test.ts).
+  const { bot, chat } = await createTestBot({}, { provider: { buttons: false } })
   bot.plug(aiPlugin({ __provider: mock, tools, ...cfg }))
   return { bot, chat }
 }

@@ -115,6 +115,14 @@ export interface AIConfig {
     /** How long to wait for the answer. Default '2m'. */
     timeout?: number | string
     /**
+     * Ask with native Yes/No buttons (localized `ai.tools.button.yes` / `.no`) when the
+     * chat's provider renders them (`capabilities.buttons`: Telegram, WhatsApp Cloud API,
+     * Discord, Messenger, Instagram…); elsewhere the question asks for a typed yes/no.
+     * A press resolves the confirmation like typing the answer, which keeps working.
+     * `false` always asks for a typed answer. Default `true`.
+     */
+    buttons?: boolean
+    /**
      * System prompt note telling the model which tools the system confirms
      * itself (so it does not ask "shall I?" before calling them) and which
      * side-effecting tools already ran in the chat. Localized. `false` turns it

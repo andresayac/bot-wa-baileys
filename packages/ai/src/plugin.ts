@@ -36,7 +36,7 @@ import { chatKeyOf } from './chatKey.js'
 import { createMemory } from './memory/createMemory.js'
 import { toRagConfig } from './rag.js'
 import { AIToolCancelledError, type AIToolEvent } from './tools/types.js'
-import { suspendingConfirmer } from './tools/autoreplyConfirm.js'
+import { isConfirmButtonId, suspendingConfirmer } from './tools/autoreplyConfirm.js'
 import { formatMarkdown, formatMarkdownStream, type TextFormat } from './format.js'
 
 /** Public config for {@link aiPlugin}. */
@@ -148,6 +148,7 @@ export function aiPlugin(config: AIPluginConfig = {}): PluginSpec<AIPluginConfig
                 no: cfg.toolConfirm?.no,
                 timeout: cfg.toolConfirm?.timeout ?? DEFAULT_CONFIRM_TIMEOUT,
                 canAsk: () => generation.get(key) === gen,
+                ...(cfg.toolConfirm?.buttons !== undefined ? { buttons: cfg.toolConfirm.buttons } : {}),
               })
             : undefined
           // Lets `/reset` cancel the turn even after its confirmation was answered.
@@ -193,6 +194,16 @@ export function aiPlugin(config: AIPluginConfig = {}): PluginSpec<AIPluginConfig
           }
           inflight.set(key, entry)
           await Promise.race([entry.done, confirmer.suspended])
+        })
+      }
+
+      if (cfg.autoReply !== false && client.hasTools) {
+        // A press on a confirmation that is no longer pending (answered, superseded, timed
+        // out, /reset) reaches no conversation: acknowledge it (stops the Telegram spinner,
+        // meets Discord's deadline) and drop it. A pending one is taken by its conversation first.
+        bot.when((m) => (m as { type?: string }).type === 'buttons' && isConfirmButtonId(m.body), async (mctx) => {
+          ctx.logger.debug('ai confirmation button pressed after it was answered (ignored)')
+          try { await mctx.acknowledge?.() } catch { /* best effort */ }
         })
       }
 

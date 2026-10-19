@@ -180,8 +180,13 @@ export interface ToolConfirmRequest {
   description: string
   /** Human label of the tool (`title`, or its humanized name). */
   title: string
-  /** Rendered prompt to show the user. */
+  /** Rendered prompt to show the user (asks for a typed yes/no). */
   prompt: string
+  /**
+   * The same prompt for a confirmation answered with Yes/No buttons (without the
+   * typed-answer hint). Set by the tool loop; a confirmer that shows buttons uses it.
+   */
+  buttonsPrompt?: string
   /** Last successful run of the same tool in this chat, when there is one (it is mentioned in `prompt`). */
   previous?: AIToolExecution
 }

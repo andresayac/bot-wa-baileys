@@ -35,6 +35,15 @@ describe('ai i18n — built-in defaults', () => {
     expect(aiText(undefined, AI_MESSAGES.maxSteps)).toBe('No pude completar la solicitud. Intenta de nuevo con más detalle.')
   })
 
+  it('the buttons variant of the prompt drops the typed-answer hint; button labels are localized', () => {
+    const tool = { description: 'x', title: 'Borrar pedido', handler: () => 'x' }
+    expect(defaultConfirmPrompt('b', tool, {}, undefined, undefined, Date.now(), { buttons: true })).toBe('Voy a: Borrar pedido\n¿Confirmas?')
+    expect(defaultConfirmPrompt('b', tool, {}, { lang: 'en' }, undefined, Date.now(), { buttons: true })).toBe('About to: Borrar pedido\nDo you confirm?')
+    expect(defaultConfirmPrompt('b', { ...tool, confirmMessage: 'custom' }, {}, undefined, undefined, Date.now(), { buttons: true })).toBe('custom')
+    expect([aiText(undefined, AI_MESSAGES.buttonYes), aiText(undefined, AI_MESSAGES.buttonNo)]).toEqual(['Sí', 'No'])
+    expect([aiText({ lang: 'en' }, AI_MESSAGES.buttonYes), aiText({ lang: 'en' }, AI_MESSAGES.buttonNo)]).toEqual(['Yes', 'No'])
+  })
+
   it('ships es and en catalogs under the ai. namespace', () => {
     expect(Object.keys(AI_LOCALES).sort()).toEqual(['en', 'es'])
     expect(aiText({ lang: 'en-US' }, AI_MESSAGES.sources, { sources: 'a.md' })).toBe('Sources: a.md')
@@ -50,7 +59,7 @@ describe('ai i18n — built-in defaults', () => {
 
 describe('ai i18n — follows ctx.lang through the plugin', () => {
   it('asks the tool confirmation in English when the chat language is en', async () => {
-    const { bot, chat } = await createTestBot({ i18n: { defaultLocale: 'en' } })
+    const { bot, chat } = await createTestBot({ i18n: { defaultLocale: 'en' } }, { provider: { buttons: false } })
     bot.plug(aiPlugin({ __provider: scripted('borrar', 'delete'), tools: confirmTool }))
     await chat.send('delete it')
     await chat.expectReply('About to: Delete order\nDo you confirm? (yes/no)')

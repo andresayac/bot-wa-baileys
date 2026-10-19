@@ -1,0 +1,5 @@
+---
+"@bot-wa/ai": minor
+---
+
+Tool confirmations use native Yes/No buttons on channels that render them (`capabilities.buttons`: Telegram inline keyboards, WhatsApp Cloud API reply buttons, Discord, Messenger, Instagram). The button text is the summary without the "(yes/no)" hint (new `ai.tools.confirmButtons` key; a `bot.locale()` override of `ai.tools.confirm` is reused when it is the only one translated) and the labels are localized (`ai.tools.button.yes` / `ai.tools.button.no`: "Sí"/"No", "Yes"/"No"). A press resolves the confirmation exactly like typing yes/no (typed answers keep working), the interaction is acknowledged, and the buttons are removed by editing the message where the provider can edit. A press on a stale confirmation (answered, superseded, timed out, `/reset`) is acknowledged and ignored. Channels without buttons (Baileys, Twilio, SMS…) keep the typed question. New `toolConfirm.buttons` option (`false` always asks for a typed answer), `ToolConfirmRequest.buttonsPrompt` and an optional `{ buttons }` argument of `defaultConfirmPrompt()`.

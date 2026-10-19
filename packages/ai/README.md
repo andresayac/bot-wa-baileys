@@ -256,7 +256,7 @@ configurado en vez de tumbar el bot.
 | `maxSteps` | `number` | `5` | máximo de llamadas al modelo por turno en el bucle de tools |
 | `toolTimeoutMs` | `number` | `15000` | timeout por defecto de cada tool (`0` lo desactiva) |
 | `maxStepsMessage` | `string` | mensaje localizado `ai.tools.maxSteps` (es: `'No pude completar la solicitud…'`) | respuesta si se agota `maxSteps` |
-| `toolConfirm` | `{ yes?: string[]; no?: string[]; timeout?: number \| string; systemNote?: boolean \| string }` | `{ timeout: '2m' }` | diálogo de confirmación de las tools `confirm: true` |
+| `toolConfirm` | `{ yes?: string[]; no?: string[]; timeout?: number \| string; buttons?: boolean; systemNote?: boolean \| string }` | `{ timeout: '2m', buttons: true }` | diálogo de confirmación de las tools `confirm: true` (botones Sí/No donde el canal los muestra) |
 | `onToolEvent` | `(e: AIToolEvent) => void` | — | auditoría: recibe cada evento del bucle (también se emite como `bot.on('ai.tool')`) |
 | `memory` | `boolean \| AIMemoryConfig` | — | memoria a largo plazo por usuario (ver [Memoria](#memoria-a-largo-plazo-por-usuario)) |
 | `rag` | `AIRetriever \| AIRagConfig` | — | RAG: pasajes de tus documentos con citas (ver [RAG](#rag-respuestas-con-tus-documentos)) |
@@ -330,6 +330,16 @@ bot.plug(aiPlugin({
   (`classifyConfirmation()`, `toolConfirm.yes` / `toolConfirm.no`). El prompt de
   sistema le avisa al modelo qué tools confirma el sistema, para que no
   pregunte él antes (`toolConfirm.systemNote`, `false` lo apaga).
+
+  **Botones Sí/No**: en los canales con botones nativos (`capabilities.buttons`:
+  Telegram, WhatsApp Cloud API, Discord, Messenger, Instagram…) la pregunta sale
+  como mensaje de botones con etiquetas localizadas (`ai.tools.button.yes` /
+  `.no`) y el resumen sin la coletilla `(sí/no)` (`ai.tools.confirmButtons`).
+  Pulsar equivale a escribir sí/no (escribir sigue funcionando), la interacción
+  se reconoce y, si el provider edita (Telegram), se quitan los botones. Una
+  pulsación sobre una confirmación ya respondida, sustituida o caducada se
+  ignora. En canales sin botones (Baileys, Twilio, SMS…) se pregunta por texto;
+  `toolConfirm.buttons: false` lo fuerza siempre.
 
   **Valores legibles y totales**: `labels` traduce valores de argumentos por
   clave (`labels: { producto: { pan_de_bono: 'Pan de bono' } }` → `• 2 × Pan de bono`,

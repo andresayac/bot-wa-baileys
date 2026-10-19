@@ -18,6 +18,14 @@ import type { LocaleMessages, TranslateParams } from '@bot-wa/core'
 export const AI_MESSAGES = {
   /** Confirmation prompt of a `confirm: true` tool (`{tool}`: its title, `{args}`: a newline + one `• ` line per argument, or empty). */
   toolConfirm: 'ai.tools.confirm',
+  /**
+   * Same prompt when the answer is collected with Yes/No buttons (no typed-answer hint).
+   * Without a `bot.locale()` translation of it, a `bot.locale()` override of `ai.tools.confirm` is used.
+   */
+  toolConfirmButtons: 'ai.tools.confirmButtons',
+  /** Labels of the Yes/No confirmation buttons. */
+  buttonYes: 'ai.tools.button.yes',
+  buttonNo: 'ai.tools.button.no',
   /** Line put before the prompt when the tool already ran in this chat (`{tool}`, `{ago}`, `{result}`). */
   toolConfirmRepeat: 'ai.tools.confirmRepeat',
   /** `{ago}` under a minute. */
@@ -47,6 +55,8 @@ export const AI_LOCALES: Readonly<Record<'es' | 'en', LocaleMessages>> = {
     ai: {
       tools: {
         confirm: 'Voy a: {tool}{args}\n¿Confirmas? (sí/no)',
+        confirmButtons: 'Voy a: {tool}{args}\n¿Confirmas?',
+        button: { yes: 'Sí', no: 'No' },
         confirmRepeat: 'Ojo: ya hice «{tool}» {ago} (resultado: {result}). Si confirmas, se hará otra vez.',
         ago: { now: 'hace un momento', minutes: 'hace {n} min' },
         value: { yes: 'sí', no: 'no' },
@@ -70,6 +80,8 @@ export const AI_LOCALES: Readonly<Record<'es' | 'en', LocaleMessages>> = {
     ai: {
       tools: {
         confirm: 'About to: {tool}{args}\nDo you confirm? (yes/no)',
+        confirmButtons: 'About to: {tool}{args}\nDo you confirm?',
+        button: { yes: 'Yes', no: 'No' },
         confirmRepeat: 'Heads-up: I already did «{tool}» {ago} (result: {result}). Confirming will do it again.',
         ago: { now: 'a moment ago', minutes: '{n} min ago' },
         value: { yes: 'yes', no: 'no' },
@@ -120,12 +132,16 @@ function interpolate(text: string, params?: TranslateParams): string {
  * key, else the built-in text in `ctx.lang` (`en` or, for anything else, `es`).
  */
 export function aiText(ctx: AITranslatable | undefined, key: AIMessageKey, params?: TranslateParams): string {
-  if (ctx && typeof ctx.t === 'function') {
-    try {
-      const out = ctx.t(key, params)
-      // The core returns the key itself when no locale has it.
-      if (typeof out === 'string' && out !== key) return out
-    } catch { /* fall back to the built-in text */ }
-  }
-  return interpolate(builtin(ctx?.lang, key) ?? key, params)
+  return aiOverride(ctx, key, params) ?? interpolate(builtin(ctx?.lang, key) ?? key, params)
+}
+
+/** The bot catalog's translation of `key` (`ctx.t`), or `undefined` when the bot does not translate it. */
+export function aiOverride(ctx: AITranslatable | undefined, key: AIMessageKey, params?: TranslateParams): string | undefined {
+  if (!ctx || typeof ctx.t !== 'function') return undefined
+  try {
+    const out = ctx.t(key, params)
+    // The core returns the key itself when no locale has it.
+    if (typeof out === 'string' && out !== key) return out
+  } catch { /* fall back to the built-in text */ }
+  return undefined
 }

@@ -121,7 +121,7 @@ ejecuta cada handler con su timeout y le devuelve los resultados.
 | `maxSteps` | `5` | Máximo de llamadas al modelo por turno. |
 | `toolTimeoutMs` | `15000` | Timeout por defecto de cada herramienta (`0` lo desactiva). |
 | `maxStepsMessage` | mensaje localizado `ai.tools.maxSteps` (es: `'No pude completar la solicitud. Intenta de nuevo con más detalle.'`) | Respuesta cuando el bucle llega a `maxSteps`. |
-| `toolConfirm` | `{ timeout: '2m' }` | `{ yes?, no?, timeout?, systemNote? }` para las herramientas `confirm: true` del autoresponder. |
+| `toolConfirm` | `{ timeout: '2m', buttons: true }` | `{ yes?, no?, timeout?, buttons?, systemNote? }` para las herramientas `confirm: true` del autoresponder. |
 | `onToolEvent` | — | Callback de auditoría para cada evento del bucle. |
 
 ::: tip Herramientas y streaming
@@ -177,6 +177,33 @@ las cortesías alrededor del sí/no. Las palabras de "sí" por defecto
   termine un turno desacoplado. Una confirmación nunca reemplaza una
   conversación que el usuario haya abierto entretanto; el turno se cancela y no
   responde encima de ese flujo.
+
+### Botones Sí/No
+
+En los canales que muestran botones nativos (`capabilities.buttons`: teclados
+inline de Telegram, botones de respuesta de WhatsApp Cloud API, Discord, quick
+replies de Messenger e Instagram…) la pregunta sale como **mensaje de botones**
+con etiquetas localizadas (`Sí` / `No`, `Yes` / `No` en inglés; claves
+`ai.tools.button.yes` / `ai.tools.button.no`) y el mismo resumen, sin la
+coletilla de respuesta escrita (`ai.tools.confirmButtons`:
+`Voy a: {tool}{args}\n¿Confirmas?`).
+
+- Pulsar un botón resuelve la confirmación igual que escribir sí o no, y la
+  interacción se reconoce (`answerCallbackQuery` en Telegram, el ack de 3
+  segundos de Discord). Las respuestas escritas siguen funcionando junto a los
+  botones, también una respuesta con cambios, que vuelve al modelo.
+- Ya respondida (o caducada / cancelada), los botones se quitan editando el
+  mensaje a texto con la elección (`→ Sí`) donde el provider puede editar
+  (Telegram); en los demás se quedan, pero una segunda pulsación no hace nada.
+- Una pulsación sobre una confirmación que ya no está pendiente (respondida,
+  sustituida por otra más nueva, caducada, `/reset`) se reconoce y se ignora:
+  cada confirmación tiene sus propios ids de botón.
+- Los canales sin botones nativos (WhatsApp vía Baileys, Twilio, SMS, email…)
+  mantienen la pregunta escrita con la coletilla `(sí/no)`.
+- `toolConfirm.buttons: false` pide siempre la respuesta escrita. El
+  `confirmMessage` de una herramienta se usa tal cual en los dos modos. Un
+  `bot.locale()` que cambia `ai.tools.confirm` se reutiliza para los botones si
+  no traduces también `ai.tools.confirmButtons`.
 
 El texto por defecto nunca muestra la descripción de la herramienta (escrita
 para el modelo) ni JSON crudo. Es el mensaje localizado `ai.tools.confirm` con
@@ -239,7 +266,7 @@ Si armas tu propio texto, `argLines(args, ctx, labels)` y
 `summarizeValue(valor, ctx, depth, labels)` están exportadas.
 
 **Dentro de tu propia conversación** pasa `confirmWith(c)`: pregunta con
-`c.ask()`, que tampoco bloquea la cola.
+`c.ask()` (sí/no escrito, sin botones), que tampoco bloquea la cola.
 
 ```ts
 import { chatKeyOf, confirmWith } from '@bot-wa/ai'

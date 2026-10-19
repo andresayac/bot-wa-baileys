@@ -1,5 +1,5 @@
 import type { MessageContext } from '@bot-wa/core'
-import { AI_MESSAGES, aiText, type AITranslatable } from '../i18n.js'
+import { AI_MESSAGES, aiOverride, aiText, type AITranslatable } from '../i18n.js'
 import type { AIChatMessage, GenerateInput, GenerateResult } from '../types.js'
 import { toolDefinitions, validateArgs } from './schema.js'
 import { DEFAULT_DEDUPE_WINDOW_MS, type ChatToolLedger } from './ledger.js'
@@ -75,6 +75,11 @@ function errorMessage(err: unknown): string {
  * with the tool's `title` (or humanized name) and its `confirmLines(args)`, else the
  * arguments as short `• ` lines (values shown with the tool's `labels`) — never the model-facing description nor raw JSON. With `previous` (the tool already
  * ran in this chat) a localized `ai.tools.confirmRepeat` line goes first.
+ *
+ * With `opts.buttons` (the answer is collected with Yes/No buttons) the default
+ * message is `ai.tools.confirmButtons` (no "(yes/no)" hint) — or the bot's own
+ * `ai.tools.confirm` override when it translates only that one. `confirmMessage`
+ * is used as is in both cases.
  */
 export function defaultConfirmPrompt(
   name: string,
@@ -83,6 +88,7 @@ export function defaultConfirmPrompt(
   ctx?: AITranslatable,
   previous?: AIToolExecution,
   now: number = Date.now(),
+  opts: { buttons?: boolean } = {},
 ): string {
   const title = toolTitle(name, tool)
   let prompt: string
@@ -90,7 +96,12 @@ export function defaultConfirmPrompt(
   else if (typeof tool.confirmMessage === 'function') prompt = tool.confirmMessage(args)
   else {
     const lines = tool.confirmLines ? tool.confirmLines(args) : argLines(args, ctx, tool.labels)
-    prompt = aiText(ctx, AI_MESSAGES.toolConfirm, { tool: title, args: lines.length ? `\n${lines.join('\n')}` : '' })
+    const params = { tool: title, args: lines.length ? `\n${lines.join('\n')}` : '' }
+    prompt = opts.buttons
+      ? aiOverride(ctx, AI_MESSAGES.toolConfirmButtons, params)
+        ?? aiOverride(ctx, AI_MESSAGES.toolConfirm, params)
+        ?? aiText(ctx, AI_MESSAGES.toolConfirmButtons, params)
+      : aiText(ctx, AI_MESSAGES.toolConfirm, params)
   }
   if (!previous) return prompt
   const repeat = aiText(ctx, AI_MESSAGES.toolConfirmRepeat, {
@@ -184,12 +195,14 @@ export async function runToolLoop(opts: ToolLoopOptions): Promise<ToolLoopResult
 
     if (tool.confirm) {
       const previous = ledger?.last(call.name)
-      const prompt = defaultConfirmPrompt(call.name, tool, v.data, opts.ctx, previous)
+      const now = Date.now()
+      const prompt = defaultConfirmPrompt(call.name, tool, v.data, opts.ctx, previous, now)
+      const buttonsPrompt = defaultConfirmPrompt(call.name, tool, v.data, opts.ctx, previous, now, { buttons: true })
       emit({ ...base, type: 'tool.confirm.requested', args: v.data })
       const answer: ToolConfirmation = opts.confirm
         ? await opts.confirm({
             tool: call.name, callId: call.id, args: v.data, description: tool.description,
-            title: toolTitle(call.name, tool), prompt, ...(previous ? { previous } : {}),
+            title: toolTitle(call.name, tool), prompt, buttonsPrompt, ...(previous ? { previous } : {}),
           })
         : 'denied'
       if (answer === 'cancelled') {

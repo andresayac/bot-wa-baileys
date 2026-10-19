@@ -79,6 +79,9 @@ importers:
       '@anthropic-ai/sdk':
         specifier: ^0.68.0
         version: 0.68.0
+      '@bot-wa/telegram':
+        specifier: workspace:*
+        version: link:../telegram-provider
       '@types/node':
         specifier: ^26.1.1
         version: 26.1.1

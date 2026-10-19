@@ -117,7 +117,7 @@ handler under its timeout and send the results back.
 | `maxSteps` | `5` | Max model calls per turn. |
 | `toolTimeoutMs` | `15000` | Default per-tool timeout (`0` disables). |
 | `maxStepsMessage` | localized `ai.tools.maxSteps` (es: `'No pude completar la solicitud. Intenta de nuevo con más detalle.'`) | Reply when the loop hits `maxSteps`. |
-| `toolConfirm` | `{ timeout: '2m' }` | `{ yes?, no?, timeout?, systemNote? }` for `confirm: true` tools in the autoreply. |
+| `toolConfirm` | `{ timeout: '2m', buttons: true }` | `{ yes?, no?, timeout?, buttons?, systemNote? }` for `confirm: true` tools in the autoreply. |
 | `onToolEvent` | — | Audit callback for every loop event. |
 
 ::: tip Tools and streaming
@@ -169,6 +169,32 @@ words around a yes/no are ignored. The default "yes" words (`DEFAULT_YES`) are
   turn to finish. A confirmation never replaces a conversation the user
   started meanwhile; the turn is cancelled instead and does not reply on top of
   that flow.
+
+### Yes/No buttons
+
+On channels that render native buttons (`capabilities.buttons`: Telegram
+inline keyboards, WhatsApp Cloud API reply buttons, Discord, Messenger and
+Instagram quick replies…) the question goes out as a **buttons message** with
+localized labels (`Sí` / `No`, `Yes` / `No` in English; keys
+`ai.tools.button.yes` / `ai.tools.button.no`) and the same summary, without the
+typed-answer hint (`ai.tools.confirmButtons`: `Voy a: {tool}{args}\n¿Confirmas?`).
+
+- A press resolves the confirmation exactly like typing yes or no, and the
+  interaction is acknowledged (Telegram `answerCallbackQuery`, Discord's
+  3-second ack). Typed answers keep working alongside the buttons, including a
+  reply with changes that goes back to the model.
+- Once answered (or timed out / cancelled), the buttons are removed by editing
+  the message into text with the choice (`→ Sí`) where the provider can edit
+  (Telegram); elsewhere they stay, but a second press does nothing.
+- A press on a confirmation that is no longer pending (answered, superseded by
+  a newer one, timed out, `/reset`) is acknowledged and ignored: each
+  confirmation has its own button ids.
+- Channels without native buttons (WhatsApp via Baileys, Twilio, SMS, email…)
+  keep the typed question with the `(sí/no)` hint.
+- `toolConfirm.buttons: false` always asks for a typed answer. A tool's
+  `confirmMessage` is used as is in both modes. A `bot.locale()` override of
+  `ai.tools.confirm` is reused for buttons when you don't translate
+  `ai.tools.confirmButtons` too.
 
 The default prompt never shows the tool description (written for the model)
 nor raw JSON. It is the localized `ai.tools.confirm` message with the tool
@@ -228,8 +254,8 @@ Total: $9000
 `argLines(args, ctx, labels)` and `summarizeValue(value, ctx, depth, labels)`
 are exported if you build your own prompt.
 
-**Inside your own conversation** pass `confirmWith(c)`: it asks with `c.ask()`,
-which never blocks the queue either.
+**Inside your own conversation** pass `confirmWith(c)`: it asks with `c.ask()`
+(a typed yes/no, no buttons), which never blocks the queue either.
 
 ```ts
 import { chatKeyOf, confirmWith } from '@bot-wa/ai'

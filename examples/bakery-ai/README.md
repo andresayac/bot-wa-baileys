@@ -245,6 +245,11 @@ Customer: who won the world cup?
 Bot:      Sorry, I can only help with Demo Bakery: our menu, prices and orders.
 ```
 
+Both channels of this example (Baileys and the Twilio sandbox) have no native
+buttons, so the customer types the answer. Run the same bot on a channel with
+buttons (Telegram, WhatsApp Cloud API) and the confirmation comes with **Yes** /
+**No** buttons instead of the "(yes/no)" hint; typing still works.
+
 ## Tests
 
 ```bash
@@ -282,7 +287,7 @@ The example is in English. To serve customers in another language:
    answers in. Translate `GREETING`, `errorMessage`, `refusalMessage` and the
    tool `title`s, which the customer sees in confirmations.
 2. **Built-in texts** (the confirmation wrapper "About to: ... Do you confirm?
-   (yes/no)", slash-command replies) come from the i18n catalog. Set
+   (yes/no)", the Yes/No button labels, slash-command replies) come from the i18n catalog. Set
    `i18n: { defaultLocale: 'es' }` for the bundled Spanish texts, or register
    your own language with `bot.locale('fr', { ai: { tools: { confirm: '...' } }, core: { ... } })`.
    Accepted answers to a confirmation can be extended with

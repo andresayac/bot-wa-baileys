@@ -78,7 +78,8 @@ function orderTool(ran: unknown[], extra: Partial<AITool<unknown>> = {}): AITool
 }
 
 async function bakeryBot(tools: AIToolSet, mock = bakeryModel(), cfg: Partial<AIPluginConfig> = {}) {
-  const { bot, chat } = await createTestBot()
+  // A channel without native buttons (WhatsApp via Baileys): the typed yes/no question.
+  const { bot, chat } = await createTestBot({}, { provider: { buttons: false } })
   bot.plug(aiPlugin({ __provider: mock, tools, ...cfg }))
   return { bot, chat, mock }
 }
