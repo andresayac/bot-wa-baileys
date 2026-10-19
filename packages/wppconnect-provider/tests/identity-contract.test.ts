@@ -8,7 +8,7 @@ import pino from 'pino'
 import { assertStableIdentity, checkIdentityContract, recordEvents } from '@bot-wa/core/testing'
 import { WPPConnectProvider } from '../src/WPPConnectProvider.js'
 import { parseWebhook } from '../src/parseInbound.js'
-import { WaIdentityStore } from '../src/identity.js'
+import { WaIdentityStore } from '@bot-wa/wa-gateway-kit'
 import { fakeFetch, fixture, resolver } from './support/fake.js'
 
 const PN = '573001112233@c.us'

@@ -9,8 +9,7 @@
  */
 
 import { UnsupportedContentError, type MessageRef, type OutboundContent } from '@bot-wa/core'
-import { resolveMedia } from './media.js'
-import { isRecord } from './rest.js'
+import { isRecord, resolveMedia } from '@bot-wa/wa-gateway-kit'
 import type { EvolutionMessageKey } from './types.js'
 
 export interface EvolutionOutbound {

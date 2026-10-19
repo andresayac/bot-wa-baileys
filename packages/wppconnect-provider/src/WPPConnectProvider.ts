@@ -47,9 +47,18 @@ import {
   RecipientUnreachableError,
   UnsupportedContentError,
 } from '@bot-wa/core'
-import { WaIdentityStore, isGroupJid, isLidJid, normalizeJid } from './identity.js'
+import {
+  WaIdentityStore,
+  describeErrorBody,
+  isGroupJid,
+  isLidJid,
+  isRecord,
+  normalizeJid,
+  resolveHttpPolicy,
+  restCall,
+  type RestHttpOptions,
+} from '@bot-wa/wa-gateway-kit'
 import { jidOf, lidsIn, parseWebhook, serializedId } from './parseInbound.js'
-import { describeErrorBody, isRecord, resolveHttpPolicy, restCall, type RestHttpOptions } from './rest.js'
 import { target, toOutbound } from './toOutbound.js'
 import type { WPPConnectProviderConfig, WppMediaToken } from './types.js'
 import { bearerToken, headerValue, safeEqual, type HeaderBag } from './webhookAuth.js'

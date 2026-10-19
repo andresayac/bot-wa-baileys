@@ -17,8 +17,7 @@ import type {
   QuotedRef,
   SenderInfo,
 } from '@bot-wa/core'
-import { isGroupJid, isLidJid, normalizeJid, type WaIdentityStore } from './identity.js'
-import { isRecord } from './rest.js'
+import { isGroupJid, isLidJid, isRecord, normalizeJid, type WaIdentityStore } from '@bot-wa/wa-gateway-kit'
 import type { EvolutionContextInfo, EvolutionMediaToken, EvolutionMessage, EvolutionMessageKey, EvolutionWebhook } from './types.js'
 
 export interface ParseContext {
