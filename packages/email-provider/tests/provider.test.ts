@@ -403,6 +403,69 @@ describe('EmailProvider lifecycle', () => {
     expect(t.messages().map((m) => m.ref.id)).toEqual(['a@example.com', 'b@example.com', 'c@example.com'])
   })
 
+  it('saves the cursor when stop() lands mid-backlog, so start() does not replay (markSeen: false)', async () => {
+    const t = setup({ markSeen: false })
+    current = t.provider
+    t.server.add(ana('a@example.com'))
+    t.server.add(ana('b@example.com'))
+    t.server.add(ana('c@example.com'))
+    let stopping: Promise<void> | undefined
+    t.provider.onEvent((e) => { if (e.kind === 'message' && !stopping) stopping = t.provider.stop() })
+    await t.provider.start()
+    await waitFor(() => stopping !== undefined)
+    await stopping
+    expect(t.messages().map((m) => m.ref.id)).toEqual(['a@example.com'])
+    await t.provider.start()
+    await waitFor(() => t.messages().length >= 3)
+    await new Promise((r) => setTimeout(r, 20))
+    expect(t.messages().map((m) => m.ref.id)).toEqual(['a@example.com', 'b@example.com', 'c@example.com'])
+  })
+
+  it('saves the cursor when stop() lands mid-batch after the backlog (markSeen: false)', async () => {
+    const t = setup({ markSeen: false })
+    current = t.provider
+    t.server.add(ana('z@example.com'))
+    await t.provider.start()
+    await waitFor(() => t.messages().length === 1)
+    let stopping: Promise<void> | undefined
+    t.provider.onEvent((e) => { if (e.kind === 'message' && !stopping) stopping = t.provider.stop() })
+    t.server.add(ana('a@example.com'))
+    t.server.add(ana('b@example.com'))
+    t.server.deliver(ana('c@example.com'))
+    await waitFor(() => stopping !== undefined)
+    await stopping
+    expect(t.messages().map((m) => m.ref.id)).toEqual(['z@example.com', 'a@example.com'])
+    await t.provider.start()
+    await waitFor(() => t.messages().length >= 4)
+    await new Promise((r) => setTimeout(r, 20))
+    expect(t.messages().map((m) => m.ref.id)).toEqual(['z@example.com', 'a@example.com', 'b@example.com', 'c@example.com'])
+  })
+
+  it('persists a half-done UNSEEN backlog scan so a new process finishes it without replay', async () => {
+    const store = new MemoryStore()
+    const server = new FakeImapServer()
+    const make = () => setup({ markSeen: false, threadStore: cursorThreadStore(store), createImapClient: server.createClient })
+    server.add(ana('old@example.com'), true) // read before the bot ever ran: never processed
+    server.add(ana('a@example.com'))
+    server.add(ana('mid@example.com'), true)
+    server.add(ana('b@example.com'))
+    const a = make()
+    let stopping: Promise<void> | undefined
+    a.provider.onEvent((e) => { if (e.kind === 'message' && !stopping) stopping = a.provider.stop() })
+    await a.provider.start()
+    await waitFor(() => stopping !== undefined)
+    await stopping
+    expect(a.messages().map((m) => m.ref.id)).toEqual(['a@example.com'])
+
+    server.add(ana('new@example.com'), true) // arrived after the scan baseline, read by a human: still new to the bot
+    const b = make()
+    current = b.provider
+    await b.provider.start()
+    await waitFor(() => b.messages().length >= 2)
+    await new Promise((r) => setTimeout(r, 20))
+    expect(b.messages().map((m) => m.ref.id)).toEqual(['b@example.com', 'new@example.com'])
+  })
+
   it('persists the UID cursor in the thread store so a new process resumes without replay', async () => {
     const store = new MemoryStore()
     const server = new FakeImapServer()

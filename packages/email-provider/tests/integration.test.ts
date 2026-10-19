@@ -314,6 +314,33 @@ describe.skipIf(!ENABLED)('EmailProvider against a real IMAP/SMTP server (GreenM
     expect(h.messages.map((m) => m.body)).toEqual(['uno', 'dos'])
   }, T)
 
+  it('does not redeliver a backlog cut short by stop() with markSeen: false', async () => {
+    const bot = addr('bot')
+    const ana = addr('ana')
+    const store = new MemoryStore()
+    for (const n of ['uno', 'dos', 'tres']) await sendAs({ from: ana, to: bot, subject: n, text: n })
+    await settle(500) // delivered and still UNSEEN (reading it here would flag it \Seen)
+
+    const provider = new EmailProvider(botConfig(bot, { markSeen: false, threadStore: cursorThreadStore(store) }))
+    providers.push(provider)
+    const first: string[] = []
+    let stopping: Promise<void> | undefined
+    provider.onEvent((e: InboundEvent<EmailRaw>) => {
+      if (e.kind !== 'message') return
+      first.push(e.message.body ?? '')
+      stopping ??= provider.stop() // stop while the first message of the batch is being handled
+    })
+    await provider.start()
+    await waitFor(() => stopping !== undefined)
+    await stopping
+    expect(first).toEqual(['uno'])
+
+    const b = await startProvider(bot, { markSeen: false, threadStore: cursorThreadStore(store) })
+    await waitFor(() => b.messages[1])
+    await settle()
+    expect(b.messages.map((m) => m.body)).toEqual(['dos', 'tres'])
+  }, T)
+
   it('resumes from the persisted UID cursor in a new process with markSeen: false', async () => {
     const bot = addr('bot')
     const ana = addr('ana')

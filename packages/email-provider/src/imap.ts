@@ -17,12 +17,15 @@
  * - A dropped connection reconnects with exponential backoff, reusing the UID
  *   cursor unless UIDVALIDITY changed (then it restarts from UIDNEXT, never
  *   replaying the mailbox). Authentication failures do not retry.
- * - `onCursor` reports the UID cursor after every batch (not while the UNSEEN
- *   backlog scan is pending, whose position skips seen mail), so it can be
- *   persisted and handed back as `resumeFrom`.
+ * - `onCursor` reports the UID cursor after every message, including when
+ *   `stop()` or a dropped connection cuts a batch short, so it can be persisted
+ *   and handed back as `resumeFrom` without replaying delivered mail. While the
+ *   UNSEEN backlog scan is pending the cursor carries `scanUntil`, and a resumed
+ *   run finishes that scan instead of starting it over.
  * - The UNSEEN backlog scan stays pending until it completes: a scan that fails
  *   halfway is retried on the next sync (skipping UIDs already processed), never
- *   replaced by a `1:*` range that would replay mail a human already read.
+ *   replaced by a `1:*` range that would replay mail a human already read. It
+ *   covers UNSEEN mail up to the first UIDNEXT and every UID after it.
  * - Messages are fetched in batches of `BATCH` UIDs, sizes first: mail larger
  *   than `maxMessageBytes` is skipped (and flagged `\Seen` when `markSeen`)
  *   without downloading its body.
@@ -89,16 +92,18 @@ export class ImapIngress {
 
   constructor(private readonly opts: ImapIngressOptions) {}
 
-  /** The current UID cursor (undefined before the first select or while the backlog scan is pending). */
+  /** The current UID cursor (undefined before the first select). */
   get cursor(): EmailMailboxCursor | undefined {
-    if (this.uidValidity === undefined || this.pendingUnseenScan || !this.everConnected) return undefined
-    return { uidValidity: this.uidValidity, uid: this.lastUid }
+    if (this.uidValidity === undefined || !this.everConnected) return undefined
+    return this.pendingUnseenScan
+      ? { uidValidity: this.uidValidity, uid: this.lastUid, scanUntil: this.scanBaselineUid }
+      : { uidValidity: this.uidValidity, uid: this.lastUid }
   }
 
   private async saveCursor(): Promise<void> {
     const cursor = this.cursor
     if (!cursor || !this.opts.onCursor) return
-    const key = `${cursor.uidValidity}:${cursor.uid}`
+    const key = `${cursor.uidValidity}:${cursor.uid}:${cursor.scanUntil ?? ''}`
     if (key === this.savedCursor) return
     try {
       await this.opts.onCursor(cursor)
@@ -181,6 +186,11 @@ export class ImapIngress {
     if (!this.everConnected && resume && resume.uidValidity === validity) {
       this.everConnected = true
       this.lastUid = resume.uid
+      // A backlog scan cut short by the previous run: finish it rather than skip or restart it.
+      if (resume.scanUntil !== undefined && resume.scanUntil > resume.uid) {
+        this.scanBaselineUid = resume.scanUntil
+        this.pendingUnseenScan = true
+      }
     } else if (!this.everConnected) {
       this.everConnected = true
       this.scanBaselineUid = this.baselineUid
@@ -249,7 +259,11 @@ export class ImapIngress {
     const unseenScan = this.pendingUnseenScan
     if (unseenScan) {
       // Stays pending until the scan completes; UIDs processed by a failed attempt are skipped.
-      uids = ((await client.search({ seen: false }, { uid: true })) || []).filter((u) => u > this.lastUid)
+      // Read mail is skipped only up to the baseline: anything after it is new to the bot.
+      const unseen = ((await client.search({ seen: false }, { uid: true })) || []).filter((u) => u > this.lastUid && u <= this.scanBaselineUid)
+      const from = Math.max(this.lastUid, this.scanBaselineUid)
+      const newer = ((await client.search({ uid: `${from + 1}:*` }, { uid: true })) || []).filter((u) => u > from)
+      uids = [...unseen, ...newer]
     } else {
       uids = ((await client.search({ uid: `${this.lastUid + 1}:*` }, { uid: true })) || []).filter((u) => u > this.lastUid)
     }
@@ -258,7 +272,7 @@ export class ImapIngress {
       if (this.stopped || this.client !== client) return
       await this.processBatch(client, uids.slice(i, i + BATCH))
     }
-    if (this.stopped || this.client !== client) return
+    if (this.stopped || this.client !== client) return // the cursor was saved after each message
     // The backlog scan covered everything up to UIDNEXT at first select (seen mail is skipped on purpose).
     if (unseenScan) {
       this.lastUid = Math.max(this.lastUid, this.scanBaselineUid)
@@ -310,6 +324,8 @@ export class ImapIngress {
         }
       }
       this.lastUid = Math.max(this.lastUid, uid)
+      // Saved per message: a stop() or drop before the batch ends must not replay what was delivered.
+      await this.saveCursor()
     }
     if (this.opts.markSeen && this.client === client) {
       await client.messageFlagsAdd(batch, ['\\Seen'], { uid: true })

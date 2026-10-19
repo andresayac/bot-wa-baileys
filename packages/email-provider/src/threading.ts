@@ -54,7 +54,15 @@ export interface EmailThreadState {
 export interface EmailMailboxCursor {
   uidValidity: string
   uid: number
+  /**
+   * Set while the first UNSEEN backlog scan is unfinished: it still covers the
+   * UNSEEN mail after `uid` up to this UID (mail already read there is skipped).
+   */
+  scanUntil?: number
 }
+
+const copyCursor = (c: EmailMailboxCursor): EmailMailboxCursor =>
+  c.scanUntil === undefined ? { uidValidity: c.uidValidity, uid: c.uid } : { uidValidity: c.uidValidity, uid: c.uid, scanUntil: c.scanUntil }
 
 /** Persistence seam for thread state and the Message-ID -> chatId index. */
 export interface EmailThreadStore {
@@ -114,7 +122,7 @@ export class MemoryThreadStore implements EmailThreadStore {
     return c ? { ...c } : undefined
   }
   async setMailboxCursor(key: string, cursor: EmailMailboxCursor): Promise<void> {
-    this.put(this.cursors, key, { uidValidity: cursor.uidValidity, uid: cursor.uid })
+    this.put(this.cursors, key, copyCursor(cursor))
   }
 }
 
@@ -165,13 +173,14 @@ export function cursorThreadStore(
       if (!raw) return undefined
       try {
         const c = JSON.parse(raw) as Partial<EmailMailboxCursor>
-        return typeof c.uidValidity === 'string' && typeof c.uid === 'number' ? { uidValidity: c.uidValidity, uid: c.uid } : undefined
+        if (typeof c.uidValidity !== 'string' || typeof c.uid !== 'number') return undefined
+        return copyCursor({ uidValidity: c.uidValidity, uid: c.uid, scanUntil: typeof c.scanUntil === 'number' ? c.scanUntil : undefined })
       } catch {
         return undefined
       }
     },
     async setMailboxCursor(key, cursor) {
-      await set(`${prefix}imap:${hashKey(key)}`, JSON.stringify({ uidValidity: cursor.uidValidity, uid: cursor.uid }))
+      await set(`${prefix}imap:${hashKey(key)}`, JSON.stringify(copyCursor(cursor)))
     },
   }
 }
