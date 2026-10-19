@@ -20,6 +20,7 @@ import { TRACE_ATTR, SPAN_NAMES } from './attributes.js'
 import type { TraceBox } from './context.js'
 import type { TracingImpl } from './tracing.js'
 import type { SpanContextRef } from './types.js'
+import type { ConversationTraceHooks, ConversationTurnTrace } from '../conversations/ConversationRuntime.js'
 
 /** Why a turn span started. */
 export type TurnReason = 'start' | 'goto' | 'dormant' | 'reply' | 'timeout' | 'idle' | 'end'
@@ -35,7 +36,7 @@ export interface ConversationTraceBox extends TraceBox {
   readonly first?: SpanContextRef
 }
 
-export class ConversationTracing {
+export class ConversationTracing implements ConversationTraceHooks {
   constructor(private readonly t: TracingImpl) {}
 
   /** A conversation was entered: its first turn starts under the active span. */
@@ -52,12 +53,13 @@ export class ConversationTracing {
   }
 
   /** Run the conversation function inside its box (synchronous start; returns its promise unchanged). */
-  run<T>(box: ConversationTraceBox, fn: () => T): T {
-    return this.t.runInBox(box, fn)
+  run<T>(box: ConversationTurnTrace, fn: () => T): T {
+    return this.t.runInBox(box as ConversationTraceBox, fn)
   }
 
   /** The conversation resumes: a new turn (see the module comment for its parent). */
-  resume(box: ConversationTraceBox, reason: 'reply' | 'timeout' | 'idle' | 'end'): void {
+  resume(trace: ConversationTurnTrace, reason: 'reply' | 'timeout' | 'idle' | 'end'): void {
+    const box = trace as ConversationTraceBox
     if (box.open) box.span.end()
     // A reply (or an abort by a message) runs under the active span; a timer has no cause.
     const caused = reason === 'reply' || reason === 'end'
@@ -75,7 +77,8 @@ export class ConversationTracing {
   }
 
   /** The conversation blocked on a wait: its turn ends. */
-  park(box: ConversationTraceBox): void {
+  park(trace: ConversationTurnTrace): void {
+    const box = trace as ConversationTraceBox
     if (!box.open) return
     box.span.setAttribute(TRACE_ATTR.conversationParked, true)
     box.span.end()
@@ -83,7 +86,8 @@ export class ConversationTracing {
   }
 
   /** The conversation ended: the open turn (or a closing one, when it ended while parked) gets the outcome. */
-  end(box: ConversationTraceBox, outcome: string, goto?: string): void {
+  end(trace: ConversationTurnTrace, outcome: string, goto?: string): void {
+    const box = trace as ConversationTraceBox
     if (!box.open) this.resume(box, 'end')
     box.span.setAttributes({ [TRACE_ATTR.conversationOutcome]: outcome, [TRACE_ATTR.conversationGoto]: goto })
     if (outcome === 'error') box.span.setStatus({ code: 'error' })

@@ -16,7 +16,6 @@ import type { InboundLocation } from '../core/provider.js'
 import {
   adoptCause, currentCause, forkCause, hasCause, restoreCause, trackSettle, type CauseBox, type CauseRef, type SettleOutcome,
 } from '../durability/causation.js'
-import type { ConversationTraceBox, ConversationTracing } from '../telemetry/conversation.js'
 
 export interface RuntimeMessage {
   from: string; sender: string; body: string; type: string; isGroup: boolean
@@ -81,6 +80,21 @@ export interface CheckpointStore {
   listCheckpoints(): Promise<Array<[string, FlowCheckpoint]>>
 }
 
+/** Opaque trace state of one live conversation (see {@link ConversationTraceHooks}). */
+export interface ConversationTurnTrace { readonly conversation: true }
+
+/**
+ * Tracing seam of the runtime (`RuntimeConfig.tracing`): conversation turns as spans.
+ * The Bot injects its implementation when `BotConfig.telemetry` is set.
+ */
+export interface ConversationTraceHooks {
+  begin(info: { id: string; name: string }, reason: 'start' | 'goto' | 'dormant'): ConversationTurnTrace
+  run<T>(trace: ConversationTurnTrace, fn: () => T): T
+  resume(trace: ConversationTurnTrace, reason: 'reply' | 'timeout' | 'idle' | 'end'): void
+  park(trace: ConversationTurnTrace): void
+  end(trace: ConversationTurnTrace, outcome: string, goto?: string): void
+}
+
 export interface RuntimeConfig {
   defaultTimeoutMs?: number
   timeoutMessage?: string
@@ -114,7 +128,7 @@ export interface RuntimeConfig {
    * Tracing (`BotConfig.telemetry`): each stretch of a conversation between two waits is
    * a `bot.conversation.turn` span (see telemetry/conversation.ts). Omitted: no span code runs.
    */
-  tracing?: ConversationTracing
+  tracing?: ConversationTraceHooks
 }
 
 /**
@@ -198,7 +212,7 @@ interface ActiveConversation extends ConversationHandle {
   /** Durability: settles of the steps fed to it, resolved when it next blocks on a wait or ends. */
   idle?: Array<(outcome: SettleOutcome) => void>
   /** Tracing: the conversation's turn spans (see {@link RuntimeConfig.tracing}). */
-  trace?: ConversationTraceBox
+  trace?: ConversationTurnTrace
 }
 
 const INBOX_CAP = 10

@@ -68,7 +68,7 @@ process.on('SIGTERM', async () => {
 docker run --rm --name jaeger -p 16686:16686 -p 4318:4318 jaegertracing/jaeger:latest
 ```
 
-Apunta los exporters a `http://localhost:4318` y abre <http://localhost:16686>. Jaeger solo guarda trazas: manda las métricas a un Prometheus o a un OpenTelemetry Collector, o quita el lector de métricas mientras pruebas.
+Apunta los exporters a `http://localhost:4318` y abre `http://localhost:16686`. Jaeger solo guarda trazas: manda las métricas a un Prometheus o a un OpenTelemetry Collector, o quita el lector de métricas mientras pruebas.
 
 ### Grafana Tempo + Grafana
 
@@ -120,7 +120,7 @@ datasources:
     isDefault: true
 ```
 
-`docker compose up`, abre Grafana en <http://localhost:3000> → Explore → Tempo y busca por nombre de servicio (`bot-ventas`) o de span (`bot.send`, `chat claude-…`). Tempo solo recibe trazas: para las métricas añade un Prometheus con su receptor OTLP (`--web.enable-otlp-receiver`, ruta OTLP `/api/v1/otlp/v1/metrics`) o un OpenTelemetry Collector delante de ambos. En producción fija las versiones de las imágenes.
+`docker compose up`, abre Grafana en `http://localhost:3000` → Explore → Tempo y busca por nombre de servicio (`bot-ventas`) o de span (`bot.send`, `chat claude-…`). Tempo solo recibe trazas: para las métricas añade un Prometheus con su receptor OTLP (`--web.enable-otlp-receiver`, ruta OTLP `/api/v1/otlp/v1/metrics`) o un OpenTelemetry Collector delante de ambos. En producción fija las versiones de las imágenes.
 
 ## Cómo se ve un mensaje
 

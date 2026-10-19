@@ -487,3 +487,4 @@ export type {
   BotTracer, BotTracing, BotSpan, SpanOptions, SpanKind, SpanStatus, SpanLink, SpanContextRef, SpanException,
   TraceAttributes, TraceAttributeValue, TelemetryConfig,
 } from './telemetry/types.js'
+export type { ConversationTraceHooks, ConversationTurnTrace } from './conversations/ConversationRuntime.js'
