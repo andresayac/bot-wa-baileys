@@ -131,3 +131,118 @@ describe.skipIf(!REDIS_URL || !CLUSTER_URL)('migrateToClusterLayout (real single
     expect(info.cluster.messages).toBe(31)
   }, 60_000)
 })
+
+describe.skipIf(!REDIS_URL)('migrateToClusterLayout rollback and marker (real single node)', () => {
+  let client: NativeRedisClient
+  const prefixes: string[] = []
+  const fresh = (tag: string) => { const p = `botwa-migrb-it-${process.pid}-${randomUUID().slice(0, 8)}-${tag}`; prefixes.push(p); return p }
+
+  beforeAll(async () => {
+    client = createClient({ url: REDIS_URL })
+    await client.connect()
+  })
+
+  afterAll(async () => {
+    for (const prefix of prefixes) {
+      for await (const batch of client.scanIterator({ MATCH: `${prefix}*`, COUNT: 500 })) {
+        const keys = Array.isArray(batch) ? batch : [batch]
+        if (keys.length) await client.del(keys)
+      }
+    }
+    await client.quit()
+  })
+
+  it('a rollback without deleteSource carries back newer state: tokens never go backwards, deletions stay deleted', async () => {
+    const prefix = fresh('mirror')
+    const legacy = new RedisStore({ client, prefix })
+    await legacy.start()
+    await legacy.upsertChat({ id: 'chatA' })
+    await legacy.upsertChat({ id: 'chatB' })
+    await legacy.schedules().register({ id: 'job', kind: 'interval', spec: '1000', nextRunAt: 1 }, 0)
+    expect((await legacy.schedules().claimDue('job', 'r', 1, 1))!.fencingToken).toBe(1)
+    await migrateToClusterLayout({ source: client, prefix })
+    const s = new RedisStore({ client, prefix, layout: 'cluster' })
+    await s.start()
+    for (let i = 1; i <= 5; i++) await s.schedules().claimDue('job', 'r', 1_000 * i, 1)
+    await s.deleteChat('chatA')
+    const report = await migrateToClusterLayout({ source: client, prefix, direction: 'cluster-to-legacy' })
+    expect(report.pruned.chats).toBe(1)
+    expect(report.layoutMarker).toBe('removed')
+    expect((await legacy.schedules().get('job'))!.fencingToken).toBe(6)
+    expect((await legacy.listChats()).map((c) => c.id)).toEqual(['chatB'])
+    await expect(new RedisStore({ client, prefix, layout: 'cluster' }).start()).rejects.toThrow(/legacy-layout data/)
+  }, 60_000)
+
+  it('a migration limited by include leaves the marker unset; a legacy start on a marked prefix warns', async () => {
+    const prefix = fresh('partial')
+    const legacy = new RedisStore({ client, prefix })
+    await legacy.start()
+    await legacy.upsertChat({ id: 'chatA' })
+    await legacy.schedules().register({ id: 'job', kind: 'interval', spec: '1000', nextRunAt: 1 }, 0)
+    const partial = await migrateToClusterLayout({ source: client, prefix, include: ['chats'] })
+    expect(partial.layoutMarker).toBe('unchanged')
+    await expect(new RedisStore({ client, prefix, layout: 'cluster' }).start()).rejects.toThrow(/legacy-layout data/)
+    await migrateToClusterLayout({ source: client, prefix })
+    const warned: unknown[] = []
+    await new RedisStore({ client, prefix, logger: { warn: (...a: unknown[]) => warned.push(a) } }).start()
+    expect(warned).toHaveLength(1)
+  }, 60_000)
+})
+
+describe.skipIf(!REDIS_URL || !CLUSTER_URL)('migrateToClusterLayout rollback (real cluster → real single node)', () => {
+  let target: NativeRedisClient
+  let cluster: NativeRedisClusterClient
+  const prefix = `botwa-migrb2-it-${process.pid}-${randomUUID().slice(0, 8)}`
+
+  beforeAll(async () => {
+    target = createClient({ url: REDIS_URL })
+    await target.connect()
+    cluster = await connectCluster()
+  })
+
+  afterAll(async () => {
+    for await (const batch of target.scanIterator({ MATCH: `${prefix}*`, COUNT: 500 })) {
+      const keys = Array.isArray(batch) ? batch : [batch]
+      if (keys.length) await target.del(keys)
+    }
+    await cleanupPrefix(cluster, prefix)
+    await target.quit()
+    await cluster.quit()
+  })
+
+  it('rolls a keyspace living on a cluster back to a single-node legacy keyspace', async () => {
+    const s = new RedisStore({ client: cluster, prefix })
+    await s.start()
+    await s.upsertChat({ id: 'c1', name: 'Chat 1' })
+    await s.upsertChat({ id: 'gone' })
+    await s.deleteChat('gone')
+    for (let i = 0; i < 30; i++) await s.saveMessage(msg('c1', `m${i}`, i))
+    await s.setUserData({ userId: 'u1', namespace: 'prefs', key: 'lang', value: 'es', updatedAt: 1 })
+    for (let i = 0; i < 2; i++) await s.releaseLock('job', (await s.acquireLockFenced('job', 60_000))!.token)
+    await s.schedules().register({ id: 'daily', kind: 'interval', spec: '1000', nextRunAt: 1 }, 0)
+    for (let i = 1; i <= 3; i++) await s.schedules().claimDue('daily', 'r', 1_000 * i, 1)
+    await s.setCursor('provider', 'cur-1')
+    const coord = s.coordinator({ replicaId: 'old' })
+    await coord.start()
+    const term = (await coord.tryLead('session'))!
+    await term.release()
+    await coord.stop()
+    await new RedisDurability({ client: cluster, prefix }).inbox.append({ id: 'e1', partitionKey: 'p', kind: 'message', payload: {}, receivedAt: 1 }, 1)
+
+    const report = await migrateToClusterLayout({ source: cluster, target, prefix, direction: 'cluster-to-legacy' })
+    expect(report.copied).toMatchObject({ chats: 1, messages: 30, userData: 1, schedules: 1, cursors: 1, coordination: 1 })
+    const legacy = new RedisStore({ client: target, prefix })
+    await legacy.start()
+    expect((await legacy.listChats()).map((c) => c.id)).toEqual(['c1'])
+    expect(await legacy.getMessagesByChat('c1', 100)).toHaveLength(30)
+    expect((await legacy.listUserData('u1')).map((e) => e.value)).toEqual(['es'])
+    expect((await legacy.acquireLockFenced('job'))!.fence).toBe(3)
+    expect((await legacy.schedules().get('daily'))!.fencingToken).toBe(3)
+    expect(await legacy.getCursor('provider')).toBe('cur-1')
+    const lc = new RedisCoordinator({ client: target, prefix, replicaId: 'new' })
+    await lc.start()
+    expect((await lc.tryLead('session'))!.fence).toBe(term.fence + 1)
+    await lc.stop()
+    expect(await new RedisDurability({ client: target, prefix }).inbox.get('e1')).toMatchObject({ id: 'e1' })
+  }, 60_000)
+})

@@ -20,14 +20,24 @@
  * await migrateToClusterLayout({ source, target, prefix: 'mybot' })
  * ```
  *
- * Copying is idempotent and resumable: an existing target key wins unless `overwrite`.
- * The source is never modified unless `deleteSource` (a separate, explicit pass).
+ * Copying is idempotent and resumable: an existing target key wins unless `overwrite`
+ * (a schedule record with a higher fencing token always wins: tokens never go backwards).
+ * The layout marker is written only by a complete (not `include`-limited) forward run.
+ *
+ * The rollback (`direction: 'cluster-to-legacy'`) mirrors by default: the legacy target is
+ * made to match the cluster-layout source, so writes and deletions made after the forward
+ * pass are carried back (see {@link MigrateKeyspaceOptions.mirror}). Its source may be a
+ * single node or a Redis Cluster client; its target is a single node.
+ *
+ * The source is never modified unless `deleteSource` (a separate, explicit pass), except
+ * the layout marker, which a complete rollback removes.
  */
 import { legacyMessageKey, messageKey, type StoredMessage } from '@bot-wa/core'
 import type { RedisLikeClient } from './RedisStore.js'
 import {
   CAS_INDEXED_SCRIPT, MAX_COUNTER_SCRIPT, READ_WITH_TTL_SCRIPT, ZRANGE_RAW_SCRIPT,
 } from './clusterScripts.js'
+import { MERGE_CAS_SCRIPT } from './scripts.js'
 import {
   LAYOUT_MARKER, assertLayoutPrefix, scheduleKeys, storeKeys, userDataKeys, coordKeys,
   type RedisKeyLayout,
@@ -47,7 +57,10 @@ const ALL_NAMESPACES: KeyspaceNamespace[] = [
 ]
 
 export interface MigrateKeyspaceOptions {
-  /** Single-node client holding the source layout (SCAN or KEYS is used to enumerate it). */
+  /**
+   * Client holding the source layout: a single node (SCAN or KEYS enumerates it) or, for the
+   * rollback only (`'cluster-to-legacy'`), a Redis Cluster client (a SCAN on every master).
+   */
   source: AnyRedisClient
   /** Where to write. Default: `source` (in place). May be a cluster client (legacy → cluster). */
   target?: AnyRedisClient
@@ -59,8 +72,21 @@ export interface MigrateKeyspaceOptions {
   direction?: 'legacy-to-cluster' | 'cluster-to-legacy'
   /** Count what would be copied, write nothing. */
   dryRun?: boolean
-  /** Replace target keys that already exist (default false: an existing target key wins). */
+  /**
+   * Replace target keys that already exist. Default: false (an existing target key wins),
+   * except under `mirror`, which requires it. A schedule record never lowers the target's
+   * fencing token: an overwritten record keeps the higher of the two tokens.
+   */
   overwrite?: boolean
+  /**
+   * Make the target match the source for every migrated namespace: copied records overwrite,
+   * and target records the source no longer holds are deleted (a schedule becomes a
+   * deleted marker that keeps its fencing token; lock fences and leadership terms are kept,
+   * they only grow). Only for the rollback, where it is the default: without it, the legacy
+   * keys a forward pass left behind would win over newer cluster-layout writes, and records
+   * deleted since would come back. Pass `false` for a copy-only rollback.
+   */
+  mirror?: boolean
   /** After copying, delete the source keys whose names changed (default false). */
   deleteSource?: boolean
   /** Run although a coordinator heartbeat or a pending ticket shows a live fleet (default false). */
@@ -82,6 +108,13 @@ export interface MigrationReport {
   skippedExisting: Record<KeyspaceNamespace, number>
   /** Message items no chat log references (not copied; first 100). */
   orphans: string[]
+  /** Target records deleted (for schedules: replaced by a deleted marker) by `mirror`, per namespace. */
+  pruned: Record<KeyspaceNamespace, number>
+  /**
+   * What happened to the layout marker: `'written'` by a complete forward run, `'removed'`
+   * by a complete rollback, `'unchanged'` otherwise (dry run, or a run limited by `include`).
+   */
+  layoutMarker: 'written' | 'removed' | 'unchanged'
   /** Source keys deleted by `deleteSource`. */
   deletedSource: number
   durationMs: number
@@ -108,8 +141,12 @@ async function pool<T>(items: T[], limit: number, fn: (item: T) => Promise<void>
   await Promise.all(workers)
 }
 
-/** Enumerate keys of a single-node client matching `pattern`, optionally of one TYPE (SCAN … TYPE when available). */
+/**
+ * Enumerate keys matching `pattern`, optionally of one TYPE (SCAN … TYPE when available).
+ * A cluster client is scanned on every master (no TYPE filter: callers check the key shape).
+ */
 async function listKeys(client: RedisLikeClient, pattern: string, type?: 'zset' | 'string'): Promise<string[]> {
+  if (isRedisClusterClient(client)) return scanEverywhere(client as AnyRedisClient, pattern)
   if (typeof client.scanIterator === 'function' && type) {
     const seen = new Set<string>()
     const scan = client.scanIterator as (o: { MATCH: string; COUNT: number; TYPE: string }) => AsyncIterable<string | string[]>
@@ -143,6 +180,16 @@ async function readZset(client: RedisLikeClient, key: string): Promise<Array<{ s
   return out
 }
 
+/** The fencing token of a stored schedule record (live or deleted marker); 0 when unreadable. */
+function fencingTokenOf(raw: string): number {
+  try {
+    const token = Number((JSON.parse(raw) as { fencingToken?: unknown }).fencingToken)
+    return Number.isFinite(token) ? token : 0
+  } catch {
+    return 0
+  }
+}
+
 /** Decode a percent-encoded segment of the cluster layout. */
 const dec = (s: string): string => decodeURIComponent(s)
 
@@ -160,7 +207,9 @@ export async function migrateToClusterLayout(opts: MigrateKeyspaceOptions): Prom
   const started = Date.now()
   const direction = opts.direction ?? 'legacy-to-cluster'
   if (direction !== 'legacy-to-cluster' && direction !== 'cluster-to-legacy') throw new RangeError(`migrateToClusterLayout: unknown direction ${String(direction)}`)
-  if (isRedisClusterClient(opts.source)) throw new RangeError('migrateToClusterLayout: the source must be a single-node client (its keyspace is enumerated with SCAN/KEYS)')
+  if (direction === 'legacy-to-cluster' && isRedisClusterClient(opts.source)) {
+    throw new RangeError("migrateToClusterLayout: the legacy layout lives on a single-node source (a Redis Cluster client is a source only for the rollback, direction 'cluster-to-legacy')")
+  }
   const fromLayout: RedisKeyLayout = direction === 'legacy-to-cluster' ? 'legacy' : 'cluster'
   const toLayout: RedisKeyLayout = direction === 'legacy-to-cluster' ? 'cluster' : 'legacy'
   if (toLayout === 'legacy' && opts.target && isRedisClusterClient(opts.target)) {
@@ -170,36 +219,53 @@ export async function migrateToClusterLayout(opts: MigrateKeyspaceOptions): Prom
   const targetPrefix = opts.targetPrefix ?? prefix
   assertLayoutPrefix(prefix, fromLayout, 'migrateToClusterLayout (prefix)')
   assertLayoutPrefix(targetPrefix, toLayout, 'migrateToClusterLayout (targetPrefix)')
-  const source = opts.source as RedisLikeClient
+  const mirror = opts.mirror ?? direction === 'cluster-to-legacy'
+  if (mirror && direction !== 'cluster-to-legacy') throw new RangeError("migrateToClusterLayout: mirror is only supported by the rollback (direction 'cluster-to-legacy')")
+  if (mirror && opts.overwrite === false) throw new RangeError('migrateToClusterLayout: mirror replaces target records (overwrite: false needs mirror: false)')
+  // A cluster client is adapted: EVAL routed by its first key, TRYAGAIN/CLUSTERDOWN retried.
+  const source = isRedisClusterClient(opts.source) ? withClusterRetry(opts.source) : (opts.source as RedisLikeClient)
   const rawTarget = (opts.target ?? opts.source) as RedisLikeClient
-  const target = isRedisClusterClient(opts.target) ? withClusterRetry(rawTarget) : rawTarget
+  const target = isRedisClusterClient(rawTarget) ? withClusterRetry(rawTarget) : rawTarget
   const sameKeyspace = (opts.target === undefined || opts.target === opts.source) && targetPrefix === prefix
   const dryRun = opts.dryRun === true
-  const overwrite = opts.overwrite === true
+  const overwrite = opts.overwrite ?? mirror
   const limit = Math.max(1, Math.floor(opts.concurrency ?? 16))
   const include = new Set(opts.include ?? ALL_NAMESPACES)
   const report: MigrationReport = {
-    dryRun, direction, copied: counts(), skippedExisting: counts(), orphans: [], deletedSource: 0, durationMs: 0,
+    dryRun, direction, copied: counts(), skippedExisting: counts(), pruned: counts(), orphans: [],
+    layoutMarker: 'unchanged', deletedSource: 0, durationMs: 0,
   }
+  /** Every namespace runs (no `include` limit): only then is the marker written or removed. */
+  const complete = ALL_NAMESPACES.every((n) => include.has(n))
   const p = prefix
   const g = escapeGlob(p)
 
   // --- live-fleet guard -------------------------------------------------------
   if (!opts.allowLive) {
-    const beats = await listKeys(source, `${g}:co:rep:*`)
-    const tickets = await listKeys(source, fromLayout === 'legacy' ? `${g}:co:t:*:tix` : `${g}:co:\\{t:*\\}:tix`)
-    if (beats.length || tickets.length) {
-      throw new Error(`migrateToClusterLayout: prefix "${p}" looks live (${beats.length} coordinator heartbeat(s), ${tickets.length} pending ticket queue(s)); stop every bot first or pass allowLive: true`)
+    const assertQuiet = async (client: RedisLikeClient, pfx: string, layout: RedisKeyLayout): Promise<void> => {
+      const gp = escapeGlob(pfx)
+      const beats = await listKeys(client, `${gp}:co:rep:*`)
+      const tickets = await listKeys(client, layout === 'legacy' ? `${gp}:co:t:*:tix` : `${gp}:co:\\{t:*\\}:tix`)
+      if (beats.length || tickets.length) {
+        throw new Error(`migrateToClusterLayout: prefix "${pfx}" looks live (${beats.length} coordinator heartbeat(s), ${tickets.length} pending ticket queue(s)); stop every bot first or pass allowLive: true`)
+      }
     }
+    await assertQuiet(source, p, fromLayout)
+    // Bots already running on a separate target (another server or prefix) are just as unsafe.
+    if (!sameKeyspace) await assertQuiet(target, targetPrefix, toLayout)
   }
 
   const from = { store: storeKeys(p, fromLayout), sched: scheduleKeys(p, fromLayout), ud: userDataKeys(p, fromLayout), co: coordKeys(p, fromLayout) }
   const to = { store: storeKeys(targetPrefix, toLayout), sched: scheduleKeys(targetPrefix, toLayout), ud: userDataKeys(targetPrefix, toLayout), co: coordKeys(targetPrefix, toLayout) }
   const toCluster = toLayout === 'cluster'
 
+  /** Mirror: the target keys this run copied (or found up to date), per namespace; every other one is stale. */
+  const keep = Object.fromEntries(ALL_NAMESPACES.map((n) => [n, new Set<string>()])) as Record<KeyspaceNamespace, Set<string>>
+
   /** Write one string record (with its remaining TTL and, in the cluster layout, its index entry). */
   async function put(ns: KeyspaceNamespace, key: string, value: string, pttl: number, index?: { key: string; member: string }): Promise<void> {
     if (pttl === -2) return // vanished meanwhile
+    keep[ns].add(key)
     const px = pttl > 0 ? pttl : undefined
     if (dryRun) {
       report.copied[ns]++
@@ -219,11 +285,86 @@ export async function migrateToClusterLayout(opts: MigrateKeyspaceOptions): Prom
     else report.skippedExisting[ns]++
   }
 
+  /**
+   * Write one schedule record so its fencing token never goes backwards ("never goes
+   * backwards for an id", the ScheduleRecord contract): a source record with a higher token
+   * than the target's replaces it even without `overwrite`; an overwritten record keeps the
+   * higher of the two tokens. Compare-and-set against the target value that was read.
+   */
+  async function putSchedule(key: string, value: string, index?: { key: string; member: string }): Promise<void> {
+    keep.schedules.add(key)
+    const sourceToken = fencingTokenOf(value)
+    for (let attempt = 0; attempt < 16; attempt++) {
+      const current = str(await target.get(key))
+      let next: string | undefined = value
+      if (current !== null) {
+        const targetToken = fencingTokenOf(current)
+        if (overwrite) next = targetToken > sourceToken ? JSON.stringify({ ...(JSON.parse(value) as object), fencingToken: targetToken }) : value
+        else next = sourceToken > targetToken ? value : undefined
+      }
+      if (next === undefined) {
+        report.skippedExisting.schedules++
+        return
+      }
+      if (dryRun) {
+        report.copied.schedules++
+        return
+      }
+      const expected = current === null ? ['0', ''] : ['1', current]
+      const ok = index
+        ? await target.eval(CAS_INDEXED_SCRIPT, { keys: [key, index.key], arguments: [...expected, next, index.member, ''] })
+        : await target.eval(MERGE_CAS_SCRIPT, { keys: [key], arguments: [...expected, next] })
+      if (Number(ok) === 1) {
+        report.copied.schedules++
+        return
+      }
+    }
+    throw new Error(`migrateToClusterLayout: ${key} kept changing while being copied`)
+  }
+
   async function copyIndexed(ns: KeyspaceNamespace, sourceKey: string, id: string, targetKey: string, targetIndex: string | undefined): Promise<boolean> {
     const rec = await readWithTtl(source, sourceKey)
     if (!rec) return false
-    await put(ns, targetKey, rec.value, rec.pttl, targetIndex ? { key: targetIndex, member: id } : undefined)
+    const index = targetIndex ? { key: targetIndex, member: id } : undefined
+    if (ns === 'schedules') await putSchedule(targetKey, rec.value, index)
+    else await put(ns, targetKey, rec.value, rec.pttl, index)
     return true
+  }
+
+  /**
+   * Mirror: delete the target keys matching `pattern` that this run did not copy (the target
+   * is a single node: the rollback writes the legacy layout). `stale` handles one key itself
+   * and says whether it counted as pruned.
+   */
+  async function prune(ns: KeyspaceNamespace, pattern: string, stale?: (key: string) => Promise<boolean>): Promise<void> {
+    if (!mirror) return
+    const keys = (await listKeys(target, pattern)).filter((k) => !keep[ns].has(k))
+    await pool(keys, limit, async (key) => {
+      if (stale) {
+        if (await stale(key)) report.pruned[ns]++
+      } else if (dryRun) {
+        report.pruned[ns]++
+      } else {
+        const n = Number(await target.del(key)) // read before adding: concurrent workers
+        report.pruned[ns] += n
+      }
+    })
+  }
+
+  /** Mirror, schedules: a stale live record becomes a deleted marker that keeps its fencing token. */
+  async function tombstone(key: string): Promise<boolean> {
+    const raw = str(await target.get(key))
+    if (raw === null) return false
+    let rec: { id?: unknown; deleted?: unknown; fencingToken?: unknown }
+    try {
+      rec = JSON.parse(raw) as typeof rec
+    } catch {
+      return false // not a schedule record: left alone
+    }
+    if (rec.deleted === true) return false
+    if (dryRun) return true
+    const marker = JSON.stringify({ id: rec.id, deleted: true, fencingToken: fencingTokenOf(raw) })
+    return Number(await target.eval(MERGE_CAS_SCRIPT, { keys: [key], arguments: ['1', raw, marker] })) === 1
   }
 
   /** Ids of an indexed kind in the source layout. */
@@ -260,6 +401,9 @@ export async function migrateToClusterLayout(opts: MigrateKeyspaceOptions): Prom
           if (await copyIndexed(ns, key, id, targetKey, targetIndex)) done.push(key)
         })
         if (fromLayout === 'cluster') done.push(...(kind === 'sched' ? from.sched.all() : from.store.indexes(kind)))
+        // Mirror (legacy target): records the cluster layout no longer holds.
+        const legacyNs = { chat: 'chat', contact: 'contact', cp: 'cp', sched: 'sched' }[kind]
+        await prune(ns, `${escapeGlob(`${targetPrefix}:${legacyNs}:`)}*`, kind === 'sched' ? tombstone : undefined)
         return done
       },
     })
@@ -294,6 +438,8 @@ export async function migrateToClusterLayout(opts: MigrateKeyspaceOptions): Prom
           throw err
         }
         const targetSet = to.store.msgSet(chatId)
+        keep.messages.add(targetSet)
+        const copiedMembers = new Set<string>()
         for (const { score, value: member } of entries) {
           const itemKey = from.store.msgItem(chatId, member)
           referenced.add(itemKey)
@@ -303,6 +449,8 @@ export async function migrateToClusterLayout(opts: MigrateKeyspaceOptions): Prom
           // The owned-message rule: the item must hold a message of this chat under this member.
           if (msg.chatId !== chatId || !msg.ref || (messageKey(msg.ref) !== member && legacyMessageKey(msg.ref) !== member)) continue
           const targetItem = to.store.msgItem(chatId, member)
+          keep.messages.add(targetItem)
+          copiedMembers.add(member)
           if (dryRun) {
             report.copied.messages++
             done.push(itemKey)
@@ -314,8 +462,18 @@ export async function migrateToClusterLayout(opts: MigrateKeyspaceOptions): Prom
           else report.skippedExisting.messages++
           done.push(itemKey)
         }
+        if (mirror) {
+          // Members the source log no longer has (deleted or pruned messages).
+          const extra = (await target.zRange(targetSet, 0, -1)).map(String).filter((m) => !copiedMembers.has(m))
+          if (extra.length) {
+            if (!dryRun) await target.zRem(targetSet, extra)
+            report.pruned.messages += extra.length
+          }
+        }
         done.push(key)
       })
+      // Mirror: chat logs and items the source no longer has (their items too).
+      await prune('messages', `${escapeGlob(`${targetPrefix}:msg:`)}*`)
       // Orphans: items no log references (reported, never copied).
       const itemPattern = fromLayout === 'legacy' ? `${escapeGlob(`${p}:msg:item:`)}*` : `${g}:\\{m:*\\}:i:*`
       for (const key of await listKeys(source, itemPattern, 'string')) {
@@ -359,6 +517,7 @@ export async function migrateToClusterLayout(opts: MigrateKeyspaceOptions): Prom
         const index = to.ud.index(e.user)
         if (await copyIndexed('userData', e.key, to.ud.member(e.ns, e.k), to.ud.entry(e.user, e.ns, e.k), index)) done.push(e.key)
       })
+      await prune('userData', `${escapeGlob(`${targetPrefix}:ud:`)}*`)
       return [...done, ...indexes]
     },
   })
@@ -393,6 +552,8 @@ export async function migrateToClusterLayout(opts: MigrateKeyspaceOptions): Prom
         }
         done.push(l.key)
       })
+      // Mirror: lock tokens the source does not hold (fences are kept: they only grow).
+      await prune('locks', `${escapeGlob(`${targetPrefix}:lock:`)}*`)
       return done
     },
   })
@@ -440,6 +601,7 @@ export async function migrateToClusterLayout(opts: MigrateKeyspaceOptions): Prom
           const rec = await readWithTtl(source, key)
           if (rec) await put(ns, targetPrefix + key.slice(p.length), rec.value, rec.pttl)
         })
+        await prune(ns, `${escapeGlob(targetPrefix + base.slice(p.length))}*`)
         return [] // never deleted: other layouts share these names
       },
     })
@@ -453,13 +615,16 @@ export async function migrateToClusterLayout(opts: MigrateKeyspaceOptions): Prom
         const rec = await readWithTtl(source, key)
         if (rec) await put('durability', targetPrefix + key.slice(p.length), rec.value, rec.pttl)
       })
-      if (!dryRun) {
-        for (const key of await listKeys(source, `${g}:\\{durable:*\\}:*`, 'zset')) {
-          let entries: Array<{ score: number; value: string }>
-          try { entries = await readZset(source, key) } catch { continue }
-          if (entries.length) await target.zAdd(targetPrefix + key.slice(p.length), entries, overwrite ? undefined : { NX: true })
-        }
+      for (const key of await listKeys(source, `${g}:\\{durable:*\\}:*`, 'zset')) {
+        let entries: Array<{ score: number; value: string }>
+        try { entries = await readZset(source, key) } catch { continue }
+        const targetKey = targetPrefix + key.slice(p.length)
+        keep.durability.add(targetKey)
+        if (dryRun) continue
+        if (mirror) await target.del(targetKey) // the index is replaced, not merged
+        if (entries.length) await target.zAdd(targetKey, entries, overwrite ? undefined : { NX: true })
       }
+      await prune('durability', `${escapeGlob(targetPrefix)}:\\{durable:*\\}:*`)
       return []
     },
   })
@@ -472,8 +637,15 @@ export async function migrateToClusterLayout(opts: MigrateKeyspaceOptions): Prom
     opts.onProgress?.({ namespace: plan.ns, done: report.copied[plan.ns] })
   }
 
-  if (!dryRun && toCluster) {
-    await target.set(to.store.meta(), LAYOUT_MARKER, { NX: true })
+  // The marker means "this prefix is fully migrated": only a complete run sets or clears it.
+  if (!dryRun && complete) {
+    if (toCluster) {
+      await target.set(to.store.meta(), LAYOUT_MARKER, { NX: true })
+      report.layoutMarker = 'written'
+    } else if (Number(await target.del(to.store.meta())) > 0) {
+      // Rolled back: a cluster-layout store must not start over the restored legacy data.
+      report.layoutMarker = 'removed'
+    }
   }
 
   if (opts.deleteSource && !dryRun) {
@@ -482,7 +654,7 @@ export async function migrateToClusterLayout(opts: MigrateKeyspaceOptions): Prom
       const n = await source.del(key)
       report.deletedSource += n
     })
-    if (fromLayout === 'cluster' && include.size === ALL_NAMESPACES.length) {
+    if (fromLayout === 'cluster' && complete) {
       const n = await source.del(from.store.meta())
       report.deletedSource += n
     }

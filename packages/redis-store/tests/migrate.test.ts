@@ -190,3 +190,186 @@ describe('migrateToClusterLayout (cluster → legacy, rollback)', () => {
     expect(info.cluster).toEqual({ conversations: 1, cursors: 1, leases: 1, durability: 2 })
   })
 })
+
+describe('migrateToClusterLayout: the rollback mirrors writes made after the forward pass', () => {
+  it('without deleteSource, newer cluster-layout state replaces the stale legacy copy (and deletions stay deleted)', async () => {
+    const client = new ScanningLayoutFakeRedisClient()
+    const legacyBefore = await seedLegacy(client)
+    await migrateToClusterLayout({ source: client })
+    // A schedule created in the legacy layout only (never migrated): its token must survive the rollback.
+    const lsched = legacyBefore.schedules()
+    await lsched.register({ id: 'legacy-only', kind: 'interval', spec: '1000', nextRunAt: 1 }, 0)
+    await lsched.claimDue('legacy-only', 'r', 1, 1)
+    await lsched.claimDue('legacy-only', 'r', 10, 1)
+    // Writes in the cluster layout after the forward pass.
+    const s = await clusterReader(client)
+    const sched = s.schedules()
+    for (let i = 1; i <= 5; i++) expect(await sched.claimDue('daily', 'r', 1_000 * i, 1)).not.toBeNull()
+    expect((await sched.get('daily'))!.fencingToken).toBe(5)
+    await s.upsertChat({ id: 'c1', name: 'Renamed' })
+    await s.deleteChat('item:x')
+    await s.deleteContact('u1')
+    await s.clearCheckpoint('chat:c1')
+    await s.deleteUserData('u1', 'prefs', 'lang')
+    await s.saveMessage(msg('c1', 'new', 50))
+    await s.deleteMessage({ chatId: 'c1', id: 'm0' })
+
+    const report = await migrateToClusterLayout({ source: client, direction: 'cluster-to-legacy' })
+    expect(report.pruned).toMatchObject({ chats: 1, contacts: 1, checkpoints: 1, userData: 1, schedules: 1 })
+    expect(report.pruned.messages).toBe(5)                           // item:x log + item, m0 member + item, the orphan
+    expect(report.layoutMarker).toBe('removed')
+
+    const legacy = new RedisStore({ client, sessionTtl: '1h' })
+    await legacy.start()
+    expect((await legacy.schedules().get('daily'))!.fencingToken).toBe(5)
+    expect(await legacy.schedules().get('legacy-only')).toBeNull()
+    expect((await legacy.schedules().register({ id: 'legacy-only', kind: 'interval', spec: '1000', nextRunAt: 1 }, 0)).fencingToken).toBe(2)
+    expect((await legacy.listChats()).map((c) => c.id)).toEqual(['c1'])
+    expect(await legacy.getChat('c1')).toEqual({ id: 'c1', name: 'Renamed' })
+    expect(await legacy.listContacts()).toEqual([])
+    expect(await legacy.listCheckpoints()).toEqual([])
+    expect((await legacy.listUserData('u1')).map((e) => `${e.namespace}/${e.key}`)).toEqual(['tmp/otp'])
+    expect((await legacy.getMessagesByChat('c1', 10)).map((m) => m.ref.id)).toEqual(['m1', 'm2', 'm3', 'm4', 'a:b', 'new'])
+    expect(await legacy.getMessagesByChat('item:x')).toEqual([])
+    expect(await legacy.getMessage({ chatId: 'c1', id: 'm0' })).toBeUndefined()
+    // The marker is gone: a cluster-layout store now refuses the (restored) legacy data.
+    expect(await client.get('botwa:{meta}:layout')).toBeNull()
+    await expect(new RedisStore({ client, layout: 'cluster' }).start()).rejects.toThrow(/legacy-layout data/)
+  })
+
+  it('a dry-run rollback counts what it would prune and changes nothing', async () => {
+    const client = new ScanningLayoutFakeRedisClient()
+    await seedLegacy(client)
+    await migrateToClusterLayout({ source: client })
+    const s = await clusterReader(client)
+    await s.deleteChat('item:x')
+    const before = client.keysMatching('*').sort()
+    const dry = await migrateToClusterLayout({ source: client, direction: 'cluster-to-legacy', dryRun: true })
+    expect(dry.pruned.chats).toBe(1)
+    expect(dry.layoutMarker).toBe('unchanged')
+    expect(client.keysMatching('*').sort()).toEqual(before)
+  })
+
+  it('mirror: false keeps the old rollback (existing legacy keys win); mirror is rollback-only', async () => {
+    const client = new ScanningLayoutFakeRedisClient()
+    await seedLegacy(client)
+    await migrateToClusterLayout({ source: client })
+    const s = await clusterReader(client)
+    await s.upsertChat({ id: 'c1', name: 'Renamed' })
+    await s.deleteChat('item:x')
+    const r = await migrateToClusterLayout({ source: client, direction: 'cluster-to-legacy', mirror: false })
+    expect(r.pruned.chats).toBe(0)
+    const legacy = new RedisStore({ client })
+    expect(await legacy.getChat('c1')).toEqual({ id: 'c1', name: 'Chat 1' })
+    expect(await legacy.getChat('item:x')).toEqual({ id: 'item:x' })
+    await expect(migrateToClusterLayout({ source: client, mirror: true })).rejects.toThrow(/mirror/)
+    await expect(migrateToClusterLayout({ source: client, direction: 'cluster-to-legacy', overwrite: false })).rejects.toThrow(/mirror/)
+  })
+})
+
+describe('migrateToClusterLayout: schedule fencing tokens never go backwards', () => {
+  it('a re-run replaces a target schedule only with a higher token; overwrite keeps the higher token', async () => {
+    const client = new ScanningLayoutFakeRedisClient()
+    const legacy = await seedLegacy(client)
+    await migrateToClusterLayout({ source: client })
+    const s = await clusterReader(client)
+    for (let i = 1; i <= 3; i++) await s.schedules().claimDue('daily', 'r', 1_000 * i, 1)
+    // A stale legacy record (token 0) never lowers the cluster token, even with overwrite.
+    const forced = await migrateToClusterLayout({ source: client, include: ['schedules'], overwrite: true })
+    expect(forced.copied.schedules).toBeGreaterThan(0)
+    expect((await s.schedules().get('daily'))!.fencingToken).toBe(3)
+    // A newer legacy record (higher token) replaces the target without overwrite.
+    for (let i = 1; i <= 6; i++) await legacy.schedules().claimDue('daily', 'r', 10_000 * i, 1)
+    const again = await migrateToClusterLayout({ source: client, include: ['schedules'] })
+    expect(again.copied.schedules).toBe(1)
+    expect((await s.schedules().get('daily'))!.fencingToken).toBe(6)
+  })
+})
+
+describe('migrateToClusterLayout: the layout marker marks a complete migration only', () => {
+  it('a run limited by include leaves the marker unset (the start() guard stays armed)', async () => {
+    const client = new ScanningLayoutFakeRedisClient()
+    await seedLegacy(client)
+    const partial = await migrateToClusterLayout({ source: client, include: ['chats'] })
+    expect(partial.layoutMarker).toBe('unchanged')
+    expect(await client.get('botwa:{meta}:layout')).toBeNull()
+    await expect(new RedisStore({ client, layout: 'cluster' }).start()).rejects.toThrow(/legacy-layout data/)
+    const full = await migrateToClusterLayout({ source: client })
+    expect(full.layoutMarker).toBe('written')
+    expect(await client.get('botwa:{meta}:layout')).toBe('cluster:v1')
+  })
+})
+
+describe('migrateToClusterLayout: a Redis Cluster as the rollback source', () => {
+  it('rolls a cluster back to a single-node legacy keyspace', async () => {
+    const legacySrc = new ScanningLayoutFakeRedisClient()
+    await seedLegacy(legacySrc)
+    const cluster = new ClusterFakeRedisClient()
+    await migrateToClusterLayout({ source: legacySrc, target: cluster })
+    const s = await clusterReader(cluster)
+    await s.saveMessage(msg('c1', 'new', 50))
+    await s.deleteChat('item:x')
+    for (let i = 1; i <= 4; i++) await s.schedules().claimDue('daily', 'r', 1_000 * i, 1)
+
+    const target = new ScanningLayoutFakeRedisClient()
+    const report = await migrateToClusterLayout({ source: cluster, target, direction: 'cluster-to-legacy' })
+    expect(report.copied).toMatchObject({ chats: 1, contacts: 1, checkpoints: 1, userData: 2, schedules: 2, conversations: 1, cursors: 1, leases: 1 })
+    const legacy = new RedisStore({ client: target, sessionTtl: '1h' })
+    expect((await legacy.getMessagesByChat('c1', 10)).map((m) => m.ref.id)).toEqual(['m0', 'm1', 'm2', 'm3', 'm4', 'a:b', 'new'])
+    expect((await legacy.listChats()).map((c) => c.id)).toEqual(['c1'])
+    expect((await legacy.schedules().get('daily'))!.fencingToken).toBe(4)
+    expect((await legacy.acquireLockFenced('job'))!.fence).toBe(4)
+    expect(await legacy.getCursor('provider')).toBe('cur-9')
+    expect(await new RedisDurability({ client: target }).inbox.get('e1')).toMatchObject({ id: 'e1' })
+  })
+
+  it('a cluster source holds no legacy layout: the forward direction still refuses it', async () => {
+    await expect(migrateToClusterLayout({ source: new ClusterFakeRedisClient() })).rejects.toThrow(/single-node/)
+  })
+
+  it('the live-fleet guard also checks a separate target', async () => {
+    const source = new ScanningLayoutFakeRedisClient()
+    await seedLegacy(source)
+    const target = new ClusterFakeRedisClient()
+    await target.set('botwa:co:rep:r#1', '1')
+    await expect(migrateToClusterLayout({ source, target })).rejects.toThrow(/looks live/)
+    const quietCluster = new ClusterFakeRedisClient()
+    const busy = new ScanningLayoutFakeRedisClient()
+    await busy.zAdd('botwa:co:t:chat-1:tix', { score: 1, value: 'x' })
+    await expect(migrateToClusterLayout({ source: quietCluster, target: busy, direction: 'cluster-to-legacy' })).rejects.toThrow(/looks live/)
+  })
+})
+
+describe('RedisStore (legacy layout) on a prefix marked as migrated', () => {
+  it('start() warns (warn, else error) and still starts; no marker, no warning', async () => {
+    const client = new ScanningLayoutFakeRedisClient()
+    await seedLegacy(client)
+    const quiet: unknown[] = []
+    await new RedisStore({ client, logger: { warn: (...a: unknown[]) => quiet.push(a), error: (...a: unknown[]) => quiet.push(a) } }).start()
+    expect(quiet).toEqual([])
+    await migrateToClusterLayout({ source: client })
+    const warned: unknown[][] = []
+    await new RedisStore({ client, logger: { warn: (...a: unknown[]) => warned.push(a) } }).start()
+    expect(warned).toHaveLength(1)
+    expect(String(warned[0]![1])).toMatch(/layout: 'cluster' on every replica/)
+    const errored: unknown[][] = []
+    await new RedisStore({ client, logger: { error: (...a: unknown[]) => errored.push(a) } }).start()
+    expect(errored).toHaveLength(1)
+  })
+
+  it('a failing or not-ready client only skips the check', async () => {
+    const client = new ScanningLayoutFakeRedisClient()
+    await client.set('botwa:{meta}:layout', 'cluster:v1')
+    const broken = Object.create(client) as ScanningLayoutFakeRedisClient
+    broken.get = async () => { throw new Error('ECONNRESET') }
+    const warned: unknown[] = []
+    await new RedisStore({ client: broken, logger: { warn: (...a: unknown[]) => warned.push(a) } }).start()
+    const notReady = Object.create(client) as ScanningLayoutFakeRedisClient
+    Object.defineProperty(notReady, 'isReady', { value: false })
+    let reads = 0
+    notReady.get = async (k: string) => { reads++; return client.get(k) }
+    await new RedisStore({ client: notReady, logger: { warn: (...a: unknown[]) => warned.push(a) } }).start()
+    expect(reads).toBe(0)
+    expect(warned).toEqual([])
+  })
+})

@@ -38,6 +38,13 @@ export interface RedisDurabilityOptions {
   cluster?: RedisClusterConnectOptions
   /** Key prefix. Default `'botwa'` (same default as `RedisStore`; the keys never collide). */
   prefix?: string
+  /**
+   * Receives the client errors (connection drops, failovers) of a backend-created client.
+   * An own client always has an `'error'` listener, so a dropped connection is retried
+   * instead of crashing the process; without a logger the errors are dropped. An injected
+   * client's errors are the caller's to handle.
+   */
+  logger?: { error?: (...args: unknown[]) => void; warn?: (...args: unknown[]) => void }
 }
 
 function score(value: number | null): string {
@@ -58,7 +65,16 @@ export class RedisDurableKv implements DurableKv {
     if (opts.cluster && (opts.url !== undefined || opts.client)) throw new RangeError('RedisDurability: pass either cluster, url or client')
     this.owned = !opts.client
     // A cluster client is adapted (EVAL routed by its first key); any other client is used as is.
-    this.client = asRedisLike((opts.client ?? createOwnRedisClient({ url: opts.url, cluster: opts.cluster })) as AnyRedisClient)
+    const logger = opts.logger
+    this.client = asRedisLike((opts.client ?? createOwnRedisClient({
+      url: opts.url,
+      cluster: opts.cluster,
+      // node-redis re-throws an unheard 'error' event: a dropped node connection would crash the process.
+      onError: (err: unknown) => {
+        if (logger?.error) logger.error({ err }, 'RedisDurability client error')
+        else logger?.warn?.({ err }, 'RedisDurability client error')
+      },
+    })) as AnyRedisClient)
   }
 
   private base(tbl: DurableTable): string { return `${this.prefix}:{durable:${tbl}}` }

@@ -73,4 +73,33 @@ describe('cluster connect options', () => {
     new RedisDurability({ cluster: { rootNodes: ['redis://n1:7000'] } })
     expect(created).toHaveLength(2)
   })
+
+  it('the coordinator and the durability backend listen for client errors (a dropped node never crashes the process)', () => {
+    const warned: unknown[] = []
+    const failed: unknown[] = []
+    new RedisCoordinator({ cluster: { rootNodes: ['redis://n1:7000'] }, logger: { warn: (o) => warned.push(o) } })
+    new RedisDurability({ cluster: { rootNodes: ['redis://n1:7000'] }, logger: { error: (o: unknown) => failed.push(o) } })
+    new RedisDurability({ cluster: { rootNodes: ['redis://n1:7000'] } })                  // no logger: errors dropped
+    expect(created).toHaveLength(3)
+    for (const { client } of created) expect(client.listeners.get('error')).toBeTypeOf('function')
+    const boom = new Error('Socket closed unexpectedly')
+    created[0]!.client.listeners.get('error')!(boom)
+    created[1]!.client.listeners.get('error')!(boom)
+    expect(() => created[2]!.client.listeners.get('error')!(boom)).not.toThrow()
+    expect(warned).toEqual([{ err: boom }])
+    expect(failed).toEqual([{ err: boom }])
+  })
+
+  it('a url-created client gets an error listener too', async () => {
+    const { createClient } = await import('redis')
+    const mocked = vi.mocked(createClient)
+    mocked.mockClear()
+    new RedisCoordinator({ url: 'redis://x:6379' })
+    new RedisDurability({ url: 'redis://x:6379' })
+    expect(mocked).toHaveBeenCalledTimes(2)
+    for (const r of mocked.mock.results) {
+      const on = (r.value as { on: ReturnType<typeof vi.fn> }).on
+      expect(on).toHaveBeenCalledWith('error', expect.any(Function))
+    }
+  })
 })

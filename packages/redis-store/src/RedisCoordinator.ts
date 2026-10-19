@@ -115,7 +115,11 @@ export interface RedisCoordinatorOptions {
   idleTtlMs?: string | number
   /** Longest pause between two polls while waiting for a turn or a leadership (ms). Default 100. */
   maxPollMs?: number
-  /** Receives backend errors of the watchdog. */
+  /**
+   * Receives backend errors of the watchdog, and the client errors (connection drops,
+   * failovers) of a coordinator-created client: an own client always has an `'error'`
+   * listener, so a dropped connection is retried instead of crashing the process.
+   */
   logger?: { warn?: (obj: object, msg?: string) => void }
 }
 
@@ -191,7 +195,12 @@ export class RedisCoordinator implements Coordinator {
     this.keys = coordKeys(opts.prefix ?? 'botwa', this.layout)
     this.logger = opts.logger
     this.ownsClient = !opts.client
-    const raw = (opts.client ?? createOwnRedisClient({ url: opts.url, cluster: opts.cluster })) as CoordinatorClient
+    const raw = (opts.client ?? createOwnRedisClient({
+      url: opts.url,
+      cluster: opts.cluster,
+      // node-redis re-throws an unheard 'error' event: a dropped node connection would crash the process.
+      onError: (err: unknown) => this.logger?.warn?.({ err }, 'RedisCoordinator client error'),
+    })) as CoordinatorClient
     // Cluster layout: TRYAGAIN/CLUSTERDOWN (replied before anything ran) are retried.
     this.client = this.layout === 'cluster' ? (withClusterRetry(raw as RedisLikeClient) as CoordinatorClient) : raw
   }

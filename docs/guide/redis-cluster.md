@@ -56,7 +56,11 @@ const store = new RedisStore({
 ```
 
 `RedisCoordinator` and `RedisDurability` accept the same `cluster` option.
-`cluster` cannot be combined with `url` or `client`.
+`cluster` cannot be combined with `url` or `client`. A client a component creates
+(from `url` or `cluster`) always gets an `'error'` listener, so a dropped node
+connection or a failover is retried instead of crashing the process; pass
+`logger` to see those errors. A client you pass in is yours: give it an
+`'error'` listener, as above.
 
 | Option | Where | Default |
 | --- | --- | --- |
@@ -73,6 +77,10 @@ Rules:
   keyspace is migrated in place, and how you can test the layout locally.
 - `store.coordinator()`, `store.schedules()` and `store.leases()` inherit the
   store's layout. Use the same layout and prefix on every replica.
+- **Switch every replica at once.** Replicas on different layouts of one prefix
+  see different keyspaces, and their turns and locks stop excluding each other.
+  A legacy-layout `RedisStore` whose prefix carries the layout marker logs a
+  warning at `start()` (`logger.warn`, else `logger.error`); it still starts.
 
 ## Key layout
 
@@ -132,7 +140,8 @@ There is no dual reading of both layouts: it would break the atomicity of the
 compare-and-set writes, fences and indexes. Migrate offline instead.
 
 1. **Stop every bot of the prefix.** The helper refuses while a coordinator
-   heartbeat or a pending chat ticket exists, unless `allowLive: true`.
+   heartbeat or a pending chat ticket exists on the source, or on a separate
+   target, unless `allowLive: true`.
 2. Copy the keyspace:
 
    ```ts
@@ -161,18 +170,43 @@ What the helper does:
 - **Checkpoints and user data** keep their remaining TTL.
 - **Lock fences and leadership terms** are raised with "set if greater", so
   fences never go backwards. Turn counters are short-lived and are not copied.
-- **Schedules**, including deleted markers, keep their fencing tokens.
+- **Schedules**, including deleted markers, keep their fencing tokens, which
+  never go backwards: a source record with a higher token replaces the target's
+  even without `overwrite`, and an overwritten record keeps the higher token.
 - Conversations, cursors, leases and the durability journal keep their names.
   They are copied only into another server or prefix.
 - **Idempotent and resumable**: an existing target key wins unless
-  `overwrite: true`. The layout marker is written last.
-- **Rollback**: `direction: 'cluster-to-legacy'` (single-node target). Writes
-  made after the forward migration exist only in the cluster layout; the
-  reverse pass copies them back.
+  `overwrite: true`. The layout marker is written last, and only by a
+  complete run: a run limited by `include` leaves it unset
+  (`report.layoutMarker` says what happened), so the `start()` guard below
+  stays armed until every namespace is copied.
 
 Starting a cluster-layout store on a single node that still holds legacy keys
 under its prefix throws ("run migrateToClusterLayout() first"). This check scans
 at most 10,000 keys. Pass `allowLegacyData: true` to start anyway.
+
+### Rollback
+
+`direction: 'cluster-to-legacy'` copies the cluster layout back into the legacy
+one. The target is a single node; the source is a single node or a **Redis
+Cluster client** (scanned on every master), so a keyspace that already lives on
+a cluster can be rolled back too.
+
+The rollback **mirrors** by default (`mirror: true`): the legacy target is made
+to match the cluster-layout source. Records overwrite, and legacy records the
+source no longer holds are deleted (`report.pruned`). Without that, the legacy
+keys a forward pass left behind (it keeps them unless `deleteSource`) would win
+over newer writes, and records deleted since (`deleteChat`, `clearCheckpoint`,
+`ctx.user` deletes) would come back. A schedule only in the legacy layout
+becomes a deleted marker that keeps its fencing token; lock fences and
+leadership terms are only ever raised. Run it with `dryRun: true` first to see
+the counts. Pass `mirror: false` for a copy-only rollback (existing legacy keys
+win).
+
+A complete rollback also removes the layout marker, so a cluster-layout store
+started by mistake refuses the restored legacy data. Before migrating forward
+again, delete the cluster-layout keys (roll back with `deleteSource: true`),
+otherwise the stale cluster-layout records win the next forward pass.
 
 ## Limits
 

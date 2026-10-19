@@ -69,6 +69,9 @@ const DROP_CHUNK = 1000
 /** Keys the cluster-layout start() inspects at most, looking for legacy data under the prefix. */
 const LEGACY_SCAN_LIMIT = 10_000
 
+/** Longest a legacy-layout start() waits for the layout-marker check. */
+const MARKER_CHECK_TIMEOUT_MS = 2_000
+
 /** The native node-redis v4 client type produced by `createClient` (modules bundled by `redis`). */
 export type NativeRedisClient = ReturnType<typeof createClient>
 
@@ -210,9 +213,11 @@ export interface RedisStoreOptions {
   /**
    * Receives client errors (connection drops, failed reconnects) of a
    * store-created client, and lifecycle errors (e.g. quit failure). An
-   * injected client's errors are the caller's to handle.
+   * injected client's errors are the caller's to handle. `warn` (else `error`) also
+   * receives the warning of a legacy-layout `start()` on a prefix marked as migrated to
+   * the cluster layout.
    */
-  logger?: { error?: (...args: unknown[]) => void }
+  logger?: { error?: (...args: unknown[]) => void; warn?: (...args: unknown[]) => void }
 }
 
 /** node-redis' default reconnect backoff: 0, 50, 100 … capped at 500 ms. */
@@ -264,7 +269,7 @@ export class RedisStore implements IStore {
   /** `sessionTtl` / `ttl` option converted to milliseconds (sent as PX: EX only takes whole seconds). */
   private readonly ttlMs?: number
   private readonly maxMessagesPerChat?: number
-  private readonly logger?: { error?: (...args: unknown[]) => void }
+  private readonly logger?: RedisStoreOptions['logger']
   /**
    * True between a successful start() and stop(): a dropped connection is then
    * retried with backoff. Before the first connect (and after stop()) the
@@ -904,9 +909,41 @@ export class RedisStore implements IStore {
    * refuses to start over legacy-layout data (see {@link RedisStoreOptions.allowLegacyData}).
    */
   async start(): Promise<void> {
-    if (!this.cluster) return this.connect()
+    if (!this.cluster) {
+      await this.connect()
+      await this.warnIfMigrated()
+      return
+    }
     await this.connect()
     await this.ensureLayoutMarker()
+  }
+
+  /**
+   * Legacy layout: warn when the prefix carries the cluster-layout marker. Replicas on
+   * different layouts of one prefix see different keyspaces (and their turns and locks
+   * stop excluding each other), so every replica must switch layouts at once. Best
+   * effort and bounded: a client that is not ready, a failed read or a slow server only
+   * skips the check (start() behaves as before).
+   */
+  private async warnIfMigrated(): Promise<void> {
+    if (this.client.isReady === false) return
+    let timer: ReturnType<typeof setTimeout> | undefined
+    try {
+      const marker = await Promise.race([
+        this.client.get(this.keys.meta()),
+        new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), MARKER_CHECK_TIMEOUT_MS); timer.unref?.() }),
+      ])
+      if (marker == null) return
+      const message = `RedisStore: prefix "${this.prefix}" is marked as migrated to the "${toStr(marker)}" key layout, but this store uses the legacy layout: `
+        + "its reads and writes are invisible to replicas on layout 'cluster' (and theirs to it). Configure layout: 'cluster' on every replica, or roll the data back with migrateToClusterLayout({ direction: 'cluster-to-legacy' })"
+      const logger = this.logger
+      if (logger?.warn) logger.warn({ prefix: this.prefix, marker: toStr(marker) }, message)
+      else logger?.error?.({ prefix: this.prefix, marker: toStr(marker) }, message)
+    } catch {
+      // A failed check never fails start(): the legacy layout predates the marker.
+    } finally {
+      if (timer) clearTimeout(timer)
+    }
   }
 
   private async connect(): Promise<void> {

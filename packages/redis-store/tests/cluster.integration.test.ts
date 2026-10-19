@@ -231,6 +231,32 @@ describe.skipIf(!CLUSTER_URL)('Redis Cluster (real)', () => {
     expect(new Set(await Promise.all(Object.values(co).map((k) => keySlot(node, k)))).size).toBe(1)
   }, 60_000)
 
+  it('own cluster clients of the coordinator and the durability backend survive killed connections', async () => {
+    const p = prefix('kill')
+    const errors: unknown[] = []
+    const kv = new RedisDurableKv({ prefix: p, cluster: clusterOptions(), logger: { error: (o: unknown) => errors.push(o) } })
+    const coord = new RedisCoordinator({ prefix: p, cluster: clusterOptions(), replicaId: 'k', logger: { warn: (o) => errors.push(o) } })
+    await kv.start()
+    await coord.start()
+    cleanups.push(() => coord.stop(), () => kv.stop())
+    expect(await kv.insert('t', 'a', 'v1', { due: 1, done: null })).toBeDefined()
+    // Drop every ordinary connection on every master (a network blip / node restart).
+    const seed = new URL(CLUSTER_URL!)
+    for (const m of cluster.masters as Array<{ port: number }>) {
+      const admin = await connectNode(`redis://${seed.hostname}:${m.port}`)
+      await admin.sendCommand(['CLIENT', 'KILL', 'TYPE', 'normal', 'SKIPME', 'yes'])
+      await admin.quit()
+    }
+    await vi.waitFor(() => expect(errors.length).toBeGreaterThan(0), { timeout: 10_000 })
+    // Both reconnect and keep working (an unheard 'error' event used to crash the process).
+    await vi.waitFor(async () => expect(await kv.get('t', 'a')).toMatchObject({ value: 'v1' }), { timeout: 10_000 })
+    await vi.waitFor(async () => {
+      const lead = await coord.tryLead('kill-check')
+      expect(lead).not.toBeNull()
+      await lead!.release()
+    }, { timeout: 10_000 })
+  }, 60_000)
+
   it('deleteChat removes thousands of messages and the chat record across slots', async () => {
     const p = prefix('del')
     const store = new RedisStore({ client: cluster, prefix: p })

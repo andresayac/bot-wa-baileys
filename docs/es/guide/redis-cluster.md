@@ -57,7 +57,11 @@ const store = new RedisStore({
 ```
 
 `RedisCoordinator` y `RedisDurability` aceptan la misma opción `cluster`, que
-no se puede combinar con `url` ni con `client`.
+no se puede combinar con `url` ni con `client`. Un cliente que crea el propio
+componente (desde `url` o `cluster`) siempre lleva un listener de `'error'`, así
+que una conexión caída o un failover se reintentan en vez de tumbar el proceso;
+pasa `logger` para ver esos errores. Un cliente que pasas tú es tuyo: ponle un
+listener de `'error'`, como arriba.
 
 | Opción | Dónde | Por defecto |
 | --- | --- | --- |
@@ -74,6 +78,11 @@ Reglas:
   keyspace existente en el sitio, y así puedes probar el layout en local.
 - `store.coordinator()`, `store.schedules()` y `store.leases()` heredan el
   layout del store. Usa el mismo layout y prefijo en todas las réplicas.
+- **Cambia todas las réplicas a la vez.** Réplicas con layouts distintos sobre
+  un mismo prefijo ven keyspaces distintos, y sus turnos y locks dejan de
+  excluirse entre sí. Un `RedisStore` con layout legacy cuyo prefijo lleva el
+  marcador de layout avisa en `start()` (`logger.warn`, o si no
+  `logger.error`); aun así arranca.
 
 ## Layout de claves
 
@@ -136,7 +145,8 @@ escrituras compare-and-set, de los fences y de los índices. La migración se
 hace en frío.
 
 1. **Para todos los bots del prefijo.** El helper se niega mientras exista un
-   heartbeat de coordinador o un ticket pendiente, salvo con `allowLive: true`.
+   heartbeat de coordinador o un ticket pendiente en el origen, o en un destino
+   distinto, salvo con `allowLive: true`.
 2. Copia el keyspace:
 
    ```ts
@@ -166,19 +176,46 @@ Qué hace el helper:
 - **Fences de locks y terms de liderazgo** se suben con "fijar si es mayor", así
   que nunca retroceden. Los contadores de turno son efímeros y no se copian.
 - **Schedules**, incluidos los marcadores de borrado, conservan su token de
-  fencing.
+  fencing, que nunca retrocede: un registro de origen con un token mayor
+  reemplaza al del destino aunque no pases `overwrite`, y un registro
+  sobrescrito conserva el token mayor.
 - Conversaciones, cursores, leases y el journal de durabilidad conservan su
   nombre. Solo se copian si el destino es otro servidor u otro prefijo.
 - **Idempotente y reanudable**: una clave de destino que ya existe gana, salvo
-  con `overwrite: true`. El marcador de layout se escribe al final.
-- **Vuelta atrás**: `direction: 'cluster-to-legacy'` (destino de un solo nodo).
-  Lo escrito después de la migración solo existe en el layout cluster; la pasada
-  inversa lo copia de vuelta.
+  con `overwrite: true`. El marcador de layout se escribe al final, y solo en
+  una pasada completa: una pasada limitada con `include` no lo escribe
+  (`report.layoutMarker` dice qué pasó), así que la comprobación de `start()`
+  de abajo sigue activa hasta copiar todos los namespaces.
 
 Arrancar un store con layout cluster sobre un nodo único que todavía guarda
 claves legacy bajo su prefijo lanza un error ("run migrateToClusterLayout()
 first"). Esta comprobación revisa como mucho 10.000 claves. Pasa
 `allowLegacyData: true` para arrancar igualmente.
+
+### Vuelta atrás
+
+`direction: 'cluster-to-legacy'` copia el layout cluster de vuelta al legacy. El
+destino es un solo nodo; el origen puede ser un solo nodo o un **cliente Redis
+Cluster** (se recorre cada master), así que también se puede revertir un
+keyspace que ya vive en un cluster.
+
+Por defecto la vuelta atrás **refleja** el origen (`mirror: true`): el destino
+legacy queda igual que el origen con layout cluster. Los registros se
+sobrescriben, y los registros legacy que el origen ya no tiene se borran
+(`report.pruned`). Sin eso, las claves legacy que dejó la pasada de ida (las
+conserva salvo con `deleteSource`) ganarían a escrituras más nuevas, y lo
+borrado después (`deleteChat`, `clearCheckpoint`, borrados de `ctx.user`)
+volvería a aparecer. Un schedule que solo existe en el layout legacy pasa a ser
+un marcador de borrado que conserva su token de fencing; los fences de locks y
+los terms de liderazgo solo suben. Lánzala antes con `dryRun: true` para ver
+los conteos. Pasa `mirror: false` para una vuelta atrás que solo copia (las
+claves legacy existentes ganan).
+
+Una vuelta atrás completa también borra el marcador de layout, así que un store
+con layout cluster arrancado por error rechaza los datos legacy restaurados.
+Antes de volver a migrar hacia el layout cluster, borra las claves con layout
+cluster (vuelve atrás con `deleteSource: true`); si no, los registros cluster
+viejos ganarán en la siguiente pasada de ida.
 
 ## Límites
 
