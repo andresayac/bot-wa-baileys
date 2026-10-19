@@ -43,7 +43,9 @@ export class NamespacedStore implements IStore {
   ) {
     for (const [field, value] of Object.entries(namespace)) {
       if (!value || /[\u0000-\u001f]/.test(value)) {
-        throw new Error(`Invalid store namespace ${field}`)
+        throw new Error(
+          `Invalid store namespace ${field}: expected a non-empty string without control characters, got ${JSON.stringify(value)}`,
+        )
       }
     }
     this.prefix = Object.values(namespace).map(encodeURIComponent).join('|') + '|'
