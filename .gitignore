@@ -36,3 +36,8 @@ terceros/
 docs/.vitepress/.temp/
 docs/.vitepress/cache/
 docs/.vitepress/dist/
+
+# Local secrets (credentials for live tests) — never commit
+.env
+.env.*
+!.env.example
