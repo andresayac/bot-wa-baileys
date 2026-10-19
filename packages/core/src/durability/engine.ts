@@ -604,19 +604,32 @@ export class DurableEngine implements DurabilityControl {
         record = put.record
         if (put.status === 'created') this.counters.outboxJournaled++
         else {
-          // Being sent elsewhere: by our own sweeper (queued behind this send — wait for it outside
-          // the chat queue), or by another replica (poll its outcome within the inline window).
-          while (record.state === 'sending') {
+          for (;;) {
+            // Being sent elsewhere: by our own sweeper (queued behind this send — wait for it outside
+            // the chat queue), or by another replica (poll its outcome within the inline window).
+            while (record.state === 'sending') {
+              const queued = this.deliveries.get(key)
+              if (queued) return { wait: queued }
+              if (this.now() - startedAt >= this.inlineMaxMs || (record.leaseUntil ?? 0) <= this.now()) break
+              await sleep(25)
+              record = (await this.outbox.get(key)) ?? record
+            }
+            if (record.state === 'sent' && record.result) { this.counters.outboxDeduped++; return { ref: { ...record.result.ref } } }
+            if (record.state === 'unknown' || record.state === 'dead') { this.counters.outboxDeduped++; return SKIPPED(record.chatId) }
+            if (this.inFlight.has(key)) throw new SendDeferredError(key)
+            const begun = await this.outbox.begin(key, { ...lease, now: this.now() })
+            if (begun) { record = begun; break }
+            // Lost the race to a sweeper (ours or another replica's) that claimed the record
+            // between the put and the begin: follow that delivery instead of deferring.
             const queued = this.deliveries.get(key)
             if (queued) return { wait: queued }
-            if (this.now() - startedAt >= this.inlineMaxMs || (record.leaseUntil ?? 0) <= this.now()) break
-            await sleep(25)
-            record = (await this.outbox.get(key)) ?? record
+            const fresh = await this.outbox.get(key)
+            // Still claimable here (pending/failed, not due) or out of time: defer as before.
+            if (!fresh || fresh.state === 'pending' || fresh.state === 'failed' || this.now() - startedAt >= this.inlineMaxMs) {
+              throw new SendDeferredError(key)
+            }
+            record = fresh
           }
-          if (record.state === 'sent' && record.result) { this.counters.outboxDeduped++; return { ref: { ...record.result.ref } } }
-          if (record.state === 'unknown' || record.state === 'dead') { this.counters.outboxDeduped++; return SKIPPED(record.chatId) }
-          record = this.inFlight.has(key) ? null : await this.outbox.begin(key, { ...lease, now: this.now() })
-          if (!record) throw new SendDeferredError(key)
         }
       } catch (error) {
         if (error instanceof SendDeferredError || !this.failOpen) throw error

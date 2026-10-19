@@ -273,3 +273,49 @@ describe('two live replicas', () => {
     await vi.waitFor(async () => expect((await botB.durability!.inbox.list()).map((r) => r.state)).toEqual(['done', 'done']))
   })
 })
+
+describe('live send racing its own sweeper', () => {
+  it('a live send whose record the sweeper claims between put and begin follows that delivery (no SendDeferredError)', async () => {
+    class FailOnce extends MockProvider {
+      failed = false
+      override async send(chatId: string, content: OutboundContent, options?: SendOptions): Promise<SendResult> {
+        if (!this.failed) { this.failed = true; throw new Error('transient') }
+        return super.send(chatId, content, options)
+      }
+    }
+    let racePut: (() => Promise<void>) | undefined
+    class RacingDurability extends MemoryDurability {
+      override scope(name: string): KvDurability {
+        const view = super.scope(name)
+        const put = view.outbox.put.bind(view.outbox)
+        Object.assign(view.outbox, {
+          put: async (...args: Parameters<typeof put>) => {
+            const res = await put(...args)
+            if (res.status !== 'created' && racePut) { const race = racePut; racePut = undefined; await race() }
+            return res
+          },
+        })
+        return view
+      }
+    }
+    const provider = new FailOnce()
+    const b = bot({ provider, durability: { journal: new RacingDurability(), pollMs: '1h', outbox: { inlineMaxMs: 0, backoff: () => 1 } } })
+    await b.start()
+    // First attempt fails and is deferred: the record is `failed`, due again almost at once.
+    await expect(b.send('u1', 'x', { idempotencyKey: 'k1' })).rejects.toThrow(/deferred/)
+    await sleep(10)
+    // The same key again: right after its put, the sweeper claims the record (`sending`).
+    racePut = async () => {
+      void b.durability!.sweep()
+      for (let i = 0; i < 200; i++) {
+        const rec = (await b.durability!.outbox.list()).find((r) => r.key === 'k1')
+        if (rec?.state === 'sending') return
+        await sleep(1)
+      }
+      throw new Error('the sweeper never claimed k1')
+    }
+    const sent = await b.send('u1', 'x', { idempotencyKey: 'k1' })
+    expect(sent.id).not.toBe('skipped')
+    expect(texts(provider)).toEqual(['x'])
+  })
+})
