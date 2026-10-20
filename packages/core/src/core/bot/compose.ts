@@ -30,6 +30,7 @@ import { parseTimerDuration } from '../../utils/timers.js'
 import { validateConfig } from '../../utils/validateConfig.js'
 import { Dispatcher } from '../Dispatcher.js'
 import { createInboundDeduper } from '../dedupe.js'
+import { createEchoFilter } from '../echo.js'
 import { DynamicFlowRegistry } from '../flowRegistry.js'
 import type { ChatIdleWatchers } from '../idle.js'
 import { MessageLog } from '../ledger.js'
@@ -100,6 +101,8 @@ export function composeBot(host: ComposeHost, inputConfig: BotConfig, fields: Co
   k.config = config
   k.provider = provider
   k.inboundDedupe = createInboundDeduper(inputConfig.dedupe)
+  k.echoes = createEchoFilter(inputConfig.echoFilter)
+  if (k.echoes) fields.counters.trackEchoes = true
 
   const logger: Logger = inputConfig.logger as Logger ?? pino({
     // 'warn' by default so plugin/handler failures logged at warn stay visible.
@@ -172,6 +175,8 @@ export function composeBot(host: ComposeHost, inputConfig: BotConfig, fields: Co
     selfId: () => provider.selfId ?? undefined,
     persistChat: (chat) => persistence.persistChat(chat),
     reportError: (error) => k.events.error({ error }),
+    // Echo filter: every successful send (direct, durable outbox, sweeper) is remembered here.
+    ...(k.echoes ? { echoes: k.echoes } : {}),
   })
   k.users = new UserDataService(store, { logger: logger.child({ module: 'user-data' }) })
   k.i18n = new I18n({ logger: logger.child({ module: 'i18n' }) })

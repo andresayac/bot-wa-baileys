@@ -53,6 +53,8 @@ export interface BotMetricsSnapshot {
     blocked: number
     /** Inbound not routed because the chat is in human handoff. */
     handoff: number
+    /** Echoes of the bot's own sends dropped by `BotConfig.echoFilter` (present only with the filter on). */
+    echo?: number
   }
   /** `bot.trigger()` calls that started a conversation. */
   triggered: number
@@ -101,6 +103,9 @@ export class MetricsCollector {
   private droppedDuplicate = 0
   private droppedBlocked = 0
   private droppedHandoff = 0
+  private droppedEcho = 0
+  /** `BotConfig.echoFilter` is on: the snapshot carries `dropped.echo` (set by the Bot). */
+  trackEchoes = false
   private triggered = 0
   private errors = 0
   private startedAt?: number
@@ -128,6 +133,7 @@ export class MetricsCollector {
   duplicateDropped(): void { this.droppedDuplicate++ }
   blockedDropped(): void { this.droppedBlocked++ }
   handoffDropped(): void { this.droppedHandoff++ }
+  echoDropped(): void { this.droppedEcho++ }
   triggerStarted(): void { this.triggered++ }
   error(): void { this.errors++ }
 
@@ -136,7 +142,7 @@ export class MetricsCollector {
     this.total = emptyCounters()
     this.perFlow.clear()
     this.messagesIn = this.messagesOut = this.messagesOutFailed = 0
-    this.droppedDuplicate = this.droppedBlocked = this.droppedHandoff = 0
+    this.droppedDuplicate = this.droppedBlocked = this.droppedHandoff = this.droppedEcho = 0
     this.triggered = this.errors = 0
   }
 
@@ -151,7 +157,10 @@ export class MetricsCollector {
       conversations: { ...publicCounters(this.total), active: activeConversations },
       flows,
       messages: { in: this.messagesIn, out: this.messagesOut, outFailed: this.messagesOutFailed },
-      dropped: { duplicate: this.droppedDuplicate, blocked: this.droppedBlocked, handoff: this.droppedHandoff },
+      dropped: {
+        duplicate: this.droppedDuplicate, blocked: this.droppedBlocked, handoff: this.droppedHandoff,
+        ...(this.trackEchoes || this.droppedEcho > 0 ? { echo: this.droppedEcho } : {}),
+      },
       triggered: this.triggered,
       errors: this.errors,
     }

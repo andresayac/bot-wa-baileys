@@ -76,6 +76,8 @@ export interface MessageLogDeps {
   persistChat(chat: StoredChat): Promise<void>
   /** Ledger failures never fail a send that already happened: they are reported here. */
   reportError(error: unknown): void
+  /** Echo filter (`BotConfig.echoFilter`): told the ref of every send the provider accepted. */
+  echoes?: { remember(ref: MessageRef): void }
 }
 
 /**
@@ -98,6 +100,8 @@ export class MessageLog {
     error?: { code?: string | number; message?: string }
     raw?: unknown
   }): Promise<void> {
+    // Before any await: the transport may echo the message back at once.
+    if (input.status === 'sent') this.deps.echoes?.remember(input.ref)
     const timestamp = Date.now()
     try {
       // A delivery/read receipt for this ref may already have landed during the

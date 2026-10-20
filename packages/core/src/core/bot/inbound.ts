@@ -2,8 +2,9 @@
  * The inbound pipeline of one bot: the provider's normalized event stream routed to
  * persistence, the Dispatcher, the hooks and the bot events.
  *
- * Messages/interactions: access lists → dedupe (`runInboundOnce`) → persistence →
- * groupMode → Dispatcher; the full order is documented on `Dispatcher.run`.
+ * Messages/interactions: `fromMe` → echo filter (`BotConfig.echoFilter`) → access lists →
+ * dedupe (`runInboundOnce`) → persistence → groupMode → Dispatcher; the full order is
+ * documented on `Dispatcher.run`.
  */
 import type { StoredMessage } from '../../store/IStore.js'
 import type { DispatchContext } from '../Dispatcher.js'
@@ -102,6 +103,14 @@ export class InboundPipeline {
           return
         }
         const message = event.message
+        // Echo filter: one of the bot's own sends came back without `fromMe`. Dropped before the
+        // access lists, dedupe and the journal, so it is never recorded nor counted as inbound.
+        if (this.k.echoes?.has(message.ref)) {
+          this.k.counters.echoDropped()
+          this.k.logger.debug({ chatId: message.chatId }, 'inbound dropped: echo of a bot message')
+          this.k.tracing?.annotate(TRACE_ATTR.inboundOutcome, 'echo')
+          return
+        }
         if (!this.admitsSender(message)) return
         await this.runInboundOnce(event, () => this.handleInbound(message))
         return

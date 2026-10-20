@@ -13,6 +13,7 @@
 
 import type { HandoffConfig, HandoffOptions, StoredHandoff } from '../gates/handoff.js'
 import type { InboundDedupeOptions } from './dedupe.js'
+import type { EchoFilterOptions } from './echo.js'
 import type { CoordinationConfig } from '../coordination/types.js'
 import type { DurabilityConfig } from '../durability/types.js'
 import type { UserData } from '../user/types.js'
@@ -1355,6 +1356,15 @@ export interface BotConfig {
    * processed. See `InboundDeduper`.
    */
   dedupe?: InboundDedupeOptions | false
+  /**
+   * Echo filter (opt-in): remember the refs of the bot's successful sends (bounded LRU,
+   * optional TTL) and drop an inbound message carrying one of them BEFORE the access
+   * lists, dedupe, journaling and counters — a provider-independent guard for transports
+   * that hand the bot's own messages back without `fromMe` (a mailbox, a gateway, a
+   * `selfId` learned late). `true` = `{ size: 1000 }`. Counted in `metrics().dropped.echo`.
+   * Complements the provider's `fromMe` (the primary guard); omitted = off, as before.
+   */
+  echoFilter?: EchoFilterOptions | true
   /* --- durable message processing (opt-in) --------------------------------- */
   /**
    * Durable message processing: journal every admitted inbound event before dispatch
