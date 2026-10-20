@@ -84,6 +84,17 @@ bot.schedule('0 9 * * *', { id: 'daily-report', missed: 'run-once' }, async (run
 
 Their next run survives restarts. Claims run in `BEGIN IMMEDIATE` transactions, so several processes sharing the file never run the same occurrence twice (barring a crash mid-run: occurrences are at least once).
 
+## Durable message processing
+
+`store.durability()` is core's durability backend (`BotConfig.durability`: journaled inbound, idempotent outbox, replay after a crash) on the same database file, table `durable`:
+
+```ts
+const store = new SQLiteStore({ file: './data/bot.db' })
+const bot = new Bot({ provider, store, durability: { journal: store.durability() } })
+```
+
+Every write is one SQL statement conditioned on the stored version, so the compare-and-set is atomic even with several processes on the same file. `SQLiteDurableKv` (or `store.durability().kv`) is also the `DurableKv` the product packages (`@bot-wa/inbox`, `@bot-wa/crm`, `@bot-wa/campaigns`, `@bot-wa/deployments`, `@bot-wa/hub`) persist to. Opt-in: nothing is created until you call it.
+
 ## Docker
 
 Mount the directory that holds the database as a volume, next to the WhatsApp session:
