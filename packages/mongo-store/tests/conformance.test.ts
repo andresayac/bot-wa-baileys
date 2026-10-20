@@ -6,6 +6,7 @@ import { runStoreConformance } from '../../../test-utils/store-conformance.js'
 import { runUserDataConformance } from '../../../test-utils/user-data-conformance.js'
 
 runStoreConformance('MongoStore', {
+  checkpointCas: true,
   async make() {
     const client = new FakeMongoClient()
     const store = new MongoStore({ client })

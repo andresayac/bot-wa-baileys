@@ -89,6 +89,11 @@ interface Statements {
   setCheckpoint: BetterSqlite3.Statement
   clearCheckpoint: BetterSqlite3.Statement
   listCheckpoints: BetterSqlite3.Statement
+  /** Compare-and-set: insert, or replace a row whose JSON has no revision (= 0). */
+  casInsertCheckpoint: BetterSqlite3.Statement
+  /** Compare-and-set: replace a row whose JSON revision equals the expected one. */
+  casReplaceCheckpoint: BetterSqlite3.Statement
+  casClearCheckpoint: BetterSqlite3.Statement
   getConversation: BetterSqlite3.Statement
   setConversation: BetterSqlite3.Statement
   clearConversation: BetterSqlite3.Statement
@@ -216,6 +221,18 @@ export class SQLiteStore implements IStore {
       setCheckpoint: db.prepare('INSERT OR REPLACE INTO checkpoints (key, checkpoint_json) VALUES (?, ?)'),
       clearCheckpoint: db.prepare('DELETE FROM checkpoints WHERE key = ?'),
       listCheckpoints: db.prepare('SELECT key, checkpoint_json FROM checkpoints'),
+      // One statement each (the conditional UPDATE/DELETE is atomic in SQLite), so two
+      // processes sharing the file see exactly one winner.
+      casInsertCheckpoint: db.prepare(
+        'INSERT INTO checkpoints (key, checkpoint_json) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET checkpoint_json = excluded.checkpoint_json ' +
+          "WHERE COALESCE(json_extract(checkpoints.checkpoint_json, '$.revision'), 0) = 0",
+      ),
+      casReplaceCheckpoint: db.prepare(
+        "UPDATE checkpoints SET checkpoint_json = ? WHERE key = ? AND json_extract(checkpoint_json, '$.revision') = ?",
+      ),
+      casClearCheckpoint: db.prepare(
+        "DELETE FROM checkpoints WHERE key = ? AND COALESCE(json_extract(checkpoint_json, '$.revision'), 0) = ?",
+      ),
       getConversation: db.prepare('SELECT messages_json FROM conversations WHERE key = ?'),
       setConversation: db.prepare('INSERT OR REPLACE INTO conversations (key, messages_json) VALUES (?, ?)'),
       clearConversation: db.prepare('DELETE FROM conversations WHERE key = ?'),
@@ -339,6 +356,24 @@ export class SQLiteStore implements IStore {
   }
   async clearCheckpoint(key: string): Promise<void> {
     this.stmts.clearCheckpoint.run(key)
+  }
+  /** Compare-and-set write (see `IStore.setCheckpointIf`): one conditional statement, `changes` tells the outcome. */
+  async setCheckpointIf(key: string, cp: FlowCheckpoint, expectedRevision: number): Promise<boolean> {
+    if (!Number.isInteger(expectedRevision) || expectedRevision < 0) {
+      throw new RangeError(`SQLiteStore.setCheckpointIf: expectedRevision must be a non-negative integer, got ${String(expectedRevision)}`)
+    }
+    const json = JSON.stringify(cp)
+    const result = expectedRevision === 0
+      ? this.stmts.casInsertCheckpoint.run(key, json)
+      : this.stmts.casReplaceCheckpoint.run(json, key, expectedRevision)
+    return result.changes === 1
+  }
+  async clearCheckpointIf(key: string, expectedRevision: number): Promise<boolean> {
+    if (!Number.isInteger(expectedRevision) || expectedRevision < 0) {
+      throw new RangeError(`SQLiteStore.clearCheckpointIf: expectedRevision must be a non-negative integer, got ${String(expectedRevision)}`)
+    }
+    if (this.stmts.casClearCheckpoint.run(key, expectedRevision).changes === 1) return true
+    return this.stmts.getCheckpoint.get(key) === undefined // absent counts as cleared
   }
   async listCheckpoints(): Promise<Array<[string, FlowCheckpoint]>> {
     const rows = this.stmts.listCheckpoints.all() as Array<{ key: string; checkpoint_json: string }>

@@ -33,5 +33,5 @@ async function make() {
   }
 }
 
-runStoreConformance('SQLiteStore', { make })
+runStoreConformance('SQLiteStore', { make, checkpointCas: true })
 runUserDataConformance('SQLiteStore', { make })

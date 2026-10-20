@@ -105,6 +105,24 @@ export class ChatTurnGate {
   }
 
   /**
+   * A compare-and-set checkpoint write for `key` was refused: another replica wrote the
+   * key since this one's turn was granted, so the turn is as good as lost. Recorded like a
+   * lost turn (later sends for the key reject through {@link assertHeld}) and the local
+   * work for the key is aborted with its checkpoint kept. No-op while nothing is held.
+   */
+  markLost(key: string): void {
+    if (this.lostKeys.has(key)) return
+    const error = new LeaseLostError(key, this.held.get(key)?.fence ?? 0, 'superseded')
+    this.lostKeys.set(key, error)
+    this.deps.lost(key, error)
+  }
+
+  /** The fence of the turn this replica holds on `key`, if any. */
+  fenceOf(key: string): number | undefined {
+    return this.held.get(key)?.fence
+  }
+
+  /**
    * Throw when work for `key` must not reach the transport: this replica's turn on it
    * was lost and not re-acquired since. `undefined` (no chat context) never throws.
    */

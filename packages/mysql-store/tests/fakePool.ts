@@ -496,6 +496,42 @@ export class FakePool implements PoolLike {
       const row = this.table(checkpoints).get(key(p[0]))
       return [row ? [{ cp: this.jsonOut(String(row.cp)) }] : [], []]
     }
+    // Checkpoint compare-and-set (one conditional statement each; see MysqlStore.setCheckpointIf).
+    const revisionOf = (row: Row | undefined): number => {
+      const doc = row ? (JSON.parse(String(row.cp)) as { revision?: unknown }) : undefined
+      return typeof doc?.revision === 'number' ? doc.revision : 0
+    }
+    if (
+      s === `INSERT INTO \`${checkpoints}\` (\`key\`, cp) VALUES (?, ?) ON DUPLICATE KEY UPDATE ` +
+        "cp = IF(COALESCE(JSON_EXTRACT(cp, '$.revision'), 0) = 0, VALUES(cp), cp)"
+    ) {
+      const stored = mysqlJsonIn(p[1], `${checkpoints}.cp`)
+      const existing = this.table(checkpoints).get(key(p[0]))
+      if (!existing) {
+        this.table(checkpoints).set(key(p[0]), { key: key(p[0]), cp: stored })
+        return header(1)
+      }
+      if (revisionOf(existing) !== 0 || String(existing.cp) === stored) return header(0)
+      this.table(checkpoints).set(key(p[0]), { key: key(p[0]), cp: stored })
+      return header(2)
+    }
+    if (s === `UPDATE \`${checkpoints}\` SET cp = ? WHERE \`key\` = ? AND JSON_EXTRACT(cp, '$.revision') = ?`) {
+      const existing = this.table(checkpoints).get(key(p[1]))
+      const doc = existing ? (JSON.parse(String(existing.cp)) as { revision?: unknown }) : undefined
+      if (!existing || typeof doc?.revision !== 'number' || doc.revision !== Number(p[2])) {
+        return [{ affectedRows: 0, info: 'Rows matched: 0  Changed: 0  Warnings: 0' } as unknown as Row[], []]
+      }
+      const stored = mysqlJsonIn(p[0], `${checkpoints}.cp`)
+      const changed = String(existing.cp) !== stored ? 1 : 0
+      this.table(checkpoints).set(key(p[1]), { key: key(p[1]), cp: stored })
+      return [{ affectedRows: changed, info: `Rows matched: 1  Changed: ${changed}  Warnings: 0` } as unknown as Row[], []]
+    }
+    if (s === `DELETE FROM \`${checkpoints}\` WHERE \`key\` = ? AND COALESCE(JSON_EXTRACT(cp, '$.revision'), 0) = ?`) {
+      const existing = this.table(checkpoints).get(key(p[0]))
+      if (!existing || revisionOf(existing) !== Number(p[1])) return header(0)
+      this.table(checkpoints).delete(key(p[0]))
+      return header(1)
+    }
     if (s === `DELETE FROM \`${checkpoints}\` WHERE \`key\` = ?`) {
       return header(this.table(checkpoints).delete(key(p[0])) ? 1 : 0)
     }

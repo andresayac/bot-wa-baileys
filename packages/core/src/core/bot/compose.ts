@@ -179,6 +179,9 @@ export function composeBot(host: ComposeHost, inputConfig: BotConfig, fields: Co
 
   const conv = config.conversation ?? {}
   const conversationTimeoutMs = conv.timeout !== undefined ? parseTimerDuration(conv.timeout, 'conversation.timeout') : undefined
+  // Multi-replica: checkpoint writes use the store's compare-and-set when it offers one.
+  const casCheckpoints = typeof (store as Partial<CheckpointStore>).setCheckpointIf === 'function'
+    && typeof (store as Partial<CheckpointStore>).clearCheckpointIf === 'function'
   // Built below; late-bound by the closures that need it (durability replays, hand-over answers).
   let inbound!: InboundPipeline
   // Multi-replica: conversation hand-over between replicas (answers of cut-short steps, coordination.handover).
@@ -218,6 +221,10 @@ export function composeBot(host: ComposeHost, inputConfig: BotConfig, fields: Co
           },
           // A replica that lost the chat never writes the checkpoint of the one that took it.
           fence: (key: string) => { k.coordination?.assertTurn(key) },
+          // ...and, with a store that can, a replica that lost it WITHOUT knowing yet cannot either.
+          casCheckpoints,
+          onFenced: (key: string) => { k.coordination?.markLost(key) },
+          fenceOf: (key: string) => k.coordination?.fenceOf(key),
           answers: handover!.answers,
           ...(handoverPolicy ? { handover: handoverPolicy } : {}),
         }
@@ -243,6 +250,7 @@ export function composeBot(host: ComposeHost, inputConfig: BotConfig, fields: Co
       logger: logger.child({ module: 'coordination' }),
       emit: (event, payload) => { k.events.emit(event, payload) },
       reportError: (error, ctx) => k.events.error({ error, ctx: ctx as unknown as MessageContext | undefined }),
+      casCheckpoints,
     })
   }
 

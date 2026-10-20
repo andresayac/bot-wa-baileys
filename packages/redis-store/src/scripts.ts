@@ -86,6 +86,45 @@ end
 return 0
 `
 
+/**
+ * Checkpoint compare-and-set (legacy layout, see `IStore.setCheckpointIf`): SET KEYS[1]
+ * to ARGV[2] only when the stored JSON's `revision` (0 when absent, or when the key does
+ * not exist) equals ARGV[1]. ARGV[3] = PX in ms or '' (no expiry). Returns 1 when written,
+ * 0 when refused. The JSON is decoded only to read the number: the value written is the
+ * caller's exact string.
+ */
+export const CAS_CHECKPOINT_SCRIPT = `
+local cur = redis.call('get', KEYS[1])
+local rev = 0
+if cur then
+  local ok, doc = pcall(cjson.decode, cur)
+  if ok and type(doc) == 'table' and type(doc.revision) == 'number' then rev = doc.revision end
+end
+if rev ~= tonumber(ARGV[1]) then return 0 end
+if ARGV[3] ~= '' then
+  redis.call('set', KEYS[1], ARGV[2], 'PX', ARGV[3])
+else
+  redis.call('set', KEYS[1], ARGV[2])
+end
+return 1
+`
+
+/**
+ * Conditional checkpoint delete (legacy layout, see `IStore.clearCheckpointIf`): DEL
+ * KEYS[1] only when its JSON `revision` (0 when absent) equals ARGV[1]. Returns 1 when
+ * the key is gone (deleted, or it did not exist), 0 when another revision is stored.
+ */
+export const CLEAR_CHECKPOINT_IF_SCRIPT = `
+local cur = redis.call('get', KEYS[1])
+if not cur then return 1 end
+local rev = 0
+local ok, doc = pcall(cjson.decode, cur)
+if ok and type(doc) == 'table' and type(doc.revision) == 'number' then rev = doc.revision end
+if rev ~= tonumber(ARGV[1]) then return 0 end
+redis.call('del', KEYS[1])
+return 1
+`
+
 /** Extend a lock only while `token` still owns it. KEYS[1] = lock; ARGV = token, ttlMs. Returns 1 or 0. */
 export const RENEW_LOCK_SCRIPT = `
 -- store: renew lock

@@ -95,6 +95,10 @@ export interface CheckpointStore {
   setCheckpoint(key: string, cp: FlowCheckpoint): Promise<void>
   clearCheckpoint(key: string): Promise<void>
   listCheckpoints(): Promise<Array<[string, FlowCheckpoint]>>
+  /** Compare-and-set write (see `IStore.setCheckpointIf`); used only with {@link RuntimeConfig.casCheckpoints}. */
+  setCheckpointIf?(key: string, cp: FlowCheckpoint, expectedRevision: number): Promise<boolean>
+  /** Conditional delete (see `IStore.clearCheckpointIf`). */
+  clearCheckpointIf?(key: string, expectedRevision: number): Promise<boolean>
 }
 
 /** Opaque trace state of one live conversation (see {@link ConversationTraceHooks}). */
@@ -158,6 +162,20 @@ export interface RuntimeConfig {
    * writes nor clears its checkpoint anyway (see `wrapCompiled`).
    */
   fence?: (key: string) => void
+  /**
+   * Multi-replica coordination: write checkpoints with the store's compare-and-set
+   * (`setCheckpointIf` / `clearCheckpointIf`, revision-chained per key) instead of blind
+   * writes, so a replica frozen between the local {@link fence} check and the write can no
+   * longer overwrite the checkpoint of the replica that took the chat since. A refused write
+   * ends the conversation like a lost turn (`LeaseLostError`, reason `'superseded'`) and
+   * reports the key through {@link onFenced}; a refused clear is ignored (the newer owner's
+   * row stays). Off (default) or a store without those methods: blind writes, as before.
+   */
+  casCheckpoints?: boolean
+  /** Multi-replica coordination: a compare-and-set write for `key` was refused (the chat has a newer owner). */
+  onFenced?: (key: string) => void
+  /** Multi-replica coordination: the fence of the turn this replica holds on `key`, for error reports. */
+  fenceOf?: (key: string) => number | undefined
   /**
    * Multi-replica coordination: records the answer of a flow step's FIRST wait in its
    * checkpoint ({@link FlowCheckpoint.answer}) and reads it back on the replica that resumes it.
@@ -244,6 +262,12 @@ interface ActiveConversation extends ConversationHandle {
   handover?: boolean
   /** Persistent flows: the checkpoint as last written by (or resumed into) this conversation. */
   cp?: FlowCheckpoint
+  /**
+   * Compare-and-set (`casCheckpoints`): revision of the key's stored row as this conversation
+   * last read it (resume) or successfully wrote it (checkpoint, marker or stub); the next
+   * conditional write or clear expects it. Absent = no row (`0`).
+   */
+  rev?: number
   /** Waits started since {@link cp} was written (`trackParked`). */
   waits?: number
   /** Checkpoint marker write in flight (`trackParked`); later writes and the final clear wait for it. */
@@ -277,6 +301,11 @@ const isMarked = (fn: ConversationFn): boolean => (fn as Marked)[CHECKPOINTS] ==
 function mark(fn: ConversationFn): ConversationFn { (fn as Marked)[CHECKPOINTS] = true; return fn }
 
 const INBOX_CAP = 10
+
+/** The compare-and-set revision of a stored checkpoint row (`0` for rows without one). */
+function revisionOf(cp: FlowCheckpoint | undefined): number {
+  return cp?.revision ?? 0
+}
 
 /** Read-only view of a live conversation (diagnostics / dev tooling). */
 export interface ConversationSnapshot {
@@ -377,7 +406,7 @@ export class ConversationRuntime {
         // one written by a replica with `handover.flows: 'forward'`, mixed configuration):
         // nothing here will ever advance or clear it, so drop it now. Left in place, a
         // replica taking the chat later would resume this (finished) flow at a stale step.
-        if (resumedFrom) this.queueClear(this.keyFor(ctx), undefined, true)
+        if (resumedFrom) this.queueClear(this.keyFor(ctx), undefined, true, revisionOf(resumedFrom))
         await runSteps(flow, ctx, c as ConversationControls, startAt)
       }
     }
@@ -385,7 +414,7 @@ export class ConversationRuntime {
     return mark(async (c, ctx) => {
       const key = this.keyFor(ctx)
       const entry = this.active.get(key)
-      if (entry && resumedFrom) { entry.cp = resumedFrom; entry.waits = 0 }
+      if (entry && resumedFrom) { entry.cp = resumedFrom; entry.waits = 0; entry.rev = revisionOf(resumedFrom) }
       /** A forwarded flow that can no longer be checkpointed (non-JSON state, store down). */
       let degraded = false
       const save = async (step: number) => {
@@ -421,11 +450,13 @@ export class ConversationRuntime {
         // Coordination: a replica known to have lost the chat does not overwrite the new owner's checkpoint.
         this.cfg.fence?.(key)
         if (!forward) {
-          await this.store!.setCheckpoint(key, cp)
+          await this.putCheckpoint(key, entry, cp)
         } else {
           try {
-            await this.store!.setCheckpoint(key, cp)
+            await this.putCheckpoint(key, entry, cp)
           } catch (error) {
+            // A refused compare-and-set means another replica owns the chat now: stop like a lost turn.
+            if (error instanceof LeaseLostError) throw error
             // Best effort: the flow goes on in memory, and no stale step is left to hand over.
             this.cfg.logger?.warn?.('hand-over checkpoint write failed; the flow continues without it', error)
             degraded = true
@@ -452,7 +483,7 @@ export class ConversationRuntime {
         if (preserved) {
           // preserved — leave the persisted checkpoint intact for resume-on-restart
         } else if (this.mayWrite(key)) {
-          await this.store!.clearCheckpoint(key).catch(() => {})
+          await this.dropCheckpoint(key, entry?.rev ?? 0).catch(() => {})
           if (entry) entry.stubbed = false
         }
       }
@@ -474,6 +505,45 @@ export class ConversationRuntime {
   /** `true` unless the coordination fence refuses writes for `key` (its chat turn was lost). */
   private mayWrite(key: string): boolean {
     try { this.cfg.fence?.(key); return true } catch { return false }
+  }
+
+  /** Compare-and-set checkpoint writes are on (`casCheckpoints` and a store that can). */
+  private get cas(): boolean {
+    return this.cfg.casCheckpoints === true && typeof this.store?.setCheckpointIf === 'function'
+      && typeof this.store.clearCheckpointIf === 'function'
+  }
+
+  /**
+   * Write `cp` as `key`'s checkpoint. With compare-and-set, the write expects the revision
+   * `entry` last read or wrote (`0` = no row) and stamps `cp.revision` with the next one; a
+   * refusal means a newer owner wrote the key: the key is reported as fenced and the write
+   * rejects with `LeaseLostError` (the conversation then ends silently, like a lost turn).
+   */
+  private async putCheckpoint(key: string, entry: ActiveConversation | undefined, cp: FlowCheckpoint): Promise<void> {
+    const store = this.store!
+    if (!this.cas) { await store.setCheckpoint(key, cp); return }
+    const expected = entry?.rev ?? 0
+    cp.revision = expected + 1
+    if (!(await store.setCheckpointIf!(key, cp, expected))) throw this.fenced(key)
+    if (entry) entry.rev = cp.revision
+  }
+
+  /**
+   * Clear `key`'s checkpoint. With compare-and-set the clear expects `revision` (the row as
+   * last seen by the caller); a refusal (a newer owner's row) is logged and ignored.
+   */
+  private async dropCheckpoint(key: string, revision: number | undefined): Promise<void> {
+    const store = this.store!
+    if (!this.cas || revision === undefined) { await store.clearCheckpoint(key); return }
+    if (!(await store.clearCheckpointIf!(key, revision))) {
+      this.cfg.logger?.debug?.('checkpoint clear refused: a newer owner wrote the key', { key })
+    }
+  }
+
+  /** The error of a refused compare-and-set write: this replica no longer owns `key`'s chat. */
+  private fenced(key: string): LeaseLostError {
+    this.cfg.onFenced?.(key)
+    return new LeaseLostError(key, this.cfg.fenceOf?.(key) ?? 0, 'superseded')
   }
 
   /** Hand-over metadata of an ephemeral checkpoint (forwarded flow without `.persistent()`). */
@@ -498,7 +568,8 @@ export class ConversationRuntime {
       entry.cp = undefined
       entry.wantsStub = this.cfg.handover !== undefined && this.cfg.handover.fallback !== 'drop'
     }
-    this.queueClear(key, entry?.parking, true)
+    this.queueClear(key, entry?.parking, true, entry?.rev ?? 0)
+    if (entry) entry.rev = undefined
   }
 
   /**
@@ -514,7 +585,7 @@ export class ConversationRuntime {
     const now = Date.now()
     for (const [key, cp] of checkpoints) {
       // An expired hand-over entry (ephemeral checkpoint / stub) is not resumable: drop it.
-      if (cp.handover && cp.handover.expiresAt <= now) { this.queueClear(key); continue }
+      if (cp.handover && cp.handover.expiresAt <= now) { this.queueClear(key, undefined, false, revisionOf(cp)); continue }
       this.dormant.set(key, cp)
     }
   }
@@ -536,20 +607,20 @@ export class ConversationRuntime {
       // Multi-replica hand-over entries (`coordination.handover`).
       const name = meta.name ?? cp.flowId
       if (meta.expiresAt <= Date.now()) {
-        this.queueClear(key, undefined, true)
+        this.queueClear(key, undefined, true, revisionOf(cp))
         this.reportHandover(key, name, 'expired')
         return false
       }
       if (meta.kind === 'stub') {
-        this.queueClear(key, undefined, true)
+        this.queueClear(key, undefined, true, revisionOf(cp))
         return this.interrupted(ctx, interruptedOf(key, name, 'unforwardable', meta, cp.trace))
       }
     }
     const flow = this.compiled.get(cp.flowId)
-    if (!flow) { await this.store?.clearCheckpoint(key).catch(() => {}); return false }
+    if (!flow) { if (this.store) await this.dropCheckpoint(key, revisionOf(cp)).catch(() => {}); return false }
     if (meta?.kind === 'ephemeral' && meta.shape !== undefined && meta.shape !== flowShape(flow)) {
       // The flow changed on this replica (rolling deploy): its step index means something else.
-      this.queueClear(key, undefined, true)
+      this.queueClear(key, undefined, true, revisionOf(cp))
       return this.interrupted(ctx, interruptedOf(key, cp.flowId, 'changed', meta, cp.trace))
     }
     // Durability (a cause is active and the checkpoint recorded one): the pending step re-runs
@@ -673,8 +744,9 @@ export class ConversationRuntime {
   /** Drop `key`'s dormant checkpoint (memory + store). Returns whether one existed. */
   discardDormant(key: string): boolean {
     this.handovers.delete(key)
+    const cp = this.dormant.get(key)
     if (!this.dormant.delete(key)) return false
-    this.queueClear(key)
+    this.queueClear(key, undefined, false, revisionOf(cp))
     return true
   }
 
@@ -682,13 +754,14 @@ export class ConversationRuntime {
    * Clear `key`'s stored checkpoint after `after` (and after any clear already queued).
    * Tracked per key so a conversation entered right after this waits for the clear before
    * writing its own checkpoint (async stores do not order the two writes). `fenced`: skipped
-   * when this replica lost the chat's turn (coordination).
+   * when this replica lost the chat's turn (coordination). `revision`: the row's revision as
+   * the caller last saw it (compare-and-set clears expect it; `undefined` = unconditional).
    */
-  private queueClear(key: string, after?: Promise<unknown>, fenced = false): void {
+  private queueClear(key: string, after?: Promise<unknown>, fenced = false, revision?: number): void {
     const store = this.store
     if (!store) return
     const clear: Promise<void> = Promise.all([this.pendingClears.get(key), after])
-      .then(() => (fenced && !this.mayWrite(key) ? undefined : store.clearCheckpoint(key)))
+      .then(() => (fenced && !this.mayWrite(key) ? undefined : this.dropCheckpoint(key, revision)))
       .catch(() => {})
       .finally(() => { if (this.pendingClears.get(key) === clear) this.pendingClears.delete(key) })
     this.pendingClears.set(key, clear)
@@ -1152,7 +1225,7 @@ export class ConversationRuntime {
     else if (dropAnswer) delete cp.answer
     if (meta && h) cp.handover = { ...meta, expiresAt: now + (parking ? lifeMs : h.ttlMs) }
     entry.cp = cp
-    return this.chainWrite(entry, () => store.setCheckpoint(entry.key, cp), 'checkpoint marker write failed')
+    return this.chainWrite(entry, () => this.putCheckpoint(entry.key, entry, cp), 'checkpoint marker write failed')
   }
 
   /** The answer `ctx` of `entry`'s current step's first wait, as recorded in its checkpoint. */
@@ -1221,7 +1294,7 @@ export class ConversationRuntime {
     }
     entry.stub = stub
     entry.stubbed = true
-    return this.chainWrite(entry, () => store.setCheckpoint(entry.key, stub), 'hand-over stub write failed', () => {
+    return this.chainWrite(entry, () => this.putCheckpoint(entry.key, entry, stub), 'hand-over stub write failed', () => {
       if (entry.stub === stub) entry.stub = undefined
     })
   }
@@ -1231,7 +1304,8 @@ export class ConversationRuntime {
     if (!entry.stubbed) return
     entry.stubbed = false
     entry.stub = undefined
-    this.queueClear(entry.key, entry.parking, true)
+    this.queueClear(entry.key, entry.parking, true, entry.rev ?? 0)
+    entry.rev = undefined
   }
 
   /**

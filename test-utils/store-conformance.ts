@@ -12,7 +12,7 @@
  * varies by backend, so it isn't asserted here.
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import type { IStore, StoredMessage } from '@bot-wa/core'
+import type { FlowCheckpoint, IStore, StoredMessage } from '@bot-wa/core'
 
 /** An IStore whose optional delivery-cursor methods are known to be present. */
 type CursorStore = IStore & Required<Pick<IStore, 'getCursor' | 'setCursor'>>
@@ -25,7 +25,20 @@ function hasCursor(store: IStore): store is CursorStore {
   return typeof store.getCursor === 'function' && typeof store.setCursor === 'function'
 }
 
+/** An IStore whose optional checkpoint compare-and-set methods are known to be present. */
+type CasStore = IStore & Required<Pick<IStore, 'setCheckpointIf' | 'clearCheckpointIf'>>
+
+function hasCheckpointCas(store: IStore): store is CasStore {
+  return typeof store.setCheckpointIf === 'function' && typeof store.clearCheckpointIf === 'function'
+}
+
 export interface ConformanceHarness {
+  /**
+   * `true` (the six built-in stores): the store MUST implement `setCheckpointIf` /
+   * `clearCheckpointIf` and the compare-and-set block fails when it does not. Omitted: the
+   * block runs when the store has them and is skipped otherwise (custom stores).
+   */
+  checkpointCas?: boolean
   /**
    * Build a fresh, started store and a teardown that releases it. Persistent
    * stores also return `seedLegacyMessage`, which writes a message row straight
@@ -377,6 +390,113 @@ export function runStoreConformance(name: string, h: ConformanceHarness): void {
       expect(await store.listChats()).toEqual([])
       expect(await store.listContacts()).toEqual([])
       expect(await store.listCheckpoints()).toEqual([])
+    })
+
+    describe('checkpoint compare-and-set (setCheckpointIf / clearCheckpointIf)', () => {
+      const cp = (revision: number | undefined, step = 1): FlowCheckpoint => ({
+        flowId: 'reg', step, state: { step }, updatedAt: step, ...(revision === undefined ? {} : { revision }),
+      })
+      /** The store under test, narrowed; skips the case for a custom store without the methods. */
+      const casIt = (title: string, fn: (s: CasStore) => Promise<void>, timeout?: number) =>
+        it(title, async (ctx) => {
+          if (!hasCheckpointCas(store)) {
+            if (h.checkpointCas) throw new Error('store must implement setCheckpointIf/clearCheckpointIf')
+            return ctx.skip()
+          }
+          await fn(store)
+        }, timeout)
+
+      casIt('inserts when no row exists (expected 0) and refuses expected 0 once a revisioned row exists', async (s) => {
+        expect(await s.setCheckpointIf('k', cp(1), 0)).toBe(true)
+        expect(await s.getCheckpoint('k')).toEqual(cp(1))
+        expect(await s.setCheckpointIf('k', cp(1, 9), 0)).toBe(false)
+        expect(await s.getCheckpoint('k')).toEqual(cp(1)) // untouched
+      })
+
+      casIt('replaces with the right revision and refuses a stale one', async (s) => {
+        expect(await s.setCheckpointIf('k', cp(1), 0)).toBe(true)
+        expect(await s.setCheckpointIf('k', cp(2, 2), 1)).toBe(true)
+        expect(await s.getCheckpoint('k')).toEqual(cp(2, 2))
+        expect(await s.setCheckpointIf('k', cp(2, 3), 1)).toBe(false) // stale writer
+        expect(await s.setCheckpointIf('k', cp(4, 4), 3)).toBe(false) // never that far
+        expect(await s.getCheckpoint('k')).toEqual(cp(2, 2))
+        expect(await s.setCheckpointIf('k', cp(3, 3), 2)).toBe(true)
+        expect(await s.getCheckpoint('k')).toEqual(cp(3, 3))
+      })
+
+      casIt('upgrades a row written by setCheckpoint (no revision) as revision 0', async (s) => {
+        await s.setCheckpoint('k', cp(undefined))
+        expect(await s.setCheckpointIf('k', cp(1, 5), 1)).toBe(false)
+        expect(await s.setCheckpointIf('k', cp(1, 5), 0)).toBe(true)
+        expect(await s.getCheckpoint('k')).toEqual(cp(1, 5))
+        expect(await s.setCheckpointIf('k', cp(2, 6), 0)).toBe(false)
+      })
+
+      casIt('clearCheckpointIf: absent is true, a matching revision deletes, a mismatch leaves the row', async (s) => {
+        expect(await s.clearCheckpointIf('k', 0)).toBe(true)
+        expect(await s.clearCheckpointIf('k', 3)).toBe(true)
+        expect(await s.setCheckpointIf('k', cp(1), 0)).toBe(true)
+        expect(await s.clearCheckpointIf('k', 0)).toBe(false)
+        expect(await s.clearCheckpointIf('k', 2)).toBe(false)
+        expect(await s.getCheckpoint('k')).toEqual(cp(1))
+        expect(await s.clearCheckpointIf('k', 1)).toBe(true)
+        expect(await s.getCheckpoint('k')).toBeUndefined()
+        await s.setCheckpoint('legacy', cp(undefined))
+        expect(await s.clearCheckpointIf('legacy', 1)).toBe(false)
+        expect(await s.clearCheckpointIf('legacy', 0)).toBe(true)
+        expect(await s.getCheckpoint('legacy')).toBeUndefined()
+      })
+
+      casIt('revision round-trips through get and list, with every other optional field', async (s) => {
+        const full: FlowCheckpoint = {
+          flowId: 'reg', step: 2, state: { name: 'Ana' }, updatedAt: 7, parked: true, revision: 1,
+          inboundId: 'in-1', cause: { id: 'in-1', seq: 2 },
+          handover: { kind: 'ephemeral', expiresAt: 99, shape: 'abc', name: 'reg' },
+          trace: { traceparent: '00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01' },
+        }
+        expect(await s.setCheckpointIf('k', full, 0)).toBe(true)
+        expect(await s.getCheckpoint('k')).toEqual(full)
+        expect(await s.listCheckpoints()).toEqual([['k', full]])
+      })
+
+      casIt('plain setCheckpoint still overwrites unconditionally (and resets the revision it writes)', async (s) => {
+        expect(await s.setCheckpointIf('k', cp(3), 0)).toBe(true)
+        await s.setCheckpoint('k', cp(undefined, 8))
+        expect(await s.getCheckpoint('k')).toEqual(cp(undefined, 8))
+        expect(await s.setCheckpointIf('k', cp(1, 9), 3)).toBe(false)
+        expect(await s.setCheckpointIf('k', cp(1, 9), 0)).toBe(true)
+      })
+
+      casIt('keys are independent (a revision chain never leaks into another key)', async (s) => {
+        expect(await s.setCheckpointIf('a', cp(1), 0)).toBe(true)
+        expect(await s.setCheckpointIf('b', cp(1), 0)).toBe(true)
+        expect(await s.setCheckpointIf('a', cp(2), 1)).toBe(true)
+        expect(await s.setCheckpointIf('b', cp(2), 2)).toBe(false)
+        expect(await s.clearCheckpointIf('a', 2)).toBe(true)
+        expect(await s.getCheckpoint('b')).toEqual(cp(1))
+      })
+
+      casIt('rejects an expected revision that is not a non-negative integer', async (s) => {
+        for (const bad of [-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+          await expect(s.setCheckpointIf('k', cp(1), bad)).rejects.toBeInstanceOf(RangeError)
+          await expect(s.clearCheckpointIf('k', bad)).rejects.toBeInstanceOf(RangeError)
+        }
+        expect(await s.getCheckpoint('k')).toBeUndefined()
+      })
+
+      casIt('50 concurrent conditional writes with the same expectation: exactly one winner per revision', async (s) => {
+        const first = await Promise.all(Array.from({ length: 50 }, (_, i) => s.setCheckpointIf('race', cp(1, i), 0)))
+        expect(first.filter(Boolean)).toHaveLength(1)
+        const winner = first.indexOf(true)
+        expect(await s.getCheckpoint('race')).toEqual(cp(1, winner))
+        const second = await Promise.all(Array.from({ length: 50 }, (_, i) => s.setCheckpointIf('race', cp(2, 100 + i), 1)))
+        expect(second.filter(Boolean)).toHaveLength(1)
+        expect((await s.getCheckpoint('race'))?.revision).toBe(2)
+        const clears = await Promise.all(Array.from({ length: 10 }, () => s.clearCheckpointIf('race', 2)))
+        // The first clear deletes the row; the later ones find it absent (true as well).
+        expect(clears.every(Boolean)).toBe(true)
+        expect(await s.getCheckpoint('race')).toBeUndefined()
+      }, 20_000)
     })
   })
 }

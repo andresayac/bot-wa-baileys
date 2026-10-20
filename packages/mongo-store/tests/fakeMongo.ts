@@ -128,6 +128,8 @@ function isOperatorObject(value: unknown): value is Record<string, unknown> {
 /** The query operators MongoStore sends. */
 function applyOperator(op: string, actual: unknown, operand: unknown): boolean {
   switch (op) {
+    case '$exists':
+      return operand ? actual !== undefined : actual === undefined
     case '$lte':
       // Like MongoDB's type bracketing: a number bound never matches null/missing.
       return typeof actual === 'number' && typeof operand === 'number' && actual <= operand
@@ -145,6 +147,10 @@ function applyOperator(op: string, actual: unknown, operand: unknown): boolean {
  */
 function matches(doc: Doc, filter: Record<string, unknown>): boolean {
   return Object.entries(filter).every(([key, value]) => {
+    if (key === '$or') {
+      if (!Array.isArray(value)) throw new Error('FakeMongo: $or needs an array')
+      return value.some((f) => matches(doc, f as Record<string, unknown>))
+    }
     const actual = path(doc, key)
     return isOperatorObject(value)
       ? Object.entries(value).every(([op, operand]) => applyOperator(op, actual, operand))
@@ -238,7 +244,7 @@ export class FakeMongoCollection<T extends Doc = Doc> implements MongoLikeCollec
   }
 
   async updateOne(
-    filter: { _id: string },
+    filter: { _id: string } & Record<string, unknown>,
     update: { $set: Partial<Omit<T, '_id'>>; $unset?: Record<string, ''> },
     options: { upsert?: boolean } & WriteOptions = {},
   ): Promise<{ acknowledged: boolean; matchedCount: number; modifiedCount: number; upsertedCount: number; upsertedId: unknown }> {
@@ -255,13 +261,20 @@ export class FakeMongoCollection<T extends Doc = Doc> implements MongoLikeCollec
       for (const key of unset) delete next[key]
       return next as T
     }
-    const existing = this.docs.get(filter._id)
+    const stored = this.docs.get(filter._id)
+    const existing = stored && matches(stored, filter) ? stored : undefined
     if (existing) {
       this.docs.set(filter._id, apply(existing))
       return { acknowledged: true, matchedCount: 1, modifiedCount: 1, upsertedCount: 0, upsertedId: null }
     }
     if (!options.upsert) {
       return { acknowledged: true, matchedCount: 0, modifiedCount: 0, upsertedCount: 0, upsertedId: null }
+    }
+    // The filter missed but a document with that _id exists: the upsert's insert collides (as the server does).
+    if (stored) {
+      const error = new Error(`E11000 duplicate key error collection: fake.${this.name} index: _id_ dup key: { _id: "${filter._id}" }`)
+      ;(error as Error & { code: number }).code = 11000
+      throw error
     }
     this.docs.set(filter._id, apply({ _id: filter._id }))
     return { acknowledged: true, matchedCount: 0, modifiedCount: 0, upsertedCount: 1, upsertedId: filter._id }
@@ -278,7 +291,7 @@ export class FakeMongoCollection<T extends Doc = Doc> implements MongoLikeCollec
     return new FakeCursor([...this.docs.values()].filter((d) => matches(d, filter)), options)
   }
 
-  async deleteOne(filter: { _id: string }): Promise<{ acknowledged: boolean; deletedCount: number }> {
+  async deleteOne(filter: { _id: string } & Record<string, unknown>): Promise<{ acknowledged: boolean; deletedCount: number }> {
     for (const [id, doc] of this.docs) {
       if (matches(doc, filter)) {
         this.docs.delete(id)

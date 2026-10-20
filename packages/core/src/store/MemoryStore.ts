@@ -48,6 +48,13 @@ export interface MemoryStoreOptions {
 /** Default per-chat message cap of {@link MemoryStore} (RAM safety; see `maxMessagesPerChat`). */
 const DEFAULT_MAX_MESSAGES_PER_CHAT = 1000
 
+/** The expected revision of a conditional checkpoint write must be a non-negative integer. */
+function assertRevision(revision: number, method: string): void {
+  if (!Number.isInteger(revision) || revision < 0) {
+    throw new RangeError(`${method}: expectedRevision must be a non-negative integer, got ${String(revision)}`)
+  }
+}
+
 export class MemoryStore implements IStore {
   private messages = new Map<string, Map<string, StoredMessage>>() // chatId -> messageId -> msg
   private chats = new Map<string, StoredChat>()
@@ -250,6 +257,23 @@ export class MemoryStore implements IStore {
 
   async clearCheckpoint(key: string): Promise<void> {
     this.checkpoints.delete(key)
+  }
+
+  /** Compare-and-set (see `IStore.setCheckpointIf`): one synchronous step, so concurrent callers see one winner. */
+  async setCheckpointIf(key: string, cp: FlowCheckpoint, expectedRevision: number): Promise<boolean> {
+    assertRevision(expectedRevision, 'setCheckpointIf')
+    if ((this.checkpoints.get(key)?.revision ?? 0) !== expectedRevision) return false
+    this.checkpoints.set(key, cp)
+    return true
+  }
+
+  async clearCheckpointIf(key: string, expectedRevision: number): Promise<boolean> {
+    assertRevision(expectedRevision, 'clearCheckpointIf')
+    const stored = this.checkpoints.get(key)
+    if (!stored) return true
+    if ((stored.revision ?? 0) !== expectedRevision) return false
+    this.checkpoints.delete(key)
+    return true
   }
 
   async listCheckpoints(): Promise<Array<[string, FlowCheckpoint]>> {

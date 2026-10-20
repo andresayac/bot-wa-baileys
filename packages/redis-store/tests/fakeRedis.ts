@@ -21,7 +21,8 @@
  */
 import type { RedisLikeClient, RedisMulti, RedisZRangeOptions } from '../src/RedisStore.js'
 import {
-  ACQUIRE_FENCED_LOCK_SCRIPT, DELETE_CHAT_SCRIPT, DROP_MESSAGE_SCRIPT, MERGE_CAS_SCRIPT, RELEASE_LOCK_SCRIPT, RENEW_LOCK_SCRIPT,
+  ACQUIRE_FENCED_LOCK_SCRIPT, CAS_CHECKPOINT_SCRIPT, CLEAR_CHECKPOINT_IF_SCRIPT, DELETE_CHAT_SCRIPT, DROP_MESSAGE_SCRIPT, MERGE_CAS_SCRIPT,
+  RELEASE_LOCK_SCRIPT, RENEW_LOCK_SCRIPT,
 } from '../src/scripts.js'
 import { FakeCoordState, evalCoordScript } from './fakeCoordScripts.js'
 import { DURABLE_WRITE_SCRIPT } from '../src/durabilityScripts.js'
@@ -33,6 +34,17 @@ interface ZEntry {
 
 const WRONGTYPE = 'WRONGTYPE Operation against a key holding the wrong kind of value'
 const NOT_INTEGER = 'ERR value is not an integer or out of range'
+
+/** The `revision` of a stored checkpoint JSON, as the Lua scripts read it (0 when absent/invalid). */
+export function jsonRevision(raw: string | null): number {
+  if (raw === null) return 0
+  try {
+    const doc = JSON.parse(raw) as { revision?: unknown } | null
+    return typeof doc?.revision === 'number' ? doc.revision : 0
+  } catch {
+    return 0
+  }
+}
 
 /** How node-redis serializes a numeric argument (Infinity becomes `+inf`/`-inf`, the rest `toString()`). */
 function wireNumber(v: number | string): string {
@@ -455,6 +467,25 @@ export class FakeRedisClient implements RedisLikeClient {
       const current = this.readString(key)
       if (hasExpected === '0' ? current !== null : current !== expected) return 0
       this.setSync(key, next)
+      return 1
+    }
+    if (script === CAS_CHECKPOINT_SCRIPT) {
+      const [key] = keys
+      const [expected, next, px] = args
+      if (key == null || expected == null || next == null || px == null) throw new Error('ERR cas-checkpoint script needs one key and three arguments')
+      if (jsonRevision(this.readString(key)) !== Number(expected)) return 0
+      if (px !== '') this.setSync(key, next, { PX: Number(px) })
+      else this.setSync(key, next)
+      return 1
+    }
+    if (script === CLEAR_CHECKPOINT_IF_SCRIPT) {
+      const [key] = keys
+      const [expected] = args
+      if (key == null || expected == null) throw new Error('ERR clear-checkpoint-if script needs one key and one argument')
+      const current = this.readString(key)
+      if (current === null) return 1
+      if (jsonRevision(current) !== Number(expected)) return 0
+      this.delSync(key)
       return 1
     }
     if (script === DROP_MESSAGE_SCRIPT) {

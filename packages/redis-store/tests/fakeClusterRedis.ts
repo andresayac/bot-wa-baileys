@@ -14,13 +14,14 @@
  */
 import type { RedisLikeClient, RedisMulti } from '../src/RedisStore.js'
 import {
-  CAS_INDEXED_SCRIPT, DELETE_BATCH_SCRIPT, DEL_INDEXED_SCRIPT, DROP_MESSAGES_SCRIPT, LIVE_INDEX_SCRIPT,
+  CAS_CHECKPOINT_INDEXED_SCRIPT, CAS_INDEXED_SCRIPT, CLEAR_CHECKPOINT_IF_INDEXED_SCRIPT, DELETE_BATCH_SCRIPT, DEL_INDEXED_SCRIPT,
+  DROP_MESSAGES_SCRIPT, LIVE_INDEX_SCRIPT,
   MAX_COUNTER_SCRIPT, PROBE_EXISTS_SCRIPT, READ_WITH_TTL_SCRIPT, SAVE_MESSAGE_SCRIPT, ZRANGE_RAW_SCRIPT,
 } from '../src/clusterScripts.js'
 import { DELETE_CHAT_SCRIPT } from '../src/scripts.js'
 import { TURN_SCRIPT } from '../src/coordScripts.js'
 import { hashSlot } from '../src/slot.js'
-import { FakeRedisClient, stringMatch } from './fakeRedis.js'
+import { FakeRedisClient, jsonRevision, stringMatch } from './fakeRedis.js'
 import { evalClusterCoordScript } from './fakeClusterScripts.js'
 
 export const CROSSSLOT = "CROSSSLOT Keys in request don't hash to the same slot"
@@ -71,6 +72,29 @@ export class LayoutFakeRedisClient extends FakeRedisClient {
         const n = x.delSync(record)
         x.zRemSync(index, args[0]!)
         return n
+      }
+      case CAS_CHECKPOINT_INDEXED_SCRIPT: {
+        const [record, index] = keys as [string, string]
+        const [expected, next, member, px] = args as [string, string, string, string]
+        if (jsonRevision(x.readString(record)) !== Number(expected)) return 0
+        if (px !== '') {
+          x.setSync(record, next, { PX: Number(px) })
+          x.zAddSync(index, { score: Date.now() + Number(px), value: member })
+        } else {
+          x.setSync(record, next)
+          x.zAddSync(index, { score: Number.POSITIVE_INFINITY, value: member })
+        }
+        return 1
+      }
+      case CLEAR_CHECKPOINT_IF_INDEXED_SCRIPT: {
+        const [record, index] = keys as [string, string]
+        const [expected, member] = args as [string, string]
+        const cur = x.readString(record)
+        if (cur === null) { x.zRemSync(index, member); return 1 }
+        if (jsonRevision(cur) !== Number(expected)) return 0
+        x.delSync(record)
+        x.zRemSync(index, member)
+        return 1
       }
       case DROP_MESSAGES_SCRIPT: {
         let n = 0

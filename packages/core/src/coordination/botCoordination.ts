@@ -33,6 +33,8 @@ export interface BotCoordinationDeps {
   emit: (event: string, payload: unknown) => void
   /** The bot's error path (`'error'` event or log). */
   reportError: (error: unknown, ctx?: DispatchContext) => void
+  /** The store writes checkpoints with compare-and-set (`setCheckpointIf`); `false` logs a warning on start. */
+  casCheckpoints?: boolean
 }
 
 const RETRY_MS = 1_000
@@ -93,6 +95,12 @@ export class BotCoordination {
   /** Lifecycle step `lease` (after the store, before restoring conversations). */
   async start(): Promise<void> {
     this.offLeaseLost ??= this.coordinator.on('lease-lost', (p) => this.deps.emit('coordination:lease-lost', p))
+    if (this.deps.casCheckpoints === false) {
+      this.deps.logger.warn(
+        {},
+        'checkpoint writes are not compare-and-set on this store (no setCheckpointIf): a replica frozen past its turn can overwrite a newer checkpoint',
+      )
+    }
     await this.coordinator.start()
   }
 
@@ -163,6 +171,16 @@ export class BotCoordination {
    */
   assertTurn(key: string): void {
     this.gate.assertHeld(key)
+  }
+
+  /** A compare-and-set checkpoint write for `key` was refused: treat the turn as lost (see {@link ChatTurnGate.markLost}). */
+  markLost(key: string): void {
+    this.gate.markLost(key)
+  }
+
+  /** The fence of the turn this replica holds on `key`, if any. */
+  fenceOf(key: string): number | undefined {
+    return this.gate.fenceOf(key)
   }
 
   private async campaign(stop: AbortSignal): Promise<void> {
