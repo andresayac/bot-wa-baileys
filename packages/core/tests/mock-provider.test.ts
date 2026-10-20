@@ -143,3 +143,89 @@ describe('createTestBot', () => {
     await bot.stop()
   })
 })
+
+describe('MockProvider journal, media and reactions', () => {
+  it('journals inbound messages/interactions and sends (with the ref send() returned) in order', async () => {
+    const p = new MockProvider()
+    p.incoming('hola', { from: 'u' })
+    const res = await p.send('u', { kind: 'text', text: 'hi' })
+    p.interaction('btn', { from: 'u', kind: 'list' })
+    p.call({ from: 'u' })
+    expect(p.journal.map((e) => e.dir)).toEqual(['in', 'out', 'in'])
+    expect(p.journal.map((e) => e.seq)).toEqual([1, 2, 3])
+    const out = p.journal[1]
+    expect(out.dir === 'out' ? out : undefined).toMatchObject({ chatId: 'u', content: { kind: 'text', text: 'hi' }, ref: res.ref })
+    const it = p.journal[2]
+    expect(it.dir === 'in' && it.event.kind === 'interaction' ? it.event.interaction.kind : undefined).toBe('list')
+    expect(p.outbox).toEqual([{ chatId: 'u', content: { kind: 'text', text: 'hi' }, options: undefined }])
+    p.clearJournal()
+    expect(p.journal).toEqual([])
+    p.incoming('otra', { from: 'u' })
+    expect(p.journal[0].seq).toBe(4)
+  })
+
+  it('caps the journal with maxJournal (oldest first) and rejects a bad cap', async () => {
+    const p = new MockProvider({ maxJournal: 2 })
+    p.incoming('1'); p.incoming('2'); p.incoming('3')
+    expect(p.journal.map((e) => (e.dir === 'in' && e.event.kind === 'message' ? e.event.message.body : ''))).toEqual(['2', '3'])
+    expect(() => new MockProvider({ maxJournal: 0 })).toThrow(RangeError)
+    const unbounded = new MockProvider({ maxJournal: Infinity })
+    for (let i = 0; i < 5; i++) unbounded.incoming('x')
+    expect(unbounded.journal).toHaveLength(5)
+  })
+
+  it('incomingMedia builds a MediaRef whose bytes downloadMedia returns', async () => {
+    const p = new MockProvider()
+    let ev: InboundEvent | undefined
+    p.onEvent((e) => { ev = e })
+    const bytes = Buffer.from('abc')
+    p.incomingMedia('document', bytes, { from: 'u', caption: 'cap', filename: 'a.txt', mimetype: 'text/plain' })
+    expect(ev?.kind).toBe('message')
+    if (ev?.kind !== 'message') return
+    expect(ev.message.type).toBe('document')
+    expect(ev.message.body).toBe('cap')
+    expect(ev.message.media).toMatchObject({ kind: 'document', mimetype: 'text/plain', filename: 'a.txt', size: 3 })
+    const downloaded = await p.downloadMedia(ev.message.media!)
+    expect(downloaded.equals(bytes)).toBe(true)
+    expect(downloaded).not.toBe(bytes)
+
+    p.incomingMedia('image', new Uint8Array([1, 2]), { from: 'u' })
+    if (ev?.kind !== 'message') return
+    expect(ev.message.body).toBe('')
+    expect(ev.message.media?.mimetype).toBe('image/jpeg')
+    expect((await p.downloadMedia(ev.message.media!)).length).toBe(2)
+
+    p.incomingMedia('video', { url: 'https://x/v.mp4', bytes: Buffer.from('mp4') }, { from: 'u', media: { size: 1234 } })
+    if (ev?.kind !== 'message') return
+    expect(ev.message.media).toMatchObject({ kind: 'video', size: 1234, token: { url: 'https://x/v.mp4' } })
+    expect((await p.downloadMedia(ev.message.media!)).toString()).toBe('mp4')
+
+    p.incomingMedia('audio', { url: 'https://x/a.ogg' }, { from: 'u' })
+    if (ev?.kind !== 'message') return
+    await expect(p.downloadMedia(ev.message.media!)).rejects.toThrow(/pass bytes/)
+    await expect(p.downloadMedia({ kind: 'image', token: null })).resolves.toEqual(Buffer.alloc(0))
+    await expect(p.downloadMedia()).resolves.toEqual(Buffer.alloc(0))
+  })
+
+  it('incoming({ media }) overrides the auto-built MediaRef fields', () => {
+    const p = new MockProvider()
+    let ev: InboundEvent | undefined
+    p.onEvent((e) => { ev = e })
+    p.incoming('', { type: 'image', media: { mimetype: 'image/gif', token: { bytes: Buffer.from('gif') } } })
+    expect(ev?.kind === 'message' ? ev.message.media : undefined).toEqual({ kind: 'image', mimetype: 'image/gif', token: { bytes: Buffer.from('gif') } })
+    p.incoming('texto', { media: { mimetype: 'x' } })
+    expect(ev?.kind === 'message' ? ev.message.media : undefined).toBeUndefined()
+  })
+
+  it('reaction() emits a reaction event with the target ref, sender and removed flag', () => {
+    const p = new MockProvider()
+    const events: InboundEvent[] = []
+    p.onEvent((e) => { events.push(e) })
+    const to: MessageRef = { id: 'm1', chatId: 'u' }
+    p.reaction('👍', { to })
+    p.reaction('👍', { to, from: 'g', sender: 'member', removed: true })
+    expect(events[0]).toEqual({ kind: 'reaction', reaction: { ref: to, emoji: '👍', senderId: 'u' } })
+    expect(events[1]).toEqual({ kind: 'reaction', reaction: { ref: to, emoji: '👍', senderId: 'member', removed: true } })
+    expect(p.journal).toEqual([])
+  })
+})

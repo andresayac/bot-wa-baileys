@@ -10,7 +10,7 @@
 
 import { createHash } from 'node:crypto'
 
-import type { OutboundContent, StoredMessage } from '../../core/provider.js'
+import type { ChatId, InboundEvent, OutboundContent, StoredMessage } from '../../core/provider.js'
 
 /** Magic string in every transcript file. */
 export const TRANSCRIPT_FORMAT = 'bot-wa/transcript'
@@ -151,6 +151,75 @@ export function outboundText(content: OutboundContent): string {
     case 'reaction': return content.emoji
     default: return ''
   }
+}
+
+/** Inbound events a transcript can hold as turns (messages and interactions). */
+export type TranscriptInboundEvent = Extract<InboundEvent, { kind: 'message' | 'interaction' }>
+
+/**
+ * The inbound turn of a message or interaction event, as the recorder writes it:
+ * `isGroup`, `displayName` and `id` only when the event carries them, `t` only when given.
+ */
+export function inboundTurnOf(event: TranscriptInboundEvent, t?: number): TranscriptInbound {
+  if (event.kind === 'message') {
+    const message = event.message
+    return {
+      dir: 'in',
+      chatId: message.chatId,
+      senderId: message.senderId,
+      type: message.type,
+      text: message.body ?? '',
+      ...(message.isGroup ? { isGroup: true } : {}),
+      ...(message.senderInfo?.displayName ? { displayName: message.senderInfo.displayName } : {}),
+      ...(message.ref?.id ? { id: message.ref.id } : {}),
+      ...(t !== undefined ? { t } : {}),
+    }
+  }
+  const it = event.interaction
+  return {
+    dir: 'in',
+    event: 'interaction',
+    chatId: it.chatId,
+    senderId: it.senderId,
+    type: it.kind,
+    text: it.data,
+    ...(it.isGroup ? { isGroup: true } : {}),
+    ...(it.senderInfo?.displayName ? { displayName: it.senderInfo.displayName } : {}),
+    ...(it.ref?.id ? { id: it.ref.id } : {}),
+    ...(t !== undefined ? { t } : {}),
+  }
+}
+
+/** The outbound turn of a sent content: `kind`, readable `text` and the JSON-safe `content`. */
+export function outboundTurnOf(chatId: ChatId, content: OutboundContent, t?: number, id?: string): TranscriptOutbound {
+  return {
+    dir: 'out',
+    chatId,
+    kind: content.kind,
+    text: outboundText(content),
+    content: serializeContent(content),
+    ...(t !== undefined ? { t } : {}),
+    ...(id !== undefined ? { id } : {}),
+  }
+}
+
+/**
+ * Readable rendering of a transcript, one turn per line: `user-1> hola`,
+ * `bot< Your name?`, `bot< [buttons] Elige` (non-text kinds are tagged),
+ * `user-1> (button) a` (interactions). Lines carry a `[chatId]` prefix when the
+ * transcript spans several chats.
+ */
+export function transcriptToText(transcript: Transcript): string {
+  const chats = new Set(transcript.turns.map((turn) => turn.chatId))
+  const prefix = (turn: TranscriptTurn): string => (chats.size > 1 ? `[${turn.chatId}] ` : '')
+  return transcript.turns.map((turn) => {
+    if (turn.dir === 'out') {
+      const tag = turn.kind === 'text' ? '' : `[${turn.kind}] `
+      return `${prefix(turn)}bot< ${tag}${turn.text}`
+    }
+    const tag = turn.event === 'interaction' ? `(${turn.type}) ` : turn.type === 'text' ? '' : `[${turn.type}] `
+    return `${prefix(turn)}${turn.senderId}> ${tag}${turn.text}`
+  }).join('\n')
 }
 
 /**
