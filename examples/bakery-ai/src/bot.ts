@@ -96,7 +96,7 @@ export function createBakeryBot(provider: IProvider, options: BakeryBotOptions =
   })
 
   bot.plug(aiPlugin({
-    ...(options.aiProvider ? { __provider: options.aiProvider } : {}),
+    ...(options.aiProvider ? { instance: options.aiProvider } : {}),
     provider: ai.provider ?? 'ollama',
     ...(ai.model ? { model: ai.model } : {}),
     ...(ai.apiKey ? { apiKey: ai.apiKey } : {}),

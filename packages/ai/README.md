@@ -242,6 +242,7 @@ configurado en vez de tumbar el bot.
 | `model` | `string` | según proveedor | modelo a usar (obligatorio en openai/ollama; presets/gemini/anthropic traen default) |
 | `apiKey` | `string` | env del preset | API key; en presets cae a su env convencional (p.ej. `DEEPSEEK_API_KEY`) |
 | `baseUrl` | `string` | endpoint del preset | override de endpoint (`baseURL` de openai/presets/anthropic / host de ollama) |
+| `instance` | `AIProvider` | — | proveedor ya construido (`MockAIProvider` en tests, o uno propio): omite la resolución de `provider`/`apiKey`/`model` y la carga perezosa del SDK |
 | `persona` | `string` | — | system prompt |
 | `maxTokens` | `number` | `4096` (anthropic) / `1024` (openai) | límite de tokens de salida (en ollama solo si lo fijas, como `options.num_predict`; el tope de 1024 de la extracción de memoria no se aplica ahí). En modelos de razonamiento incluye los tokens de pensamiento |
 | `effort` | `'low' \| 'medium' \| 'high' \| 'xhigh' \| 'max'` | — | esfuerzo de razonamiento (solo lo usa Anthropic; no se envía a modelos que lo rechazan, como Claude Haiku 4.5) |

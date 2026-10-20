@@ -65,16 +65,23 @@ import { verifySignature } from '@bot-wa/graph-core'
 import { scaffold } from 'create-bot-wa'
 
 export const providers: IProvider[] = [
-  new TelegramProvider({ token: 'x' }),
-  new CloudAPIProvider({ accessToken: 'a', phoneNumberId: '1', verifyToken: 'v', appSecret: 's' }),
-  new BaileysProvider({ session: 'demo' }),
+  // logger takes any LoggerLike (console included), not only pino.
+  new TelegramProvider({ token: 'x', logger: console }),
+  new CloudAPIProvider({ accessToken: 'a', phoneNumberId: '1', verifyToken: 'v', appSecret: 's', logger: console }),
+  new BaileysProvider({ session: 'demo', logger: console }),
 ]
 export const store = new SQLiteStore({ file: ':memory:' })
 export const refs = [RedisStore, secureFetch, verifySignature, scaffold, runCli, createPacer]
 
 const createBot = defineBot((provider) => {
   const bot = new Bot({ provider })
-  bot.plug(aiPlugin({ __provider: new MockAIProvider({ reply: 'hi' }) }))
+  bot.plug(aiPlugin({ instance: new MockAIProvider({ reply: 'hi' }) }))
+  // Hook contexts are typed by the event name: no annotation needed to read ctx.body.
+  bot.before('message', async (ctx, next) => { void ctx.body.length; await next() })
+  bot.after('send', (payload) => { void payload.content.kind })
+  // An async install() is a compile error (PluginSpec.install returns void | SyncInstallError).
+  // @ts-expect-error async install is rejected at compile time
+  bot.plug({ name: 'p', version: '0', async install() {} })
   bot.when('hola', async (ctx) => {
     // DefaultTools augmentation from @bot-wa/ai: no cast needed.
     const ai: AIClient = ctx.tools.ai
@@ -102,7 +109,7 @@ await t.chat.send('hola')
 await t.chat.expectReply('hi there')
 
 const t2 = await createTestBot()
-t2.bot.plug(aiPlugin({ __provider: new MockAIProvider({ reply: 'from ai' }), humanizeTyping: false }))
+t2.bot.plug(aiPlugin({ instance: new MockAIProvider({ reply: 'from ai' }), humanizeTyping: false }))
 await t2.chat.send('anything')
 await t2.chat.expectReply(/from ai/)
 
@@ -358,6 +365,13 @@ for (const { dir, pkg: srcPkg } of publicPkgs) {
   for (const f of entries.keys()) {
     const hit = FORBIDDEN.find(([re]) => re.test(f))
     if (hit) failFor(name, `ships ${hit[1]}: ${f}`)
+  }
+  // No @internal symbol leaks into the published types (tsconfig.base.json sets stripInternal).
+  for (const [f, buf] of entries) {
+    if (!f.endsWith('.d.ts')) continue
+    const text = buf.toString('utf8')
+    const at = text.indexOf('@internal')
+    if (at >= 0) failFor(name, `internal symbol leaked into ${f}:${text.slice(0, at).split('\n').length}`)
   }
   // Stale build output: every lib/*.js must come from a source file.
   for (const f of entries.keys()) {
