@@ -20,16 +20,40 @@ await chat.send('hola')
 await chat.expectReply('Your name?')
 await chat.send('Ana')
 await chat.expectReply(/Hi Ana/)
+await chat.expectNoReply()   // nothing else within 300 ms
 chat.replies()        // every text/caption sent to this chat so far
 provider.outbox       // every outbound message, any chat
 ```
 
-`createTestBot(config?)` builds a started `Bot` on a `MockProvider`. You can
-also drive the mock directly: `provider.incoming(text, { from, sender, ... })`,
-`provider.interaction(data, opts)` (button and list taps),
-`provider.incomingLocation({ latitude, longitude, name? }, opts)` (a shared
-location, `ctx.sharedLocation`; also `chat.sendLocation(location)`) and
-`provider.call({ id, from, status })` (for [`CALL` triggers](./triggers#call)).
+`createTestBot(config?)` builds a started `Bot` on a `MockProvider`. `chat` is one
+DM (`user@s.whatsapp.net`): its helpers simulate what the user does and assert on
+what the bot sent back. Every `send*`/`press*` helper yields one macrotask before
+resolving, so the dispatch has started.
+
+| Helper | What it does |
+| --- | --- |
+| `send(text, { type? })` | an inbound message (`type` defaults to `'text'`) |
+| `sendMedia(kind, bytes \| { url, bytes? }, caption? \| { caption, mimetype, filename, size })` | a media message: `ctx.body` is the caption and `loadMediaOf(ctx)` resolves with the bytes. `{ url }` alone is metadata: the download rejects with `MediaUnavailableError` (the mock never touches the network) |
+| `sendLocation(location)` / `sendLocation(lat, lng, { name? })` | a shared location (`ctx.sharedLocation`, `c.waitLocation()`) |
+| `sendReaction(emoji, target?)` | a reaction to the bot's last message in the chat (else the user's last one), to an explicit `MessageRef`, or `{ to?, removed: true }` to retract it; reaches `bot.on('reaction')` and the `'reaction'` hooks |
+| `pressButton(id \| title \| index)` | presses a native button, list row or card button of the last interactive message the bot sent; the bot receives what a real press produces (a `'buttons'` message whose body is the id, `ctx.interaction.data`). Throws when nothing interactive was sent, the target is unknown or it is a URL button. With `new MockProvider({ buttons: false })` menus are numbered text: use `chat.send('1')` |
+| `sendInteraction(data, { kind?, id? })` | a raw interaction (`ctx.interaction.data`), e.g. `{ kind: 'command' }` |
+| `expectReply(text \| regexp, timeoutMs?)` | resolves with the first matching reply (already sent or arriving before the timeout, 1 s by default) |
+| `expectNoReply({ timeout? } \| ms)` | resolves when no unconsumed reply exists nor arrives within the window (300 ms by default); rejects listing the unexpected replies. Consumes nothing |
+| `replies()` / `sent()` / `lastReply()` | the texts of every reply; every outbound entry with its full `content` and `ref`; the last one |
+| `transcript(opts?)` | the exchange as a golden transcript (see [Conversation snapshots](#conversation-snapshots)) |
+
+The helpers throw `TestKitError` with an actionable message. `expectReply` and
+`expectNoReply` poll with real timers: under `vi.useFakeTimers()` advance them
+(`vi.advanceTimersByTimeAsync`) or leave `setTimeout`/`setInterval` unfaked.
+
+You can also drive the mock directly: `provider.incoming(text, { from, sender, ... })`,
+`provider.incomingMedia(kind, bytes, opts)`, `provider.interaction(data, { kind })`
+(button and list taps), `provider.incomingLocation(location, opts)`,
+`provider.reaction(emoji, { to })` and `provider.call({ id, from, status })` (for
+[`CALL` triggers](./triggers#call)). `provider.journal` keeps inbound messages,
+interactions and sends (with their `ref`) in order, bounded by `maxJournal`
+(10 000 by default).
 
 `editMessage`, `deleteMessage` and `sendDraft` are real methods (recorded in
 `edits`, `deleted` and `drafts`) that you can override in a subclass. They are
@@ -38,6 +62,61 @@ exposed according to `new MockProvider({ streaming, supports })`: `edit` and
 one reads `undefined`, so the bot treats it as unsupported; pass
 `supports: { edit: true }` to enable one, or `supports: { edit: false }` to
 simulate a transport without it (this also hides a subclass override).
+
+### Several users and groups
+
+```ts
+const { bot, chat, dm, group } = await createTestBot()
+
+const ana = dm('ana@s.whatsapp.net', { displayName: 'Ana' })      // another DM
+const team = group('team@g.us', { as: 'ana@s.whatsapp.net' })     // a group, driven by Ana
+const beto = team.as('beto@s.whatsapp.net', { displayName: 'Beto' })  // same group, another participant
+
+await team.send('hola'); await beto.send('hola')
+await team.expectReply('Your name?'); await beto.expectReply('Your name?')
+```
+
+Each view carries `chatId`, `senderId`, `isGroup` and `displayName`. Views of the
+same chat share one reply cursor (group replies are not per sender), so
+participants read the chat's replies in order, while conversations stay per
+participant (`conversationScope: 'participant'`). On a DM, `chat.as(userId)` is
+another DM. `provider.journal` holds the events every view emitted, ready for
+`assertStableIdentity`.
+
+### Conversation snapshots
+
+```ts
+expect(chat.transcript()).toMatchSnapshot()
+
+chat.transcript({ as: 'text' })
+// user@s.whatsapp.net> hola
+// bot< Your name?
+```
+
+`chat.transcript({ name?, ids?, timestamps?, scope?, as? })` returns a golden
+[transcript](/guide/golden-transcripts) with the shape `recordTranscript`
+produces: it parses, redacts (`redactTranscript`) and replays
+(`assertTranscript`) unchanged. Ids and `t` offsets are dropped by default so
+snapshots stay stable; `scope: 'all'` interleaves every chat the mock saw and
+`as: 'text'` renders one line per turn. Reactions are not transcript turns.
+
+### Vitest matchers
+
+```ts
+// vitest.setup.ts (a `setupFiles` entry) or at the top of a test file
+import { expect } from 'vitest'
+import { botMatchers } from '@bot-wa/core/testing/vitest'
+expect.extend(botMatchers)
+
+expect(chat).toHaveReplied('Your name?')               // string includes / RegExp
+expect(chat).toHaveRepliedMatching((text, content) => content.kind === 'image')
+expect(provider).toHaveRepliedTimes(2)                 // also provider.outbox or a string[]
+```
+
+`@bot-wa/core/testing/vitest` exports the matchers and augments vitest's
+`Matchers` type (`.not` works). `vitest` is an optional peer dependency: nothing
+is imported from it at runtime. The matchers are synchronous: wait with
+`expectReply`, then assert.
 
 `MockProvider` always uses a stable `from`. To test identity changes and
 hostile delivery, use the chaos kit below.

@@ -45,6 +45,8 @@ writeFileSync('tests/golden/checkout.json', serializeTranscript(golden))
 
 El handle expone `transcript({ name?, description? })` (un snapshot),
 `clear()`, `pause()` y `resume()`.
+En un test creado con `createTestBot`, `chat.transcript()` devuelve esa misma forma
+directamente desde el mock (ver [Snapshots de conversación](/es/guide/testing#snapshots-de-conversacion)).
 
 | Opción | Por defecto | Notas |
 | --- | --- | --- |
