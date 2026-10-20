@@ -4,8 +4,8 @@
  * arrive on the same 'page' webhook object and sending goes through the Send API.
  */
 
-import type { Logger } from 'pino'
 import type { SecureFetchOptions } from '@bot-wa/http'
+import type { LoggerLike } from '@bot-wa/core'
 
 export interface InstagramProviderConfig {
   /** Page access token of the Facebook Page the IG account is connected to. */
@@ -35,7 +35,7 @@ export interface InstagramProviderConfig {
   /** The bot's own IG user id (IGSID). Optional. */
   selfId?: string
   debug?: boolean
-  logger?: Logger
+  logger?: LoggerLike
 }
 
 /* --- Graph API request/response shapes (subset used) --------------------- */

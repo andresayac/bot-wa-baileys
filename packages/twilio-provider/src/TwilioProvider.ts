@@ -20,7 +20,8 @@
  * ```
  */
 
-import pino, { type Logger } from 'pino'
+import pino from 'pino'
+import type { LoggerLike } from '@bot-wa/core'
 import type {
   ChatId,
   IProvider,
@@ -71,7 +72,7 @@ export class TwilioProvider implements IProvider<TwilioWebhookParams> {
   }
 
   private readonly config: TwilioProviderConfig & { apiBaseUrl: string; messagingBaseUrl: string }
-  private readonly logger: Logger
+  private readonly logger: LoggerLike
   private readonly listeners = new Set<(e: InboundEvent<TwilioWebhookParams>) => void | Promise<void>>()
   /** chatId → the business address that received the chat's last message (reply sender). */
   private readonly replyFrom = new BoundedMap<ChatId, string>()

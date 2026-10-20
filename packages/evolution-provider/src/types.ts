@@ -5,8 +5,8 @@
  * which is additive and version-dependent.
  */
 
-import type { Logger } from 'pino'
 import type { IdentityPersistence, RestHttpOptions } from '@bot-wa/wa-gateway-kit'
+import type { LoggerLike } from '@bot-wa/core'
 
 export interface EvolutionProviderConfig {
   /** Evolution API base URL, e.g. `http://localhost:8080`. */
@@ -46,7 +46,7 @@ export interface EvolutionProviderConfig {
   /** Ask Evolution to transcode inbound audio to MP4 when downloading. Default false. */
   convertAudioToMp4?: boolean
   debug?: boolean
-  logger?: Logger
+  logger?: LoggerLike
 }
 
 /** Baileys message key as Evolution relays it (plus the LID/PN twins newer versions attach). */

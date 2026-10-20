@@ -3,8 +3,8 @@
  * shapes (subset used).
  */
 
-import type { Logger } from 'pino'
 import type { ProviderHttpOptions } from './http.js'
+import type { LoggerLike } from '@bot-wa/core'
 
 /** Message channels accepted by `POST /conversations/messages` (`type`). */
 export type GhlChannel = 'SMS' | 'WhatsApp' | 'Email' | 'IG' | 'FB' | 'Custom' | 'Live_Chat' | 'GMB' | (string & {})
@@ -40,7 +40,7 @@ export interface GoHighLevelProviderConfig {
   /** The bot's own id (a HighLevel user id). Optional. */
   selfId?: string
   debug?: boolean
-  logger?: Logger
+  logger?: LoggerLike
 }
 
 /** `InboundMessage` webhook body (and the fields of its siblings we read). */

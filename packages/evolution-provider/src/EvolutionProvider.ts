@@ -24,7 +24,8 @@
  * ```
  */
 
-import pino, { type Logger } from 'pino'
+import pino from 'pino'
+import type { LoggerLike } from '@bot-wa/core'
 import type {
   ChatId,
   ConnectionState,
@@ -105,7 +106,7 @@ export class EvolutionProvider implements IProvider<unknown> {
   private readonly baseUrl: string
   private readonly instancePath: string
   private readonly http: RestHttpOptions
-  private readonly logger: Logger
+  private readonly logger: LoggerLike
   private readonly identity: WaIdentityStore
   private readonly listeners = new Set<(e: InboundEvent) => void | Promise<void>>()
   private _selfId: string | null

@@ -20,7 +20,8 @@
  */
 
 import { readFile } from 'node:fs/promises'
-import pino, { type Logger } from 'pino'
+import pino from 'pino'
+import type { LoggerLike } from '@bot-wa/core'
 import type {
   ChatId,
   IProvider,
@@ -115,7 +116,7 @@ export class CloudAPIProvider implements IProvider<unknown> {
   }
 
   private readonly config: Required<Pick<CloudAPIProviderConfig, 'apiVersion' | 'graphUrl'>> & CloudAPIProviderConfig
-  private readonly logger: Logger
+  private readonly logger: LoggerLike
   private readonly graph: GraphClient
   private listeners = new Set<(e: InboundEvent) => void | Promise<void>>()
   private readonly identity: IdentityResolver

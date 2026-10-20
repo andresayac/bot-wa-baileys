@@ -31,7 +31,8 @@
 
 import { readFile } from 'node:fs/promises'
 import { basename } from 'node:path'
-import pino, { type Logger } from 'pino'
+import pino from 'pino'
+import type { LoggerLike } from '@bot-wa/core'
 import { SecureHttpError, secureFetch } from '@bot-wa/http'
 import {
   ProviderError,
@@ -133,7 +134,7 @@ export class TikTokProvider implements IProvider<unknown> {
   }
 
   private readonly config: TikTokProviderConfig
-  private readonly logger: Logger
+  private readonly logger: LoggerLike
   private readonly listeners = new Set<(e: InboundEvent) => void | Promise<void>>()
   private readonly ownComments = new Set<string>()
   /** commentId -> commenter, from `im_receive_high_intent_comment`. */

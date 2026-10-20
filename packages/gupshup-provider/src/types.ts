@@ -3,8 +3,8 @@
  * (subset used). Inbound callbacks are the Gupshup **v2** format.
  */
 
-import type { Logger } from 'pino'
 import type { ProviderHttpOptions } from './http.js'
+import type { LoggerLike } from '@bot-wa/core'
 
 export interface GupshupProviderConfig {
   /** Account API key (`apikey` header). */
@@ -34,7 +34,7 @@ export interface GupshupProviderConfig {
   /** The bot's own id (defaults to `source`). */
   selfId?: string
   debug?: boolean
-  logger?: Logger
+  logger?: LoggerLike
 }
 
 export interface GupshupSender {

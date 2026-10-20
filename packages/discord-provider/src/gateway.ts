@@ -16,7 +16,7 @@
  */
 
 import WebSocket from 'ws'
-import type { Logger } from 'pino'
+import type { LoggerLike } from '@bot-wa/core'
 import type { ConnectionUpdate, DisconnectReason } from '@bot-wa/core'
 import {
   FATAL_CLOSE_CODES,
@@ -50,7 +50,7 @@ export interface GatewaySocketConfig {
   intents: number
   gatewayUrl: string
   socketFactory: SocketFactory
-  logger: Logger
+  logger: LoggerLike
   /** Base reconnect delay in ms (exponential backoff applies on top). Default 500. */
   reconnectDelayMs?: number
   /** Called for every DISPATCH frame (op 0) with its event name + payload. */

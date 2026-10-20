@@ -2,8 +2,8 @@
  * @bot-wa/twilio — configuration and Twilio REST wire shapes (subset used).
  */
 
-import type { Logger } from 'pino'
 import type { ProviderHttpOptions } from './http.js'
+import type { LoggerLike } from '@bot-wa/core'
 
 export interface TwilioProviderConfig {
   /** Account SID (`AC…`). Used in the REST path and, with `authToken`, as Basic auth. */
@@ -47,7 +47,7 @@ export interface TwilioProviderConfig {
   /** The bot's own id (a sender number). Optional. */
   selfId?: string
   debug?: boolean
-  logger?: Logger
+  logger?: LoggerLike
 }
 
 /** Twilio REST error body. */

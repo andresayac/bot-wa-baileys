@@ -21,7 +21,8 @@ import makeWASocket, {
   useMultiFileAuthState,
   downloadMediaMessage,
 } from '@whiskeysockets/baileys'
-import pino, { type Logger } from 'pino'
+import pino from 'pino'
+import { toBaileysLogger, type BaileysLogger } from './logger.js'
 
 import type {
   ChatId,
@@ -29,6 +30,7 @@ import type {
   DisconnectReason,
   IProvider,
   InboundEvent,
+  LoggerLike,
   MediaRef,
   MessageRef,
   OutboundContent,
@@ -128,7 +130,8 @@ export interface BaileysProviderConfig {
    */
   durableMedia?: { viewOnce?: boolean }
   debug?: boolean
-  logger?: Logger
+  /** Any `LoggerLike` (pino, `console`, your own). Baileys itself receives a `BaileysLogger` adapter (see {@link toBaileysLogger}). */
+  logger?: LoggerLike
 }
 
 const cacheKey = (k: WAMessageKey) => `${k.remoteJid}:${k.id}`
@@ -186,7 +189,9 @@ export class BaileysProvider implements IProvider<WAMessage> {
   }
 
   private readonly config: BaileysProviderConfig
-  private readonly logger: Logger
+  private readonly logger: LoggerLike
+  /** The logger handed to Baileys (`makeWASocket`, the signal key store, media downloads). */
+  private readonly waLogger: BaileysLogger
   private sock: ReturnType<typeof makeWASocket> | null = null
   private msgRetryCounterCache = new NodeCache({ stdTTL: 0, useClones: false })
   private authState: Awaited<ReturnType<typeof useMultiFileAuthState>> | null = null
@@ -216,6 +221,7 @@ export class BaileysProvider implements IProvider<WAMessage> {
     this.logger = config.logger ?? pino({
       level: config.debug ? 'debug' : 'error',
     })
+    this.waLogger = toBaileysLogger(this.logger)
     this.rateLimiter = new RateLimiter(config.rateLimit)
     // Validate eagerly, before any filesystem or network operation.
     resolveSessionDirectory(this.config.sessionsDir, this.config.session)
@@ -334,7 +340,7 @@ export class BaileysProvider implements IProvider<WAMessage> {
     if (!sock) throw new ProviderError('Provider not connected')
     try {
       return await downloadMediaMessage(message, 'buffer', {}, {
-        logger: this.logger,
+        logger: this.waLogger,
         reuploadRequest: sock.updateMediaMessage,
       })
     } catch (err) {
@@ -436,8 +442,8 @@ export class BaileysProvider implements IProvider<WAMessage> {
     const make = (makeWASocket as unknown as { default?: typeof makeWASocket }).default ?? makeWASocket
     this.sock = make({
       version: this.version,
-      logger: this.logger,
-      auth: { creds: this.authState.state.creds, keys: makeCacheableSignalKeyStore(this.authState.state.keys, this.logger) },
+      logger: this.waLogger,
+      auth: { creds: this.authState.state.creds, keys: makeCacheableSignalKeyStore(this.authState.state.keys, this.waLogger) },
       ...(browser ? { browser } : {}),
       msgRetryCounterCache: this.msgRetryCounterCache as unknown as undefined,
       generateHighQualityLinkPreview: true,

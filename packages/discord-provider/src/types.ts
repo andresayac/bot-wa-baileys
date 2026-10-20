@@ -3,8 +3,8 @@
  * inbound events + REST for outbound sends).
  */
 
-import type { Logger } from 'pino'
 import type { SecureFetchOptions } from '@bot-wa/http'
+import type { LoggerLike } from '@bot-wa/core'
 
 /* --- Socket seam (injectable for hermetic tests) ------------------------- */
 
@@ -66,7 +66,7 @@ export interface DiscordProviderConfig {
    */
   reactionMemory?: number
   debug?: boolean
-  logger?: Logger
+  logger?: LoggerLike
 }
 
 /* --- Gateway protocol ------------------------------------------------------ */

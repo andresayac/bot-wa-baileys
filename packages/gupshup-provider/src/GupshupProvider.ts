@@ -22,7 +22,8 @@
  * ```
  */
 
-import pino, { type Logger } from 'pino'
+import pino from 'pino'
+import type { LoggerLike } from '@bot-wa/core'
 import type {
   ChatId,
   IProvider,
@@ -61,7 +62,7 @@ export class GupshupProvider implements IProvider<GupshupCallback> {
   }
 
   private readonly config: GupshupProviderConfig & { baseUrl: string; webhookTokenHeader: string; webhookTokenParam: string }
-  private readonly logger: Logger
+  private readonly logger: LoggerLike
   private readonly listeners = new Set<(e: InboundEvent<GupshupCallback>) => void | Promise<void>>()
 
   constructor(config: GupshupProviderConfig) {
