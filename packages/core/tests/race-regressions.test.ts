@@ -291,6 +291,7 @@ describe('Bot.plug()', () => {
     const { bot } = await createTestBot()
     const errors: unknown[] = []
     bot.on('error', ({ error }) => errors.push(error))
+    // @ts-expect-error async install is rejected at compile time (runtime routing still covered)
     bot.plug({ name: 'async', version: '1.0.0', install: async () => { throw new Error('late failure') } })
     await tick()
     expect(errors).toHaveLength(1)

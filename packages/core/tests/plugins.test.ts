@@ -114,6 +114,9 @@ describe('plugins: async install()', () => {
     const { bot } = await createTestBot()
     const errors: unknown[] = []
     bot.on('error', ({ error }) => errors.push(error))
+    // An async install() no longer compiles (PluginSpec.install returns void | SyncInstallError); the
+    // runtime still routes its rejection to 'error' for JavaScript plugins.
+    // @ts-expect-error async install is rejected at compile time
     bot.plug(plugin('slow', { async install() { throw new Error('boom') } }))
     await tick()
     expect(errors).toHaveLength(1)

@@ -100,7 +100,9 @@ match (default `runtime$`, case-insensitive).
 `Plugin.install()` must be synchronous: `bot.plug()` does not await it, so
 the bot runs before an async `install` has finished, and its rejection only
 reaches the `'error'` event (older core versions crashed the process with an
-unhandled rejection). The rule checks the object passed to `definePlugin(...)`, any object
+unhandled rejection). TypeScript now rejects an async `install` at compile time
+(`PluginSpec.install` returns `void | SyncInstallError`); the rule covers
+JavaScript and `as any` escapes. It checks the object passed to `definePlugin(...)`, any object
 literal with both `name` and `install`, and classes with an `install` method
 that declare a `name` field or `implements Plugin`. For async setup use the
 lazy pattern (resolve on first use, report configuration errors from a

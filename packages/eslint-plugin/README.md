@@ -73,9 +73,11 @@ Opción: `{ receiverPattern: string }` (regex del nombre del receptor; por defec
 
 ### `bot-wa/no-async-plugin-install`
 
-`Plugin.install()` debe ser síncrono: `bot.plug()` no lo espera y un rechazo tumba el proceso. Revisa el objeto de
-`definePlugin({...})`, cualquier objeto literal con `name` + `install`, y clases con `install` que declaran `name` o
-`implements Plugin`. Para inicialización async usa el patrón lazy (como `LazyProvider` en `@bot-wa/ai`).
+`Plugin.install()` debe ser síncrono: `bot.plug()` no lo espera, el bot sigue antes de que termine y su rechazo solo
+llega al evento `'error'`. TypeScript ya lo rechaza al compilar (`PluginSpec.install` devuelve `void | SyncInstallError`);
+la regla cubre JavaScript y los escapes con `as any`. Revisa el objeto de `definePlugin({...})`, cualquier objeto literal
+con `name` + `install`, y clases con `install` que declaran `name` o `implements Plugin`. Para inicialización async usa el
+patrón lazy (como `LazyProvider` en `@bot-wa/ai`).
 
 ### `bot-wa/no-empty-trigger`
 

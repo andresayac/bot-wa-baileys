@@ -412,9 +412,9 @@ It is safe to `await bot.trigger(...)` from a handler or command of the same cha
   `body` sets the synthetic message's `ctx.body` (default `''`).
 - No `before('message')` hooks, matchers or `'message'` event run, and nothing is
   persisted for the synthetic message (`ctx.raw` is `{ synthetic: 'trigger', name }`).
-- `bot.triggerFlow(id, { chatId, userId?, isGroup? }, { state?, body? })` is a thin
+- `bot.triggerFlow(id, { chatId, userId?, isGroup? }, { data?, body? })` is a thin
   wrapper with `ifActive: 'replace'` that resolves `true`/`false` and rejects while
-  the bot is stopped.
+  the bot is stopped (`state` is a deprecated alias of `data`).
 
 ## Runtime metrics
 

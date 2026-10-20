@@ -191,6 +191,37 @@ bot.before('message', handler, 10)  // higher = runs first
 bot.before('message', handler, 0)   // default
 ```
 
+## Typed contexts
+
+The context a hook receives is typed by the event name (`HookContextMap`):
+`'message'` gives a `MessageContext`, `'send'` a `SendHookContext`
+(`{ chatId, content, options?, stream?, edit? }`), `'call'` a `CallEvent`,
+`'reaction'` an `InboundReaction`, and so on; `before` hooks also get
+`abort()`. No annotation is needed:
+
+```ts
+bot.before('message', async (ctx, next) => { console.log(ctx.body); await next() })
+bot.after('send', (payload) => { console.log(payload.content.kind) })
+bot.onError('message', (ctx, error) => { /* ctx is a MessageContext, error is unknown */ })
+```
+
+A custom event (one a plugin runs its own hooks for) is `unknown` unless you
+annotate the handler, pass the type argument, or augment `HookContextMap`
+(declaration merging):
+
+```ts
+declare module '@bot-wa/core' {
+  interface HookContextMap { 'crm.lead': { leadId: string } }
+}
+bot.after('crm.lead', (lead) => lead.leadId)              // typed through the augmentation
+bot.after('other', (ctx: { n: number }) => ctx.n)         // or annotate the handler
+bot.after<'other', { n: number }>('other', (ctx) => ctx.n) // or pass the type argument
+```
+
+`HookHandler<TCtx = unknown>` and `HookErrorHandler<TCtx = unknown>` name a
+handler's type; a handler typed for one event (`HookHandler<MessageContext>`)
+cannot be registered on another (`'send'`).
+
 ## Available events
 
 | Event | When |

@@ -1,8 +1,11 @@
 /**
  * `bot-wa/no-async-plugin-install` — `Plugin.install()` must be synchronous.
- * `Bot.plug()` does not await it, so a rejected async `install` becomes an
- * unhandled rejection that crashes the process. Do async setup lazily (on
- * first use) and report configuration errors from a non-fatal warmup.
+ * `Bot.plug()` does not await it: the bot runs before an async `install` has
+ * finished and its rejection only reaches the `'error'` event (nothing is
+ * rolled back). TypeScript rejects an async `install` at compile time
+ * (`PluginSpec.install` returns `void | SyncInstallError`); this rule covers
+ * JavaScript and `as any` escapes. Do async setup lazily (on first use) and
+ * report configuration errors from a non-fatal warmup.
  *
  * Checked: the object passed to `definePlugin(...)`, any object literal with
  * both a `name` and an `install` member, and classes with an `install`
@@ -32,7 +35,8 @@ export const noAsyncPluginInstall: Rule.RuleModule = {
     schema: [],
     messages: {
       async:
-        'Plugin `install()` must be synchronous: `bot.plug()` does not await it, so a rejection crashes the process. ' +
+        'Plugin `install()` must be synchronous and return nothing: `bot.plug()` does not await it, so the bot runs ' +
+        'before an async install has finished and its rejection only reaches the error event. ' +
         'Do async setup lazily on first use (see LazyProvider in @bot-wa/ai).',
     },
   },

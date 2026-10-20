@@ -85,13 +85,18 @@ export class BotOps {
 
   /** `bot.triggerFlow()`: {@link trigger} (through the late-bound `trigger`) with `ifActive: 'replace'`. */
   async triggerFlow(trigger: TriggerFn, id: string, target: FlowTriggerTarget, opts: FlowTriggerOptions): Promise<boolean> {
+    // Argument validation first (like assertTriggerArgs): `state` is the deprecated alias of `data`.
+    if (opts.data && opts.state && opts.data !== opts.state) {
+      throw new TypeError('triggerFlow(): pass data (state is its deprecated alias), not both')
+    }
+    const data = opts.data ?? opts.state
     if (!this.k.state.acceptingInbound) throw new Error('triggerFlow() needs a started bot')
     if (!this.k.runtime.has(id)) return false
     const result = await trigger(id, {
       chatId: target.chatId,
       ...(target.userId !== undefined ? { userId: target.userId } : {}),
       isGroup: target.isGroup === true,
-      ...(opts.state ? { data: opts.state } : {}),
+      ...(data ? { data } : {}),
       ...(opts.body !== undefined ? { body: opts.body } : {}),
       ifActive: 'replace',
     })

@@ -8,7 +8,7 @@
  * use ECMAScript `#private` fields (reading one through the scoped object would throw).
  */
 import type { Bot } from '../Bot.js'
-import type { HookEvent, HookHandler, HookPhase, Plugin, PluginContext } from '../types.js'
+import type { AnyHookHandler, HookEvent, HookPhase, Plugin, PluginContext } from '../types.js'
 import { isThenable, type BotKernel } from './kernel.js'
 
 /** The private member of Bot the scoped bot overrides (bracket access keeps it private on Bot). */
@@ -65,13 +65,13 @@ export class PluginHost {
     ;(scopedBot as unknown as EnterMatcherHost).registerEnterMatcher = track(host.registerEnterMatcher.bind(bot))
     // `use(plugin)` calls `this.plug()`: a nested plugin is unplugged with its parent.
     scopedBot.plug = track(bot.plug.bind(bot))
-    const hook = (event: HookEvent, phase: HookPhase, handler: HookHandler, priority = 0): Bot => {
+    const hook = (event: HookEvent, phase: HookPhase, handler: AnyHookHandler, priority = 0): Bot => {
       disposables.push(this.k.hooks.register(event, phase, handler, priority))
       return scopedBot
     }
-    scopedBot.before = ((event: HookEvent, handler: HookHandler, priority = 0) => hook(event, 'before', handler, priority)) as Bot['before']
-    scopedBot.after = ((event: HookEvent, handler: HookHandler, priority = 0) => hook(event, 'after', handler, priority)) as Bot['after']
-    scopedBot.onError = ((event: HookEvent, handler: HookHandler, priority = 0) => hook(event, 'error', handler, priority)) as Bot['onError']
+    scopedBot.before = ((event: HookEvent, handler: AnyHookHandler, priority = 0) => hook(event, 'before', handler, priority)) as Bot['before']
+    scopedBot.after = ((event: HookEvent, handler: AnyHookHandler, priority = 0) => hook(event, 'after', handler, priority)) as Bot['after']
+    scopedBot.onError = ((event: HookEvent, handler: AnyHookHandler, priority = 0) => hook(event, 'error', handler, priority)) as Bot['onError']
     scopedBot.hook = hook as Bot['hook']
     // Flows registered at runtime through ctx.bot are unregistered with the plugin. Tracked by
     // id; an id the plugin unregisters itself is forgotten, so a later bot flow under the same

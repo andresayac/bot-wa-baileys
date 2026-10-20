@@ -416,8 +416,9 @@ Puedes hacer `await bot.trigger(...)` desde un handler o comando del mismo chat 
   `body` fija el `ctx.body` del mensaje sintético (por defecto `''`).
 - No corren hooks `before('message')`, matchers ni el evento `'message'`, y no se
   persiste nada del mensaje sintético (`ctx.raw` es `{ synthetic: 'trigger', name }`).
-- `bot.triggerFlow(id, { chatId, userId?, isGroup? }, { state?, body? })` es un envoltorio
-  fino con `ifActive: 'replace'` que resuelve `true`/`false` y rechaza con el bot detenido.
+- `bot.triggerFlow(id, { chatId, userId?, isGroup? }, { data?, body? })` es un envoltorio
+  fino con `ifActive: 'replace'` que resuelve `true`/`false` y rechaza con el bot detenido
+  (`state` es un alias obsoleto de `data`).
 
 ## Métricas de runtime
 
