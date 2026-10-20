@@ -6,9 +6,22 @@
  * @packageDocumentation
  */
 export { MockProvider } from './MockProvider.js'
-export type { MockProviderOptions, MockProviderSupports, MockEdit, MockDraft, MockOutgoing, MockIncomingOptions } from './MockProvider.js'
+export type {
+  MockProviderOptions,
+  MockProviderSupports,
+  MockEdit,
+  MockDraft,
+  MockOutgoing,
+  MockIncomingOptions,
+  MockMediaOptions,
+  MockMediaSource,
+  MockMediaToken,
+  MockJournalEntry,
+} from './MockProvider.js'
 export { createTestBot } from './createTestBot.js'
-export type { TestChat } from './createTestBot.js'
+// Test chat views (createTestBot().chat / dm() / group() / chat.as()).
+export { TestKitError, DEFAULT_TEST_USER, DEFAULT_TEST_NAME } from './testChat.js'
+export type { TestChat, TestMediaKind, PressedButton, TestTranscriptOptions, TestSent } from './testChat.js'
 
 // chaos-mock: adversarial delivery kit + identity stability contract helpers
 export type { TestBot, CreateTestBotOptions } from './createTestBot.js'
@@ -59,6 +72,9 @@ export {
   serializeTranscript,
   serializeContent,
   outboundText,
+  inboundTurnOf,
+  outboundTurnOf,
+  transcriptToText,
   transcriptFromMessages,
   transcriptFromStore,
 } from './transcripts/format.js'
@@ -67,6 +83,7 @@ export type {
   TranscriptTurn,
   TranscriptInbound,
   TranscriptOutbound,
+  TranscriptInboundEvent,
   JsonValue,
   FromMessagesOptions,
   TranscriptMessageSource,
