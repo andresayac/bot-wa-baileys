@@ -501,19 +501,21 @@ export class FakePool implements PoolLike {
       const doc = row ? (JSON.parse(String(row.cp)) as { revision?: unknown }) : undefined
       return typeof doc?.revision === 'number' ? doc.revision : 0
     }
-    if (
-      s === `INSERT INTO \`${checkpoints}\` (\`key\`, cp) VALUES (?, ?) ON DUPLICATE KEY UPDATE ` +
-        "cp = IF(COALESCE(JSON_EXTRACT(cp, '$.revision'), 0) = 0, VALUES(cp), cp)"
-    ) {
-      const stored = mysqlJsonIn(p[1], `${checkpoints}.cp`)
-      const existing = this.table(checkpoints).get(key(p[0]))
-      if (!existing) {
-        this.table(checkpoints).set(key(p[0]), { key: key(p[0]), cp: stored })
-        return header(1)
+    if (s === `INSERT IGNORE INTO \`${checkpoints}\` (\`key\`, cp) VALUES (?, ?)`) {
+      if (this.table(checkpoints).has(key(p[0]))) return header(0)
+      this.table(checkpoints).set(key(p[0]), { key: key(p[0]), cp: mysqlJsonIn(p[1], `${checkpoints}.cp`) })
+      return header(1)
+    }
+    if (s === `UPDATE \`${checkpoints}\` SET cp = ? WHERE \`key\` = ? AND COALESCE(JSON_EXTRACT(cp, '$.revision'), 0) = 0`) {
+      const existing = this.table(checkpoints).get(key(p[1]))
+      if (!existing || revisionOf(existing) !== 0) {
+        // mysql2 connects with FOUND_ROWS: affectedRows counts matched rows, like the server's `info`.
+        return [{ affectedRows: 0, info: 'Rows matched: 0  Changed: 0  Warnings: 0' } as unknown as Row[], []]
       }
-      if (revisionOf(existing) !== 0 || String(existing.cp) === stored) return header(0)
-      this.table(checkpoints).set(key(p[0]), { key: key(p[0]), cp: stored })
-      return header(2)
+      const stored = mysqlJsonIn(p[0], `${checkpoints}.cp`)
+      const changed = String(existing.cp) !== stored ? 1 : 0
+      this.table(checkpoints).set(key(p[1]), { key: key(p[1]), cp: stored })
+      return [{ affectedRows: 1, info: `Rows matched: 1  Changed: ${changed}  Warnings: 0` } as unknown as Row[], []]
     }
     if (s === `UPDATE \`${checkpoints}\` SET cp = ? WHERE \`key\` = ? AND JSON_EXTRACT(cp, '$.revision') = ?`) {
       const existing = this.table(checkpoints).get(key(p[1]))
@@ -524,7 +526,7 @@ export class FakePool implements PoolLike {
       const stored = mysqlJsonIn(p[0], `${checkpoints}.cp`)
       const changed = String(existing.cp) !== stored ? 1 : 0
       this.table(checkpoints).set(key(p[1]), { key: key(p[1]), cp: stored })
-      return [{ affectedRows: changed, info: `Rows matched: 1  Changed: ${changed}  Warnings: 0` } as unknown as Row[], []]
+      return [{ affectedRows: 1, info: `Rows matched: 1  Changed: ${changed}  Warnings: 0` } as unknown as Row[], []]
     }
     if (s === `DELETE FROM \`${checkpoints}\` WHERE \`key\` = ? AND COALESCE(JSON_EXTRACT(cp, '$.revision'), 0) = ?`) {
       const existing = this.table(checkpoints).get(key(p[0]))

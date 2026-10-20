@@ -150,8 +150,8 @@ function affectedRows(header: unknown): number {
 }
 
 /**
- * Rows MATCHED by an UPDATE: `affectedRows` counts changed rows only (no CLIENT_FOUND_ROWS),
- * so the header's `info` ("Rows matched: 1  Changed: 0  Warnings: 0") is the honest count.
+ * Rows MATCHED by an UPDATE, read from the header's `info` ("Rows matched: 1  Changed: 0
+ * Warnings: 0"): the one count that does not depend on the connection's FOUND_ROWS flag.
  */
 function matchedRows(header: unknown): number {
   const info = (header as { info?: unknown } | undefined)?.info
@@ -445,11 +445,11 @@ export class MysqlStore implements IStore {
     await this.query(`DELETE FROM \`${this.t.checkpoints}\` WHERE \`key\` = ?`, [key])
   }
   /**
-   * Compare-and-set write (see `IStore.setCheckpointIf`): one conditional statement per
-   * case. Revision 0: an upsert whose `ON DUPLICATE KEY UPDATE` keeps the row unless its JSON
-   * has no revision (`affectedRows` 1 inserted / 2 replaced / 0 refused). Otherwise a
-   * conditional `UPDATE`, judged by the rows MATCHED (mysql2 reports changed rows in
-   * `affectedRows`; an identical rewrite still succeeded).
+   * Compare-and-set write (see `IStore.setCheckpointIf`), judged by the rows MATCHED of one
+   * conditional statement (mysql2 connects with `FOUND_ROWS`, so `affectedRows` counts
+   * matched rows too; the header's `info` is read for the honest count). Revision 0 first
+   * tries `INSERT IGNORE` (exactly one concurrent writer inserts) and, when the row exists,
+   * a conditional `UPDATE` that only matches a row whose JSON has no revision.
    */
   async setCheckpointIf(key: string, cp: FlowCheckpoint, expectedRevision: number): Promise<boolean> {
     if (!Number.isInteger(expectedRevision) || expectedRevision < 0) {
@@ -458,12 +458,13 @@ export class MysqlStore implements IStore {
     const t = this.t.checkpoints
     const json = JSON.stringify(cp)
     if (expectedRevision === 0) {
+      const [inserted] = await this.query(`INSERT IGNORE INTO \`${t}\` (\`key\`, cp) VALUES (?, ?)`, [key, json])
+      if (affectedRows(inserted) === 1) return true
       const [header] = await this.query(
-        `INSERT INTO \`${t}\` (\`key\`, cp) VALUES (?, ?) ON DUPLICATE KEY UPDATE ` +
-          "cp = IF(COALESCE(JSON_EXTRACT(cp, '$.revision'), 0) = 0, VALUES(cp), cp)",
-        [key, json],
+        `UPDATE \`${t}\` SET cp = ? WHERE \`key\` = ? AND COALESCE(JSON_EXTRACT(cp, '$.revision'), 0) = 0`,
+        [json, key],
       )
-      return affectedRows(header) > 0
+      return matchedRows(header) === 1
     }
     const [header] = await this.query(
       `UPDATE \`${t}\` SET cp = ? WHERE \`key\` = ? AND JSON_EXTRACT(cp, '$.revision') = ?`,
