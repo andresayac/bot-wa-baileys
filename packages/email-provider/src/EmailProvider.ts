@@ -175,6 +175,10 @@ export class EmailProvider implements IProvider<EmailRaw> {
     if (floodOpts) this.flood = new SenderFloodGuard(floodOpts)
     this.maxAttachmentBytes = config.maxAttachmentBytes ?? DEFAULT_MAX_ATTACHMENT_BYTES
     this.capabilities.maxMediaBytes = this.maxAttachmentBytes
+    // One live IMAP session per mailbox: two replicas would fetch the same unseen mail
+    // (IDLE or polling fight over the UID cursor). `ingest(raw)` without IMAP is a push
+    // ingress and can fan out to every replica.
+    this.capabilities.exclusiveSession = Boolean(config.imap || config.createImapClient)
     this.cacheLimit = Math.max(0, config.attachmentCacheBytes ?? DEFAULT_CACHE_BYTES)
     this.maxInboundBytes = Math.max(1, config.maxInboundBytes ?? DEFAULT_MAX_INBOUND_BYTES)
     this.http = config.http ?? {}
