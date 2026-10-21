@@ -160,10 +160,38 @@ importers:
         version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
 
   packages/campaigns:
+    dependencies:
+      '@bot-wa/core':
+        specifier: workspace:*
+        version: link:../core
+      '@bot-wa/tenant-kv':
+        specifier: workspace:*
+        version: link:../tenant-kv
     devDependencies:
+      '@bot-wa/postgres-store':
+        specifier: workspace:*
+        version: link:../postgres-store
+      '@bot-wa/redis-store':
+        specifier: workspace:*
+        version: link:../redis-store
+      '@bot-wa/sqlite-store':
+        specifier: workspace:*
+        version: link:../sqlite-store
       '@types/node':
         specifier: ^26.1.1
         version: 26.1.1
+      '@types/pg':
+        specifier: ^8.11.10
+        version: 8.20.0
+      better-sqlite3:
+        specifier: ^11.7.0
+        version: 11.10.0
+      pg:
+        specifier: ^8.13.0
+        version: 8.22.0
+      redis:
+        specifier: ^4.7.0
+        version: 4.7.1
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
@@ -231,10 +259,38 @@ importers:
         version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
 
   packages/crm:
+    dependencies:
+      '@bot-wa/core':
+        specifier: workspace:*
+        version: link:../core
+      '@bot-wa/tenant-kv':
+        specifier: workspace:*
+        version: link:../tenant-kv
     devDependencies:
+      '@bot-wa/postgres-store':
+        specifier: workspace:*
+        version: link:../postgres-store
+      '@bot-wa/redis-store':
+        specifier: workspace:*
+        version: link:../redis-store
+      '@bot-wa/sqlite-store':
+        specifier: workspace:*
+        version: link:../sqlite-store
       '@types/node':
         specifier: ^26.1.1
         version: 26.1.1
+      '@types/pg':
+        specifier: ^8.11.10
+        version: 8.20.0
+      better-sqlite3:
+        specifier: ^11.7.0
+        version: 11.10.0
+      pg:
+        specifier: ^8.13.0
+        version: 8.22.0
+      redis:
+        specifier: ^4.7.0
+        version: 4.7.1
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
@@ -250,10 +306,34 @@ importers:
       '@bot-wa/core':
         specifier: workspace:*
         version: link:../core
+      '@bot-wa/tenant-kv':
+        specifier: workspace:*
+        version: link:../tenant-kv
     devDependencies:
+      '@bot-wa/postgres-store':
+        specifier: workspace:*
+        version: link:../postgres-store
+      '@bot-wa/redis-store':
+        specifier: workspace:*
+        version: link:../redis-store
+      '@bot-wa/sqlite-store':
+        specifier: workspace:*
+        version: link:../sqlite-store
       '@types/node':
         specifier: ^26.1.1
         version: 26.1.1
+      '@types/pg':
+        specifier: ^8.11.10
+        version: 8.20.0
+      better-sqlite3:
+        specifier: ^11.7.0
+        version: 11.10.0
+      pg:
+        specifier: ^8.13.0
+        version: 8.22.0
+      redis:
+        specifier: ^4.7.0
+        version: 4.7.1
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
@@ -507,10 +587,38 @@ importers:
         version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
 
   packages/hub:
+    dependencies:
+      '@bot-wa/core':
+        specifier: workspace:*
+        version: link:../core
+      '@bot-wa/tenant-kv':
+        specifier: workspace:*
+        version: link:../tenant-kv
     devDependencies:
+      '@bot-wa/postgres-store':
+        specifier: workspace:*
+        version: link:../postgres-store
+      '@bot-wa/redis-store':
+        specifier: workspace:*
+        version: link:../redis-store
+      '@bot-wa/sqlite-store':
+        specifier: workspace:*
+        version: link:../sqlite-store
       '@types/node':
         specifier: ^26.1.1
         version: 26.1.1
+      '@types/pg':
+        specifier: ^8.11.10
+        version: 8.20.0
+      better-sqlite3:
+        specifier: ^11.7.0
+        version: 11.10.0
+      pg:
+        specifier: ^8.13.0
+        version: 8.22.0
+      redis:
+        specifier: ^4.7.0
+        version: 4.7.1
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
@@ -526,10 +634,34 @@ importers:
       '@bot-wa/core':
         specifier: workspace:*
         version: link:../core
+      '@bot-wa/tenant-kv':
+        specifier: workspace:*
+        version: link:../tenant-kv
     devDependencies:
+      '@bot-wa/postgres-store':
+        specifier: workspace:*
+        version: link:../postgres-store
+      '@bot-wa/redis-store':
+        specifier: workspace:*
+        version: link:../redis-store
+      '@bot-wa/sqlite-store':
+        specifier: workspace:*
+        version: link:../sqlite-store
       '@types/node':
         specifier: ^26.1.1
         version: 26.1.1
+      '@types/pg':
+        specifier: ^8.11.10
+        version: 8.20.0
+      better-sqlite3:
+        specifier: ^11.7.0
+        version: 11.10.0
+      pg:
+        specifier: ^8.13.0
+        version: 8.22.0
+      redis:
+        specifier: ^4.7.0
+        version: 4.7.1
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
@@ -906,6 +1038,25 @@ importers:
       pino:
         specifier: ^10.3.1
         version: 10.3.1
+    devDependencies:
+      '@types/node':
+        specifier: ^26.1.1
+        version: 26.1.1
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
+      vite:
+        specifier: ^7.3.6
+        version: 7.3.6(@types/node@26.1.1)(yaml@2.9.0)
+      vitest:
+        specifier: ^4.1.10
+        version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
+
+  packages/tenant-kv:
+    dependencies:
+      '@bot-wa/core':
+        specifier: workspace:*
+        version: link:../core
     devDependencies:
       '@types/node':
         specifier: ^26.1.1

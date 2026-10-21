@@ -30,6 +30,7 @@ import type {
 import { legacyMessageKey, messageKey } from '@bot-wa/core'
 import { SqliteUserData } from './userData.js'
 import { SQLiteScheduleStore } from './schedules.js'
+import { SQLiteDurability } from './durability.js'
 
 export interface SQLiteStoreOptions {
   /** Path to the SQLite database file. Default: './bot.db' */
@@ -393,6 +394,18 @@ export class SQLiteStore implements IStore {
    */
   schedules(): SQLiteScheduleStore {
     return (this.scheduleStore ??= new SQLiteScheduleStore(this.db))
+  }
+
+  private durabilityBackend?: SQLiteDurability
+
+  /**
+   * The durability backend on this database (table `durable`), sharing this store's
+   * connection: `new Bot({ store, durability: { journal: store.durability() } })`. Its
+   * `kv` is a `DurableKv` the product packages (`@bot-wa/inbox`…) can persist to as well.
+   * Always the same instance.
+   */
+  durability(): SQLiteDurability {
+    return (this.durabilityBackend ??= new SQLiteDurability(this.db))
   }
 
   async start(): Promise<void> {}

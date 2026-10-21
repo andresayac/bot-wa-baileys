@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Plugin manifest and tenant-scoped registry primitives for BotWA.",
+  "description": "Tenant-scoped plugin registry with validated manifests, persisted through any DurableKv.",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
   "exports": {
@@ -26,8 +26,19 @@
   },
   "author": "Andres Aya",
   "license": "MIT",
+  "dependencies": {
+    "@bot-wa/core": "workspace:*",
+    "@bot-wa/tenant-kv": "workspace:*"
+  },
   "devDependencies": {
+    "@bot-wa/postgres-store": "workspace:*",
+    "@bot-wa/redis-store": "workspace:*",
+    "@bot-wa/sqlite-store": "workspace:*",
     "@types/node": "^26.1.1",
+    "@types/pg": "^8.11.10",
+    "better-sqlite3": "^11.7.0",
+    "pg": "^8.13.0",
+    "redis": "^4.7.0",
     "typescript": "^7.0.2",
     "vite": "^7.3.6",
     "vitest": "^4.1.10"

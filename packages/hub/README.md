@@ -1,19 +1,16 @@
 # @bot-wa/hub
 
-> [!WARNING]
-> **Prototipo en memoria · privado (`"private": true`, no se publica en npm).**
-> El estado vive en RAM y se pierde al reiniciar; no hay firma, sandbox ni registry remoto, y la API puede cambiar sin aviso. Sirve para fijar el contrato antes de la implementación real.
->
-> Roadmap: track [H. Plugins, Hub, MCP y skills](../../ROADMAP.md#h-plugins-hub-mcp-y-skills), fase [F5 — Ecosistema y escala](../../ROADMAP.md#f5--ecosistema-y-escala) («Plugin SDK v2 y registry firmado», «Integration Hub y trust tiers»). El contrato objetivo es el [Plugin manifest v2](../../ROADMAP.md#plugin-manifest-v2).
+> **Paquete privado** (`"private": true`, no se publica en npm). Implementación real y persistente; la API puede cambiar sin aviso mientras la alpha no salga.
 
 Registro de plugins por tenant. Valida manifiestos, compatibilidad con el runtime y permisos explícitos antes de habilitar un plugin.
 
 ```ts
-import { PluginRegistry } from '@bot-wa/hub'
+import { KvPluginStore, PluginRegistry } from '@bot-wa/hub'
+import { RedisDurableKv } from '@bot-wa/redis-store'
 
-const registry = new PluginRegistry()
-registry.install('acme', manifest, '2.0.0')
-registry.enable('acme', manifest.id, manifest.permissions)
+const registry = new PluginRegistry(new KvPluginStore(new RedisDurableKv({ client })))
+await registry.install('acme', manifest, '2.0.0')
+await registry.enable('acme', manifest.id, manifest.permissions)
 ```
 
 `validateManifest()` comprueba:
@@ -23,3 +20,15 @@ registry.enable('acme', manifest.id, manifest.permissions)
 - `entry`: ruta relativa POSIX dentro del paquete. Se rechazan rutas absolutas, letras de unidad (`C:/x.js`), rutas UNC y barras invertidas, URLs (`file:///x.js`), segmentos `..` o vacíos y caracteres de control; nombres como `a..b.js` son válidos.
 
 El registro no ejecuta código ni descarga paquetes; la firma, sandbox y marketplace remoto son responsabilidades de la siguiente capa de infraestructura.
+
+## Almacenamiento
+
+- `MemoryPluginStore` — implementación de referencia, en RAM. Se pierde al reiniciar; úsala en tests.
+- `KvPluginStore` — persiste sobre cualquier [`DurableKv`](../core/src/durability/kv.ts) del core (`MemoryKv`, `FileDurability`, `SQLiteDurableKv`, `PostgresDurableKv`, `RedisDurableKv`). La tabla lleva el tenant (`@bot-wa/tenant-kv`) y la habilitación es un compare-and-set, de modo que dos procesos no se pisan.
+
+Ambas pasan la misma suite de conformidad (`test-utils/plugin-store-conformance.ts`). Las suites contra servidores reales (`tests/integration.test.ts`) se activan con `BOTWA_TEST_POSTGRES_URL`, `BOTWA_TEST_REDIS_URL` y `BOTWA_TEST_REDIS_CLUSTER_URL`; SQLite siempre corre con un archivo temporal.
+
+```ts
+const sqlite = new SQLiteStore({ file: 'hub.db' })
+const registry = new PluginRegistry(new KvPluginStore(sqlite.durability().kv))
+```

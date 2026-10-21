@@ -15,7 +15,7 @@ Capas (las dependencias van siempre hacia abajo, nunca al revés):
 | Canales (13) | `baileys-provider`, `meta-provider`, `messenger-provider`, `instagram-provider`, `telegram-provider`, `discord-provider`, `evolution-provider`, `wppconnect-provider`, `twilio-provider`, `gohighlevel-provider`, `gupshup-provider`, `email-provider`, `tiktok-provider` |
 | Stores | `sqlite-store`, `redis-store`, `mongo-store`, `postgres-store`, `mysql-store` |
 | Plugins | `ai`, `rag`, `voice`, `nlu`, `dialogflow`, `chatwoot`, `tickets`, `moderation`, `manager`, `events`, `otel` (OpenTelemetry) |
-| Prototipos de producto | `inbox`, `crm`, `hub`, `campaigns`, `deployments` |
+| Producto (privado, persistente) | `inbox`, `crm`, `hub`, `campaigns`, `deployments` (+ infra `tenant-kv`: documentos JSON por tenant con CAS sobre cualquier `DurableKv`) |
 | Tooling | `create-bot-wa` (CLI scaffolder), `eslint-plugin` (`eslint-plugin-bot-wa`) |
 | Ejemplos | `examples/bakery-ai` (asistente de pedidos con IA sobre Baileys o Twilio) |
 
@@ -27,7 +27,7 @@ Solo 10 paquetes son **públicos**: `core`, `baileys`, `meta`, `telegram`, `sqli
 - Stores: `mongo-store`, `postgres-store`, `mysql-store`.
 - Plugins e infra: `server`, `wa-gateway-kit`, `rag`, `voice`, `nlu`, `dialogflow`, `chatwoot`, `tickets`, `moderation`, `manager`, `events`, `otel`.
 - Tooling: `eslint-plugin-bot-wa`.
-- Prototipos: `inbox`, `crm`, `hub`, `campaigns`, `deployments`.
+- Producto: `inbox`, `crm`, `hub`, `campaigns`, `deployments`, `tenant-kv` (todos persistentes sobre cualquier `DurableKv`).
 - Ejemplo: `@bot-wa/example-bakery-ai`.
 
 Un paquete público no puede depender de uno privado, y sus dependencias internas se declaran como `"workspace:^"` (al empaquetar salen como `^x.y.z`, así npm deduplica `@bot-wa/core`).

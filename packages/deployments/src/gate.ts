@@ -2,9 +2,11 @@
  * Publish gates for {@link DeploymentRegistry.publish}: a check that must pass
  * before a version becomes active. {@link goldenTranscriptGate} replays golden
  * transcripts against the candidate bot and passes only when every one of them
- * replays without diffs.
+ * replays without diffs. Every run (pass or fail) is persisted by the registry as a
+ * `GateRun`, so its `details` must be JSON-safe (`toJsonValue` makes them so).
  */
 
+import type { JsonValue } from '@bot-wa/core'
 import {
   replayTranscript,
   type ReplayBotFactory,
@@ -29,31 +31,29 @@ export interface GateResult {
   reason?: string
   /** One-line summary kept on the deployment when the gate passes. */
   summary?: string
-  /** Gate-specific data (e.g. replay results), exposed on {@link DeploymentGateError.result}. */
+  /** Gate-specific data (e.g. replay results), exposed on {@link DeploymentGateError.result} and persisted as JSON in the gate run. */
   details?: unknown
 }
 
 /** A publish gate. A bare boolean means `{ ok }`. Throwing counts as a failure. */
 export type DeploymentGate = (candidate: DeploymentCandidate) => GateResult | boolean | Promise<GateResult | boolean>
 
-/** Gate trace stored on a deployment that passed a gate. */
-export interface GateRecord {
-  passed: true
-  /** Epoch ms when the gate passed. */
-  checkedAt: number
-  summary?: string
-}
-
 /** Rejection of a gated publish: the version was not stored nor activated. */
 export class DeploymentGateError extends Error {
   readonly candidate: DeploymentCandidate
   readonly result: GateResult
+  /** Id of the persisted gate run (see `DeploymentRegistry.gateRuns`). */
+  readonly runId: string | undefined
 
-  constructor(candidate: DeploymentCandidate, result: GateResult, options?: { cause?: unknown }) {
-    super(`publish gate rejected ${candidate.botId}@${candidate.version}: ${result.reason ?? 'gate failed'}`, options)
+  constructor(candidate: DeploymentCandidate, result: GateResult, options?: { cause?: unknown; runId?: string }) {
+    super(
+      `publish gate rejected ${candidate.botId}@${candidate.version}: ${result.reason ?? 'gate failed'}`,
+      options?.cause !== undefined ? { cause: options.cause } : undefined,
+    )
     this.name = 'DeploymentGateError'
     this.candidate = candidate
     this.result = result
+    this.runId = options?.runId
   }
 }
 
@@ -64,6 +64,21 @@ export function normalizeGateResult(value: GateResult | boolean): GateResult {
     return { ok: false, reason: 'gate returned an invalid result' }
   }
   return value
+}
+
+/**
+ * The JSON projection of any value (`JSON.stringify` → `JSON.parse`): functions, symbols
+ * and `undefined` properties are dropped, `toJSON()` is honoured; cycles and bigints
+ * make it `undefined`. Used to persist gate `details` without trusting their shape.
+ */
+export function toJsonValue(value: unknown): JsonValue | undefined {
+  if (value === undefined) return undefined
+  try {
+    const text = JSON.stringify(value)
+    return text === undefined ? undefined : (JSON.parse(text) as JsonValue)
+  } catch {
+    return undefined
+  }
 }
 
 /** Options for {@link goldenTranscriptGate}. */
@@ -82,7 +97,7 @@ export interface GoldenTranscriptGateOptions {
   allowEmpty?: boolean
 }
 
-/** `details` of a {@link goldenTranscriptGate} result. */
+/** `details` of a {@link goldenTranscriptGate} result (JSON-safe: persisted in the gate run). */
 export interface GoldenTranscriptGateDetails {
   results: Array<{ name: string; ok: boolean; diffs: TranscriptDiff[]; report: string }>
 }
