@@ -1,23 +1,23 @@
 # @bot-wa/meta
 
-Transporte **WhatsApp Cloud API (oficial de Meta)** para [`@bot-wa/core`](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/core). A diferencia de Baileys (WhatsApp Web, no oficial), la Cloud API es **oficial: sin riesgo de baneo**, con **botones, listas y plantillas nativos**. Es webhook-based (no abre socket).
+The **official WhatsApp Cloud API (Meta)** transport for [`@bot-wa/core`](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/core). Unlike Baileys (WhatsApp Web, unofficial), the Cloud API is **official: no ban risk**, with **native buttons, lists and templates**. It is webhook-based (it opens no socket).
 
-## Instalación
+## Installation
 
 ```bash
 pnpm add @bot-wa/core @bot-wa/meta
 ```
 
-**Cero dependencias extra** — usa `fetch` y `crypto` nativos de Node ≥ 22.
+**No extra dependencies** — it uses Node ≥ 22's native `fetch` and `crypto`.
 
-## Requisitos (Meta)
+## Requirements (Meta)
 
-1. Una app en [developers.facebook.com](https://developers.facebook.com) con el producto **WhatsApp**.
-2. Un **token de acceso permanente** (system user) con `whatsapp_business_messaging`.
-3. El **phone number id** de tu número emisor.
-4. Configurar un **webhook** apuntando a tu servidor (con un `verify_token` que tú eliges y, recomendado, el `app_secret` de la app).
+1. An app on [developers.facebook.com](https://developers.facebook.com) with the **WhatsApp** product.
+2. A **permanent access token** (system user) with `whatsapp_business_messaging`.
+3. The **phone number id** of your sender number.
+4. A **webhook** pointing at your server (with a `verify_token` you choose and, recommended, the app's `app_secret`).
 
-## Uso
+## Usage
 
 ```ts
 import { Bot } from '@bot-wa/core'
@@ -27,15 +27,15 @@ import express from 'express'
 const provider = new CloudAPIProvider({
   accessToken: process.env.META_TOKEN!,
   phoneNumberId: process.env.META_PHONE_ID!,
-  verifyToken: 'mi-verify-secret',                 // el que pusiste en Meta
-  appSecret: process.env.META_APP_SECRET!,         // requerido: verifica X-Hub-Signature-256
+  verifyToken: 'my-verify-secret',                 // the one you set in Meta
+  appSecret: process.env.META_APP_SECRET!,         // required: verifies X-Hub-Signature-256
 })
 
 const bot = new Bot({ provider })
-bot.when('hola', (ctx) => ctx.reply('👋 ¡Hola desde la API oficial!'))
+bot.when('hola', (ctx) => ctx.reply('👋 Hello from the official API!'))
 await bot.start()
 
-// ——— El webhook lo sirve TU servidor ———
+// ——— YOUR server serves the webhook ———
 const app = express()
 app.get('/webhook', (req, res) => {
   const challenge = provider.verifyChallenge(req.query as never)
@@ -47,70 +47,70 @@ app.post('/webhook', express.json({ verify: (req, _res, buf) => { (req as any).r
 app.listen(3000)
 ```
 
-> **Firma del webhook:** `appSecret` es obligatorio en producción; `ingest` valida `X-Hub-Signature-256`
-> (HMAC-SHA256 en tiempo constante) y rechaza cuerpos falsificados con `403`.
-> Pasale el **body crudo** (no el ya parseado) para que la firma calcule igual.
-> Solo para desarrollo local se puede usar `allowUnsignedWebhooks: true` de forma explícita.
-> Un body que no es un objeto JSON se responde con `400` (nunca lanza).
+> **Webhook signature:** `appSecret` is required in production; `ingest` validates `X-Hub-Signature-256`
+> (constant-time HMAC-SHA256) and rejects forged bodies with `403`.
+> Pass it the **raw body** (not the parsed one) so the signature matches.
+> Only for local development can you opt in explicitly with `allowUnsignedWebhooks: true`.
+> A body that is not a JSON object is answered with `400` (it never throws).
 
-## Qué soporta
+## What it supports
 
 | Feature | Cloud API |
 |---|---|
-| Texto, imagen, video, audio, documento, sticker, ubicación, contacto | ✅ (al subir un `Buffer`, el tipo MIME sale del `mimetype` del documento, la extensión, los bytes o el tipo de contenido; nunca `application/octet-stream` para imagen, audio, video o sticker) |
-| **Botones de respuesta** (`ctx.buttons`, máx 3) | ✅ nativo |
-| **Listas** (`OutboundContent` list) | ✅ nativo |
-| **Plantillas** (kind `template`, p. ej. fuera de la ventana 24h) | ✅ |
-| Reacciones, confirmaciones de lectura | ✅ |
-| Usuarios con **username** de WhatsApp (BSUID): recibir y enviar | ✅ (ver [Usernames y BSUID](#usernames-y-bsuid)) |
-| Clics de botón/lista → interacciones (`type: 'buttons'` + `ctx.acknowledge`) | ✅ |
-| Botones de respuesta rápida de **plantillas** (`type: 'button'`) → interacción con el `payload` | ✅ |
-| Respuestas citando un mensaje → `ctx.quoted.ref.id` (el `wamid` citado) | ✅ |
-| **Formularios** (`flow().form()` → WhatsApp Flows estáticos) | ✅ nativo (ver [WhatsApp Flows](#whatsapp-flows-formularios)) |
-| Encuestas (poll) | ❌ (Graph 131051 — usá botones o WhatsApp Flows) |
-| Grupos, typing/presence, editar/borrar mensajes | ❌ (no existe en la API) |
+| Text, image, video, audio, document, sticker, location, contact | ✅ (when you upload a `Buffer`, the MIME type comes from the document's `mimetype`, the extension, the bytes or the content type; never `application/octet-stream` for image, audio, video or sticker) |
+| **Reply buttons** (`ctx.buttons`, max 3) | ✅ native |
+| **Lists** (list `OutboundContent`) | ✅ native |
+| **Templates** (kind `template`, e.g. outside the 24h window) | ✅ |
+| Reactions, read receipts | ✅ |
+| Users with a WhatsApp **username** (BSUID): receive and send | ✅ (see [Usernames and BSUID](#usernames-and-bsuid)) |
+| Button/list clicks → interactions (`type: 'buttons'` + `ctx.acknowledge`) | ✅ |
+| Quick-reply buttons of **templates** (`type: 'button'`) → interaction with the `payload` | ✅ |
+| Replies quoting a message → `ctx.quoted.ref.id` (the quoted `wamid`) | ✅ |
+| **Forms** (`flow().form()` → static WhatsApp Flows) | ✅ native (see [WhatsApp Flows](#whatsapp-flows-forms)) |
+| Polls | ❌ (Graph 131051 — use buttons or WhatsApp Flows) |
+| Groups, typing/presence, editing/deleting messages | ❌ (does not exist in the API) |
 
-## WhatsApp Flows (formularios)
+## WhatsApp Flows (forms)
 
-`flow().form(definicion)` del core se envía aquí como un **WhatsApp Flow** nativo (`capabilities.forms === 'native'`). El provider compila la definición a un Flow JSON estático de una pantalla (`navigate`, sin endpoint ni cifrado) y la respuesta (`nfm_reply`) vuelve como mensaje de tipo `'form'` que el paso guarda, validado, en `c.state`.
+The core's `flow().form(definition)` is sent here as a native **WhatsApp Flow** (`capabilities.forms === 'native'`). The provider compiles the definition into a static single-screen Flow JSON (`navigate`, no endpoint, no encryption) and the answer (`nfm_reply`) comes back as a `'form'` message that the step stores, validated, in `c.state`.
 
-Un Flow debe existir en Meta antes de enviarse:
+A Flow must exist in Meta before it can be sent:
 
 ```ts
 const provider = new CloudAPIProvider({ ...cfg, wabaId: process.env.WABA_ID, flows: { signup: '1234567890' } })
-// o crearlo una vez desde el bot (Flows API, token con whatsapp_business_management):
-const { flowId } = await provider.publishForm(signup, { categories: ['SIGN_UP'] })   // guarda flowId para config.flows
-// o exportar el JSON para pegarlo en WhatsApp Manager:
+// or create it once from the bot (Flows API, token with whatsapp_business_management):
+const { flowId } = await provider.publishForm(signup, { categories: ['SIGN_UP'] })   // keep flowId for config.flows
+// or export the JSON to paste it into WhatsApp Manager:
 writeFileSync('signup.flow.json', JSON.stringify(toFlowJson(signup), null, 2))
 ```
 
-Si un formulario no tiene Flow asociado (ni `config.flows` ni `.form(def, { nativeId })`), el paso pregunta campo por campo como en cualquier otro canal. `flowJsonWarnings(def)` avisa de etiquetas que WhatsApp recortará. El botón (`cta`) y el cuerpo del mensaje siguen el `ctx.lang` del usuario (catálogo `core.form.*`); la etiqueta de envío queda fija en el Flow publicado, así que elige su idioma con `toFlowJson(def, { lang: 'en' })` / `publishForm(def, { flowJson: { lang: 'en' } })` (por defecto `'es'`) o define `submitLabel`. Los Flows con endpoint (`data_exchange`, pantallas dinámicas cifradas) aún no están soportados.
+If a form has no associated Flow (neither `config.flows` nor `.form(def, { nativeId })`), the step asks field by field like on any other channel. `flowJsonWarnings(def)` warns about labels WhatsApp will truncate. The button (`cta`) and the message body follow the user's `ctx.lang` (`core.form.*` catalogue); the submit label stays fixed in the published Flow, so pick its language with `toFlowJson(def, { lang: 'en' })` / `publishForm(def, { flowJson: { lang: 'en' } })` (default `'es'`) or define `submitLabel`. Flows with an endpoint (`data_exchange`, encrypted dynamic screens) are not supported yet.
 
-## Ventana de 24 horas
+## 24-hour window
 
-Fuera de las 24h desde el último mensaje del usuario, Meta solo deja enviar **plantillas**. Un envío libre lanza `OutsideSessionWindowError` (código 131047) — respondé con un `kind: 'template'`.
+Outside the 24 hours since the user's last message, Meta only allows **templates**. A free-form send throws `OutsideSessionWindowError` (code 131047) — answer with a `kind: 'template'`.
 
-Con `sessionWindow` el provider lo gestiona solo: guarda la hora del último mensaje entrante de cada chat, y cuando un envío libre falla con 131047 (o la ventana ya se sabe cerrada) envía una plantilla aprobada para reabrir la conversación, encola el mensaje original y lo reintenta cuando el usuario responde.
+With `sessionWindow` the provider handles it on its own: it stores the time of the last inbound message of each chat, and when a free-form send fails with 131047 (or the window is already known to be closed) it sends an approved template to reopen the conversation, queues the original message and retries it when the user replies.
 
 ```ts
 const provider = new CloudAPIProvider({
   /* ... */
   sessionWindow: {
-    reopenTemplate: { kind: 'template', name: 'retomar_conversacion', language: 'es' },
-    reopenTemplateByKind: { document: { kind: 'template', name: 'documento_listo', language: 'es' } },
+    reopenTemplate: { kind: 'template', name: 'reopen_conversation', language: 'en' },
+    reopenTemplateByKind: { document: { kind: 'template', name: 'document_ready', language: 'en' } },
     onReport: (r) => logger.info({ chatId: r.chatId, outcome: r.outcome }, 'session window'),
-    // store: miStoreRedis,          // SessionWindowStore (por defecto, en memoria y acotado)
-    // onReopened: 'resolve',        // por defecto 'reject' → SessionWindowReopenedError
+    // store: myRedisStore,          // SessionWindowStore (in memory and bounded by default)
+    // onReopened: 'resolve',        // 'reject' by default → SessionWindowReopenedError
   },
 })
 await provider.sessionWindow!.isOpen('573001112233')
 ```
 
-`send()` rechaza con `SessionWindowReopenedError` (subclase de `OutsideSessionWindowError`) cuando reabre y encola; con `onReopened: 'resolve'` devuelve el resultado del envío de la plantilla. La cola de reintentos vive en memoria y está acotada (`maxPendingPerChat`, `maxPendingChats`, `pendingTtlMs`); antes de entregarle el contenido, el provider sube la media una sola vez (buffer, ruta o `{ stream }`) y la cola solo guarda el id de media, así que los reintentos no vuelven a leer un stream ya consumido ni retienen bytes. La ventana es por número de negocio + usuario: las claves del store llevan el `phoneNumberId` como prefijo (`<phoneNumberId>:<chatId>`) y un `SessionWindowManager` compartido entre varios providers le da a cada número su propia vista (`manager.forScope(phoneNumberId)`), con su ventana, su cola y sus envíos. Si la propia plantilla falla (`reopen-failed`), `send()` rechaza y el mensaje **no** queda en cola. Los envíos simultáneos a un chat cerrado comparten una sola plantilla, y un 131047 tardío sobre un mensaje enviado antes de la última respuesta del usuario no cierra la ventana (el mensaje se reenvía en el momento).
+`send()` rejects with `SessionWindowReopenedError` (a subclass of `OutsideSessionWindowError`) when it reopens and queues; with `onReopened: 'resolve'` it returns the template send's result. The retry queue lives in memory and is bounded (`maxPendingPerChat`, `maxPendingChats`, `pendingTtlMs`); before handing it the content, the provider uploads the media once (buffer, path or `{ stream }`) and the queue only keeps the media id, so retries neither re-read an already-consumed stream nor retain bytes. The window is per business number + user: store keys carry the `phoneNumberId` as a prefix (`<phoneNumberId>:<chatId>`) and a `SessionWindowManager` shared by several providers gives each number its own view (`manager.forScope(phoneNumberId)`), with its own window, queue and sends. If the template itself fails (`reopen-failed`), `send()` rejects and the message is **not** queued. Concurrent sends to a closed chat share a single template, and a late 131047 for a message sent before the user's last reply does not close the window (the message is forwarded right away).
 
-## Costos (pricing)
+## Pricing
 
-Cada evento `status` incluye en `platformData.pricing` el objeto `pricing` del webhook normalizado (`billable`, `pricingModel` `PMP`/`CBP`, `category`, `type` — `regular`, `free_customer_service`, `free_entry_point`) y, si viene, `platformData.conversation`. `provider.usage` agrega por chat y por categoría (cada mensaje se cuenta una vez):
+Every `status` event carries the normalized webhook `pricing` object in `platformData.pricing` (`billable`, `pricingModel` `PMP`/`CBP`, `category`, `type` — `regular`, `free_customer_service`, `free_entry_point`) and, when present, `platformData.conversation`. `provider.usage` aggregates per chat and per category (each message counts once):
 
 ```ts
 const provider = new CloudAPIProvider({ /* ... */, usage: { rates: { marketing: 0.0125, utility: 0.0008 } } })
@@ -118,61 +118,61 @@ provider.usage!.forChat('573001112233') // { messages, billable, free, estimated
 provider.usage!.totals()
 ```
 
-## Identidad
+## Identity
 
-`chatId`/`senderId` son el `wa_id` (teléfono E.164 sin `+`) cuando se conoce y, si no, el **BSUID** del usuario (ver abajo). No hay dualidad LID/PN como en Baileys, pero sí puede faltar el teléfono: el provider lo resuelve antes de emitir el evento para que la misma persona conserve siempre el mismo id.
+`chatId`/`senderId` are the `wa_id` (E.164 phone without `+`) when known and, otherwise, the user's **BSUID** (see below). There is no LID/PN duality as in Baileys, but the phone can be missing: the provider resolves it before emitting the event so the same person always keeps the same id.
 
-## Usernames y BSUID
+## Usernames and BSUID
 
-Desde abril de 2026 la Cloud API identifica a cada usuario también con un **BSUID** (*business-scoped user ID*): un id propio de tu portfolio de negocio con la forma `US.13491208655302741918` (código de país ISO + `.` + hasta 128 alfanuméricos). Los portfolios vinculados reciben además un **BSUID padre** (`US.ENT.11815799212886844830`).
+Since April 2026 the Cloud API also identifies every user with a **BSUID** (*business-scoped user ID*): an id of your business portfolio shaped `US.13491208655302741918` (ISO country code + `.` + up to 128 alphanumerics). Linked portfolios also get a **parent BSUID** (`US.ENT.11815799212886844830`).
 
-Si un usuario activa un **username** de WhatsApp, Meta **omite su teléfono** (`messages[].from`, `contacts[].wa_id`, `statuses[].recipient_id`) salvo que le hayas escrito o llamado en los últimos 30 días o lo tengas en tu *contact book*. En ese caso el webhook solo trae el BSUID (`from_user_id`, `contacts[].user_id`, `recipient_user_id`).
+If a user enables a WhatsApp **username**, Meta **omits their phone** (`messages[].from`, `contacts[].wa_id`, `statuses[].recipient_id`) unless you wrote to or called them in the last 30 days or have them in your *contact book*. In that case the webhook only carries the BSUID (`from_user_id`, `contacts[].user_id`, `recipient_user_id`).
 
-### Cómo se elige el id
+### How the id is chosen
 
-Para cada mensaje, interacción, reacción o estado de entrega:
+For every message, interaction, reaction or delivery status:
 
-1. Si en esta sesión (vida del proceso) ya se emitió un id para ese BSUID, BSUID padre o teléfono, **se reutiliza**.
-2. Si no, el **teléfono** cuando viene en el webhook.
-3. Si no, el teléfono **aprendido antes** para ese BSUID (vía `identityMap`).
-4. Si no, el **BSUID**.
+1. If this session (the process lifetime) already emitted an id for that BSUID, parent BSUID or phone, it is **reused**.
+2. Otherwise the **phone** when the webhook brings it.
+3. Otherwise the phone **learned earlier** for that BSUID (via `identityMap`).
+4. Otherwise the **BSUID**.
 
-El provider aprende el par teléfono ↔ BSUID de cualquier webhook que traiga ambos (mensajes + `contacts`, estados de entrega). Consecuencias:
+The provider learns the phone ↔ BSUID pair from any webhook that carries both (messages + `contacts`, delivery statuses). Consequences:
 
-- Un usuario visto primero con teléfono y después solo con BSUID **conserva el id basado en el teléfono**.
-- Un usuario visto primero solo con BSUID que después comparte su teléfono **conserva el BSUID durante la sesión** (no se rompe la conversación en curso); el par queda guardado, así que en la siguiente sesión se usará el teléfono.
-- Los estados de entrega (`sent`/`delivered`/`read`/`failed`) se resuelven con las mismas reglas, así que llegan con el mismo `chatId` que la conversación.
-- Si Meta cambia el BSUID (webhook `user_id_update`) o el usuario cambia de número (mensaje de sistema `user_changed_number` / `user_changed_user_id`), los ids nuevos se enlazan al id de la sesión.
-- Un item sin ningún id utilizable (o con ids malformados) **se descarta y se registra** con `logger.warn` (sin datos personales); nunca se emite un evento con id vacío.
+- A user first seen with a phone and later only with a BSUID **keeps the phone-based id**.
+- A user first seen only with a BSUID who later shares their phone **keeps the BSUID for the session** (the ongoing conversation is not broken); the pair is stored, so the next session uses the phone.
+- Delivery statuses (`sent`/`delivered`/`read`/`failed`) are resolved with the same rules, so they arrive with the same `chatId` as the conversation.
+- If Meta changes the BSUID (`user_id_update` webhook) or the user changes number (`user_changed_number` / `user_changed_user_id` system message), the new ids are linked to the session id.
+- An item with no usable id (or with malformed ids) is **dropped and logged** with `logger.warn` (no personal data); an event with an empty id is never emitted.
 
-En `senderInfo` quedan los datos de identidad disponibles:
+`senderInfo` keeps the available identity data:
 
-| Campo | Contenido |
+| Field | Content |
 |---|---|
-| `senderInfo.username` | username de WhatsApp, si el usuario lo activó |
-| `senderInfo.platformData.phoneNumber` | teléfono (del webhook o aprendido), si se conoce |
+| `senderInfo.username` | WhatsApp username, if the user enabled one |
+| `senderInfo.platformData.phoneNumber` | phone (from the webhook or learned), if known |
 | `senderInfo.platformData.bsuid` | BSUID |
-| `senderInfo.platformData.parentBsuid` | BSUID padre, si existe |
-| `senderInfo.platformData.username` | username (igual que arriba) |
+| `senderInfo.platformData.parentBsuid` | parent BSUID, if any |
+| `senderInfo.platformData.username` | username (same as above) |
 
-### Enviar a un BSUID
+### Sending to a BSUID
 
-No hay que hacer nada especial: si el `chatId` es un BSUID (o BSUID padre), el provider envía con el campo `recipient` en lugar de `to`; si es un teléfono, sigue usando `to`. `ctx.reply()` funciona igual con usuarios con username. Puedes comprobarlo con `isBsuid(chatId)`.
+Nothing special to do: if the `chatId` is a BSUID (or a parent BSUID), the provider sends with the `recipient` field instead of `to`; if it is a phone, it keeps using `to`. `ctx.reply()` works the same with username users. You can check it with `isBsuid(chatId)`.
 
-> Las plantillas de autenticación *one-tap*, *zero-tap* y *copy code* exigen teléfono; enviarlas a un BSUID falla con el error de Graph `131062`.
+> *One-tap*, *zero-tap* and *copy code* authentication templates require a phone; sending them to a BSUID fails with Graph error `131062`.
 
-### Persistir los pares teléfono ↔ BSUID (`identityMap`)
+### Persisting the phone ↔ BSUID pairs (`identityMap`)
 
-Por defecto los pares se guardan en un `MemoryIdentityMap` en RAM (LRU de 10 000 entradas) y **se pierden al reiniciar**: tras un reinicio, un usuario que llegue solo con BSUID tendría un id distinto al teléfono que usaba antes. Para evitarlo, pasa tu propio `identityMap`. La interfaz es mínima y admite métodos síncronos o asíncronos:
+By default the pairs are kept in an in-memory `MemoryIdentityMap` (LRU of 10,000 entries) and **are lost on restart**: after a restart, a user arriving only with a BSUID would get an id different from the phone they used before. To avoid it, pass your own `identityMap`. The interface is minimal and accepts synchronous or asynchronous methods:
 
 ```ts
 interface IdentityMap {
-  get(bsuid: string): string | undefined | Promise<string | undefined>  // → teléfono (wa_id)
+  get(bsuid: string): string | undefined | Promise<string | undefined>  // → phone (wa_id)
   set(bsuid: string, phone: string): void | Promise<void>
 }
 ```
 
-Con Redis (asíncrono):
+With Redis (asynchronous):
 
 ```ts
 import { CloudAPIProvider } from '@bot-wa/meta'
@@ -186,7 +186,7 @@ const provider = new CloudAPIProvider({
 })
 ```
 
-O síncrono, precargando desde tu base de datos y escribiendo en segundo plano:
+Or synchronous, preloading from your database and writing in the background:
 
 ```ts
 import { CloudAPIProvider, MemoryIdentityMap } from '@bot-wa/meta'
@@ -201,9 +201,9 @@ const provider = new CloudAPIProvider({
 })
 ```
 
-Detalles:
+Details:
 
-- Con un mapa síncrono, `ingest()` emite los eventos en el acto. Con uno asíncrono, `ingest()` sigue devolviendo `200` de inmediato y los eventos se emiten cuando termina la búsqueda, **siempre en el orden de los webhooks**. `stop()` espera a que se vacíe esa cola.
-- `get` solo se consulta para usuarios que llegan sin teléfono y que la sesión aún no conoce; `set` se llama una vez por par y sesión (hazlo idempotente).
-- Si `get` falla, el evento se emite con el BSUID y se registra el error; si `set` falla, solo se registra.
-- `parseInbound(body)` (exportado) es **sin estado**: resuelve la identidad dentro de ese body. La continuidad entre webhooks la da `provider.ingest()`.
+- With a synchronous map, `ingest()` emits the events right away. With an asynchronous one, `ingest()` still returns `200` immediately and the events are emitted when the lookup finishes, **always in webhook order**. `stop()` waits for that queue to drain.
+- `get` is only queried for users that arrive without a phone and that the session does not know yet; `set` is called once per pair and session (make it idempotent).
+- If `get` fails, the event is emitted with the BSUID and the error is logged; if `set` fails, it is only logged.
+- `parseInbound(body)` (exported) is **stateless**: it resolves the identity inside that body. Continuity between webhooks is provided by `provider.ingest()`.

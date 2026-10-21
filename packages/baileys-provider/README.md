@@ -1,29 +1,29 @@
 # @bot-wa/baileys
 
-Transporte **WhatsApp vía [Baileys 7](https://github.com/WhiskeySockets/Baileys)** ([`IProvider` v2](https://github.com/andresayac/bot-wa-baileys/blob/main/packages/core/src/core/provider.ts)) para [`@bot-wa/core`](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/core). Vincula el bot como un dispositivo de WhatsApp Web (QR o código de emparejamiento) y abre un WebSocket propio: no hace falta servidor público ni webhook.
+The **WhatsApp via [Baileys 7](https://github.com/WhiskeySockets/Baileys)** transport ([`IProvider` v2](https://github.com/andresayac/bot-wa-baileys/blob/main/packages/core/src/core/provider.ts)) for [`@bot-wa/core`](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/core). It links the bot as a WhatsApp Web device (QR or pairing code) and opens its own WebSocket: no public server and no webhook needed.
 
-> **Cliente no oficial.** Baileys implementa el protocolo de WhatsApp Web por ingeniería inversa; ni WhatsApp ni Meta lo respaldan. Automatizar una cuenta puede infringir los [Términos de servicio de WhatsApp](https://www.whatsapp.com/legal/terms-of-service) y acabar en **bloqueo del número**. Usa un número dedicado, escribe solo a quien te lo pidió (opt-in), no hagas envíos masivos y deja el rate limiter activado. Si necesitas una vía oficial y sin riesgo de baneo, usa [`@bot-wa/meta`](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/meta-provider) (WhatsApp Cloud API).
+> **Unofficial client.** Baileys implements the WhatsApp Web protocol by reverse engineering; neither WhatsApp nor Meta endorses it. Automating an account may break the [WhatsApp Terms of Service](https://www.whatsapp.com/legal/terms-of-service) and end in **a banned number**. Use a dedicated number, write only to people who asked you to (opt-in), do not send bulk messages and keep the rate limiter on. If you need an official route with no ban risk, use [`@bot-wa/meta`](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/meta-provider) (WhatsApp Cloud API).
 
-- **Ingress:** socket propio con reconexión y backoff; los eventos de Baileys se traducen a `InboundEvent` neutros: mensajes, reacciones, votos de encuestas (descifrados por el provider), cambios de grupo, llamadas y presencia.
-- **Outbound:** texto, imagen, video, audio, nota de voz (transcodifica a Opus), documento, sticker (conversión con `sharp`), ubicación, contacto, **encuestas nativas** y reacciones. Botones, listas y tarjetas se degradan a texto numerado.
-- **Acciones:** confirmaciones de lectura, typing/recording, borrar mensajes y descarga de media entrante.
-- **Identidad estable:** el provider resuelve la dualidad LID/PN de WhatsApp antes de emitir cada evento, así que el core siempre ve el mismo `senderId` para la misma persona.
+- **Ingress:** own socket with reconnect and backoff; Baileys events are translated into neutral `InboundEvent`s: messages, reactions, poll votes (decrypted by the provider), group changes, calls and presence.
+- **Outbound:** text, image, video, audio, voice note (transcoded to Opus), document, sticker (converted with `sharp`), location, contact, **native polls** and reactions. Buttons, lists and cards degrade to numbered text.
+- **Actions:** read receipts, typing/recording, deleting messages and downloading inbound media.
+- **Stable identity:** the provider resolves WhatsApp's LID/PN duality before emitting every event, so the core always sees the same `senderId` for the same person.
 
-## Requisitos
+## Requirements
 
 - **Node ≥ 22** (ESM-only).
-- **`@whiskeysockets/baileys` 7.0.0-rc14 o superior.** Desde finales de julio de 2026, WhatsApp cierra con `428 Connection Terminated` las conexiones de clientes con el handshake anterior, antes incluso de mostrar el QR. La rc14 trae el handshake actualizado (entre otras cosas, la versión de WhatsApp Web incluida en el paquete). Si tu lockfile resuelve una rc anterior, actualízala.
-- Salida de red hacia `wss://web.whatsapp.com` y, al arrancar, hacia `raw.githubusercontent.com`: el provider consulta la versión de WhatsApp Web más reciente publicada por Baileys. Si no hay acceso, usa la versión incluida en la release instalada, que por eso tiene que ser ≥ rc14.
+- **`@whiskeysockets/baileys` 7.0.0-rc14 or newer.** Since late July 2026 WhatsApp closes connections that use the previous handshake with `428 Connection Terminated`, even before showing the QR. rc14 brings the updated handshake (among other things, the WhatsApp Web version bundled in the package). If your lockfile resolves an older rc, upgrade it.
+- Network egress to `wss://web.whatsapp.com` and, at startup, to `raw.githubusercontent.com`: the provider queries the latest WhatsApp Web version published by Baileys. Without access it uses the version bundled in the installed release, which is why that release must be ≥ rc14.
 
-## Instalación
+## Installation
 
-En el monorepo el paquete ya está disponible como workspace. Desde una app:
+In the monorepo the package is already available as a workspace. From an app:
 
 ```bash
 pnpm add @bot-wa/core @bot-wa/baileys
 ```
 
-`ffmpeg` viene incluido (`@ffmpeg-installer/ffmpeg`) para las notas de voz, y `sharp` para los stickers.
+`ffmpeg` is bundled (`@ffmpeg-installer/ffmpeg`) for voice notes, and `sharp` for stickers.
 
 ## Quickstart
 
@@ -31,176 +31,176 @@ pnpm add @bot-wa/core @bot-wa/baileys
 import { Bot } from '@bot-wa/core'
 import { BaileysProvider } from '@bot-wa/baileys'
 
-const bot = new Bot({ provider: new BaileysProvider({ session: 'mi-bot' }) })
+const bot = new Bot({ provider: new BaileysProvider({ session: 'my-bot' }) })
 
-bot.on('ready', () => console.log('✅ Conectado'))
-bot.when('hola', (ctx) => ctx.reply('👋 ¡Hola!'))
+bot.on('ready', () => console.log('✅ Connected'))
+bot.when('hola', (ctx) => ctx.reply('👋 Hello!'))
 
-await bot.start()   // la primera vez imprime el QR en la terminal: escanéalo desde WhatsApp → Dispositivos vinculados
+await bot.start()   // the first time it prints the QR in the terminal: scan it from WhatsApp → Linked devices
 ```
 
-La sesión queda guardada en `./sessions/mi-bot`; los siguientes arranques reconectan sin QR. Hay un ejemplo completo (comandos, flows, media, hooks, DI y scheduler) en [`examples/bot.ts`](https://github.com/andresayac/bot-wa-baileys/blob/main/packages/baileys-provider/examples/bot.ts) (`pnpm --filter @bot-wa/baileys example`).
+The session is stored in `./sessions/my-bot`; later starts reconnect without a QR. There is a full example (commands, flows, media, hooks, DI and scheduler) in [`examples/bot.ts`](https://github.com/andresayac/bot-wa-baileys/blob/main/packages/baileys-provider/examples/bot.ts) (`pnpm --filter @bot-wa/baileys example`).
 
-## Configuración
+## Configuration
 
 ```ts
 interface BaileysProviderConfig {
-  session?: string            // id de la sesión, por defecto 'default'
-  sessionsDir?: string        // carpeta raíz de las sesiones, por defecto './sessions'
-  pairingCode?: string        // número en formato internacional: emparejar con código en vez de QR
-  qr?: QrConfig               // cómo mostrar el QR (por defecto: terminal, tamaño pequeño)
-  rateLimit?: RateLimitConfig // ritmo de envío anti-baneo (activado por defecto)
-  reconnect?: boolean         // por defecto true
-  browser?: BrowserConfig     // identidad del dispositivo; mejor no tocarla (ver abajo)
-  markOnlineOnConnect?: boolean // por defecto false: el teléfono sigue recibiendo notificaciones
-  syncFullHistory?: boolean     // por defecto false
-  ignoreBroadcasts?: boolean    // por defecto true (status@broadcast se ignora siempre)
-  ignoreNewsletters?: boolean   // por defecto true
-  pollStore?: PollStore         // persistencia de encuestas para leer votos tras un reinicio (ver Encuestas y votos)
-  durableMedia?: { viewOnce?: boolean } // con durability: anotar también la media de visualización única (por defecto no)
-  debug?: boolean               // nivel 'debug' en el logger por defecto (si no, 'error')
-  logger?: LoggerLike           // cualquier logger con debug/info/warn/error (pino, console…); Baileys recibe un adaptador (toBaileysLogger)
+  session?: string            // session id, 'default' by default
+  sessionsDir?: string        // root folder for sessions, './sessions' by default
+  pairingCode?: string        // phone in international format: pair with a code instead of a QR
+  qr?: QrConfig               // how to show the QR (terminal, small size by default)
+  rateLimit?: RateLimitConfig // anti-ban send pacing (on by default)
+  reconnect?: boolean         // true by default
+  browser?: BrowserConfig     // device identity; better leave it alone (see below)
+  markOnlineOnConnect?: boolean // false by default: the phone keeps receiving notifications
+  syncFullHistory?: boolean     // false by default
+  ignoreBroadcasts?: boolean    // true by default (status@broadcast is always ignored)
+  ignoreNewsletters?: boolean   // true by default
+  pollStore?: PollStore         // poll persistence to read votes after a restart (see Polls and votes)
+  durableMedia?: { viewOnce?: boolean } // with durability: journal view-once media too (off by default)
+  debug?: boolean               // 'debug' level on the default logger (otherwise 'error')
+  logger?: LoggerLike           // any logger with debug/info/warn/error (pino, console…); Baileys gets an adapter (toBaileysLogger)
 }
 ```
 
-### Sesión
+### Session
 
-Cada sesión vive en `<sessionsDir>/<session>` y contiene las credenciales del dispositivo vinculado. Para varios números, usa un `session` distinto por número. Las reglas de validación están en [Seguridad de la sesión](#seguridad-de-la-sesión).
+Each session lives in `<sessionsDir>/<session>` and holds the linked device's credentials. For several numbers, use a different `session` per number. The validation rules are in [Session security](#session-security).
 
-### QR o código de emparejamiento
+### QR or pairing code
 
-Por defecto el provider emite un QR. Si el servidor no tiene cámara ni terminal a mano, pide un **código de emparejamiento**:
+By default the provider emits a QR. If the server has no camera or terminal at hand, ask for a **pairing code**:
 
 ```ts
 const provider = new BaileysProvider({
-  session: 'mi-bot',
-  pairingCode: '+57 300 123 4567',   // solo cuentan los dígitos
+  session: 'my-bot',
+  pairingCode: '+57 300 123 4567',   // only the digits count
   qr: { terminal: false },
 })
 const bot = new Bot({ provider })
 bot.on('qr', (artifact) => {
-  // Por aquí llegan tanto los QR (cadenas largas) como el código de 8 caracteres.
-  if (artifact.length === 8) notificarAlOperador(artifact)
+  // Both the QR (long strings) and the 8-character code arrive here.
+  if (artifact.length === 8) notifyOperator(artifact)
 })
 await bot.start()
 ```
 
-En el teléfono: **Dispositivos vinculados → Vincular con el número de teléfono** e introduce el código. El código se pide una sola vez por arranque, con el primer QR. Si la petición falla, el provider lo registra en el log y sigue ofreciendo el QR. QR y código llegan también en el evento `connection`, como `authPayload`.
+On the phone: **Linked devices → Link with phone number** and enter the code. The code is requested once per start, together with the first QR. If the request fails, the provider logs it and keeps offering the QR. The QR and the code also arrive in the `connection` event, as `authPayload`.
 
-### Renderizado del QR
+### QR rendering
 
 ```ts
 interface QrConfig {
-  terminal?: boolean        // dibuja el QR en stdout
-  small?: boolean           // QR compacto (por defecto true)
-  file?: boolean | string   // PNG: true → '<session>.qr.png' en el CWD; un string fija la ruta
-  handler?: (qr: string) => void | Promise<void>  // tu propio render (web, Slack…)
+  terminal?: boolean        // draw the QR on stdout
+  small?: boolean           // compact QR (true by default)
+  file?: boolean | string   // PNG: true → '<session>.qr.png' in the CWD; a string fixes the path
+  handler?: (qr: string) => void | Promise<void>  // your own render (web, Slack…)
 }
 ```
 
-Sin `qr`, se dibuja en la terminal. Si pasas un objeto `qr`, solo se activa lo que indiques. Los errores al escribir el PNG se registran en el log, nunca se lanzan.
+Without `qr`, it is drawn in the terminal. If you pass a `qr` object, only what you set is enabled. Errors writing the PNG are logged, never thrown.
 
-> El QR y el código de emparejamiento dan acceso a la cuenta mientras están vigentes. No los registres en logs ni los envíes por canales sin cifrar, y borra el PNG cuando ya no lo necesites.
+> The QR and the pairing code grant access to the account while they are valid. Never log them or send them over unencrypted channels, and delete the PNG when you no longer need it.
 
-### Identidad del navegador (`browser`)
+### Browser identity (`browser`)
 
-**Déjalo sin definir.** El provider entonces no envía la opción y Baileys usa su identidad por defecto (`Browsers.macOS('Chrome')`), que es la que valida el handshake de la rc14. Los presets `'macOS' | 'ubuntu' | 'windows' | 'appropriate'` anuncian **Chrome** en ese sistema operativo. Una tupla propia `[os, navegador, versión]` se pasa tal cual y deja un aviso en el log: con identidades no estándar (p. ej. `'Desktop'` o un nombre inventado), WhatsApp puede cerrar la conexión con `428` antes del QR.
+**Leave it undefined.** The provider then omits the option and Baileys uses its default identity (`Browsers.macOS('Chrome')`), which is the one the rc14 handshake validates. The `'macOS' | 'ubuntu' | 'windows' | 'appropriate'` presets announce **Chrome** on that operating system. A custom tuple `[os, browser, version]` is passed through and leaves a warning in the log: with non-standard identities (e.g. `'Desktop'` or an invented name), WhatsApp may close the connection with `428` before the QR.
 
-### Rate limiter (anti-baneo)
+### Rate limiter (anti-ban)
 
-Todo `send()` pasa por un token bucket antes de llegar al socket. Los envíos que superan el límite **se encolan, no se descartan**, y un chat bloqueado no frena a los demás.
+Every `send()` goes through a token bucket before reaching the socket. Sends that exceed the limit are **queued, not dropped**, and a throttled chat does not hold the others back.
 
 ```ts
 new BaileysProvider({
-  session: 'mi-bot',
+  session: 'my-bot',
   rateLimit: {
-    perChat: { max: 5, window: '10s' },   // por defecto
-    global: { max: 50, window: '60s' },   // por defecto
-    jitter: { min: 500, max: 1500 },      // pausa "humana" entre envíos (desactivada por defecto)
-    maxWait: '30s',                       // pasado este tiempo en cola, el envío falla con RateLimiterTimeout (un RateLimitedError)
-    // enabled: false                     // desactivarlo del todo (no recomendado)
+    perChat: { max: 5, window: '10s' },   // default
+    global: { max: 50, window: '60s' },   // default
+    jitter: { min: 500, max: 1500 },      // "human" pause between sends (off by default)
+    maxWait: '30s',                       // after this long in the queue the send fails with RateLimiterTimeout (a RateLimitedError)
+    // enabled: false                     // turn it off completely (not recommended)
   },
 })
 ```
 
-Más detalle en la guía [Rate limiting](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/es/guide/rate-limiting.md).
+More detail in the [Rate limiting](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/guide/rate-limiting.md) guide.
 
-### Reconexión y backoff
+### Reconnect and backoff
 
-Cuando el socket se cierra, el provider emite `connection` con `state: 'closed'` y decide según el código de Baileys:
+When the socket closes, the provider emits `connection` with `state: 'closed'` and decides based on the Baileys code:
 
-| Código | Significado | Qué hace el provider | `reason` |
+| Code | Meaning | What the provider does | `reason` |
 | --- | --- | --- | --- |
-| 401 `loggedOut`, 500 `badSession`, 411 `multideviceMismatch` | La sesión ya no vale | Borra **solo** la carpeta de esa sesión y arranca de nuevo (QR nuevo) | `sessionInvalid` |
-| 440 `connectionReplaced`, 403 `forbidden` | Otra instancia usa la sesión, o prohibido | **No reconecta** (pelear con la otra instancia arriesga el número) | `sessionTakenOver` |
-| 515 `restartRequired` | Reinicio normal tras emparejar | Reconecta al instante | `transient` |
-| El resto (428, 408, 503…) | Corte transitorio | Backoff exponencial: 1 s, 2 s, 4 s… hasta 30 s, máximo 10 intentos | `transient` |
+| 401 `loggedOut`, 500 `badSession`, 411 `multideviceMismatch` | The session is no longer valid | Deletes **only** that session's folder and starts over (new QR) | `sessionInvalid` |
+| 440 `connectionReplaced`, 403 `forbidden` | Another instance uses the session, or forbidden | **Does not reconnect** (fighting the other instance risks the number) | `sessionTakenOver` |
+| 515 `restartRequired` | Normal restart after pairing | Reconnects instantly | `transient` |
+| Everything else (428, 408, 503…) | Transient drop | Exponential backoff: 1 s, 2 s, 4 s… up to 30 s, at most 10 attempts | `transient` |
 
-Si `start()` falla durante una reconexión (por ejemplo, sin red), se reintenta con el mismo backoff y el mismo tope. Al agotarlo, emite un `closed` final con `detail.message: 'reconnect exhausted'`. Con `reconnect: false` no se reintenta nunca. El contador vuelve a cero cada vez que la conexión abre.
+If `start()` fails during a reconnect (for example, no network), it is retried with the same backoff and the same cap. When it is exhausted, a final `closed` is emitted with `detail.message: 'reconnect exhausted'`. With `reconnect: false` it never retries. The counter goes back to zero every time the connection opens.
 
-## Identidad: LID y PN
+## Identity: LID and PN
 
-WhatsApp identifica a cada usuario de dos formas: el número de teléfono (**PN**, `573001234567@s.whatsapp.net`) y un identificador opaco (**LID**, `…@lid`). Un mismo contacto puede llegar como PN, como LID con el PN al lado (`remoteJidAlt`/`participantAlt`) o como LID a secas, y la forma puede cambiar de un mensaje a otro. Si el bot usara el `remoteJid` crudo, una misma persona quedaría partida en dos claves y los flows se romperían (el `ask` nunca recibe la respuesta).
+WhatsApp identifies every user in two ways: the phone number (**PN**, `573001234567@s.whatsapp.net`) and an opaque identifier (**LID**, `…@lid`). The same contact may arrive as a PN, as a LID with the PN next to it (`remoteJidAlt`/`participantAlt`) or as a bare LID, and the form can change from one message to the next. If the bot used the raw `remoteJid`, the same person would be split into two keys and flows would break (the `ask` never receives the answer).
 
-El provider lo resuelve con un `IdentityStore` **antes** de emitir cada evento:
+The provider resolves it with an `IdentityStore` **before** emitting every event:
 
-- Aprende el par LID↔PN cuando lo ve: en la clave del mensaje, en los eventos `lid-mapping.update` y consultando el almacén de mapeos de Baileys (que se guarda en la carpeta de la sesión y sobrevive a reinicios).
-- Canonicaliza: si conoce el PN de un LID, `chatId` y `senderId` usan el **PN**. Si no, usan el **LID**. Siempre normalizados, sin sufijo de dispositivo (`:12`).
-- En grupos, `chatId` es el grupo (`…@g.us`) y `senderId` el participante canonicalizado.
-- `ctx.senderInfo.platformData` lleva `{ phoneNumber?, lid? }`: el PN si se conoce y el LID crudo tal como llegó.
-- Los demás eventos pasan por la **misma** canonicalización, así que una persona tiene el mismo id en todos: el autor de una reacción o de un voto, los participantes y el autor (`actor`) de un cambio de grupo, quien llama (`call.from`) y el chat y las claves de `presences`. El provider aprovecha el PN que Baileys trae en cada evento (`participantAlt`, `authorPn`, `callerPn`, `phoneNumber` del participante) y, si no lo trae, consulta el almacén de mapeos.
-- En una reacción, `senderId` es **quien reacciona** y `ref.id` el mensaje reaccionado (antes se informaba, por error, el autor de ese mensaje).
-- Las menciones (`mentions`) y el autor del mensaje citado (`quoted.senderId`) también son canónicos: en un grupo direccionado por LID, WhatsApp menciona y cita con LIDs, y el provider los cambia por el PN si lo conoce (consultando el almacén de mapeos si hace falta). Así, `ctx.quoted?.senderId === provider.selfId` detecta una respuesta a un mensaje del bot. La cita y las menciones se leen también de los pies de foto, video y documento, y `quoted.ref` apunta al mensaje citado (sirve como `quoted` para responder en hilo).
-- Los mensajes envueltos (modo temporal, *ver una vez*, documento con pie de foto) se desenvuelven antes de clasificarlos, así que llegan con su `type`, `body` y `media` reales.
-- `provider.selfId` es el PN normalizado del bot (`573000000000@s.whatsapp.net`, sin el sufijo de dispositivo `:12` que guarda `creds.me.id`), el mismo id que llevan sus propias reacciones y votos. Con `groupMode: 'mentions'`, el core compara las menciones con `selfId`, así que el bot responde tanto si lo mencionan por su número como por su LID.
-- En `group`, el provider traduce la acción `modify` de Baileys (cambio de número) a `action: 'update'`, pero la rc14 no llega a emitirla: al procesar el cambio de número, Baileys intenta `JSON.parse` sobre los JID crudos del aviso y lanza antes de emitir el evento. En la práctica, con la rc14 un cambio de número no produce ningún evento `group`.
-- Al enviar a un LID, el provider usa el PN si lo conoce y, si no, envía directamente al LID.
+- It learns the LID↔PN pair when it sees it: in the message key, in `lid-mapping.update` events and by querying Baileys' mapping store (stored in the session folder, so it survives restarts).
+- It canonicalizes: when it knows a LID's PN, `chatId` and `senderId` use the **PN**. Otherwise they use the **LID**. Always normalized, without the device suffix (`:12`).
+- In groups, `chatId` is the group (`…@g.us`) and `senderId` is the canonicalized participant.
+- `ctx.senderInfo.platformData` carries `{ phoneNumber?, lid? }`: the PN when known and the raw LID as it arrived.
+- The other events go through the **same** canonicalization, so a person has the same id everywhere: the author of a reaction or a vote, the participants and the author (`actor`) of a group change, the caller (`call.from`) and the chat and keys of `presences`. The provider takes advantage of the PN Baileys includes in each event (`participantAlt`, `authorPn`, `callerPn`, the participant's `phoneNumber`) and, when it does not, queries the mapping store.
+- In a reaction, `senderId` is **whoever reacts** and `ref.id` is the reacted message (previously the author of that message was reported, by mistake).
+- Mentions (`mentions`) and the author of the quoted message (`quoted.senderId`) are canonical too: in a group addressed by LID, WhatsApp mentions and quotes with LIDs, and the provider swaps them for the PN when it knows it (querying the mapping store if needed). That way `ctx.quoted?.senderId === provider.selfId` detects a reply to a message sent by the bot. The quote and the mentions are also read from captions of photos, videos and documents, and `quoted.ref` points at the quoted message (usable as `quoted` to reply in the thread).
+- Wrapped messages (disappearing mode, *view once*, document with caption) are unwrapped before being classified, so they arrive with their real `type`, `body` and `media`.
+- `provider.selfId` is the bot's normalized PN (`573000000000@s.whatsapp.net`, without the device suffix `:12` that `creds.me.id` stores), the same id its own reactions and votes carry. With `groupMode: 'mentions'`, the core compares mentions against `selfId`, so the bot answers whether it is mentioned by its number or by its LID.
+- In `group`, the provider translates Baileys' `modify` action (number change) into `action: 'update'`, but rc14 never gets to emit it: while processing the number change, Baileys runs `JSON.parse` on the notice's raw JIDs and throws before emitting the event. In practice, with rc14 a number change produces no `group` event at all.
+- When sending to a LID, the provider uses the PN if it knows it and, otherwise, sends directly to the LID.
 
-Para casos avanzados se exportan `IdentityStore`, `provider.getPNForLID(lid)` y los helpers de JID (`isPn`, `isLid`, `normalizeJid`, `sameUser`…).
+For advanced cases, `IdentityStore`, `provider.getPNForLID(lid)` and the JID helpers (`isPn`, `isLid`, `normalizeJid`, `sameUser`…) are exported.
 
-### Contactos con nombre de usuario (2026)
+### Contacts with a username (2026)
 
-Con los nombres de usuario de WhatsApp, algunos contactos **nunca** exponen su número: llegan siempre como `@lid`, sin PN al lado ni mapeo conocido. Para ellos la identidad es **estable sobre el LID**: todos sus mensajes producen el mismo `chatId`/`senderId`, `platformData.phoneNumber` queda `undefined` y los envíos van al LID. No des por hecho que `senderId` es un teléfono: compruébalo con `isPn()` antes de usarlo como tal.
+With WhatsApp usernames, some contacts **never** expose their number: they always arrive as `@lid`, with no PN next to it and no known mapping. For them the identity is **stable on the LID**: all their messages produce the same `chatId`/`senderId`, `platformData.phoneNumber` stays `undefined` and sends go to the LID. Do not assume `senderId` is a phone: check it with `isPn()` before using it as one.
 
-**Comportamiento residual:** si el mapeo LID→PN se aprende **más tarde** (llega un mensaje con el PN al lado o un `lid-mapping.update`), desde ese momento la persona pasa a identificarse por su PN. Una conversación que empezó bajo el LID sigue esperando en la clave del LID y no verá los mensajes siguientes, que llegan con el PN. En la práctica:
+**Residual behaviour:** if the LID→PN mapping is learned **later** (a message arrives with the PN next to it or a `lid-mapping.update` comes in), from that moment the person is identified by their PN. A conversation that started under the LID keeps waiting on the LID key and will not see the following messages, which arrive with the PN. In practice:
 
-- Pon `.timeout()` en los flows (o `timeout` en `c.ask`/`c.waitText`) para que una conversación huérfana se cierre sola. El usuario la reinicia con el disparador o con un comando como `/reset`.
-- Si guardas datos por persona (CRM, preferencias), guarda también `platformData.phoneNumber` y `platformData.lid` para poder reconciliar los dos registros.
+- Set `.timeout()` on flows (or `timeout` on `c.ask`/`c.waitText`) so an orphaned conversation closes itself. The user restarts it with the trigger or with a command such as `/reset`.
+- If you store per-person data (CRM, preferences), store `platformData.phoneNumber` and `platformData.lid` too, so you can reconcile the two records.
 
-## Encuestas y votos
+## Polls and votes
 
-`ctx.poll(pregunta, opciones, multiSelect?)` envía una encuesta nativa. Los votos llegan al bot como evento `poll`, ya descifrados y con el recuento completo:
+`ctx.poll(question, options, multiSelect?)` sends a native poll. Votes reach the bot as a `poll` event, already decrypted and with the full tally:
 
 ```ts
-await ctx.poll('¿Pizza o sushi?', ['Pizza', 'Sushi'])
+await ctx.poll('Pizza or sushi?', ['Pizza', 'Sushi'])
 
 bot.on('poll', (vote) => {
-  // vote.ref.id      → id de la encuesta (vote.ref.native es el mensaje de la encuesta)
-  // vote.ref.chatId  → chat donde se votó, el mismo chatId que usan sus mensajes
-  // vote.senderId    → quien acaba de votar, con la identidad canónica de sus mensajes
-  // vote.options     → recuento actual: [{ name, votes, voters }]
-  const elegidas = vote.options.filter((o) => o.voters?.includes(vote.senderId)).map((o) => o.name)
-  console.log(elegidas.length ? `Eligió: ${elegidas.join(', ')}` : 'Retiró su voto')
+  // vote.ref.id      → poll id (vote.ref.native is the poll message)
+  // vote.ref.chatId  → chat where the vote was cast, the same chatId its messages use
+  // vote.senderId    → whoever just voted, with the canonical identity of their messages
+  // vote.options     → current tally: [{ name, votes, voters }]
+  const chosen = vote.options.filter((o) => o.voters?.includes(vote.senderId)).map((o) => o.name)
+  console.log(chosen.length ? `Chose: ${chosen.join(', ')}` : 'Withdrew their vote')
 })
 ```
 
-WhatsApp cifra cada voto de extremo a extremo con una clave derivada del secreto de la encuesta (`messageSecret`), su id y los JID del creador y del votante. Baileys 7 trae ese descifrado comentado, así que el provider lo hace por su cuenta:
+WhatsApp encrypts every vote end to end with a key derived from the poll secret (`messageSecret`), its id and the creator's and voter's JIDs. Baileys 7 ships that decryption commented out, so the provider does it on its own:
 
-- **Recuerda las encuestas que ve:** las que envía el bot (el resultado de `send()` y el eco `append` que emite Baileys) y las que crean otros en los chats que el provider escucha. Las de chats ignorados (estados, listas de difusión, canales; ver `ignoreBroadcasts`/`ignoreNewsletters`) no ocupan sitio, salvo las del propio bot. Guarda en memoria las **500** más recientes; una encuesta que recibe votos se mantiene entre las recientes.
-- **Ata cada voto a su encuesta:** un voto solo nombra la encuesta por su id, y cualquier miembro de un chat conoce el id y el secreto de sus encuestas. Por eso el provider exige que el voto llegue por el **mismo chat** que la encuesta (contando las formas LID y PN de un mismo chat) y que nombre al **mismo creador**. Otra encuesta que reutilice el id (los ids los elige el cliente que envía) no puede sumar votos a la que ya está en memoria. Los votos que no cumplen se descartan con un log de nivel `debug`.
-- **Descifra probando las formas LID y PN** del creador y del votante. En un grupo direccionado por LID el voto se firma con los LID; en un chat por PN, con los números. Un par incorrecto no pasa la autenticación de AES-GCM, así que probarlos no produce falsos positivos.
-- **Guarda el último voto de cada persona:** un voto nuevo reemplaza al anterior, una selección vacía lo retira y un voto más antiguo que el guardado se descarta. Una persona cuenta una sola vez aunque vote primero como LID y luego aparezca con su PN.
-- **Cada voto se cuenta una vez:** Baileys vuelve a entregar como `append` los mensajes recibidos sin conexión, así que el provider recuerda los ids de los últimos 5000 votos contados y no vuelve a emitir uno repetido. Un voto distinto de la misma persona con la misma marca de tiempo sí actualiza el recuento.
-- El voto cifrado ya **no** llega como mensaje de tipo `poll`. `bot.onPoll` se dispara solo con las encuestas que crea otra persona, con la pregunta en `body`.
+- **It remembers the polls it sees:** those the bot sends (the `send()` result and the `append` echo Baileys emits) and those others create in the chats the provider listens to. Polls from ignored chats (statuses, broadcast lists, channels; see `ignoreBroadcasts`/`ignoreNewsletters`) take no room, except the bot's own. It keeps the **500** most recent in memory; a poll that receives votes stays among the recent ones.
+- **It ties every vote to its poll:** a vote only names the poll by its id, and any member of a chat knows the id and secret of its polls. That is why the provider requires the vote to arrive through the **same chat** as the poll (counting the LID and PN forms of one chat) and to name the **same creator**. Another poll reusing the id (ids are chosen by the client that sends) cannot add votes to the one already in memory. Votes that do not comply are dropped with a `debug`-level log.
+- **It decrypts by trying the LID and PN forms** of the creator and the voter. In a group addressed by LID the vote is signed with the LIDs; in a chat by PN, with the numbers. A wrong pair does not pass the AES-GCM authentication, so trying them produces no false positives.
+- **It keeps each person's last vote:** a new vote replaces the previous one, an empty selection withdraws it and a vote older than the stored one is dropped. A person counts once even if they vote first as a LID and later show up with their PN.
+- **Every vote counts once:** Baileys redelivers offline messages as `append`, so the provider remembers the ids of the last 5000 counted votes and does not emit a repeated one. A different vote from the same person with the same timestamp does update the tally.
+- The encrypted vote no longer arrives as a `poll`-type message. `bot.onPoll` only fires for polls created by someone else, with the question in `body`.
 
-Limitaciones:
+Limitations:
 
-- Sin `pollStore`, solo se descifran los votos de encuestas que **este proceso** vio. Tras un reinicio la memoria empieza vacía, así que los votos de encuestas anteriores (o desalojadas de la caché) se descartan con un log de nivel `debug`. Para conservarlas, configura un [`pollStore`](#persistir-encuestas-pollstore). Un voto que no se descifra deja un `warn` con el id de la encuesta, sin JID ni contenido.
-- **El bot no puede votar.** Baileys 7 no tiene API para construir un voto cifrado (ni contenido de voto en `sendMessage` ni un equivalente de `decryptPollVote` para cifrar); habría que reimplementar el cifrado y enviarlo con `relayMessage`. Por eso no hay `ctx.vote()`.
+- Without a `pollStore`, only votes for polls **this process** saw are decrypted. After a restart memory starts empty, so votes for earlier polls (or ones evicted from the cache) are dropped with a `debug`-level log. To keep them, configure a [`pollStore`](#persisting-polls-pollstore). A vote that cannot be decrypted leaves a `warn` with the poll id, no JID and no content.
+- **The bot cannot vote.** Baileys 7 has no API to build an encrypted vote (no vote content in `sendMessage`, no `decryptPollVote` counterpart for encrypting); you would have to reimplement the encryption and send it with `relayMessage`. That is why there is no `ctx.vote()`.
 
-### Persistir encuestas (`pollStore`)
+### Persisting polls (`pollStore`)
 
-Para descifrar los votos que llegan **después de un reinicio**, pasa un `pollStore`: una interfaz async mínima, con clave el id del mensaje de la encuesta, que puedes respaldar con Redis, SQL o un archivo.
+To decrypt votes that arrive **after a restart**, pass a `pollStore`: a minimal async interface, keyed by the poll message id, that you can back with Redis, SQL or a file.
 
 ```ts
 import type { PollStore, StoredPoll } from '@bot-wa/baileys'
@@ -214,71 +214,71 @@ const pollStore: PollStore = {
   delete: async (id) => { await redis.del(`poll:${id}`) },
 }
 
-new BaileysProvider({ session: 'mi-bot', pollStore })
+new BaileysProvider({ session: 'my-bot', pollStore })
 ```
 
-- `StoredPoll` es JSON plano: la clave de la encuesta (chat y creador, con sus formas LID/PN), la pregunta, el `messageSecret` en base64, las opciones con su hash y el último voto de cada persona. No guarda otros mensajes.
-- El provider llama a `set` al ver una encuesta nueva y tras cada voto contado; a `get` cuando llega un voto de una encuesta que no está en memoria (o una encuesta nueva reutiliza un id); y a `delete` si una entrada está mal formada. La caché en memoria de 500 encuestas sigue delante del store.
-- Tras un reinicio, el recuento continúa donde se quedó y se mantienen las mismas reglas: el voto tiene que llegar por el mismo chat y nombrar al mismo creador, y una encuesta posterior con el mismo id no sobrescribe la guardada.
-- La retención (TTL, limpieza) la decides tú. Si el store falla, el provider lo registra como `warn` y sigue con la caché en memoria: nunca rompe un envío ni la recepción.
-- **La entrada contiene el secreto de la encuesta**, con el que se descifran sus votos: trata el store con el mismo cuidado que la carpeta de la sesión.
+- `StoredPoll` is plain JSON: the poll key (chat and creator, with their LID/PN forms), the question, the `messageSecret` in base64, the options with their hash and each person's last vote. It stores no other messages.
+- The provider calls `set` when it sees a new poll and after every counted vote; `get` when a vote arrives for a poll that is not in memory (or a new poll reuses an id); and `delete` when an entry is malformed. The in-memory cache of 500 polls still sits in front of the store.
+- After a restart, the tally continues where it left off and the same rules hold: the vote must arrive through the same chat and name the same creator, and a later poll with the same id does not overwrite the stored one.
+- Retention (TTL, cleanup) is up to you. If the store fails, the provider logs it as a `warn` and continues with the in-memory cache: it never breaks a send or the reception.
+- **The entry holds the poll secret**, with which its votes are decrypted: treat the store as carefully as the session folder.
 
-`vote.ref.native` de una encuesta cargada del store es un mensaje de encuesta reconstruido (clave, pregunta, opciones y secreto), suficiente para citarla.
+`vote.ref.native` of a poll loaded from the store is a reconstructed poll message (key, question, options and secret), enough to quote it.
 
-## Seguridad de la sesión
+## Session security
 
-La carpeta de la sesión (`creds.json` y las claves Signal) **es** la cuenta: quien la copie puede leer y enviar mensajes como tu número.
+The session folder (`creds.json` and the Signal keys) **is** the account: whoever copies it can read and send messages as your number.
 
-- **Contención de rutas.** `session` es un id opaco: de 1 a 128 caracteres entre letras, dígitos, `.`, `_` y `-`, empezando por letra o dígito. No admite separadores ni `..`. Se valida en el constructor, antes de tocar el disco. `sessionsDir` no puede ser la raíz del sistema de archivos. Antes de leer, escribir o borrar, el provider rechaza una carpeta de sesión que sea un enlace simbólico y comprueba con la ruta real que sigue dentro de `sessionsDir`.
-- **`stop()` vs `logoutAndDeleteSession()`.** `stop()` cierra el socket y **conserva** la sesión: el siguiente `start()` reconecta sin QR. `logoutAndDeleteSession()` desvincula el dispositivo en WhatsApp y borra **solo** la carpeta de esa sesión, así que el siguiente arranque pide un QR nuevo. Úsalo solo cuando quieras desvincular de verdad.
-- **Borrado automático.** Con 401/500/411 (sesión inválida) el provider borra la carpeta de la sesión por su cuenta para poder emparejar de nuevo.
-- Añade `sessions/` a `.gitignore`, restringe los permisos de la carpeta (p. ej. `chmod 700`) y no ejecutes dos instancias con la misma sesión: WhatsApp cerraría una con `440 conflict`.
-- El provider no registra QR, códigos ni cuerpos de mensaje. Con `debug: true` el log de Baileys es muy verboso; no lo dejes activado en producción.
+- **Path containment.** `session` is an opaque id: 1 to 128 characters among letters, digits, `.`, `_` and `-`, starting with a letter or digit. It admits no separators and no `..`. It is validated in the constructor, before touching the disk. `sessionsDir` cannot be the filesystem root. Before reading, writing or deleting, the provider rejects a session folder that is a symbolic link and checks with the real path that it stays inside `sessionsDir`.
+- **`stop()` vs `logoutAndDeleteSession()`.** `stop()` closes the socket and **keeps** the session: the next `start()` reconnects without a QR. `logoutAndDeleteSession()` unlinks the device in WhatsApp and deletes **only** that session's folder, so the next start asks for a new QR. Use it only when you really want to unlink.
+- **Automatic deletion.** On 401/500/411 (invalid session) the provider deletes the session folder on its own so it can pair again.
+- Add `sessions/` to `.gitignore`, restrict the folder permissions (e.g. `chmod 700`) and do not run two instances with the same session: WhatsApp would close one with `440 conflict`.
+- The provider logs no QR, codes or message bodies. With `debug: true` Baileys' log is very verbose; do not leave it on in production.
 
-## Capacidades
+## Capabilities
 
-| Capability | Valor | Notas |
+| Capability | Value | Notes |
 | --- | --- | --- |
-| `buttons` | ❌ | se degradan a texto numerado |
-| `lists` | ❌ | se degradan a texto numerado |
-| `polls` | ✅ | envío de encuestas nativas y lectura de votos con el evento `poll` (ver [Encuestas y votos](#encuestas-y-votos)) |
-| `reactions` | ✅ | enviar y recibir; `senderId` es quien reacciona |
+| `buttons` | ❌ | degrade to numbered text |
+| `lists` | ❌ | degrade to numbered text |
+| `polls` | ✅ | native poll sending and vote reading with the `poll` event (see [Polls and votes](#polls-and-votes)) |
+| `reactions` | ✅ | send and receive; `senderId` is whoever reacts |
 | `edit` | ❌ | |
 | `typing` | ✅ | `composing` / `recording` / `paused` |
-| `presence` | ✅ | eventos `presence` |
+| `presence` | ✅ | `presence` events |
 | `readReceipts` | ✅ | `markRead` |
-| `groups` | ✅ | mensajes de grupo y eventos de participantes |
-| `templates` | ❌ | requieren la Cloud API (`@bot-wa/meta`) |
+| `groups` | ✅ | group messages and participant events |
+| `templates` | ❌ | they require the Cloud API (`@bot-wa/meta`) |
 | `interactionsRequireAck` | ❌ | |
-| `pushIngress` | ❌ | el provider mantiene su propio socket |
+| `pushIngress` | ❌ | the provider keeps its own socket |
 
-## Mapeo de errores
+## Error mapping
 
-`send()` solo rechaza con subclases de `ProviderError` de `@bot-wa/core`. Los fallos de `sock.sendMessage`, del rate limiter y de la preparación del contenido se convierten así:
+`send()` only rejects with `ProviderError` subclasses from `@bot-wa/core`. Failures from `sock.sendMessage`, the rate limiter and content preparation are converted like this:
 
-| Causa | Se convierte en |
+| Cause | Becomes |
 | --- | --- |
-| 429 de Baileys | `RateLimitedError` (`retryAfterMs` sale de `retry-after`, por defecto 1 s) |
-| 413 o *too large* | `PayloadTooLargeError` |
+| Baileys 429 | `RateLimitedError` (`retryAfterMs` comes from `retry-after`, 1 s by default) |
+| 413 or *too large* | `PayloadTooLargeError` |
 | 401 / 403, *forbidden*, *not-authorized*, *blocked* | `RecipientUnreachableError` |
-| `kind: 'template'` o `'native'` | `UnsupportedContentError` |
-| espera en la cola del rate limiter mayor que `maxWait` | `RateLimiterTimeout`, subclase de `RateLimitedError` |
-| `stop()` con envíos todavía en cola | `ProviderError('RateLimiter reset')` |
-| sin socket conectado | `ProviderError('Provider not connected')` |
-| cualquier otro | `ProviderError`, con el error original en `cause` |
+| `kind: 'template'` or `'native'` | `UnsupportedContentError` |
+| wait in the rate limiter queue longer than `maxWait` | `RateLimiterTimeout`, a subclass of `RateLimitedError` |
+| `stop()` with sends still queued | `ProviderError('RateLimiter reset')` |
+| no connected socket | `ProviderError('Provider not connected')` |
+| anything else | `ProviderError`, with the original error in `cause` |
 
-`RateLimiterTimeout` conserva su `name` y sus campos `chatId` y `waitedMs`, así que el código que ya lo capturaba sigue funcionando. Como es un `RateLimitedError`, también lo atrapa un `catch (e instanceof RateLimitedError)` portable entre transportes; su `retryAfterMs` es el tiempo que falta para que el bucket que lo bloquea recupere un token.
+`RateLimiterTimeout` keeps its `name` and its `chatId` and `waitedMs` fields, so code that already caught it keeps working. Because it is a `RateLimitedError`, it is also caught by a transport-portable `catch (e instanceof RateLimitedError)`; its `retryAfterMs` is the time left until the bucket blocking it recovers a token.
 
-## Limitaciones
+## Limitations
 
-- **Sin botones ni listas nativos.** WhatsApp Web dejó de soportarlos para clientes no oficiales. Usa menús numerados con `choose()` (en el DSL `flow().choose(...)` o en conversaciones `c.choose(...)`) o una encuesta nativa con `ctx.poll(pregunta, opciones)`. `ctx.buttons(...)` y el contenido `list` siguen funcionando, pero llegan como texto numerado.
-- **Votos de encuestas:** sin `pollStore`, solo se leen los de encuestas que el proceso vio desde que arrancó, y el bot no puede votar (ver [Encuestas y votos](#encuestas-y-votos)). Si la respuesta tiene que sobrevivir a un reinicio, configura un `pollStore` o usa `choose()`.
-- Sin plantillas ni ventana de 24 h: eso es de la Cloud API.
-- No se pueden editar mensajes enviados (`edit: false`).
+- **No native buttons or lists.** WhatsApp Web stopped supporting them for unofficial clients. Use numbered menus with `choose()` (in the DSL `flow().choose(...)` or in conversations `c.choose(...)`) or a native poll with `ctx.poll(question, options)`. `ctx.buttons(...)` and the `list` content still work, but arrive as numbered text.
+- **Poll votes:** without a `pollStore`, only those for polls the process has seen since it started are read, and the bot cannot vote (see [Polls and votes](#polls-and-votes)). If the answer must survive a restart, configure a `pollStore` or use `choose()`.
+- No templates and no 24-hour window: that belongs to the Cloud API.
+- Sent messages cannot be edited (`edit: false`).
 
-## Notas
+## Notes
 
-- ESM only (`"type": "module"`); los imports relativos llevan extensión `.js`.
-- Para responder a las peticiones de reenvío de WhatsApp (`getMessage`), el provider guarda en memoria los últimos 2000 mensajes de los chats que escucha y los del propio bot. Los de chats ignorados (estados, listas de difusión, canales) no ocupan sitio.
-- Los errores se registran bajo la clave `err` de pino, así que el log muestra mensaje y stack. Si inyectas tu propio `logger`, mantén el serializer de errores de pino.
-- `provider.socket` expone el socket de Baileys para operaciones que el `IProvider` no cubre (grupos, perfil…). Úsalo con cuidado: lo que hagas ahí se salta el rate limiter y el mapeo de errores.
+- ESM only (`"type": "module"`); relative imports carry the `.js` extension.
+- To answer WhatsApp's resend requests (`getMessage`), the provider keeps the last 2000 messages of the chats it listens to and of the bot itself in memory. Messages from ignored chats (statuses, broadcast lists, channels) take no room.
+- Errors are logged under pino's `err` key, so the log shows message and stack. If you inject your own `logger`, keep pino's error serializer.
+- `provider.socket` exposes the Baileys socket for operations the `IProvider` does not cover (groups, profile…). Use it carefully: whatever you do there bypasses the rate limiter and the error mapping.

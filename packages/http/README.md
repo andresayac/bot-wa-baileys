@@ -1,6 +1,6 @@
 # @bot-wa/http
 
-Cliente HTTP defensivo para descargas salientes de proveedores. Valida HTTPS, bloquea destinos privados/loopback y DNS inseguro, valida cada redirección, limita la respuesta y aplica timeout.
+Defensive HTTP client for outbound provider downloads. It requires HTTPS, blocks private/loopback destinations and unsafe DNS, validates every redirect, caps the response and enforces a timeout.
 
 ```ts
 import { fetchBuffer } from '@bot-wa/http'
@@ -11,22 +11,22 @@ const image = await fetchBuffer('https://cdn.example/image.png', {
 })
 ```
 
-No habilites `allowHttp` ni `allowPrivateHosts` fuera de una red controlada.
+Never enable `allowHttp` or `allowPrivateHosts` outside a network you control.
 
-## Errores
+## Errors
 
-Todo rechazo de política es un `SecureHttpError` con un `code` estable:
+Every policy rejection is a `SecureHttpError` with a stable `code`:
 
-| `code` | Cuándo |
+| `code` | When |
 | --- | --- |
-| `INVALID_URL` | La URL (o el `Location` de una redirección) no se puede parsear. |
-| `INVALID_OPTIONS` | `timeoutMs`, `maxBytes` o `maxRedirects` fuera de rango. No se hace ninguna petición. |
-| `UNSAFE_URL` | Esquema distinto de HTTPS (sin `allowHttp`), credenciales en la URL o sin hostname. |
-| `UNSAFE_HOST` | El host o su DNS apunta a una dirección privada, loopback o link-local. |
-| `TIMEOUT` | La petición completa superó `timeoutMs`. |
-| `RESPONSE_TOO_LARGE` | El cuerpo superó `maxBytes`. |
-| `TOO_MANY_REDIRECTS` | Más saltos que `maxRedirects`. |
-| `HTTP_STATUS` | `fetchBuffer` recibió una respuesta no 2xx; el código está en `error.status`. `secureFetch` no rechaza por status: devuelve la `response`. |
+| `INVALID_URL` | The URL (or a redirect's `Location`) cannot be parsed. |
+| `INVALID_OPTIONS` | `timeoutMs`, `maxBytes` or `maxRedirects` out of range. No request is made. |
+| `UNSAFE_URL` | Scheme other than HTTPS (without `allowHttp`), credentials in the URL, or no hostname. |
+| `UNSAFE_HOST` | The host or its DNS answer points at a private, loopback or link-local address. |
+| `TIMEOUT` | The whole request exceeded `timeoutMs`. |
+| `RESPONSE_TOO_LARGE` | The body exceeded `maxBytes`. |
+| `TOO_MANY_REDIRECTS` | More hops than `maxRedirects`. |
+| `HTTP_STATUS` | `fetchBuffer` got a non-2xx response; the code is in `error.status`. `secureFetch` does not reject on status: it returns the `response`. |
 
 ```ts
 import { fetchBuffer, SecureHttpError } from '@bot-wa/http'
@@ -35,7 +35,7 @@ try {
   await fetchBuffer(url)
 } catch (error) {
   if (error instanceof SecureHttpError && error.code === 'HTTP_STATUS' && error.status === 404) {
-    // el recurso ya no existe
+    // the resource no longer exists
   }
 }
 ```

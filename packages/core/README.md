@@ -4,19 +4,19 @@
 [![npm](https://img.shields.io/npm/v/@bot-wa/core)](https://www.npmjs.com/package/@bot-wa/core)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](https://github.com/andresayac/bot-wa-baileys/blob/main/LICENSE.md)
 
-Motor de bots **agnóstico de transporte**: flows declarativos para empezar en 30 segundos, un runtime de conversaciones async para control total, hooks/plugins/DI y scheduler. Tú inyectas el transporte (WhatsApp vía [`@bot-wa/baileys`](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/baileys-provider); Telegram/Discord usan el mismo contrato `IProvider`).
+A **transport-agnostic** bot engine: declarative flows to get going in 30 seconds, an async conversation runtime when you need full control, hooks/plugins/DI and a scheduler. You inject the transport (WhatsApp through [`@bot-wa/baileys`](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/baileys-provider); Telegram/Discord use the same `IProvider` contract).
 
-> **v2 es un rewrite transport-agnostic.** Si vienes de la v1 (`BaileysClass`), lee la [guía de migración](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/MIGRATION-v1-to-v2.md).
+> **v2 is a transport-agnostic rewrite.** If you come from v1 (`BaileysClass`), read the [migration guide](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/MIGRATION-v1-to-v2.md).
 
-## Instalación
+## Installation
 
 ```
 npm i @bot-wa/core@alpha @bot-wa/baileys@alpha
 ```
 
-Requiere **Node >= 22** (ESM-only). El core no tiene dependencias de transporte — las instala el paquete del transporte que uses.
+Requires **Node >= 22** (ESM-only). The core carries no transport dependency — the transport package you pick brings its own.
 
-## Quickstart (30 segundos)
+## Quickstart (30 seconds)
 
 ```ts
 import { Bot, flow } from '@bot-wa/core'
@@ -24,56 +24,56 @@ import { BaileysProvider } from '@bot-wa/baileys'
 
 const bot = new Bot({
   provider: new BaileysProvider({
-    session: 'mi-bot',
-    qr: { terminal: true },        // muestra el QR en la terminal
+    session: 'my-bot',
+    qr: { terminal: true },        // print the QR in the terminal
   }),
 })
 
-bot.when('hola', (ctx) => ctx.reply('👋 ¡Hola!'))
+bot.when('hola', (ctx) => ctx.reply('👋 Hello!'))
 
 bot.use(
-  flow('registrar')
-    .say('📝 Vamos a registrarte')
-    .ask('¿Tu nombre?', 'name')
-    .say((_ctx, c) => `✅ Hola ${c.state.name}`)
+  flow('signup')
+    .say('📝 Let us sign you up')
+    .ask('Your name?', 'name')
+    .say((_ctx, c) => `✅ Hi ${c.state.name}`)
 )
 
-// Avanzado: conversación async con control total
-bot.conversation('soporte', async (c, ctx) => {
-  await ctx.reply('Describe tu problema')
-  const problema = await c.waitText({ timeout: '2m' })
-  await ctx.reply(`🎫 Registrado: ${problema}`)
+// Advanced: async conversation with full control
+bot.conversation('support', async (c, ctx) => {
+  await ctx.reply('Describe your problem')
+  const problem = await c.waitText({ timeout: '2m' })
+  await ctx.reply(`🎫 Logged: ${problem}`)
 })
 
-await bot.start()   // escanea el QR
+await bot.start()   // scan the QR
 ```
 
-Un ejemplo completo (comandos, media, hooks, DI, scheduler) vive en [`packages/baileys-provider/examples/bot.ts`](https://github.com/andresayac/bot-wa-baileys/blob/main/packages/baileys-provider/examples/bot.ts).
+A full example (commands, media, hooks, DI, scheduler) lives in [`packages/baileys-provider/examples/bot.ts`](https://github.com/andresayac/bot-wa-baileys/blob/main/packages/baileys-provider/examples/bot.ts).
 
-¿Sin cámara? Configura `pairingCode: '+57300XXXXXXX'` en el `BaileysProvider` (formato internacional completo) y escucha `bot.on('qr', ...)` — el código de emparejamiento llega por ahí también.
+No camera? Set `pairingCode: '+57300XXXXXXX'` on `BaileysProvider` (full international format) and listen for `bot.on('qr', ...)` — the pairing code arrives there too.
 
-> **Flujos persistentes:** `flow(...).persistent()` solo sobrevive a un reinicio si el store es persistente. El `MemoryStore` por defecto vive en memoria; para conservar los checkpoints usa un store con disco (p.ej. [`@bot-wa/sqlite-store`](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/sqlite-store)).
+> **Persistent flows:** `flow(...).persistent()` only survives a restart with a persistent store. The default `MemoryStore` lives in RAM; to keep checkpoints use a disk-backed store (e.g. [`@bot-wa/sqlite-store`](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/sqlite-store)).
 
-## Características (v2)
+## Features (v2)
 
-- **Motor transport-agnostic** — el core no conoce WhatsApp: `IProvider` normaliza entrada (`InboundEvent`) y salida (`OutboundContent`); cada transporte resuelve su propia identidad internamente.
-- **Flows declarativos que compilan a runtime async** — `flow().say().ask().choose()` se compila a un `bot.conversation` real.
-- **Dispatcher por especificidad** — comandos (`/reset`) > conversación activa > matchers (`equals` normalizado por defecto, o `contains`/`startsWith`/`endsWith`) > catch-all.
-- **Runtime de conversaciones async** — `c.ask`, `c.waitText`, `c.waitMedia`, `c.waitLocation`, `c.choose`, con validación, reintentos y timeouts por espera.
-- **Interacciones proyectadas** — clics de botón/slash llegan como un mensaje `type: 'buttons'` con `ctx.acknowledge()` (no-op en WhatsApp).
-- **Validación de config en runtime** — el constructor lanza `ConfigValidationError` con mensaje claro.
+- **Transport-agnostic engine** — the core knows nothing about WhatsApp: `IProvider` normalizes input (`InboundEvent`) and output (`OutboundContent`); each transport resolves its own identity internally.
+- **Declarative flows that compile to an async runtime** — `flow().say().ask().choose()` compiles to a real `bot.conversation`.
+- **Dispatcher by specificity** — commands (`/reset`) > active conversation > matchers (normalized `equals` by default, or `contains`/`startsWith`/`endsWith`) > catch-all.
+- **Async conversation runtime** — `c.ask`, `c.waitText`, `c.waitMedia`, `c.waitLocation`, `c.choose`, with validation, retries and per-wait timeouts.
+- **Projected interactions** — button/slash clicks arrive as a `type: 'buttons'` message with `ctx.acknowledge()` (no-op on WhatsApp).
+- **Runtime config validation** — the constructor throws `ConfigValidationError` with a clear message.
 - **Group mode** — `config.groupMode: 'all' | 'mentions' | 'commands'`.
-- **Graceful shutdown con drain** — `bot.stop({ drain: true })` espera envíos en vuelo.
-- **Testing kit sin transporte real** — `createTestBot()` desde `@bot-wa/core/testing`, con un `MockProvider` v2 y aserciones sobre el outbox.
-- **Hooks y plugins con DI** — `before`/`after`/`onError`, `bot.plug()`/`unplug()`, `bot.provide()`.
-- **Scheduler integrado** — `bot.schedule()` (cron), `bot.every()`, `bot.delay()`.
-- **100% ESM + TypeScript estricto.**
+- **Graceful shutdown with drain** — `bot.stop({ drain: true })` waits for in-flight sends.
+- **Testing kit without a real transport** — `createTestBot()` from `@bot-wa/core/testing`, with a v2 `MockProvider` and assertions over the outbox.
+- **Hooks and plugins with DI** — `before`/`after`/`onError`, `bot.plug()`/`unplug()`, `bot.provide()`.
+- **Built-in scheduler** — `bot.schedule()` (cron), `bot.every()`, `bot.delay()`.
+- **100% ESM + strict TypeScript.**
 
-> Nota: las sub-APIs de gestión de WhatsApp (`bot.groups/profile/privacy/chats/presence`) se movieron al transporte y se re-expondrán como namespaces del provider próximamente.
+> Note: the WhatsApp management sub-APIs (`bot.groups/profile/privacy/chats/presence`) moved to the transport and will be re-exposed as provider namespaces soon.
 
-## Store persistente (SQLite)
+## Persistent store (SQLite)
 
-El `MemoryStore` por defecto es ideal para desarrollo. Para producción usa el paquete [`@bot-wa/sqlite-store`](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/sqlite-store):
+The default `MemoryStore` is ideal for development. For production use the [`@bot-wa/sqlite-store`](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/sqlite-store) package:
 
 ```ts
 import { Bot } from '@bot-wa/core'
@@ -81,31 +81,31 @@ import { BaileysProvider } from '@bot-wa/baileys'
 import { SQLiteStore } from '@bot-wa/sqlite-store'
 
 const bot = new Bot({
-  provider: new BaileysProvider({ session: 'mi-bot' }),
+  provider: new BaileysProvider({ session: 'my-bot' }),
   store: new SQLiteStore({ file: './data/bot.db' }),
 })
 ```
 
-## Group Mode
+## Group mode
 
 ```ts
 const bot = new Bot({
   provider,
-  groupMode: 'mentions',  // solo responde si lo @mencionan
-  // groupMode: 'commands',  // solo responde a comandos
-  // groupMode: 'all',       // responde a todo (default)
+  groupMode: 'mentions',  // only answer when @mentioned
+  // groupMode: 'commands',  // only answer commands
+  // groupMode: 'all',       // answer everything (default)
 })
 ```
 
-## Documentación
+## Documentation
 
-- [Guía de migración v1 → v2](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/MIGRATION-v1-to-v2.md)
+- [Migration guide v1 → v2](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/MIGRATION-v1-to-v2.md)
 - API (TypeDoc): generate it locally with `pnpm docs:api` (output in `docs/api/`)
 
 ## Acknowledgements
 
-Inspirado en ideas y código de [bot-whatsapp](https://github.com/codigoencasa/bot-whatsapp) de codigoencasa.
+Inspired by ideas and code from [bot-whatsapp](https://github.com/codigoencasa/bot-whatsapp) by codigoencasa.
 
-## Licencia
+## License
 
 [MIT](https://github.com/andresayac/bot-wa-baileys/blob/main/LICENSE.md) © Andres Aya

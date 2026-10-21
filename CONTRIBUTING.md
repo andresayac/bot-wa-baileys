@@ -1,6 +1,6 @@
 # Contributing
 
-Gracias por querer contribuir a `bot-wa-baileys`. Este repo es un **monorepo pnpm** transporte-agnóstico: el motor es `@bot-wa/core` (`packages/core`), rodeado de transportes (baileys/meta/messenger/instagram/telegram/discord), stores (sqlite/redis/mongo/postgres/mysql), helpers compartidos (`@bot-wa/graph-core`, `@bot-wa/http`) y tooling (`@bot-wa/ai`, `@bot-wa/nlu`, `@bot-wa/manager`, `create-bot-wa`). Ver la tabla completa en el [README](README.md#paquetes). Si eres un agente de código, lee también [`AGENTS.md`](AGENTS.md).
+Gracias por querer contribuir a `bot-wa-baileys`. Este repo es un **monorepo pnpm** transporte-agnóstico: el motor es `@bot-wa/core` (`packages/core`), rodeado de transportes (baileys/meta/messenger/instagram/telegram/discord), stores (sqlite/redis/mongo/postgres/mysql), helpers compartidos (`@bot-wa/graph-core`, `@bot-wa/http`) y tooling (`@bot-wa/ai`, `@bot-wa/nlu`, `@bot-wa/manager`, `create-bot-wa`). Ver la tabla completa en el [README](README.md#packages). Si eres un agente de código, lee también [`AGENTS.md`](AGENTS.md).
 
 ## Requisitos
 
@@ -132,7 +132,7 @@ Las versiones se gestionan con [Changesets](https://changesets.dev) (CLI v3) y s
 
 **Paquetes públicos** (se publican en npm): `@bot-wa/core`, `@bot-wa/baileys`, `@bot-wa/meta`, `@bot-wa/telegram`, `@bot-wa/sqlite-store`, `@bot-wa/redis-store`, `@bot-wa/ai`, `@bot-wa/http`, `@bot-wa/graph-core` y `create-bot-wa`.
 
-**Paquetes privados** (`"private": true`, nunca se publican): todo lo demás — los canales experimentales (`discord`, `messenger`, `instagram`, `evolution`, `wppconnect`, `twilio`, `gohighlevel`, `gupshup`, `email`, `tiktok`), los stores `mongo`/`postgres`/`mysql`, la infraestructura (`server`, `wa-gateway-kit`), los plugins e integraciones (`nlu`, `rag`, `voice`, `dialogflow`, `chatwoot`, `tickets`, `moderation`, `manager`, `events`, `otel`), los paquetes de producto (`inbox`, `crm`, `hub`, `campaigns`, `deployments`, `tenant-kv`, `flow-schema`) y el tooling (`eslint-plugin-bot-wa`, `@bot-wa/mcp`). La tabla del [README](README.md#paquetes) es la lista canónica.
+**Paquetes privados** (`"private": true`, nunca se publican): todo lo demás — los canales experimentales (`discord`, `messenger`, `instagram`, `evolution`, `wppconnect`, `twilio`, `gohighlevel`, `gupshup`, `email`, `tiktok`), los stores `mongo`/`postgres`/`mysql`, la infraestructura (`server`, `wa-gateway-kit`), los plugins e integraciones (`nlu`, `rag`, `voice`, `dialogflow`, `chatwoot`, `tickets`, `moderation`, `manager`, `events`, `otel`), los paquetes de producto (`inbox`, `crm`, `hub`, `campaigns`, `deployments`, `tenant-kv`, `flow-schema`) y el tooling (`eslint-plugin-bot-wa`, `@bot-wa/mcp`). La tabla del [README](README.md#packages) es la lista canónica.
 
 ### Flujo
 

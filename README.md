@@ -2,100 +2,100 @@
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE.md)
 
-Framework moderno y **agnóstico de transporte** para bots de mensajería: flows declarativos para empezar en 30 segundos, un runtime de conversaciones async para control total, y un plugin de IA multi-proveedor. Dos transportes de WhatsApp —[Baileys 7](https://github.com/WhiskeySockets/Baileys) (no oficial) y la **Cloud API oficial de Meta**— detrás del mismo `IProvider`, más Telegram y canales experimentales (Messenger, Instagram, Discord, TikTok, email, y WhatsApp vía Evolution API, WPPConnect, Twilio o Gupshup). **Monorepo pnpm** en **alpha**: la primera publicación en npm está en preparación.
+A modern, **transport-agnostic** framework for messaging bots: declarative flows to get going in 30 seconds, an async conversation runtime when you need full control, and a multi-provider AI plugin. Two WhatsApp transports —[Baileys 7](https://github.com/WhiskeySockets/Baileys) (unofficial) and the **official Meta Cloud API**— behind the same `IProvider`, plus Telegram and experimental channels (Messenger, Instagram, Discord, TikTok, email, and WhatsApp through Evolution API, WPPConnect, Twilio or Gupshup). **pnpm monorepo** in **alpha**: the first npm publish is being prepared.
 
-## Paquetes
+## Packages
 
-El monorepo tiene **44 paquetes**: 10 **Alpha** (publicables), 26 **Experimentales** y 8 de **Producto** e infraestructura. No todos están al mismo nivel de madurez, y la columna **Estado** lo dice sin rodeos:
+The monorepo has **44 packages**: 10 **Alpha** (publishable), 26 **Experimental** and 8 **Product** and infrastructure ones. They are not all equally mature, and the **Status** column says so plainly:
 
-- **Alpha**: forma parte de la primera alpha publicable. **Todavía no está en npm**; la primera publicación se está preparando.
-- **Experimental**: implementación real y con tests, pero el paquete es `private`. No se publica todavía y su API puede cambiar.
-- **Producto / interno**: implementación real y persistente (`private`), sobre cualquier `DurableKv` del core. Aislamiento por tenant y compare-and-set en el backend; la API puede cambiar mientras la alpha no salga.
+- **Alpha**: part of the first publishable alpha. **Not on npm yet**; the first publish is being prepared.
+- **Experimental**: real, tested implementation, but the package is `private`. Not published yet and its API may change.
+- **Product / internal**: real, persistent implementation (`private`) over any core `DurableKv`. Per-tenant isolation and compare-and-set in the backend; the API may change until the alpha ships.
 
-| Paquete | Estado | Descripción |
+| Package | Status | Description |
 | --- | --- | --- |
 | **Core** | | |
-| [`@bot-wa/core`](packages/core) | Alpha | Motor agnóstico de transporte: `Bot`, `IProvider v2`, dispatcher, flows/conversaciones, hooks, plugins, store, testing kit. |
-| **Transportes (canales)** | | |
-| [`@bot-wa/baileys`](packages/baileys-provider) | Alpha | WhatsApp vía Baileys 7 (no oficial, QR o pairing code). |
-| [`@bot-wa/meta`](packages/meta-provider) | Alpha | WhatsApp Cloud API **oficial** (webhook, sin baneo, botones/listas/templates nativos). |
-| [`@bot-wa/telegram`](packages/telegram-provider) | Alpha | Telegram Bot API (long-poll/webhook, teclados inline, polls nativos). |
+| [`@bot-wa/core`](packages/core) | Alpha | Transport-agnostic engine: `Bot`, `IProvider v2`, dispatcher, flows/conversations, hooks, plugins, store, testing kit. |
+| **Transports (channels)** | | |
+| [`@bot-wa/baileys`](packages/baileys-provider) | Alpha | WhatsApp through Baileys 7 (unofficial, QR or pairing code). |
+| [`@bot-wa/meta`](packages/meta-provider) | Alpha | **Official** WhatsApp Cloud API (webhook, no ban risk, native buttons/lists/templates). |
+| [`@bot-wa/telegram`](packages/telegram-provider) | Alpha | Telegram Bot API (long-poll/webhook, inline keyboards, native polls). |
 | [`@bot-wa/messenger`](packages/messenger-provider) | Experimental | Facebook Messenger (Meta Graph, quick replies/templates). |
 | [`@bot-wa/instagram`](packages/instagram-provider) | Experimental | Instagram DM (Meta Graph, quick replies). |
 | [`@bot-wa/discord`](packages/discord-provider) | Experimental | Discord (gateway websocket + REST, slash/components). |
-| [`@bot-wa/evolution`](packages/evolution-provider) | Experimental | WhatsApp vía [Evolution API](https://github.com/EvolutionAPI/evolution-api) (gateway REST autoalojado, webhook firmado). |
-| [`@bot-wa/wppconnect`](packages/wppconnect-provider) | Experimental | WhatsApp vía WPPConnect Server (REST + webhook con token). |
-| [`@bot-wa/twilio`](packages/twilio-provider) | Experimental | WhatsApp y SMS vía Twilio Programmable Messaging (webhooks `X-Twilio-Signature`). |
-| [`@bot-wa/gupshup`](packages/gupshup-provider) | Experimental | WhatsApp vía Gupshup (API v1 + callbacks v2). |
-| [`@bot-wa/gohighlevel`](packages/gohighlevel-provider) | Experimental | GoHighLevel / LeadConnector (Conversations API + webhooks `InboundMessage` firmados). |
-| [`@bot-wa/email`](packages/email-provider) | Experimental | Email: IMAP IDLE de entrada + SMTP de salida, hilos, protección contra bucles y rebotes. |
-| [`@bot-wa/tiktok`](packages/tiktok-provider) | Experimental | TikTok API for Business: DMs (Business Messaging) y respuestas a comentarios de vídeos propios. |
-| **Stores (persistencia)** | | |
+| [`@bot-wa/evolution`](packages/evolution-provider) | Experimental | WhatsApp through [Evolution API](https://github.com/EvolutionAPI/evolution-api) (self-hosted REST gateway, signed webhook). |
+| [`@bot-wa/wppconnect`](packages/wppconnect-provider) | Experimental | WhatsApp through WPPConnect Server (REST + token webhook). |
+| [`@bot-wa/twilio`](packages/twilio-provider) | Experimental | WhatsApp and SMS through Twilio Programmable Messaging (`X-Twilio-Signature` webhooks). |
+| [`@bot-wa/gupshup`](packages/gupshup-provider) | Experimental | WhatsApp through Gupshup (API v1 + v2 callbacks). |
+| [`@bot-wa/gohighlevel`](packages/gohighlevel-provider) | Experimental | GoHighLevel / LeadConnector (Conversations API + signed `InboundMessage` webhooks). |
+| [`@bot-wa/email`](packages/email-provider) | Experimental | Email: inbound IMAP IDLE + outbound SMTP, threading, loop and bounce protection. |
+| [`@bot-wa/tiktok`](packages/tiktok-provider) | Experimental | TikTok API for Business: DMs (Business Messaging) and replies to comments on your own videos. |
+| **Stores (persistence)** | | |
 | [`@bot-wa/sqlite-store`](packages/sqlite-store) | Alpha | SQLite (`better-sqlite3`, WAL). |
-| [`@bot-wa/redis-store`](packages/redis-store) | Alpha | Redis distribuido (+ lock multi-réplica). |
+| [`@bot-wa/redis-store`](packages/redis-store) | Alpha | Distributed Redis (+ multi-replica lock). |
 | [`@bot-wa/mongo-store`](packages/mongo-store) | Experimental | MongoDB. |
 | [`@bot-wa/postgres-store`](packages/postgres-store) | Experimental | PostgreSQL (`pg`). |
 | [`@bot-wa/mysql-store`](packages/mysql-store) | Experimental | MySQL/MariaDB (`mysql2`). |
 | **Plugins** | | |
-| [`@bot-wa/ai`](packages/ai) | Alpha | IA: Anthropic/OpenAI/Ollama/Gemini + 9 presets OpenAI-compatible (DeepSeek/Qwen/GLM/Kimi/Groq/…), autorespuesta, tool calling con confirmación, memoria a largo plazo por usuario y RAG. Ver la [política de IA de WhatsApp](packages/ai/README.md#política-de-ia-de-whatsapp-desde-el-15-01-2026). |
-| [`@bot-wa/nlu`](packages/nlu) | Experimental | Intenciones/NLU local (define/match + `whenIntent`), sin servicios externos. |
-| [`@bot-wa/manager`](packages/manager) | Experimental | Orquestador multi-bot (registro, ciclo de vida) + API HTTP sin dependencias (control plane `/v1` con API keys). |
-| [`@bot-wa/otel`](packages/otel) | Experimental | OpenTelemetry: trazas del bot (entrada, dispatch, conversaciones, envíos, IA) y `bot.metrics()` como métricas OTel. `@opentelemetry/api` como peer opcional. |
-| [`@bot-wa/events`](packages/events) | Experimental | Envelopes versionados, journal idempotente, reintentos y DLQ para procesos asíncronos. |
-| [`@bot-wa/rag`](packages/rag) | Experimental | RAG para `@bot-wa/ai`: loaders, chunking, embeddings enchufables (OpenAI-compatible, Ollama, hashing local) e índice vectorial en memoria con persistencia JSON opcional. |
-| [`@bot-wa/voice`](packages/voice) | Experimental | Voz: transcripción de notas de voz (OpenAI-compatible, Deepgram) y respuestas habladas (OpenAI, ElevenLabs). |
-| [`@bot-wa/chatwoot`](packages/chatwoot) | Experimental | Puente con Chatwoot: sincronización bidireccional y handoff humano llevado por los agentes de Chatwoot. |
-| [`@bot-wa/tickets`](packages/tickets) | Experimental | Tickets y colas de soporte (`ctx.tools.tickets`): posición en cola, horario de atención y persistencia en el store. |
-| [`@bot-wa/moderation`](packages/moderation) | Experimental | Moderación de grupos: anti-spam, filtros de palabras/regex y de enlaces de invitación, acciones warn/mute/kick/delete. |
-| [`@bot-wa/dialogflow`](packages/dialogflow) | Experimental | Dialogflow ES/CX: `detectIntent` por REST (JWT de cuenta de servicio, sin SDK de Google) y enrutado de intents a flows. |
-| **Infra compartida** (dependencias de los paquetes Alpha) | | |
-| [`@bot-wa/http`](packages/http) | Alpha | Cliente HTTP seguro: anti-SSRF, validación de redirecciones, timeout y límites de descarga. |
-| [`@bot-wa/graph-core`](packages/graph-core) | Alpha | Helpers Meta Graph compartidos (verificación de webhook, mapeo de errores, guard de ingest) usados por meta/messenger/instagram. |
-| [`@bot-wa/wa-gateway-kit`](packages/wa-gateway-kit) | Interno | Código compartido por los gateways REST de WhatsApp (`evolution`, `wppconnect`): cliente REST sobre `secureFetch`, resolución de media saliente y reconciliación de identidad LID/PN. Privado; no se instala directamente. |
-| [`@bot-wa/server`](packages/server) | Experimental | Ingress de webhooks para los providers: body crudo, límites de tamaño, timeouts, concurrencia y endpoints de salud para `node:http`, Express, Fastify y Hono (sin dependencias). |
-| **Producto / operación** (privados, persistentes) | | |
-| [`@bot-wa/inbox`](packages/inbox) | Producto | Inbox omnicanal persistente: asignación con CAS, handoff, notas, unread, SLA y proyección del ledger (`attachInbox`). |
-| [`@bot-wa/crm`](packages/crm) | Producto | Contactos, tags, atributos, consentimiento (CAS sin pérdidas) y segmentos por tenant. |
-| [`@bot-wa/hub`](packages/hub) | Producto | Registro de plugins por tenant: manifiestos validados y habilitación condicionada a permisos. No ejecuta ni aísla código. |
-| [`@bot-wa/campaigns`](packages/campaigns) | Producto | Campañas con consentimiento: reservas durables por destinatario (TTL), liquidación atómica y `sendCampaign()` sobre `bot.broadcast()`. |
-| [`@bot-wa/deployments`](packages/deployments) | Producto | Versiones inmutables, versión activa, reservas de gate, rollback y auditoría de gate runs (incluido el gate de transcripciones doradas). |
-| [`@bot-wa/tenant-kv`](packages/tenant-kv) | Interno | Documentos JSON por tenant con compare-and-set sobre cualquier `DurableKv`: la base de los paquetes de producto. |
-| [`@bot-wa/flow-schema`](packages/flow-schema) | Interno | Esquema JSON versionado de flujos sin código, expresiones seguras, compilación a `CompiledFlow`, exportación inversa, migraciones y helpers de despliegue. |
+| [`@bot-wa/ai`](packages/ai) | Alpha | AI: Anthropic/OpenAI/Ollama/Gemini + 9 OpenAI-compatible presets (DeepSeek/Qwen/GLM/Kimi/Groq/…), auto-reply, tool calling with confirmation, per-user long-term memory and RAG. See the [WhatsApp AI policy](docs/guide/ai.md#whatsapp-ai-policy-since-2026-01-15). |
+| [`@bot-wa/nlu`](packages/nlu) | Experimental | Local intents/NLU (define/match + `whenIntent`), no external services. |
+| [`@bot-wa/manager`](packages/manager) | Experimental | Multi-bot orchestrator (registry, lifecycle) + dependency-free HTTP API (control plane `/v1` with API keys). |
+| [`@bot-wa/otel`](packages/otel) | Experimental | OpenTelemetry: bot traces (inbound, dispatch, conversations, sends, AI) and `bot.metrics()` as OTel metrics. `@opentelemetry/api` as an optional peer. |
+| [`@bot-wa/events`](packages/events) | Experimental | Versioned envelopes, idempotent journal, retries and DLQ for asynchronous processes. |
+| [`@bot-wa/rag`](packages/rag) | Experimental | RAG for `@bot-wa/ai`: loaders, chunking, pluggable embeddings (OpenAI-compatible, Ollama, local hashing) and an in-memory vector index with optional JSON persistence. |
+| [`@bot-wa/voice`](packages/voice) | Experimental | Voice: voice-note transcription (OpenAI-compatible, Deepgram) and spoken replies (OpenAI, ElevenLabs). |
+| [`@bot-wa/chatwoot`](packages/chatwoot) | Experimental | Chatwoot bridge: two-way sync and human handoff driven by Chatwoot agents. |
+| [`@bot-wa/tickets`](packages/tickets) | Experimental | Support tickets and queues (`ctx.tools.tickets`): queue position, business hours and store persistence. |
+| [`@bot-wa/moderation`](packages/moderation) | Experimental | Group moderation: anti-spam, word/regex and invite-link filters, warn/mute/kick/delete actions. |
+| [`@bot-wa/dialogflow`](packages/dialogflow) | Experimental | Dialogflow ES/CX: `detectIntent` over REST (service-account JWT, no Google SDK) and intent routing to flows. |
+| **Shared infrastructure** (dependencies of the Alpha packages) | | |
+| [`@bot-wa/http`](packages/http) | Alpha | Safe HTTP client: anti-SSRF, redirect validation, timeouts and download limits. |
+| [`@bot-wa/graph-core`](packages/graph-core) | Alpha | Shared Meta Graph helpers (webhook verification, error mapping, ingest guard) used by meta/messenger/instagram. |
+| [`@bot-wa/wa-gateway-kit`](packages/wa-gateway-kit) | Internal | Code shared by the WhatsApp REST gateways (`evolution`, `wppconnect`): REST client over `secureFetch`, outbound media resolution and LID/PN identity reconciliation. Private; not installed directly. |
+| [`@bot-wa/server`](packages/server) | Experimental | Webhook ingress for the providers: raw body, size limits, timeouts, concurrency and health endpoints for `node:http`, Express, Fastify and Hono (no dependencies). |
+| **Product / operations** (private, persistent) | | |
+| [`@bot-wa/inbox`](packages/inbox) | Product | Persistent omni-channel inbox: CAS assignment, handoff, notes, unread, SLA and ledger projection (`attachInbox`). |
+| [`@bot-wa/crm`](packages/crm) | Product | Contacts, tags, attributes, consent (lossless CAS) and per-tenant segments. |
+| [`@bot-wa/hub`](packages/hub) | Product | Per-tenant plugin registry: validated manifests and permission-gated enabling. It does not run or sandbox code. |
+| [`@bot-wa/campaigns`](packages/campaigns) | Product | Consent-aware campaigns: durable per-recipient reservations (TTL), atomic settlement and `sendCampaign()` over `bot.broadcast()`. |
+| [`@bot-wa/deployments`](packages/deployments) | Product | Immutable versions, active version, gate reservations, rollback and audited gate runs (including the golden-transcript gate). |
+| [`@bot-wa/tenant-kv`](packages/tenant-kv) | Internal | Per-tenant JSON documents with compare-and-set over any `DurableKv`: the base of the product packages. |
+| [`@bot-wa/flow-schema`](packages/flow-schema) | Internal | Versioned JSON schema for code-free flows, safe expressions, compilation to `CompiledFlow`, reverse export, migrations and deployment helpers. |
 | **Tooling** | | |
-| [`create-bot-wa`](packages/create-bot-wa) | Alpha | CLI scaffolder (`npm create bot-wa`), 10 templates: `baileys`, `meta`, `telegram`, `ai` y los de caso de uso `games`, `support`, `store`, `restaurant`, `clinic`, `ai-full`. Cada proyecto incluye un `AGENTS.md` para agentes de código. |
-| [`eslint-plugin-bot-wa`](packages/eslint-plugin) | Experimental | Reglas de ESLint para bots: restos de la API v1, `runtime.enter` bloqueante, `install` async, triggers vacíos, `ask` sin timeout y estado global por usuario. |
-| [`@bot-wa/mcp`](packages/mcp) | Experimental | Servidor MCP por stdio (sin dependencias) para agentes: valida, compila, dibuja, lintea, migra y compara documentos de flujo JSON sin arrancar un bot; con `--docs`, busca en estas guías. |
+| [`create-bot-wa`](packages/create-bot-wa) | Alpha | CLI scaffolder (`npm create bot-wa`), 10 templates: `baileys`, `meta`, `telegram`, `ai` and the use-case ones `games`, `support`, `store`, `restaurant`, `clinic`, `ai-full`. Every project ships an `AGENTS.md` for coding agents. |
+| [`eslint-plugin-bot-wa`](packages/eslint-plugin) | Experimental | ESLint rules for bots: v1 API leftovers, blocking `runtime.enter`, async `install`, empty triggers, `ask` without timeout and per-user global state. |
+| [`@bot-wa/mcp`](packages/mcp) | Experimental | Stdio MCP server (no dependencies) for agents: validates, compiles, renders, lints, migrates and diffs JSON flow documents without starting a bot; with `--docs` it searches these guides. |
 
-Empieza por el [README del core](packages/core/README.md) para el quickstart.
+Start with the [core README](packages/core/README.md) for the quickstart.
 
-## Instalación (como usuario)
+## Installation (as a user)
 
-> **Alpha, primera publicación en npm pendiente.** Ningún paquete `@bot-wa/*` está en npm todavía. Los comandos de abajo son los que funcionarán cuando salga la primera alpha; mientras tanto, clona el repo y usa los paquetes desde el workspace (ver [Desarrollo](#desarrollo-en-este-repo)). Solo los paquetes **Alpha** de la tabla se van a publicar en esa primera tanda.
-
-```bash
-pnpm add @bot-wa/core@alpha @bot-wa/baileys@alpha   # bot WhatsApp (Baileys)
-# o @bot-wa/core@alpha @bot-wa/meta@alpha           # bot WhatsApp oficial (Cloud API)
-pnpm add @bot-wa/ai@alpha @anthropic-ai/sdk         # + IA (opcional; instala el SDK del proveedor que uses)
-```
-
-El tag **`@alpha` es obligatorio** mientras la alpha sea la única serie publicada: `changeset publish` en
-modo prerelease crea el dist-tag `alpha`, no `latest`, así que `pnpm add @bot-wa/core` sin tag no resuelve.
-Cuando salga una versión estable el tag se puede omitir (ver [modo prerelease](CONTRIBUTING.md#modo-prerelease-alpha)).
-
-Requiere **Node >= 22**. Todos los paquetes son **ESM-only**.
-
-> **IA en WhatsApp:** desde el 15-01-2026 los términos de la WhatsApp Business Platform prohíben los asistentes de IA de propósito general (chatbots abiertos estilo ChatGPT). Se permite la IA al servicio del negocio (soporte, ventas, reservas). Detalles en el [README de `@bot-wa/ai`](packages/ai/README.md#política-de-ia-de-whatsapp-desde-el-15-01-2026).
-
-## Desarrollo (en este repo)
+> **Alpha — first npm publish pending.** No `@bot-wa/*` package is on npm yet. The commands below are the ones that will work once the first alpha ships; until then, clone the repo and use the packages from the workspace (see [Development](#development-in-this-repo)). Only the **Alpha** packages in the table above go out in that first batch.
 
 ```bash
-pnpm install            # instala todo el workspace
-pnpm build              # pnpm -r build  → compila todos los paquetes
-pnpm test               # pnpm -r test   → suite completa
-pnpm run docs           # TypeDoc + VitePress → sitio de documentación
+pnpm add @bot-wa/core@alpha @bot-wa/baileys@alpha   # WhatsApp bot (Baileys)
+# or @bot-wa/core@alpha @bot-wa/meta@alpha          # official WhatsApp bot (Cloud API)
+pnpm add @bot-wa/ai@alpha @anthropic-ai/sdk         # + AI (optional; install the SDK of the provider you use)
 ```
 
-Por paquete: `pnpm --filter @bot-wa/ai test`, `pnpm --filter @bot-wa/core build`, etc.
+The **`@alpha` tag is mandatory** while the alpha is the only published series: `changeset publish` in
+prerelease mode creates the `alpha` dist-tag, not `latest`, so `pnpm add @bot-wa/core` without a tag will not
+resolve. Once a stable version ships the tag can be dropped (see [prerelease mode](CONTRIBUTING.md#modo-prerelease-alpha)).
+
+Requires **Node >= 22**. Every package is **ESM-only**.
+
+> **AI on WhatsApp:** since 2026-01-15 the WhatsApp Business Platform terms forbid general-purpose AI assistants (open ChatGPT-style chatbots). AI in the service of the business (support, sales, bookings) is allowed. Details in the [AI plugin guide](docs/guide/ai.md#whatsapp-ai-policy-since-2026-01-15).
+
+## Development (in this repo)
+
+```bash
+pnpm install            # install the whole workspace
+pnpm build              # pnpm -r build  → compiles every package
+pnpm test               # pnpm -r test   → full suite
+pnpm run docs           # TypeDoc + VitePress → documentation site
+```
+
+Per package: `pnpm --filter @bot-wa/ai test`, `pnpm --filter @bot-wa/core build`, and so on.
 
 ## Ejemplos
 

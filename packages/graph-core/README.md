@@ -1,82 +1,81 @@
 # @bot-wa/graph-core
 
-Helpers compartidos de **Meta Graph** para los transportes de Meta de [`@bot-wa/core`](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/core):
-[`@bot-wa/meta`](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/meta-provider) (WhatsApp Cloud API), [`@bot-wa/messenger`](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/messenger-provider) e
-[`@bot-wa/instagram`](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/instagram-provider). Las tres plataformas verifican el webhook igual, firman igual y
-devuelven los mismos códigos de error de Graph; este paquete reúne esa lógica en un solo sitio para que no se
-duplique en cada provider.
+Shared **Meta Graph** helpers for the Meta transports of [`@bot-wa/core`](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/core):
+[`@bot-wa/meta`](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/meta-provider) (WhatsApp Cloud API), [`@bot-wa/messenger`](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/messenger-provider) and
+[`@bot-wa/instagram`](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/instagram-provider). All three platforms verify the webhook the same way, sign the same way and
+return the same Graph error codes; this package gathers that logic in one place so it is not
+duplicated in every provider.
 
-> **Paquete interno.** Lo usan los providers; para montar un bot no necesitas importarlo. Forma parte de la
-> primera alpha como dependencia de `@bot-wa/meta`, y todavía no está en npm.
+> **Internal package.** The providers use it; you do not need to import it to build a bot. It ships with the
+> first alpha as a dependency of `@bot-wa/meta`, and it is not on npm yet.
 
-## Instalación
+## Installation
 
 ```bash
 pnpm add @bot-wa/graph-core
 ```
 
-Cero dependencias extra: solo `@bot-wa/core` y `crypto` nativo de Node ≥ 22.
+No extra dependencies: only `@bot-wa/core` and Node ≥ 22's native `crypto`.
 
-## Qué incluye
+## What it includes
 
-| Export | Para qué sirve |
+| Export | What it is for |
 |---|---|
-| `verifyChallenge(query, verifyToken)` | Handshake `GET` del webhook. Devuelve el `hub.challenge` a responder (HTTP 200) o `null` si el token no coincide (responde 403). |
-| `verifySignature(rawBody, header, appSecret)` | Verifica `X-Hub-Signature-256` = HMAC-SHA256 del body con el app secret, en tiempo constante. `false` si falta el secret, el header o no coincide. |
-| `checkGraphSignature(body, headers, appSecret, logger?)` | Guard de ingest: `{ ok: true }` o `{ ok: false, status }`. Con `appSecret` exige el body **crudo** (`string`/`Buffer`/`Uint8Array`) y rechaza uno ya parseado con `400`; una firma inválida da `403`. |
-| `tryParseGraphBody<T>(body)` | Como `parseGraphBody`, pero sin lanzar: `{ ok: true, body }` o `{ ok: false, status: 400 }` si el body no es un objeto JSON. Úsalo en `ingest()` para responder 400 a un body malformado. |
-| `parseGraphBody<T>(body)` | Convierte el body (string, `Buffer`/`Uint8Array` u objeto ya parseado) en `T`. Lanza `SyntaxError` si el body crudo no es JSON. |
-| `toGraphError(err, { chatId?, retryAfterMs?, contentKind? })` | Traduce un error de Graph a las subclases de `ProviderError` del core. |
+| `verifyChallenge(query, verifyToken)` | Webhook `GET` handshake. Returns the `hub.challenge` to answer (HTTP 200) or `null` when the token does not match (answer 403). |
+| `verifySignature(rawBody, header, appSecret)` | Verifies `X-Hub-Signature-256` = HMAC-SHA256 of the body with the app secret, in constant time. `false` when the secret or header is missing, or they do not match. |
+| `checkGraphSignature(body, headers, appSecret, logger?)` | Ingest guard: `{ ok: true }` or `{ ok: false, status }`. With an `appSecret` it requires the **raw** body (`string`/`Buffer`/`Uint8Array`) and rejects an already-parsed one with `400`; an invalid signature gives `403`. |
+| `tryParseGraphBody<T>(body)` | Like `parseGraphBody`, but never throws: `{ ok: true, body }` or `{ ok: false, status: 400 }` when the body is not a JSON object. Use it in `ingest()` to answer 400 to a malformed body. |
+| `parseGraphBody<T>(body)` | Turns the body (string, `Buffer`/`Uint8Array` or an already-parsed object) into `T`. Throws `SyntaxError` when the raw body is not JSON. |
+| `toGraphError(err, { chatId?, retryAfterMs?, contentKind? })` | Translates a Graph error into the core's `ProviderError` subclasses. |
 
-## Uso
+## Usage
 
-Así lo usa un provider en su `ingest()`:
+This is how a provider uses it in its `ingest()`:
 
 ```ts
 import { checkGraphSignature, tryParseGraphBody, verifyChallenge } from '@bot-wa/graph-core'
 
-// GET /webhook: handshake de suscripción
+// GET /webhook: subscription handshake
 const challenge = verifyChallenge(query, process.env.META_VERIFY_TOKEN!)
 // challenge === null → 403
 
-// POST /webhook: verificar la firma y parsear
+// POST /webhook: verify the signature and parse
 const sig = checkGraphSignature(rawBody, headers, process.env.META_APP_SECRET, logger)
-if (!sig.ok) return sig.status // 400 (body no crudo) o 403 (firma inválida)
+if (!sig.ok) return sig.status // 400 (body not raw) or 403 (invalid signature)
 const parsed = tryParseGraphBody<MyWebhookBody>(rawBody)
-if (!parsed.ok) return parsed.status // 400: no es un objeto JSON
+if (!parsed.ok) return parsed.status // 400: not a JSON object
 const payload = parsed.body
 ```
 
-> **Firma sobre los bytes crudos.** Meta firma exactamente los bytes que envía. Si re-serializas el JSON
-> (p. ej. con `express.json()` sin guardar el body original), la firma deja de cuadrar. Pasa siempre el body
-> crudo: `express.raw()`, o el `Buffer` que acumulas con `node:http`.
+> **Signature over the raw bytes.** Meta signs exactly the bytes it sends. If you re-serialize the JSON
+> (e.g. with `express.json()` without keeping the original body), the signature no longer matches. Always pass
+> the raw body: `express.raw()`, or the `Buffer` you accumulate with `node:http`.
 
-Sin `appSecret`, `checkGraphSignature` deja pasar la petición. Por eso los providers exigen `appSecret` y solo
-aceptan omitirlo con un opt-in explícito para desarrollo local (`allowUnsignedWebhooks: true` en
-`CloudAPIProvider`).
+Without an `appSecret`, `checkGraphSignature` lets the request through. That is why the providers require an
+`appSecret` and only accept omitting it with an explicit opt-in for local development
+(`allowUnsignedWebhooks: true` on `CloudAPIProvider`).
 
-## Mapeo de errores
+## Error mapping
 
-`toGraphError` cubre tanto los códigos de negocio de WhatsApp como los rate limits genéricos de
-Facebook/Instagram:
+`toGraphError` covers both WhatsApp business codes and the generic Facebook/Instagram rate limits:
 
-| Código Graph | Error del core |
+| Graph code | Core error |
 |---|---|
-| `131047`: fuera de la ventana de 24 h (WhatsApp) | `OutsideSessionWindowError` (envía una plantilla, `kind: 'template'`) |
-| `131026`: destinatario no puede recibir | `RecipientUnreachableError` |
-| `131030`: destinatario fuera de la lista permitida del número de prueba (WhatsApp) | `RecipientUnreachableError` |
-| `551`: la persona no está disponible (Messenger/Instagram) | `RecipientUnreachableError` |
-| `10` con subcódigo `2018278`: fuera de la ventana de mensajería (Messenger/Instagram) | `OutsideSessionWindowError` |
-| `131051`: tipo de mensaje no soportado | `UnsupportedContentError` (`kind`: el `contentKind` del envío, o `'native'`) |
-| `131062`: el destinatario BSUID no admite este mensaje (WhatsApp; plantillas de autenticación *one-tap*, *zero-tap* y *copy code*) | `UnsupportedContentError` (`kind`: el `contentKind` del envío, o `'template'`); envíalo al teléfono (`wa_id`) |
-| `4`, `613`, `80007`, `36003`: rate limit | `RateLimitedError` (`retryAfterMs` o 60 s por defecto) |
-| `130429`: límite de mensajes por segundo de la Cloud API | `RateLimitedError` (`retryAfterMs` o 1 s) |
-| `131056`: demasiados mensajes al mismo usuario (*pair rate limit*) | `RateLimitedError` (`retryAfterMs` o 6 s) |
-| `131048`: límite por spam | `RateLimitedError` (`retryAfterMs` o 60 s) |
-| cualquier otro (incluidos `147001`–`147005` de la API de nombres de usuario) | `ProviderError` |
+| `131047`: outside the 24-hour window (WhatsApp) | `OutsideSessionWindowError` (send a template, `kind: 'template'`) |
+| `131026`: recipient cannot receive | `RecipientUnreachableError` |
+| `131030`: recipient outside the test number's allowed list (WhatsApp) | `RecipientUnreachableError` |
+| `551`: the person is unavailable (Messenger/Instagram) | `RecipientUnreachableError` |
+| `10` with subcode `2018278`: outside the messaging window (Messenger/Instagram) | `OutsideSessionWindowError` |
+| `131051`: unsupported message type | `UnsupportedContentError` (`kind`: the send's `contentKind`, or `'native'`) |
+| `131062`: the BSUID recipient does not accept this message (WhatsApp; *one-tap*, *zero-tap* and *copy code* authentication templates) | `UnsupportedContentError` (`kind`: the send's `contentKind`, or `'template'`); send it to the phone (`wa_id`) instead |
+| `4`, `613`, `80007`, `36003`: rate limit | `RateLimitedError` (`retryAfterMs` or 60 s by default) |
+| `130429`: Cloud API messages-per-second limit | `RateLimitedError` (`retryAfterMs` or 1 s) |
+| `131056`: too many messages to the same user (*pair rate limit*) | `RateLimitedError` (`retryAfterMs` or 6 s) |
+| `131048`: spam limit | `RateLimitedError` (`retryAfterMs` or 60 s) |
+| anything else (including `147001`–`147005` from the username API) | `ProviderError` |
 
-`contentKind` es el `kind` del `OutboundContent` que falló. Pásalo si lo conoces: así
-`UnsupportedContentError.kind` dice qué contenido rechazó Graph en vez del valor por defecto de cada código.
+`contentKind` is the `kind` of the `OutboundContent` that failed. Pass it when you know it: that way
+`UnsupportedContentError.kind` says which content Graph rejected instead of each code's default.
 
 ```ts
 import { toGraphError } from '@bot-wa/graph-core'
