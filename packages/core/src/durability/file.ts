@@ -14,7 +14,8 @@ import { mkdir, open, readFile, realpath, rename, rm, stat, writeFile } from 'no
 import { basename, dirname, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { KvDurability } from './journal.js'
-import { MemoryKv, type MemoryKvSnapshot } from './kv.js'
+import { MemoryKv, type KvMutation, type MemoryKvSnapshot } from './kv.js'
+import { AppendLog, appendLogOptions, type AppendLogOptions } from './fileLog.js'
 
 /** Options of {@link FileDurability.open}. */
 export interface FileDurabilityOptions {
@@ -25,30 +26,87 @@ export interface FileDurabilityOptions {
    * its pid to yet (default 2000 ms). An empty lock older than 10 s is treated as stale.
    */
   lockWaitMs?: number
+  /**
+   * Append-only journal (`<file>.log`): each write appends one line instead of rewriting the
+   * whole snapshot, and the snapshot is rewritten (and the log truncated) every
+   * `compactEvery` entries (1000) or `compactBytes` (4 MiB). `true` uses those defaults;
+   * `false`/omitted keeps the whole-snapshot behaviour. A leftover log is always replayed
+   * (and folded into a snapshot) on open, even with this off.
+   */
+  appendLog?: boolean | AppendLogOptions
 }
 
 class FileKv extends MemoryKv {
   private writeQueue: Promise<void> = Promise.resolve()
   closed = false
+  /** Append-only log; `undefined` = rewrite the whole snapshot on every write. */
+  private log: AppendLog | undefined
+  private seq = 0
   constructor(private readonly filePath: string) { super() }
 
-  protected override changed(): Promise<void> {
+  /** Use (or stop using) the append-only log and the sequence it must continue from. */
+  useLog(log: AppendLog | undefined, seq: number): void {
+    this.log = log
+    this.seq = seq
+  }
+
+  /** Apply one replayed mutation without writing it back. */
+  applyLogged(mutation: KvMutation): void { this.applyMutation(mutation) }
+
+  override snapshot(): MemoryKvSnapshot {
+    const snapshot = super.snapshot()
+    return this.log ? { ...snapshot, logSeq: this.seq } : snapshot
+  }
+
+  protected override changed(mutation?: KvMutation): Promise<void> {
     if (this.closed) return Promise.reject(new Error(`durability journal is closed: ${this.filePath}`))
-    const snapshot = JSON.stringify(this.snapshot())
     const write = this.writeQueue.then(async () => {
-      const temporary = `${this.filePath}.${randomUUID()}.tmp`
-      try {
-        await writeFile(temporary, snapshot, 'utf8')
-        await rename(temporary, this.filePath)
-      } catch (error) {
-        await rm(temporary, { force: true }).catch(() => {})
-        throw error
+      if (this.log && mutation) {
+        await this.log.append(++this.seq, mutation)
+        if (this.log.due) await this.compactNow()
+        return
       }
+      await this.writeSnapshot()
     })
     // The caller sees this write's failure; the queue does not, so one failed write never blocks later ones.
     this.writeQueue = write.catch(() => {})
     return write
   }
+
+  private async writeSnapshot(): Promise<void> {
+    const snapshot = JSON.stringify(this.snapshot())
+    const temporary = `${this.filePath}.${randomUUID()}.tmp`
+    try {
+      await writeFile(temporary, snapshot, 'utf8')
+      await rename(temporary, this.filePath)
+    } catch (error) {
+      await rm(temporary, { force: true }).catch(() => {})
+      throw error
+    }
+  }
+
+  /** Snapshot the current state and drop the log (the snapshot carries `logSeq`). */
+  private async compactNow(): Promise<void> {
+    await this.writeSnapshot()
+    await this.log?.truncate()
+  }
+
+  /** Queue a full snapshot (used by `close()` and when folding a leftover log). */
+  checkpoint(): Promise<void> {
+    const write = this.writeQueue.then(() => this.writeSnapshot())
+    this.writeQueue = write.catch(() => {})
+    return write
+  }
+
+  /** Queue a snapshot + log truncation. */
+  compact(): Promise<void> {
+    const write = this.writeQueue.then(() => this.compactNow())
+    this.writeQueue = write.catch(() => {})
+    return write
+  }
+
+  /** Whether the append-only log holds entries not yet folded into the snapshot. */
+  get logPending(): boolean { return this.log !== undefined && this.log.pending > 0 }
 
   /** Wait for every queued write (failures were already reported to their callers). */
   flushed(): Promise<void> { return this.writeQueue }
@@ -150,6 +208,8 @@ export class FileDurability extends KvDurability {
   static async open(filePath: string, options: FileDurabilityOptions = {}): Promise<FileDurability> {
     const waitMs = options.lockWaitMs ?? 2_000
     if (!Number.isFinite(waitMs) || waitMs < 0) throw new TypeError('FileDurability.open(): lockWaitMs must be a non-negative number')
+    // Validated before the lock is taken: an invalid option never leaves a stale lock.
+    const logOptions = appendLogOptions(options.appendLog, 'FileDurability.open()')
     await mkdir(dirname(filePath), { recursive: true })
     const lockPath = options.lock === false ? undefined : `${filePath}.lock`
     let key: string | undefined
@@ -166,11 +226,34 @@ export class FileDurability extends KvDurability {
       }
     }
     const kv = new FileKv(filePath)
+    let snapshot: MemoryKvSnapshot | undefined
     try {
-      const parsed = JSON.parse(await readFile(filePath, 'utf8')) as MemoryKvSnapshot
-      kv.restore(parsed)
+      snapshot = JSON.parse(await readFile(filePath, 'utf8')) as MemoryKvSnapshot
+      kv.restore(snapshot)
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        if (lockPath) await rm(lockPath, { force: true }).catch(() => {})
+        if (key) heldLocks.delete(key)
+        throw error
+      }
+    }
+    // A leftover log is replayed even when appendLog is off now (its entries are newer than
+    // the snapshot); with the option off it is folded into a snapshot and removed.
+    const leftover = await AppendLog.exists(filePath)
+    if (logOptions || leftover) {
+      try {
+        const replay = await AppendLog.replay<KvMutation>(filePath, snapshot?.logSeq ?? 0)
+        for (const { entry } of replay.entries) kv.applyLogged(entry)
+        if (logOptions) {
+          const log = new AppendLog(filePath, logOptions)
+          log.adopt(replay)
+          kv.useLog(log, replay.lastSeq)
+        } else {
+          kv.useLog(undefined, replay.lastSeq)
+          await kv.checkpoint()
+          await rm(AppendLog.pathOf(filePath), { force: true })
+        }
+      } catch (error) {
         if (lockPath) await rm(lockPath, { force: true }).catch(() => {})
         if (key) heldLocks.delete(key)
         throw error
@@ -187,9 +270,14 @@ export class FileDurability extends KvDurability {
   close(): Promise<void> {
     this.closing ??= (async () => {
       this.fileKv.closed = true
-      await this.fileKv.flushed()
-      if (this.lockPath) await rm(this.lockPath, { force: true })
-      if (this.lockKey) heldLocks.delete(this.lockKey)
+      try {
+        await this.fileKv.flushed()
+        // Fold a non-empty log into the snapshot so the next open does not replay it.
+        if (this.fileKv.logPending) await this.fileKv.compact()
+      } finally {
+        if (this.lockPath) await rm(this.lockPath, { force: true })
+        if (this.lockKey) heldLocks.delete(this.lockKey)
+      }
     })()
     return this.closing
   }

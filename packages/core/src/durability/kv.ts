@@ -33,6 +33,15 @@ export interface DurableKvIndex {
 }
 
 /**
+ * One committed write, as handed to `MemoryKv.changed()`. Append-only file backends record
+ * it in a log instead of rewriting the whole snapshot; the version it carries is what the
+ * next reader must see (the store's opaque version, here the numeric counter as a string).
+ */
+export type KvMutation =
+  | { op: 'insert' | 'replace'; table: DurableTable; id: string; value: string; version: string; index: DurableKvIndex }
+  | { op: 'remove'; table: DurableTable; id: string }
+
+/**
  * Versioned document store with two sorted indexes per table.
  *
  * Contract (checked by `runDurableKvConformance`):
@@ -64,6 +73,8 @@ interface MemoryRow {
 export interface MemoryKvSnapshot {
   version: 1
   tables: Record<string, Array<[id: string, value: string, version: number, due: number | null, done: number | null]>>
+  /** Sequence of the append-only log this snapshot already contains (absent on whole-file snapshots). */
+  logSeq?: number
 }
 
 /** In-process {@link DurableKv}: the reference implementation. */
@@ -85,7 +96,7 @@ export class MemoryKv implements DurableKv {
     const rows = this.rowsOf(table)
     if (rows.has(id)) return undefined
     rows.set(id, { value, version: 1, index: { ...index } })
-    await this.changed()
+    await this.changed({ op: 'insert', table, id, value, version: '1', index: { ...index } })
     return '1'
   }
 
@@ -95,7 +106,7 @@ export class MemoryKv implements DurableKv {
     row.value = value
     row.version += 1
     row.index = { ...index }
-    await this.changed()
+    await this.changed({ op: 'replace', table, id, value, version: String(row.version), index: { ...row.index } })
     return String(row.version)
   }
 
@@ -104,7 +115,7 @@ export class MemoryKv implements DurableKv {
     const row = rows.get(id)
     if (!row || String(row.version) !== version) return false
     rows.delete(id)
-    await this.changed()
+    await this.changed({ op: 'remove', table, id })
     return true
   }
 
@@ -142,6 +153,19 @@ export class MemoryKv implements DurableKv {
     this.tables = tables
   }
 
+  /** Apply a logged mutation without asking the backend to persist (append-only replay). */
+  protected applyMutation(mutation: KvMutation): void {
+    if (mutation.op === 'remove') {
+      this.rowsOf(mutation.table).delete(mutation.id)
+      return
+    }
+    this.rowsOf(mutation.table).set(mutation.id, {
+      value: mutation.value,
+      version: Number(mutation.version),
+      index: { ...mutation.index },
+    })
+  }
+
   /** Called after every committed write (the file backend persists here). */
-  protected async changed(): Promise<void> {}
+  protected async changed(_mutation?: KvMutation): Promise<void> {}
 }
