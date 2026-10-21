@@ -87,6 +87,28 @@ describe('tool definitions & validation', () => {
 })
 
 describe('tool loop (AIClient)', () => {
+  it('restricts a turn to the requested tool ids', async () => {
+    const provider = callOnce('a', {})
+    const { c } = client(provider, {
+      a: { description: 'tool a', handler: () => 'A' },
+      b: { description: 'tool b', handler: () => 'B' },
+    })
+    await c.replyInChat('chat', 'hola', { tools: ['a'] })
+    expect(provider.calls[0]!.tools?.map((tool) => tool.name)).toEqual(['a'])
+
+    // An empty list runs the turn without tools (no tool loop, no tool schemas sent).
+    const plain = new MockAIProvider({ reply: 'sin tools' })
+    const { c: none } = client(plain, { a: { description: 'tool a', handler: () => 'A' } })
+    expect(await none.replyInChat('chat', 'hola', { tools: [] })).toBe('sin tools')
+    expect(plain.calls[0]!.tools).toBeUndefined()
+  })
+
+  it('rejects unknown tool ids with a clear error', async () => {
+    const provider = new MockAIProvider({ reply: 'hi' })
+    const { c } = client(provider, { a: { description: 'tool a', handler: () => 'A' } })
+    await expect(c.replyInChat('chat', 'hola', { tools: ['missing'] })).rejects.toThrow(/unknown AI tool\(s\): missing/)
+  })
+
   it('runs a tool call, feeds the result back and returns the final text', async () => {
     const seen: unknown[] = []
     const mock = callOnce('buscar', { q: 'pan' })

@@ -91,6 +91,11 @@ export interface AIToolCallOptions {
   confirm?: ToolConfirmer
   /** Conversation key passed to tool handlers and audit events. */
   chatKey?: string
+  /**
+   * Restrict this call's tool loop to these tool ids (the model only sees them).
+   * Unknown ids reject with a clear error; `[]` runs the turn without tools.
+   */
+  tools?: readonly string[]
 }
 
 const NO_MEMORY = 'AI memory is not available: build the AIClient with `memory` (aiPlugin does it for you)'
@@ -184,6 +189,22 @@ export class AIClient {
     return !!this.opts.tools && Object.keys(this.opts.tools).length > 0
   }
 
+  /** Whether a call uses the tool loop: tools are configured and the call did not ask for none. */
+  private usesTools(opts: AIToolCallOptions | undefined): boolean {
+    return this.hasTools && (opts?.tools === undefined || opts.tools.length > 0)
+  }
+
+  /** The tool set of one call: all configured tools, or only the requested ids (`[]` = none). */
+  private toolsFor(ids: readonly string[] | undefined): AIToolSet {
+    const all = this.opts.tools ?? {}
+    if (ids === undefined) return all
+    const unknown = ids.filter((id) => !Object.hasOwn(all, id))
+    if (unknown.length) throw new Error(`unknown AI tool(s): ${unknown.join(', ')}`)
+    const selected: AIToolSet = {}
+    for (const id of ids) selected[id] = all[id]!
+    return selected
+  }
+
   /** `gen_ai.provider.name` of this client's spans. */
   private get providerName(): string {
     return this.opts.providerName ?? this.provider.name
@@ -248,7 +269,7 @@ export class AIClient {
 
   async ask(prompt: string, opts?: AIToolCallOptions): Promise<string> {
     const messages: AIChatMessage[] = [{ role: 'user', content: prompt }]
-    if (this.hasTools) {
+    if (this.usesTools(opts)) {
       const r = await this.runTools({ messages }, opts)
       return r.stopReason === 'refusal' ? (this.opts.refusalMessage ?? DEFAULT_REFUSAL) : r.text
     }
@@ -451,7 +472,7 @@ export class AIClient {
     if (notes.length) base.system = [base.system, ...notes].filter(Boolean).join('\n\n')
     let step = 0
     return runToolLoop({
-      tools: this.opts.tools ?? {},
+      tools: this.toolsFor(opts.tools),
       generate: (gi) => this.callModel('tool_step', gi, () => this.withTimeout((signal) => this.provider.generate({ ...gi, signal }), opts.signal ?? input.signal), ++step),
       ...(activeTracing(this.opts.tracing) ? { tracing: this.opts.tracing } : {}),
       base,
@@ -494,7 +515,7 @@ export class AIClient {
     const system = this.composeSystem(facts, citations)
     const withSystem = system !== undefined ? { system } : {}
     let r: { text: string; stopReason?: string }
-    if (this.hasTools) {
+    if (this.usesTools(opts)) {
       r = await this.runTools({ messages, ...withSystem }, { ...opts, chatKey: opts?.chatKey ?? chatKey })
     } else {
       r = await this.callModel('reply', this.base(messages), () => this.withTimeout(
