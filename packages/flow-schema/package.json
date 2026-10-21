@@ -1,0 +1,41 @@
+{
+  "name": "@bot-wa/flow-schema",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Versioned JSON Schema for code-free BotWA flows: validation, safe expressions, migrations, compilation to CompiledFlow, reverse export and deploy helpers.",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    }
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "files": [
+    "./lib/**/*"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "prepublishOnly": "pnpm build",
+    "typecheck": "tsc -p tsconfig.test.json"
+  },
+  "author": "Andres Aya",
+  "license": "MIT",
+  "dependencies": {
+    "@bot-wa/core": "workspace:*",
+    "@bot-wa/deployments": "workspace:*",
+    "@bot-wa/http": "workspace:*"
+  },
+  "devDependencies": {
+    "@bot-wa/ai": "workspace:*",
+    "@types/node": "^26.1.1",
+    "typescript": "^7.0.2",
+    "vite": "^7.3.6",
+    "vitest": "^4.1.10"
+  }
+}
