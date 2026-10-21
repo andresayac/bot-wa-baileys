@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import type { StoredMessage } from '@bot-wa/core'
+import { MemoryKv, type StoredMessage } from '@bot-wa/core'
 
-import { InboxConflictError, MemoryInbox } from '../src/index.js'
+import { Inbox, InboxConflictError, InboxNotFoundError, KvInboxStore, MemoryInboxStore } from '../src/index.js'
 
 function message(overrides: Partial<StoredMessage> = {}): StoredMessage {
   return {
@@ -14,131 +14,154 @@ function message(overrides: Partial<StoredMessage> = {}): StoredMessage {
   }
 }
 
-describe('MemoryInbox', () => {
-  it('isolates tenants and prevents concurrent handoff overwrites', () => {
-    const inbox = new MemoryInbox()
-    const a = inbox.upsert({ tenantId: 'a', id: 'c', status: 'open', handoff: false })
-    inbox.upsert({ tenantId: 'b', id: 'c', status: 'open', handoff: false })
+/** The same facade logic over the memory store and over a kv-backed store, with a fixed clock. */
+const stores = [
+  ['MemoryInboxStore', () => new Inbox(new MemoryInboxStore({ clock: () => 1_000 }))],
+  ['KvInboxStore', () => new Inbox(new KvInboxStore(new MemoryKv(), { clock: () => 1_000 }))],
+] as const
 
-    const assigned = inbox.assign('a', 'c', 'agent', a.version)
+describe.each(stores)('Inbox over %s', (_name, make) => {
+  it('isolates tenants and prevents concurrent handoff overwrites', async () => {
+    const inbox = make()
+    const a = await inbox.upsert({ tenantId: 'a', id: 'c', status: 'open', handoff: false })
+    await inbox.upsert({ tenantId: 'b', id: 'c', status: 'open', handoff: false })
 
-    expect(inbox.list('b')).toHaveLength(1)
-    expect(() => inbox.handoff('a', 'c', true, a.version)).toThrow(InboxConflictError)
-    expect(inbox.handoff('a', 'c', true, assigned.version)).toMatchObject({ assigneeId: 'agent', handoff: true })
+    const assigned = await inbox.assign('a', 'c', 'agent', a.version)
+
+    expect(await inbox.list('b')).toHaveLength(1)
+    await expect(inbox.handoff('a', 'c', true, a.version)).rejects.toThrow(InboxConflictError)
+    expect(await inbox.handoff('a', 'c', true, assigned.version)).toMatchObject({ assigneeId: 'agent', handoff: true })
   })
 
-  it('stores tenant-scoped internal notes', () => {
-    const inbox = new MemoryInbox()
-    inbox.upsert({ tenantId: 'a', id: 'c', status: 'open', handoff: false })
+  it('stores tenant-scoped internal notes', async () => {
+    const inbox = make()
+    await inbox.upsert({ tenantId: 'a', id: 'c', status: 'open', handoff: false })
 
-    inbox.addNote('a', 'c', 'agent', 'needs review')
+    await inbox.addNote('a', 'c', 'agent', 'needs review')
 
-    expect(inbox.listNotes('a', 'c')).toHaveLength(1)
-    expect(inbox.listNotes('b', 'c')).toEqual([])
+    expect(await inbox.listNotes('a', 'c')).toHaveLength(1)
+    expect(await inbox.listNotes('b', 'c')).toEqual([])
   })
 
-  it('rejects notes for unknown conversations and blank bodies', () => {
-    const inbox = new MemoryInbox()
-    inbox.upsert({ tenantId: 'a', id: 'c', status: 'open', handoff: false })
+  it('rejects notes for unknown conversations and blank bodies', async () => {
+    const inbox = make()
+    await inbox.upsert({ tenantId: 'a', id: 'c', status: 'open', handoff: false })
 
-    expect(() => inbox.addNote('b', 'c', 'agent', 'hi')).toThrow('conversation not found')
-    expect(() => inbox.addNote('a', 'c', 'agent', '   ')).toThrow('note body is required')
+    await expect(inbox.addNote('b', 'c', 'agent', 'hi')).rejects.toThrow('conversation not found')
+    await expect(inbox.addNote('b', 'c', 'agent', 'hi')).rejects.toBeInstanceOf(InboxNotFoundError)
+    await expect(inbox.addNote('a', 'c', 'agent', '   ')).rejects.toThrow('note body is required')
   })
 
-  it('bumps the version on every write and keeps unread unless provided', () => {
-    const inbox = new MemoryInbox()
-    const first = inbox.upsert({ tenantId: 'a', id: 'c', status: 'open', handoff: false, unread: 3 })
-    const second = inbox.upsert({ tenantId: 'a', id: 'c', status: 'pending', handoff: false }, first.version)
+  it('bumps the version on every write and keeps unread unless provided', async () => {
+    const inbox = make()
+    const first = await inbox.upsert({ tenantId: 'a', id: 'c', status: 'open', handoff: false, unread: 3 })
+    const second = await inbox.upsert({ tenantId: 'a', id: 'c', status: 'pending', handoff: false }, first.version)
 
     expect(first.version).toBe(1)
     expect(second).toMatchObject({ version: 2, unread: 3, status: 'pending' })
-    expect(inbox.markRead('a', 'c', second.version)).toMatchObject({ version: 3, unread: 0 })
+    expect(await inbox.markRead('a', 'c', second.version)).toMatchObject({ version: 3, unread: 0 })
   })
 
-  it('fails mutations on unknown conversations and stale versions', () => {
-    const inbox = new MemoryInbox()
-    const created = inbox.upsert({ tenantId: 'a', id: 'c', status: 'open', handoff: false })
+  it('fails mutations on unknown conversations and stale versions', async () => {
+    const inbox = make()
+    const created = await inbox.upsert({ tenantId: 'a', id: 'c', status: 'open', handoff: false })
 
-    expect(() => inbox.markRead('a', 'missing', 1)).toThrow('conversation not found')
-    expect(() => inbox.markRead('a', 'c', created.version + 1)).toThrow(InboxConflictError)
+    await expect(inbox.markRead('a', 'missing', 1)).rejects.toThrow('conversation not found')
+    await expect(inbox.markRead('a', 'c', created.version + 1)).rejects.toThrow(InboxConflictError)
   })
 
-  it('filters by status and assignee within a tenant', () => {
-    const inbox = new MemoryInbox()
-    inbox.upsert({ tenantId: 'a', id: 'c1', status: 'open', handoff: false, assigneeId: 'x' })
-    inbox.upsert({ tenantId: 'a', id: 'c2', status: 'resolved', handoff: false, assigneeId: 'x' })
-    inbox.upsert({ tenantId: 'b', id: 'c3', status: 'open', handoff: false, assigneeId: 'x' })
+  it('filters by status and assignee within a tenant', async () => {
+    const inbox = make()
+    await inbox.upsert({ tenantId: 'a', id: 'c1', status: 'open', handoff: false, assigneeId: 'x' })
+    await inbox.upsert({ tenantId: 'a', id: 'c2', status: 'resolved', handoff: false, assigneeId: 'x' })
+    await inbox.upsert({ tenantId: 'b', id: 'c3', status: 'open', handoff: false, assigneeId: 'x' })
 
-    expect(inbox.list('a', { status: 'open' }).map((c) => c.id)).toEqual(['c1'])
-    expect(inbox.list('a', { assigneeId: 'x' }).map((c) => c.id)).toEqual(['c1', 'c2'])
+    expect((await inbox.list('a', { status: 'open' })).map((c) => c.id)).toEqual(['c1'])
+    // Same updatedAt (fixed clock): ties list by id.
+    expect((await inbox.list('a', { assigneeId: 'x' })).map((c) => c.id)).toEqual(['c1', 'c2'])
   })
 
-  it('returns copies that cannot mutate stored state', () => {
-    const inbox = new MemoryInbox()
-    const created = inbox.upsert({ tenantId: 'a', id: 'c', status: 'open', handoff: false })
+  it('resolves, reopens and sets the SLA under the current version', async () => {
+    const inbox = make()
+    const created = await inbox.upsert({ tenantId: 'a', id: 'c', status: 'open', handoff: false })
+    const resolved = await inbox.resolve('a', 'c', created.version)
+    expect(resolved).toMatchObject({ status: 'resolved', version: 2 })
+    expect(await inbox.list('a', { status: 'open' })).toEqual([])
+    const reopened = await inbox.reopen('a', 'c', resolved.version)
+    expect(reopened).toMatchObject({ status: 'open', version: 3 })
+    const withSla = await inbox.setSla('a', 'c', 5_000, reopened.version)
+    expect(withSla).toMatchObject({ slaDueAt: 5_000, version: 4 })
+    const cleared = await inbox.setSla('a', 'c', undefined, withSla.version)
+    expect(cleared).not.toHaveProperty('slaDueAt')
+    expect(await inbox.assign('a', 'c', undefined, cleared.version)).not.toHaveProperty('assigneeId')
+  })
+
+  it('returns copies that cannot mutate stored state', async () => {
+    const inbox = make()
+    const created = await inbox.upsert({ tenantId: 'a', id: 'c', status: 'open', handoff: false })
 
     created.status = 'resolved'
-    inbox.get('a', 'c')!.handoff = true
+    ;(await inbox.get('a', 'c'))!.handoff = true
 
-    expect(inbox.get('a', 'c')).toMatchObject({ status: 'open', handoff: false })
-    expect(inbox.get('b', 'c')).toBeUndefined()
+    expect(await inbox.get('a', 'c')).toMatchObject({ status: 'open', handoff: false })
+    expect(await inbox.get('b', 'c')).toBeUndefined()
   })
 
-  it('projects ledger messages, counting only inbound ones as unread', () => {
-    const inbox = new MemoryInbox()
+  it('projects ledger messages, counting only inbound ones as unread', async () => {
+    const inbox = make()
 
-    const created = inbox.projectMessage(message({ direction: 'inbound' }))
+    const created = await inbox.projectMessage(message({ direction: 'inbound' }))
     expect(created).toMatchObject({ tenantId: 'local', id: 'chat-1', status: 'open', handoff: false, unread: 1 })
 
-    const handedOff = inbox.handoff('local', 'chat-1', true, created.version)
-    expect(inbox.projectMessage(message({ direction: 'outbound' }))).toMatchObject({
+    const handedOff = await inbox.handoff('local', 'chat-1', true, created.version)
+    expect(await inbox.projectMessage(message({ direction: 'outbound' }))).toMatchObject({
       unread: 1,
       handoff: true,
       version: handedOff.version + 1,
     })
-    expect(inbox.projectMessage(message({ tenantId: 'acme', direction: 'inbound' }))).toMatchObject({
+    expect(await inbox.projectMessage(message({ tenantId: 'acme', direction: 'inbound' }))).toMatchObject({
       tenantId: 'acme',
       unread: 1,
     })
   })
 
-  it('requires the current version to upsert an existing conversation', () => {
-    const inbox = new MemoryInbox()
-    const created = inbox.upsert({ tenantId: 'a', id: 'c', status: 'open', handoff: false })
-    const handedOff = inbox.handoff('a', 'c', true, created.version)
+  it('requires the current version to upsert an existing conversation', async () => {
+    const inbox = make()
+    const created = await inbox.upsert({ tenantId: 'a', id: 'c', status: 'open', handoff: false })
+    const handedOff = await inbox.handoff('a', 'c', true, created.version)
 
     // Without a version, or with a stale one, upsert must not clobber the handoff.
-    expect(() => inbox.upsert({ tenantId: 'a', id: 'c', status: 'open', handoff: false })).toThrow(InboxConflictError)
-    expect(() => inbox.upsert({ tenantId: 'a', id: 'c', status: 'open', handoff: false }, created.version)).toThrow(
+    await expect(inbox.upsert({ tenantId: 'a', id: 'c', status: 'open', handoff: false })).rejects.toThrow(InboxConflictError)
+    await expect(inbox.upsert({ tenantId: 'a', id: 'c', status: 'open', handoff: false }, created.version)).rejects.toThrow(
       InboxConflictError,
     )
-    expect(inbox.get('a', 'c')).toMatchObject({ handoff: true, version: handedOff.version })
+    expect(await inbox.get('a', 'c')).toMatchObject({ handoff: true, version: handedOff.version })
 
     expect(
-      inbox.upsert({ tenantId: 'a', id: 'c', status: 'resolved', handoff: false }, handedOff.version),
+      await inbox.upsert({ tenantId: 'a', id: 'c', status: 'resolved', handoff: false }, handedOff.version),
     ).toMatchObject({ status: 'resolved', handoff: false, version: handedOff.version + 1 })
   })
 
-  it('creates with no version or 0 and rejects a non-zero version for a missing conversation', () => {
-    const inbox = new MemoryInbox()
+  it('creates with no version or 0 and rejects a non-zero version for a missing conversation', async () => {
+    const inbox = make()
 
-    expect(() => inbox.upsert({ tenantId: 'a', id: 'c', status: 'open', handoff: false }, 3)).toThrow(InboxConflictError)
-    expect(inbox.get('a', 'c')).toBeUndefined()
-    expect(inbox.upsert({ tenantId: 'a', id: 'c', status: 'open', handoff: false }, 0)).toMatchObject({ version: 1 })
+    await expect(inbox.upsert({ tenantId: 'a', id: 'c', status: 'open', handoff: false }, 3)).rejects.toThrow(InboxConflictError)
+    expect(await inbox.get('a', 'c')).toBeUndefined()
+    expect(await inbox.upsert({ tenantId: 'a', id: 'c', status: 'open', handoff: false }, 0)).toMatchObject({ version: 1 })
     // 0 means "create only": a second create loses.
-    expect(() => inbox.upsert({ tenantId: 'a', id: 'c', status: 'open', handoff: false }, 0)).toThrow(InboxConflictError)
+    await expect(inbox.upsert({ tenantId: 'a', id: 'c', status: 'open', handoff: false }, 0)).rejects.toThrow(InboxConflictError)
   })
 
-  it('projects a message atomically on top of the latest state', () => {
-    const inbox = new MemoryInbox()
-    const created = inbox.projectMessage(message({ direction: 'inbound' }))
-    const assigned = inbox.assign('local', 'chat-1', 'agent', created.version)
-    const resolved = inbox.upsert(
+  it('projects a message atomically on top of the latest state', async () => {
+    const inbox = make()
+    const created = await inbox.projectMessage(message({ direction: 'inbound' }))
+    const assigned = await inbox.assign('local', 'chat-1', 'agent', created.version)
+    const resolved = await inbox.upsert(
       { tenantId: 'local', id: 'chat-1', status: 'resolved', handoff: false, assigneeId: 'agent', slaDueAt: 99 },
       assigned.version,
     )
 
-    expect(inbox.projectMessage(message({ direction: 'inbound' }))).toMatchObject({
+    expect(await inbox.projectMessage(message({ direction: 'inbound' }))).toMatchObject({
       status: 'resolved',
       assigneeId: 'agent',
       slaDueAt: 99,
@@ -147,18 +170,30 @@ describe('MemoryInbox', () => {
     })
   })
 
-  it('derives a missing direction from fromMe and rejects messages with neither', () => {
-    const inbox = new MemoryInbox()
+  it('derives a missing direction from fromMe and rejects messages with neither', async () => {
+    const inbox = make()
 
-    expect(inbox.projectMessage(message({ fromMe: false }))).toMatchObject({ unread: 1 })
-    expect(inbox.projectMessage(message({ fromMe: true }))).toMatchObject({ unread: 1 })
+    expect(await inbox.projectMessage(message({ fromMe: false }))).toMatchObject({ unread: 1 })
+    expect(await inbox.projectMessage(message({ fromMe: true }))).toMatchObject({ unread: 1 })
     // An explicit direction wins over fromMe.
-    expect(inbox.projectMessage(message({ fromMe: true, direction: 'inbound' }))).toMatchObject({ unread: 2 })
+    expect(await inbox.projectMessage(message({ fromMe: true, direction: 'inbound' }))).toMatchObject({ unread: 2 })
 
-    const before = inbox.get('local', 'chat-1')
-    expect(() => inbox.projectMessage(message())).toThrow(/direction/)
-    expect(() => inbox.projectMessage(message({ chatId: 'chat-2' }))).toThrow(/direction/)
-    expect(inbox.get('local', 'chat-1')).toEqual(before)
-    expect(inbox.get('local', 'chat-2')).toBeUndefined()
+    const before = await inbox.get('local', 'chat-1')
+    await expect(inbox.projectMessage(message())).rejects.toThrow(/direction/)
+    await expect(inbox.projectMessage(message({ chatId: 'chat-2' }))).rejects.toThrow(/direction/)
+    expect(await inbox.get('local', 'chat-1')).toEqual(before)
+    expect(await inbox.get('local', 'chat-2')).toBeUndefined()
+  })
+})
+
+describe('Inbox', () => {
+  it('defaults to an in-memory store and persists across instances sharing one kv', async () => {
+    expect(new Inbox().store).toBeInstanceOf(MemoryInboxStore)
+    const kv = new MemoryKv()
+    const first = new Inbox(new KvInboxStore(kv))
+    const created = await first.projectMessage(message({ tenantId: 'acme', direction: 'inbound' }))
+    await first.assign('acme', 'chat-1', 'agent-7', created.version)
+    const second = new Inbox(new KvInboxStore(kv))
+    expect(await second.get('acme', 'chat-1')).toMatchObject({ assigneeId: 'agent-7', unread: 1, version: 2 })
   })
 })
