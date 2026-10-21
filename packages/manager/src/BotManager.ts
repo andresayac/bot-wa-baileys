@@ -637,7 +637,7 @@ export class BotManager extends EventEmitter {
 
   private async addFlowUnlocked(botId: string, document: unknown): Promise<string> {
     const entry = this.requireEntry(botId)
-    const compiled = compileFlowDocument(document)
+    const compiled = compileFlowDocument(document, { resolveSubflow: (id) => this.storedFlowDocument(botId, id) })
     if (requireCapability(entry.bot, 'hasFlow')(compiled.id)) {
       throw new ManagerError(`Flow "${compiled.id}" already exists on bot "${botId}"`, 'CONFLICT')
     }
@@ -653,7 +653,7 @@ export class BotManager extends EventEmitter {
 
   private async putFlowUnlocked(botId: string, flowId: string, document: unknown): Promise<{ created: boolean }> {
     const entry = this.requireEntry(botId)
-    const compiled = compileFlowDocument(document)
+    const compiled = compileFlowDocument(document, { resolveSubflow: (id) => this.storedFlowDocument(botId, id) })
     if (compiled.id !== flowId) throw new ManagerError(`Flow document id "${compiled.id}" does not match "${flowId}"`, 'INVALID')
     const created = !requireCapability(entry.bot, 'hasFlow')(flowId)
     requireCapability(entry.bot, 'replaceFlow')(flowId, compiled)
@@ -666,6 +666,12 @@ export class BotManager extends EventEmitter {
       return copy
     })
     return { created }
+  }
+
+  /** A stored flow document of `botId`, for resolving `subflow` steps. */
+  private storedFlowDocument(botId: string, flowId: string): FlowDocument | undefined {
+    const flows = (this.configs.get(botId)?.flows ?? []) as Array<{ id?: string }>
+    return flows.find((flow) => flow.id === flowId) as FlowDocument | undefined
   }
 
   /** Unregister flow `flowId` from a live bot (and its persisted config). */
