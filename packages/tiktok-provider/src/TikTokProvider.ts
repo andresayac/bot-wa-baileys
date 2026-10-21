@@ -48,6 +48,7 @@ import {
   type ProviderCapabilities,
   type SendOptions,
   type SendResult,
+  type SerializedMediaRef,
   type UserId,
 } from '@bot-wa/core'
 import { highIntentChatId, parseTikTokChatId, type TikTokChatTarget } from './chatId.js'
@@ -108,6 +109,19 @@ function isMediaToken(token: unknown): token is TikTokMediaToken {
   if (typeof token !== 'object' || token === null) return false
   const t = token as Record<string, unknown>
   return typeof t.mediaId === 'string' && typeof t.messageId === 'string' && typeof t.conversationId === 'string'
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+/** Journalable URL: absolute http(s), no credentials, bounded length (the fetch revalidates the host). */
+function isHttpUrl(value: unknown): value is string {
+  if (typeof value !== 'string' || value.length === 0 || value.length > 4096) return false
+  try {
+    const url = new URL(value)
+    return (url.protocol === 'https:' || url.protocol === 'http:') && !url.username && !url.password && url.hostname !== ''
+  } catch { return false }
 }
 
 export class TikTokProvider implements IProvider<unknown> {
@@ -488,6 +502,28 @@ export class TikTokProvider implements IProvider<unknown> {
    * returns a short-lived `download_url`, fetched via `secureFetch`. Stickers
    * carry their URL directly.
    */
+  /**
+   * Durable media: the TikTok media coordinates (no credentials: the API call is signed
+   * with the configured token) or, for a hosted sticker, its URL.
+   */
+  serializeMediaRef(ref: MediaRef): SerializedMediaRef | undefined {
+    const token = ref.token
+    if (isMediaToken(token)) return { v: 1, data: { mediaId: token.mediaId, messageId: token.messageId, conversationId: token.conversationId, mediaType: token.mediaType } }
+    const url = typeof token === 'object' && token !== null ? (token as { url?: unknown }).url : undefined
+    return typeof url === 'string' && isHttpUrl(url) ? { v: 1, data: { url } } : undefined
+  }
+
+  /** Rebuild a journaled media reference. @throws {ProviderError} on an invalid or unknown-version value. */
+  rehydrateMediaRef(stored: SerializedMediaRef, ref: Omit<MediaRef, 'token'>): MediaRef {
+    const data = stored?.v === 1 && isRecord(stored.data) ? stored.data : undefined
+    if (!data) throw new ProviderError('Invalid TikTok media reference')
+    if (typeof data.url === 'string' && isHttpUrl(data.url)) return { ...ref, token: { url: data.url } }
+    const { mediaId, messageId, conversationId, mediaType } = data
+    const valid = [mediaId, messageId, conversationId].every((v) => typeof v === 'string' && v !== '' && v.length <= 512)
+    if (!valid || (mediaType !== 'IMAGE' && mediaType !== 'VIDEO')) throw new ProviderError('Invalid TikTok media reference')
+    return { ...ref, token: { mediaId, messageId, conversationId, mediaType } as TikTokMediaToken }
+  }
+
   async downloadMedia(ref: MediaRef): Promise<Buffer | NodeJS.ReadableStream> {
     const token = ref.token
     if (isMediaToken(token)) {

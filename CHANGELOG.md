@@ -4,6 +4,10 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/). Versionado po
 
 ## [Unreleased]
 
+### Media durable en los 13 canales (2026-10)
+- Los seis canales que descargaban media pero no implementaban `IProvider.serializeMediaRef`/`rehydrateMediaRef` ya lo hacen, así que un mensaje reanudado desde el journal puede volver a bajar su media: **`@bot-wa/evolution`** (jurna la clave del mensaje, nunca el base64 en línea), **`@bot-wa/wppconnect`** (`messageId`), **`@bot-wa/gupshup`** y **`@bot-wa/gohighlevel`** (URL http(s) alojada, sin credenciales ni esquemas raros), **`@bot-wa/email`** (Message-ID + índice + digest, más UID/UIDVALIDITY de IMAP cuando se conocen) y **`@bot-wa/tiktok`** (coordenadas de la media o la URL del sticker). Todos validan el valor leído como no confiable y lanzan `ProviderError` si no encaja; una URL caducada se reporta como `MediaUnavailableError`, como antes.
+- Guías de durabilidad EN/ES y `llms.txt` actualizadas con la cobertura completa.
+
 ### `BotConfig.logger` acepta cualquier `LoggerLike` (2026-10)
 - **`@bot-wa/core`**: el constructor del `Bot` ya no castea `BotConfig.logger` a pino. `toBotLogger()` deja pasar intacto un logger con forma de pino y adapta cualquier otro (`console`, un objeto con `debug/info/warn/error`): `child()` reenvía al `child()` propio si existe (o reutiliza el logger, descartando los bindings), `trace`/`fatal` son no-ops y los cuatro niveles reenvían todos los argumentos. Cierra el hueco que quedaba anotado en `docs/api-review.md`: antes, un `LoggerLike` sin `child` compilaba pero reventaba al construir el bot.
 

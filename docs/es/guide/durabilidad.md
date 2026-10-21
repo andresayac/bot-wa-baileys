@@ -322,6 +322,15 @@ Un provider añade los dos métodos opcionales de `IProvider`.
 `rehydrateMediaRef(stored, ref)` valida `stored`, lanza un `ProviderError` si no es
 válido y no necesita el transporte conectado.
 
+Los trece canales los implementan: Baileys (una clave de mensaje), Meta Cloud, Telegram
+(`file_id`), Twilio, Messenger e Instagram (URL de adjunto alojada), Discord, Evolution
+(la clave del mensaje; el base64 en línea nunca se guarda), WPPConnect (`messageId`),
+Gupshup y GoHighLevel (URL http(s) alojada), email (Message-ID + índice del adjunto +
+digest, más el UID y UIDVALIDITY de IMAP cuando se conocen) y TikTok (coordenadas de la
+media, o la URL del sticker). Una URL alojada puede caducar en el servidor antes de un
+replay: el provider rechaza entonces con su error de descarga habitual y el core reporta
+`MediaUnavailableError`. Nunca escribas credenciales en `data`.
+
 ## Varias réplicas
 
 Los journals se pueden compartir sin riesgo: dos réplicas nunca toman el mismo

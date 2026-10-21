@@ -39,6 +39,7 @@ import type {
   ProviderCapabilities,
   SendOptions,
   SendResult,
+  SerializedMediaRef,
   UserId,
 } from '@bot-wa/core'
 import {
@@ -384,6 +385,22 @@ export class WPPConnectProvider implements IProvider<unknown> {
   }
 
   /** POST download-media { messageId } → { base64, mimetype }. */
+  /** Durable media: the WPPConnect message id is enough to call `download-media` again. */
+  serializeMediaRef(ref: MediaRef): SerializedMediaRef | undefined {
+    const messageId = (ref.token as { messageId?: unknown } | undefined)?.messageId
+    return typeof messageId === 'string' && messageId !== '' && messageId.length <= 512 ? { v: 1, data: { messageId } } : undefined
+  }
+
+  /** Rebuild a journaled message id. @throws {ProviderError} on an invalid or unknown-version value. */
+  rehydrateMediaRef(stored: SerializedMediaRef, ref: Omit<MediaRef, 'token'>): MediaRef {
+    const data = stored?.v === 1 && isRecord(stored.data) ? stored.data : undefined
+    const messageId = data?.messageId
+    if (typeof messageId !== 'string' || messageId === '' || messageId.length > 512) {
+      throw new ProviderError('Invalid WPPConnect media reference')
+    }
+    return { ...ref, token: { messageId } }
+  }
+
   async downloadMedia(ref: MediaRef): Promise<Buffer> {
     const token = ref.token as WppMediaToken | undefined
     if (!isRecord(token) || typeof token.messageId !== 'string') throw new ProviderError('downloadMedia requires a WPPConnect media token (MediaRef.token)')

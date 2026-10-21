@@ -30,6 +30,7 @@ import type {
   ProviderCapabilities,
   SendOptions,
   SendResult,
+  SerializedMediaRef,
   TextFormat,
   UserId,
 } from '@bot-wa/core'
@@ -40,6 +41,15 @@ import { parseInbound } from './parseInbound.js'
 import { GHL_WEBHOOK_PUBLIC_KEY, verifyGhlSignature } from './signature.js'
 import { toOutbound } from './toOutbound.js'
 import { toGhlError } from './errors.js'
+
+/** Journalable attachment URL: absolute http(s), no credentials, bounded length (the fetch revalidates the host). */
+function isHttpUrl(value: unknown): value is string {
+  if (typeof value !== 'string' || value.length === 0 || value.length > 4096) return false
+  try {
+    const url = new URL(value)
+    return (url.protocol === 'https:' || url.protocol === 'http:') && !url.username && !url.password && url.hostname !== ''
+  } catch { return false }
+}
 import type { GhlChannel, GhlErrorBody, GhlSendResponse, GhlWebhookBody, GoHighLevelProviderConfig } from './types.js'
 
 function escapeHtml(text: string): string {
@@ -226,6 +236,27 @@ export class GoHighLevelProvider implements IProvider<GhlWebhookBody> {
   /* Capability-gated actions ---------------------------------------------- */
 
   /** Download an inbound attachment (public HighLevel/CDN URL) through secureFetch. */
+  /**
+   * Durable media: the HighLevel attachment URL (signed, no credentials of ours) is
+   * journaled when it is an http(s) URL of a sane length; the download revalidates the
+   * host through `secureFetch`.
+   */
+  serializeMediaRef(ref: MediaRef): SerializedMediaRef | undefined {
+    const token = ref.token
+    const url = typeof token === 'string' ? token : (token as { url?: unknown } | undefined)?.url
+    return typeof url === 'string' && isHttpUrl(url) ? { v: 1, data: { url } } : undefined
+  }
+
+  /** Rebuild a journaled attachment URL. @throws {ProviderError} on an invalid or unknown-version value. */
+  rehydrateMediaRef(stored: SerializedMediaRef, ref: Omit<MediaRef, 'token'>): MediaRef {
+    const data = stored?.v === 1 && typeof stored.data === 'object' && stored.data !== null && !Array.isArray(stored.data)
+      ? stored.data as { url?: unknown }
+      : undefined
+    const url = data?.url
+    if (typeof url !== 'string' || !isHttpUrl(url)) throw new ProviderError('Invalid HighLevel media reference')
+    return { ...ref, token: { url } }
+  }
+
   async downloadMedia(ref: MediaRef): Promise<Buffer> {
     const token = ref.token as { url?: unknown } | string | undefined
     const url = typeof token === 'string' ? token : typeof token?.url === 'string' ? token.url : undefined

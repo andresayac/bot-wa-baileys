@@ -45,6 +45,7 @@ import {
   type IProvider,
   type InboundEvent,
   type InboundMessage,
+  type JsonValue,
   type LoggerLike,
   type MediaRef,
   type MediaSource,
@@ -53,6 +54,7 @@ import {
   type ProviderCapabilities,
   type SendOptions,
   type SendResult,
+  type SerializedMediaRef,
   type UserId,
 } from '@bot-wa/core'
 import { domainOf, looksLikeAddress, normalizeAddress, type EmailAddress } from './address.js'
@@ -527,6 +529,40 @@ export class EmailProvider implements IProvider<EmailRaw> {
       this.cacheBytes -= this.cache.get(oldest)?.length ?? 0
       this.cache.delete(oldest)
     }
+  }
+
+  /**
+   * Durable media: the attachment is located by Message-ID + index + digest (plus the IMAP
+   * UID and UIDVALIDITY when known), all JSON and credential-free; a replay refetches it
+   * from the mailbox while the UID still holds the same bytes.
+   */
+  serializeMediaRef(ref: MediaRef): SerializedMediaRef | undefined {
+    const token = ref.token as Partial<EmailMediaToken> | undefined
+    if (!token || typeof token.messageId !== 'string' || token.messageId === '' || token.messageId.length > 998) return undefined
+    if (!Number.isInteger(token.index) || (token.index as number) < 0) return undefined
+    if (typeof token.digest !== 'string' || !/^[0-9a-f]{8,128}$/i.test(token.digest)) return undefined
+    const index = token.index as number
+    const data: Record<string, JsonValue> = { messageId: token.messageId, index, digest: token.digest }
+    if (Number.isInteger(token.uid) && (token.uid as number) >= 0) data.uid = token.uid as number
+    if (typeof token.uidValidity === 'string' && token.uidValidity !== '' && token.uidValidity.length <= 64) data.uidValidity = token.uidValidity
+    return { v: 1, data }
+  }
+
+  /** Rebuild a journaled attachment reference. @throws {ProviderError} on an invalid or unknown-version value. */
+  rehydrateMediaRef(stored: SerializedMediaRef, ref: Omit<MediaRef, 'token'>): MediaRef {
+    const data = stored?.v === 1 && typeof stored.data === 'object' && stored.data !== null && !Array.isArray(stored.data)
+      ? stored.data as Record<string, unknown>
+      : undefined
+    const messageId = data?.messageId
+    const index = data?.index
+    const digest = data?.digest
+    if (typeof messageId !== 'string' || messageId === '' || messageId.length > 998) throw new ProviderError('Invalid email media reference')
+    if (!Number.isInteger(index) || (index as number) < 0) throw new ProviderError('Invalid email media reference')
+    if (typeof digest !== 'string' || !/^[0-9a-f]{8,128}$/i.test(digest)) throw new ProviderError('Invalid email media reference')
+    const token: EmailMediaToken = { messageId, index: index as number, digest }
+    if (Number.isInteger(data!.uid) && (data!.uid as number) >= 0) token.uid = data!.uid as number
+    if (typeof data!.uidValidity === 'string' && data!.uidValidity !== '' && data!.uidValidity.length <= 64) token.uidValidity = data!.uidValidity
+    return { ...ref, token }
   }
 
   async downloadMedia(ref: MediaRef): Promise<Buffer> {

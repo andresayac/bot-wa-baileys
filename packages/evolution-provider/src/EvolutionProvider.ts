@@ -32,12 +32,14 @@ import type {
   DisconnectReason,
   IProvider,
   InboundEvent,
+  JsonValue,
   MediaRef,
   MessageRef,
   OutboundContent,
   ProviderCapabilities,
   SendOptions,
   SendResult,
+  SerializedMediaRef,
   UserId,
 } from '@bot-wa/core'
 import {
@@ -278,6 +280,37 @@ export class EvolutionProvider implements IProvider<unknown> {
     const key = isRecord(result) && isRecord(result.key) ? result.key : undefined
     const id = typeof key?.id === 'string' ? key.id : ''
     return { ref: { id, chatId, native: key ?? result }, raw: result }
+  }
+
+  /**
+   * Durable media: the Evolution message key is JSON and the API refetches the bytes, so
+   * it is journaled (never the inline base64) and rebuilt on replay.
+   */
+  serializeMediaRef(ref: MediaRef): SerializedMediaRef | undefined {
+    const key = (ref.token as { key?: unknown } | undefined)?.key
+    if (!isRecord(key)) return undefined
+    const remoteJid = key.remoteJid
+    const id = key.id
+    if (typeof remoteJid !== 'string' || !remoteJid || remoteJid.length > 512) return undefined
+    if (typeof id !== 'string' || !id || id.length > 512) return undefined
+    const data: Record<string, JsonValue> = { remoteJid, id }
+    if (typeof key.fromMe === 'boolean') data.fromMe = key.fromMe
+    if (typeof key.participant === 'string' && key.participant && key.participant.length <= 512) data.participant = key.participant
+    return { v: 1, data }
+  }
+
+  /** Rebuild a journaled Evolution key. @throws {ProviderError} on an invalid or unknown-version value. */
+  rehydrateMediaRef(stored: SerializedMediaRef, ref: Omit<MediaRef, 'token'>): MediaRef {
+    const data = stored?.v === 1 && isRecord(stored.data) ? stored.data : undefined
+    const remoteJid = data?.remoteJid
+    const id = data?.id
+    if (typeof remoteJid !== 'string' || !remoteJid || remoteJid.length > 512 || typeof id !== 'string' || !id || id.length > 512) {
+      throw new ProviderError('Invalid Evolution media reference')
+    }
+    const key: Record<string, unknown> = { remoteJid, id }
+    if (typeof data!.fromMe === 'boolean') key.fromMe = data!.fromMe
+    if (typeof data!.participant === 'string' && data!.participant && data!.participant.length <= 512) key.participant = data!.participant
+    return { ...ref, token: { key } }
   }
 
   /** Inline base64 (instance `webhookBase64: true`) or `chat/getBase64FromMediaMessage`. */

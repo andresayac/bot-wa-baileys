@@ -311,6 +311,15 @@ synchronous and returns `{ v, data }` (JSON) or `undefined`. `rehydrateMediaRef(
 ref)` validates `stored`, throws a `ProviderError` when it is not valid, and does not
 need the transport to be connected.
 
+All thirteen channels implement them: Baileys (a message key), Meta Cloud, Telegram
+(`file_id`), Twilio, Messenger and Instagram (hosted attachment URL), Discord, Evolution
+(the message key; the inline base64 is never journaled), WPPConnect (`messageId`), Gupshup
+and GoHighLevel (hosted http(s) URL), email (Message-ID + attachment index + digest, plus
+the IMAP UID and UIDVALIDITY when known) and TikTok (media coordinates, or the sticker
+URL). A hosted URL can expire server-side before a replay: the provider then rejects with
+its usual download error and the core reports `MediaUnavailableError`. Never write
+credentials into `data`.
+
 ## Several replicas
 
 The journals are safe to share: two replicas never both claim a record, and a stale

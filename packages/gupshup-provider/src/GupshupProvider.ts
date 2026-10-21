@@ -33,6 +33,7 @@ import type {
   ProviderCapabilities,
   SendOptions,
   SendResult,
+  SerializedMediaRef,
   UserId,
 } from '@bot-wa/core'
 import { ProviderError } from '@bot-wa/core'
@@ -41,6 +42,19 @@ import { parseInbound } from './parseInbound.js'
 import { toOutbound } from './toOutbound.js'
 import { toGupshupError } from './errors.js'
 import type { GupshupCallback, GupshupProviderConfig, GupshupSendResponse } from './types.js'
+
+/** Journalable attachment URL: absolute http(s), no credentials, bounded length (the fetch revalidates the host). */
+function isHttpUrl(value: unknown): value is string {
+  if (typeof value !== 'string' || value.length === 0 || value.length > 4096) return false
+  try {
+    const url = new URL(value)
+    return (url.protocol === 'https:' || url.protocol === 'http:') && !url.username && !url.password && url.hostname !== ''
+  } catch { return false }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
 
 export interface GupshupIngestRequest {
   /** The request URL (absolute, or path + query like express `req.originalUrl`). */
@@ -195,6 +209,26 @@ export class GupshupProvider implements IProvider<GupshupCallback> {
   /* Capability-gated actions ---------------------------------------------- */
 
   /** Download inbound media from its (expiring) Gupshup file-manager URL through secureFetch. */
+  /**
+   * Durable media: Gupshup hands a hosted attachment URL, journaled only while it is an
+   * http(s) URL of a sane length (the download revalidates the host through the HTTP
+   * client). The URL may expire server-side before a replay; the provider then rejects
+   * with its usual download error and the core reports `MediaUnavailableError`.
+   */
+  serializeMediaRef(ref: MediaRef): SerializedMediaRef | undefined {
+    const token = ref.token
+    const url = typeof token === 'string' ? token : (token as { url?: unknown } | undefined)?.url
+    return typeof url === 'string' && isHttpUrl(url) ? { v: 1, data: { url } } : undefined
+  }
+
+  /** Rebuild a journaled attachment URL. @throws {ProviderError} on an invalid or unknown-version value. */
+  rehydrateMediaRef(stored: SerializedMediaRef, ref: Omit<MediaRef, 'token'>): MediaRef {
+    const data = stored?.v === 1 && isRecord(stored.data) ? stored.data : undefined
+    const url = data?.url
+    if (typeof url !== 'string' || !isHttpUrl(url)) throw new ProviderError('Invalid Gupshup media reference')
+    return { ...ref, token: { url } }
+  }
+
   async downloadMedia(ref: MediaRef): Promise<Buffer> {
     const token = ref.token as { url?: unknown } | string | undefined
     const url = typeof token === 'string' ? token : typeof token?.url === 'string' ? token.url : undefined
