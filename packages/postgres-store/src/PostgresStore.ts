@@ -444,6 +444,39 @@ export class PostgresStore implements IStore {
   async clearCheckpoint(key: string): Promise<void> {
     await this.query(`DELETE FROM ${this.table('checkpoints')} WHERE key = $1`, [key])
   }
+  /**
+   * Compare-and-set write (see `IStore.setCheckpointIf`): one conditional statement per
+   * case (an upsert guarded by `WHERE` for revision 0, a conditional `UPDATE` otherwise),
+   * so concurrent writers on one key see exactly one winner.
+   */
+  async setCheckpointIf(key: string, cp: FlowCheckpoint, expectedRevision: number): Promise<boolean> {
+    if (!Number.isInteger(expectedRevision) || expectedRevision < 0) {
+      throw new RangeError(`PostgresStore.setCheckpointIf: expectedRevision must be a non-negative integer, got ${String(expectedRevision)}`)
+    }
+    const t = this.table('checkpoints')
+    const json = JSON.stringify(cp)
+    const result = expectedRevision === 0
+      ? await this.query(
+          `INSERT INTO ${t} (key, cp) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET cp = EXCLUDED.cp ` +
+            `WHERE COALESCE((${t}.cp->>'revision')::bigint, 0) = 0`,
+          [key, json],
+        )
+      : await this.query(`UPDATE ${t} SET cp = $2 WHERE key = $1 AND (cp->>'revision')::bigint = $3`, [key, json, expectedRevision])
+    return ((result as { rowCount?: number | null }).rowCount ?? 0) === 1
+  }
+  async clearCheckpointIf(key: string, expectedRevision: number): Promise<boolean> {
+    if (!Number.isInteger(expectedRevision) || expectedRevision < 0) {
+      throw new RangeError(`PostgresStore.clearCheckpointIf: expectedRevision must be a non-negative integer, got ${String(expectedRevision)}`)
+    }
+    const t = this.table('checkpoints')
+    const result = await this.query(
+      `DELETE FROM ${t} WHERE key = $1 AND COALESCE((cp->>'revision')::bigint, 0) = $2`,
+      [key, expectedRevision],
+    )
+    if (((result as { rowCount?: number | null }).rowCount ?? 0) === 1) return true
+    const { rows } = await this.query(`SELECT key FROM ${t} WHERE key = $1`, [key])
+    return rows.length === 0 // absent counts as cleared
+  }
   async listCheckpoints(): Promise<Array<[string, FlowCheckpoint]>> {
     const { rows } = await this.query<{ key: string; cp: unknown }>(
       `SELECT key, cp FROM ${this.table('checkpoints')}`,

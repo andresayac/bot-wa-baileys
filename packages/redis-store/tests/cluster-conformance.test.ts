@@ -37,6 +37,7 @@ const variants = [
 
 for (const v of variants) {
   runStoreConformance(`RedisStore (${v.label})`, {
+    checkpointCas: true,
     async make() {
       const client = v.client()
       const store = new RedisStore(v.label === 'cluster fake' ? { client } : { client, layout: 'cluster' })

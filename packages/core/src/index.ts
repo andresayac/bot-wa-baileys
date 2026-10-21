@@ -289,6 +289,9 @@ export type { ConversationSnapshot, WaitAccepts } from './conversations/Conversa
 // contract helpers live under '@bot-wa/core/testing'.
 export { InboundDeduper, createInboundDeduper, inboundDedupeKey, DEFAULT_DEDUPE_SIZE } from './core/dedupe.js'
 export type { InboundDedupeOptions, InboundDeduperOptions, InboundDedupeKey } from './core/dedupe.js'
+// Echo filter (BotConfig.echoFilter): the bot's own sends coming back as inbound are dropped.
+export { SentRefRing, createEchoFilter, DEFAULT_ECHO_FILTER_SIZE } from './core/echo.js'
+export type { EchoFilterOptions, SentRefRingOptions } from './core/echo.js'
 export { toInboundLocation } from './core/location.js'
 export type { InboundLocationInput } from './core/location.js'
 

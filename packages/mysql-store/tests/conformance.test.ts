@@ -17,6 +17,7 @@ function legacySeeder(pool: FakePool) {
 }
 
 runStoreConformance('MysqlStore', {
+  checkpointCas: true,
   async make() {
     const pool = new FakePool()
     const store = new MysqlStore({ pool })

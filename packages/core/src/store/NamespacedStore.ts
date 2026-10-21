@@ -42,6 +42,11 @@ export class NamespacedStore implements IStore {
   readonly listUserData?: (userId: UserId, namespace?: string) => Promise<UserDataEntry[]>
   readonly purgeExpiredUserData?: (now?: number) => Promise<number>
 
+  /* Checkpoint compare-and-set: defined ONLY when the inner store implements it (same
+   * honest-capability rule as the user-data methods). */
+  readonly setCheckpointIf?: (key: string, cp: FlowCheckpoint, expectedRevision: number) => Promise<boolean>
+  readonly clearCheckpointIf?: (key: string, expectedRevision: number) => Promise<boolean>
+
   constructor(
     readonly innerStore: IStore,
     readonly namespace: StoreNamespace,
@@ -55,6 +60,16 @@ export class NamespacedStore implements IStore {
     }
     this.prefix = Object.values(namespace).map(encodeURIComponent).join('|') + '|'
     this.bindUserData(innerStore)
+    this.bindCheckpointCas(innerStore)
+  }
+
+  /** Install the namespaced conditional checkpoint writes when `inner` supports them. */
+  private bindCheckpointCas(inner: IStore): void {
+    const { setCheckpointIf, clearCheckpointIf } = inner
+    if (!setCheckpointIf || !clearCheckpointIf) return
+    const self = this as { -readonly [K in 'setCheckpointIf' | 'clearCheckpointIf']: NamespacedStore[K] }
+    self.setCheckpointIf = (key, cp, expected) => setCheckpointIf.call(inner, this.key('checkpoint', key), cp, expected)
+    self.clearCheckpointIf = (key, expected) => clearCheckpointIf.call(inner, this.key('checkpoint', key), expected)
   }
 
   /** Install the namespaced user-data methods when `inner` supports them. */

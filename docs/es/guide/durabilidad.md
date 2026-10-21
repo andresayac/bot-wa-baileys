@@ -49,6 +49,11 @@ PostgreSQL crea una tabla, `{tablePrefix}durable`, de forma idempotente al
 arrancar. Redis usa claves bajo `{prefix}:{durable:inbox:<scope>}` y
 `{prefix}:{durable:outbox:<scope>}`. Ninguno toca las tablas ni las claves del store.
 
+`FileDurability.open(ruta, { appendLog: true })` (o `{ compactEvery, compactBytes, fsync }`)
+añade cada escritura confirmada a `<ruta>.log` en vez de reescribir el snapshot, y compacta
+cada 1000 entradas o 4 MiB; `close()` pliega el log en el snapshot. Un log sobrante se
+reproduce siempre al abrir, incluso sin la opción.
+
 **Varios bots pueden compartir un backend.** Cada bot trabaja en su propia vista del
 backend, acotada por su namespace (`tenantId`, `environmentId`, `botId`,
 `connectionId`; `bot.durability.scope` es el id derivado). Un bot solo toma, reprocesa
@@ -109,11 +114,17 @@ const bot = new Bot({ provider, durability: { journal: eventsDurability({ journa
   ```
 
   Está pensado para pocos procesos en un mismo host (o un sistema de archivos con rename
-  atómico y creación exclusiva; no NFS): cada escritura relee y reescribe el archivo
-  entero. Un mutex que dejó un proceso muerto se rompe al momento, y uno retenido más de
-  `staleLockMs` (30 s por defecto) se da por abandonado; nunca se mata nada (déjalo muy por
-  encima de la reescritura más lenta: si tres procesos compiten por romper un mutex ya
-  abandonado, dos pueden tenerlo un instante y perderse una escritura; usa un journal de base
+  atómico y creación exclusiva; no NFS). Por defecto cada escritura relee y reescribe el
+  archivo entero; con `appendLog: true` (o `{ compactEvery, compactBytes, fsync }`) cada
+  escritura añade una línea a `<archivo>.log` con los registros/estado lateral que
+  cambiaron, y el snapshot se reescribe (con `logSeq`) y el log se trunca cada 1000
+  entradas o 4 MiB. Un fallo entre el snapshot y el truncado es inofensivo (el replay salta
+  las entradas ya incluidas) y una última línea a medias se recorta. Un mutex que dejó un
+  proceso muerto se rompe al momento; un titular vivo refresca su mtime (heartbeat,
+  `heartbeatMs` por defecto un tercio de `staleLockMs`), así que solo se da por abandonado
+  un titular atascado tras `staleLockMs` (30 s por defecto). Nunca se mata nada (déjalo muy
+  por encima de la escritura más lenta: si tres procesos compiten por romper un mutex ya
+  atascado, dos pueden tenerlo un instante y perderse una escritura; usa un journal de base
   de datos si eso importa). `close()` deja terminar las operaciones ya llamadas y rechaza las
   posteriores. El formato
   del archivo es el de `FileEventJournal`, pero no abras un archivo con los dos a la vez

@@ -85,6 +85,16 @@ desde el principio y hace su primera pregunta. La réplica que tenía el flujo
 en memoria descarta su copia la próxima vez que reciba ese chat (o cuando
 salte uno de sus temporizadores).
 
+**Las escrituras de checkpoint son compare-and-set.** Una réplica congelada
+después de perder el chat podría sobrescribir el checkpoint de la réplica que
+lo tomó. Todos los stores integrados implementan `setCheckpointIf` /
+`clearCheckpointIf` (una sola sentencia atómica, con `FlowCheckpoint.revision`
+encadenada por clave), y el runtime los usa siempre que hay `coordination`:
+una escritura rechazada termina la conversación como un turno perdido
+(`LeaseLostError`, motivo `'superseded'`) y un borrado rechazado deja la fila
+de la nueva dueña. Un store propio sin esos métodos conserva solo el fence
+local, y el bot avisa al arrancar.
+
 **Una sola conexión para los transportes exclusivos.** Con
 `providerSession: 'auto'` (por defecto), un provider que declara
 `capabilities.exclusiveSession` solo se arranca en la réplica elegida para
@@ -97,6 +107,8 @@ líder se detiene o muere.
 | `@bot-wa/telegram` (long polling) | `true` | 1 haciendo polling + en espera |
 | `@bot-wa/telegram` (webhook) | `false` | todas reciben |
 | `@bot-wa/discord` | `true` | 1 gateway + en espera |
+| `@bot-wa/email` (IMAP) | `true` | 1 sesión IMAP + en espera |
+| `@bot-wa/email` (solo `ingest()`) | `false` | todas reciben |
 | `@bot-wa/meta`, Messenger, Instagram y otros providers de webhook | sin definir (`false`) | todas reciben |
 
 Si el transporte de la líder sigue `'closed'` durante `providerDownMs`

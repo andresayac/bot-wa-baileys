@@ -45,6 +45,11 @@ export function validateConfig<T extends Partial<BotConfig>>(config: T): T {
   assertType('botId', config.botId, 'string')
   assertType('connectionId', config.connectionId, 'string')
   assertType('persistRaw', config.persistRaw, 'boolean')
+  if (config.echoFilter !== undefined && config.echoFilter !== true) {
+    if (typeof config.echoFilter !== 'object' || config.echoFilter === null) {
+      throw new ConfigValidationError('echoFilter', 'true | { size?, ttl? }', config.echoFilter)
+    }
+  }
 
   if (config.commandPrefix === '') {
     throw new ConfigValidationError('commandPrefix', 'a non-empty string', '')

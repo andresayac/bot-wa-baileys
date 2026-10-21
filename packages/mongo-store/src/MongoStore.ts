@@ -76,7 +76,8 @@ export interface MongoLikeCollection<T extends { _id: string }> {
    * asks the driver to drop `undefined` values instead of storing BSON null.
    */
   updateOne(
-    filter: { _id: string },
+    /** `_id` plus optional extra predicates (the checkpoint compare-and-set filters by `cp.revision`). */
+    filter: { _id: string } & Record<string, unknown>,
     update: { $set: Partial<Omit<T, '_id'>>; $unset?: Record<string, ''> },
     options?: { upsert?: boolean; ignoreUndefined?: boolean },
   ): Promise<{ matchedCount: number; upsertedCount: number }>
@@ -87,7 +88,7 @@ export interface MongoLikeCollection<T extends { _id: string }> {
     filter?: Record<string, unknown>,
     options?: { promoteBuffers?: boolean; projection?: Record<string, 0 | 1> },
   ): MongoLikeCursor<T>
-  deleteOne(filter: { _id: string }): Promise<{ deletedCount: number }>
+  deleteOne(filter: { _id: string } & Record<string, unknown>): Promise<{ deletedCount: number }>
   deleteMany(filter: Record<string, unknown>): Promise<{ deletedCount: number }>
   createIndex(spec: Record<string, 1 | -1>): Promise<string>
 }
@@ -172,6 +173,14 @@ interface CursorDoc {
  * semantics of the other stores.
  */
 const UPSERT = { upsert: true, ignoreUndefined: true } as const
+/** Filter matching a checkpoint row without a compare-and-set revision (revision 0). */
+const UNREVISIONED = { $or: [{ 'cp.revision': { $exists: false } }, { 'cp.revision': 0 }] } as const
+
+/** A MongoDB duplicate-key error (code 11000, or its message for drivers/fakes without a code). */
+function isDuplicateKey(error: unknown): boolean {
+  const e = error as { code?: unknown; message?: unknown } | null
+  return e?.code === 11000 || (typeof e?.message === 'string' && e.message.includes('E11000'))
+}
 /** Read options: return BSON Binary as Node Buffers, not the driver's `Binary` class. */
 const READ = { promoteBuffers: true } as const
 
@@ -405,6 +414,36 @@ export class MongoStore implements IStore {
   }
   async clearCheckpoint(key: string): Promise<void> {
     await this.checkpoints.deleteOne({ _id: key })
+  }
+  /**
+   * Compare-and-set write (see `IStore.setCheckpointIf`): one `updateOne` filtered by the
+   * stored `cp.revision`. Revision 0 upserts with a filter that only matches a row without
+   * a revision: when a revisioned row exists the filter misses, the upsert tries to insert
+   * the same `_id` and the server answers with a duplicate-key error (E11000) → refused.
+   */
+  async setCheckpointIf(key: string, cp: FlowCheckpoint, expectedRevision: number): Promise<boolean> {
+    if (!Number.isInteger(expectedRevision) || expectedRevision < 0) {
+      throw new RangeError(`MongoStore.setCheckpointIf: expectedRevision must be a non-negative integer, got ${String(expectedRevision)}`)
+    }
+    if (expectedRevision === 0) {
+      try {
+        await this.checkpoints.updateOne({ _id: key, ...UNREVISIONED }, { $set: { cp } }, UPSERT)
+        return true
+      } catch (error) {
+        if (isDuplicateKey(error)) return false
+        throw error
+      }
+    }
+    const result = await this.checkpoints.updateOne({ _id: key, 'cp.revision': expectedRevision }, { $set: { cp } }, { ignoreUndefined: true })
+    return result.matchedCount === 1
+  }
+  async clearCheckpointIf(key: string, expectedRevision: number): Promise<boolean> {
+    if (!Number.isInteger(expectedRevision) || expectedRevision < 0) {
+      throw new RangeError(`MongoStore.clearCheckpointIf: expectedRevision must be a non-negative integer, got ${String(expectedRevision)}`)
+    }
+    const filter = expectedRevision === 0 ? { _id: key, ...UNREVISIONED } : { _id: key, 'cp.revision': expectedRevision }
+    if ((await this.checkpoints.deleteOne(filter)).deletedCount === 1) return true
+    return (await this.checkpoints.findOne({ _id: key })) === null // absent counts as cleared
   }
   async listCheckpoints(): Promise<Array<[string, FlowCheckpoint]>> {
     const docs = await this.checkpoints.find({}, READ).toArray()

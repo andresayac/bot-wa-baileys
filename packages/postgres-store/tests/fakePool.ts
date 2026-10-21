@@ -52,6 +52,11 @@ const RE = {
   createIndex: /^CREATE INDEX IF NOT EXISTS .+$/,
   insert:
     /^INSERT INTO (\S+) \(([^)]+)\) VALUES \(([^)]+)\) ON CONFLICT \(([\w, ]+)\) DO UPDATE SET (.+)$/,
+  /** Upsert whose DO UPDATE is guarded (`... SET cp = EXCLUDED.cp WHERE <predicate>`): checkpoint compare-and-set. */
+  insertWhere:
+    /^INSERT INTO (\S+) \(([^)]+)\) VALUES \(([^)]+)\) ON CONFLICT \(([\w, ]+)\) DO UPDATE SET (.+?) WHERE (.+)$/,
+  /** `UPDATE t SET col = $n WHERE <conjunction>` (checkpoint compare-and-set). */
+  updateWhere: /^UPDATE (\S+) SET (\w+) = \$(\d+) WHERE (.+)$/,
   selectOrderLimit: /^SELECT (.+) FROM (\S+) WHERE (\w+) = \$1 ORDER BY (.+) LIMIT \$2$/,
   selectWhere: /^SELECT (.+) FROM (\S+) WHERE (\w+) = \$1$/,
   selectAll: /^SELECT (.+) FROM (\S+)$/,
@@ -271,6 +276,20 @@ function parseWhere(def: TableDef, where: string): Predicate[] {
       const [, col] = m
       return (row) => row[col!] != null
     }
+    // jsonb numeric field compared with a bound (or literal) integer, with or without COALESCE:
+    // `COALESCE((cp->>'revision')::bigint, 0) = $2` / `(cp->>'revision')::bigint = $3`.
+    m = /^(?:COALESCE\()?\((\w+)->>'(\w+)'\)::bigint(?:, (\d+)\))? = (?:\$(\d+)|(\d+))$/.exec(clause)
+    if (m) {
+      const [, col, field, fallback, n, literal] = m
+      if (!def.columns.has(col!) || def.columns.get(col!) !== 'JSONB') throw new FakePgError('42703', `column "${col}" does not exist`)
+      return (row, values) => {
+        const doc = typeof row[col!] === 'string' ? (JSON.parse(row[col!] as string) as unknown) : row[col!]
+        const raw = isPlainObject(doc) ? doc[field!] : undefined
+        const v = raw == null ? (fallback === undefined ? undefined : Number(fallback)) : Number(raw)
+        const want = n !== undefined ? input('BIGINT', values[Number(n) - 1]) : literal
+        return v !== undefined && want != null && Number.isFinite(v) && String(v) === String(want)
+      }
+    }
     m = /^(\w+) <= \$(\d+)$/.exec(clause)
     if (m) {
       const [, col, n] = m
@@ -341,8 +360,14 @@ export class FakePool extends EventEmitter implements PostgresPoolLike {
     if (m) return this.createTable(m[1], m[2])
     if (RE.createIndex.test(stmt)) return { rows: [], rowCount: 0 }
 
+    m = RE.insertWhere.exec(stmt)
+    if (m) return this.upsert(m[1], m[2], m[3], m[4], m[5], values, m[6])
+
     m = RE.insert.exec(stmt)
     if (m) return this.upsert(m[1], m[2], m[3], m[4], m[5], values)
+
+    m = RE.updateWhere.exec(stmt)
+    if (m) return this.updateWhere(m[1]!, m[2]!, m[3]!, m[4]!, values)
 
     m = RE.selectOrderLimit.exec(stmt)
     if (m) return this.selectOrderLimit(m[1], m[2], m[3], m[4], values)
@@ -420,6 +445,21 @@ export class FakePool extends EventEmitter implements PostgresPoolLike {
    * either the new row is inserted or each SET assignment is evaluated against
    * the existing row.
    */
+  /** `UPDATE t SET col = $n WHERE ...`: rowCount = rows matched (the checkpoint compare-and-set reads it). */
+  private updateWhere(table: string, col: string, n: string, where: string, values: unknown[]): PostgresQueryResult {
+    const def = this.table(table)
+    if (!def.columns.has(col)) throw new FakePgError('42703', `column "${col}" of relation "${table}" does not exist`)
+    const bound = input(def.columns.get(col), values[Number(n) - 1])
+    const predicates = parseWhere(def, where)
+    let matched = 0
+    for (const [key, row] of def.rows) {
+      if (!predicates.every((p) => p(row, values))) continue
+      def.rows.set(key, { ...row, [col]: bound })
+      matched++
+    }
+    return { rows: [], rowCount: matched }
+  }
+
   private upsert(
     table: string,
     colsCsv: string,
@@ -427,6 +467,8 @@ export class FakePool extends EventEmitter implements PostgresPoolLike {
     conflictCsv: string,
     setCsv: string,
     values: unknown[],
+    /** Guard of the DO UPDATE branch (`... WHERE <predicate>`): rowCount 0 when it is false. */
+    where?: string,
   ): PostgresQueryResult {
     const def = this.table(table)
     const conflict = conflictCsv.split(',').map((c) => c.trim())
@@ -454,6 +496,11 @@ export class FakePool extends EventEmitter implements PostgresPoolLike {
       this.checkNotNull(table, excluded)
       def.rows.set(key, excluded)
       return { rows: [], rowCount: 1 }
+    }
+    if (where !== undefined) {
+      // The guard sees the existing row (`table.col` references resolve to it).
+      const predicates = parseWhere(def, where.replaceAll(`${table}.`, ''))
+      if (!predicates.every((p) => p(existing, values))) return { rows: [], rowCount: 0 }
     }
     const updated: Row = { ...existing }
     for (const apply of assignments) apply(existing, excluded, updated)

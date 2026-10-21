@@ -82,6 +82,16 @@ replica that died before asking) the step runs again from its start, asking
 its first question. The replica that had the flow in memory drops its copy
 the next time it gets that chat (or when one of its timers fires).
 
+**Checkpoint writes are compare-and-set.** A replica frozen past the point
+where it lost the chat could otherwise overwrite the checkpoint of the replica
+that took it. Every built-in store implements `setCheckpointIf` /
+`clearCheckpointIf` (one atomic statement, `FlowCheckpoint.revision` chained
+per key), and the runtime uses them whenever `coordination` is on: a refused
+write ends the conversation like a lost turn (`LeaseLostError`, reason
+`'superseded'`) and a refused clear leaves the newer owner's row in place. A
+custom store without those methods keeps the local fence only, and the bot
+logs a warning on start.
+
 **One connection for exclusive transports.** With `providerSession: 'auto'`
 (the default) a provider that declares `capabilities.exclusiveSession` is
 started only on the replica elected for `provider:<id>`; the others stand by
@@ -93,6 +103,8 @@ and one of them takes over when the leader stops or dies.
 | `@bot-wa/telegram` (long polling) | `true` | 1 polling + standbys |
 | `@bot-wa/telegram` (webhook) | `false` | all receive |
 | `@bot-wa/discord` | `true` | 1 gateway + standbys |
+| `@bot-wa/email` (IMAP) | `true` | 1 IMAP session + standbys |
+| `@bot-wa/email` (`ingest()` only) | `false` | all receive |
 | `@bot-wa/meta`, Messenger, Instagram, other webhook providers | unset (`false`) | all receive |
 
 If the leader's transport stays `'closed'` for `providerDownMs` (logged out,

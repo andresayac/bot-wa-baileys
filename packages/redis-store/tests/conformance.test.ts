@@ -15,6 +15,7 @@ function legacySeeder(client: RedisLikeClient, prefix = 'botwa') {
 }
 
 runStoreConformance('RedisStore', {
+  checkpointCas: true,
   async make() {
     const client = new FakeRedisClient()
     const store = new RedisStore({ client })
@@ -33,6 +34,7 @@ runUserDataConformance('RedisStore', {
 
 // Same contract when the client offers SCAN (node-redis' scanIterator) instead of only KEYS.
 runStoreConformance('RedisStore (SCAN client)', {
+  checkpointCas: true,
   async make() {
     const store = new RedisStore({ client: new ScanningFakeRedisClient() })
     await store.start()

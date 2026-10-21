@@ -13,6 +13,7 @@
 
 import type { HandoffConfig, HandoffOptions, StoredHandoff } from '../gates/handoff.js'
 import type { InboundDedupeOptions } from './dedupe.js'
+import type { EchoFilterOptions } from './echo.js'
 import type { CoordinationConfig } from '../coordination/types.js'
 import type { DurabilityConfig } from '../durability/types.js'
 import type { UserData } from '../user/types.js'
@@ -446,11 +447,16 @@ export interface ProviderCapabilities {
   /** Delivery is push-to-us (webhook) rather than a socket the provider owns. */
   pushIngress: boolean
   /**
-   * The transport allows ONE live connection per account (a WhatsApp Web session,
-   * Telegram long polling, a Discord gateway shard): two processes connecting the same
-   * session fight over it. With multi-replica coordination (`BotConfig.coordination`,
-   * `providerSession: 'auto'`) only the elected replica starts such a provider.
-   * Omitted → `false` (webhook transports: every replica can receive traffic).
+   * Set it when two live replicas of the bot would each receive EVERY event, or fight
+   * for the one connection the account allows: a WhatsApp Web socket (Baileys, a second
+   * connection logs the first out), Telegram long polling (two `getUpdates` loops get
+   * 409), a Discord gateway without sharding (every connection gets every event), an
+   * IMAP IDLE mailbox (both replicas fetch the same unseen mail). NOT for webhook or
+   * REST-gateway transports (Cloud API, Messenger, Instagram, Twilio, Gupshup,
+   * GoHighLevel, Evolution, WPPConnect, TikTok): the platform holds the session and a
+   * webhook fans out to whichever replica is behind the load balancer. With multi-replica
+   * coordination (`BotConfig.coordination`, `providerSession: 'auto'`) only the elected
+   * replica starts a provider that sets it. Omitted → `false`.
    */
   exclusiveSession?: boolean
   /**
@@ -1108,6 +1114,14 @@ export interface FlowCheckpoint {
    * Stores persist it opaquely, as JSON.
    */
   trace?: CheckpointTrace
+  /**
+   * Store revision of this checkpoint row (compare-and-set writes only, see
+   * {@link IStore.setCheckpointIf}). Set by the runtime: the revision it last read or
+   * wrote for the key, plus one. Absent on rows written with `setCheckpoint()` (treated
+   * as revision `0` by the conditional writes). Stores persist it opaquely with the rest
+   * of the checkpoint and never interpret it beyond the comparison.
+   */
+  revision?: number
 }
 
 /** See {@link FlowCheckpoint.answer}. Stores persist it opaquely, as JSON. */
@@ -1213,6 +1227,23 @@ export interface IStore {
   setCheckpoint(key: string, cp: FlowCheckpoint): Promise<void>
   clearCheckpoint(key: string): Promise<void>
   listCheckpoints(): Promise<Array<[string, FlowCheckpoint]>>
+  /**
+   * Compare-and-set checkpoint write (multi-replica coordination). Succeeds (resolves
+   * `true`) only when the stored row's {@link FlowCheckpoint.revision} equals
+   * `expectedRevision`, where `0` means "no row, or a row without `revision`"; otherwise
+   * the row is left untouched and it resolves `false`. ONE atomic statement per store
+   * (never a read-modify-write), so two replicas racing on one key see exactly one winner.
+   * `expectedRevision` is a non-negative integer (`RangeError` otherwise). Optional: a
+   * store without it keeps the local-fence behaviour; all six built-in stores implement it
+   * and pass the shared conformance block (`test-utils/store-conformance.ts`).
+   */
+  setCheckpointIf?(key: string, cp: FlowCheckpoint, expectedRevision: number): Promise<boolean>
+  /**
+   * Conditional delete: `true` when the row is absent, or its revision (`0` without one)
+   * matched `expectedRevision` and it was deleted; `false` when a different revision is
+   * stored (the row is left untouched). Same atomicity rule as {@link setCheckpointIf}.
+   */
+  clearCheckpointIf?(key: string, expectedRevision: number): Promise<boolean>
 
   /* Per-user profile data (`ctx.user`) — see {@link UserDataEntry}.
    * Optional so custom stores keep compiling; a store supports `ctx.user`
@@ -1325,6 +1356,15 @@ export interface BotConfig {
    * processed. See `InboundDeduper`.
    */
   dedupe?: InboundDedupeOptions | false
+  /**
+   * Echo filter (opt-in): remember the refs of the bot's successful sends (bounded LRU,
+   * optional TTL) and drop an inbound message carrying one of them BEFORE the access
+   * lists, dedupe, journaling and counters — a provider-independent guard for transports
+   * that hand the bot's own messages back without `fromMe` (a mailbox, a gateway, a
+   * `selfId` learned late). `true` = `{ size: 1000 }`. Counted in `metrics().dropped.echo`.
+   * Complements the provider's `fromMe` (the primary guard); omitted = off, as before.
+   */
+  echoFilter?: EchoFilterOptions | true
   /* --- durable message processing (opt-in) --------------------------------- */
   /**
    * Durable message processing: journal every admitted inbound event before dispatch

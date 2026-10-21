@@ -43,9 +43,12 @@ import { RedisUserData } from './userData.js'
 import { escapeGlob } from './glob.js'
 import { matchKeys } from './keys.js'
 import {
-  ACQUIRE_FENCED_LOCK_SCRIPT, DELETE_CHAT_SCRIPT, DROP_MESSAGE_SCRIPT, MERGE_CAS_SCRIPT, RELEASE_LOCK_SCRIPT, RENEW_LOCK_SCRIPT,
+  ACQUIRE_FENCED_LOCK_SCRIPT, CAS_CHECKPOINT_SCRIPT, CLEAR_CHECKPOINT_IF_SCRIPT, DELETE_CHAT_SCRIPT, DROP_MESSAGE_SCRIPT, MERGE_CAS_SCRIPT, RELEASE_LOCK_SCRIPT, RENEW_LOCK_SCRIPT,
 } from './scripts.js'
-import { CAS_INDEXED_SCRIPT, DEL_INDEXED_SCRIPT, DROP_MESSAGES_SCRIPT, LIVE_INDEX_SCRIPT, SAVE_MESSAGE_SCRIPT } from './clusterScripts.js'
+import {
+  CAS_CHECKPOINT_INDEXED_SCRIPT, CAS_INDEXED_SCRIPT, CLEAR_CHECKPOINT_IF_INDEXED_SCRIPT, DEL_INDEXED_SCRIPT, DROP_MESSAGES_SCRIPT,
+  LIVE_INDEX_SCRIPT, SAVE_MESSAGE_SCRIPT,
+} from './clusterScripts.js'
 import { LAYOUT_MARKER, storeKeys, type IndexedKind, type RedisKeyLayout, type StoreKeys } from './layout.js'
 import { assertOneSlot } from './slot.js'
 import {
@@ -740,6 +743,48 @@ export class RedisStore implements IStore {
   async clearCheckpoint(key: string): Promise<void> {
     if (this.cluster) return this.delIndexed('cp', key, this.checkpointKey(key))
     await this.client.del(this.checkpointKey(key))
+  }
+  /**
+   * Compare-and-set write (see `IStore.setCheckpointIf`): one Lua script compares the
+   * stored JSON's `revision` with the expectation and writes (with the configured TTL and,
+   * in the cluster layout, the bucket index entry) in the same atomic step. No new key: the
+   * checkpoint record and index of `layout.ts` are reused.
+   */
+  async setCheckpointIf(key: string, cp: FlowCheckpoint, expectedRevision: number): Promise<boolean> {
+    if (!Number.isInteger(expectedRevision) || expectedRevision < 0) {
+      throw new RangeError(`RedisStore.setCheckpointIf: expectedRevision must be a non-negative integer, got ${String(expectedRevision)}`)
+    }
+    const recordKey = this.checkpointKey(key)
+    const px = this.ttlMs != null ? String(this.ttlMs) : ''
+    const value = JSON.stringify(cp)
+    if (this.cluster) {
+      const index = this.indexOf('cp', key)!
+      this.oneSlot([recordKey, index.key])
+      const written = await this.client.eval(CAS_CHECKPOINT_INDEXED_SCRIPT, {
+        keys: [recordKey, index.key],
+        arguments: [String(expectedRevision), value, index.member, px],
+      })
+      return Number(written) === 1
+    }
+    const written = await this.client.eval(CAS_CHECKPOINT_SCRIPT, { keys: [recordKey], arguments: [String(expectedRevision), value, px] })
+    return Number(written) === 1
+  }
+  async clearCheckpointIf(key: string, expectedRevision: number): Promise<boolean> {
+    if (!Number.isInteger(expectedRevision) || expectedRevision < 0) {
+      throw new RangeError(`RedisStore.clearCheckpointIf: expectedRevision must be a non-negative integer, got ${String(expectedRevision)}`)
+    }
+    const recordKey = this.checkpointKey(key)
+    if (this.cluster) {
+      const index = this.indexOf('cp', key)!
+      this.oneSlot([recordKey, index.key])
+      const gone = await this.client.eval(CLEAR_CHECKPOINT_IF_INDEXED_SCRIPT, {
+        keys: [recordKey, index.key],
+        arguments: [String(expectedRevision), index.member],
+      })
+      return Number(gone) === 1
+    }
+    const gone = await this.client.eval(CLEAR_CHECKPOINT_IF_SCRIPT, { keys: [recordKey], arguments: [String(expectedRevision)] })
+    return Number(gone) === 1
   }
   async listCheckpoints(): Promise<Array<[string, FlowCheckpoint]>> {
     if (this.cluster) return (await this.listIndexed<FlowCheckpoint>('cp', true)).map((r) => [r.id, r.value])

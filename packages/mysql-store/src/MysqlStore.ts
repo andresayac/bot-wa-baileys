@@ -143,6 +143,22 @@ function fromJson<T>(value: unknown): T | undefined {
 }
 
 /** Key columns are VARBINARY (exact, byte-wise ids), which mysql2 returns as Buffers. */
+/** `affectedRows` of a mysql2 ResultSetHeader (the rows slot of a DML reply). */
+function affectedRows(header: unknown): number {
+  const n = (header as { affectedRows?: unknown } | undefined)?.affectedRows
+  return typeof n === 'number' ? n : 0
+}
+
+/**
+ * Rows MATCHED by an UPDATE, read from the header's `info` ("Rows matched: 1  Changed: 0
+ * Warnings: 0"): the one count that does not depend on the connection's FOUND_ROWS flag.
+ */
+function matchedRows(header: unknown): number {
+  const info = (header as { info?: unknown } | undefined)?.info
+  const m = typeof info === 'string' ? /Rows matched: (\d+)/.exec(info) : null
+  return m ? Number(m[1]) : affectedRows(header)
+}
+
 function fromKey(value: unknown): string {
   return value instanceof Uint8Array ? new TextDecoder().decode(value) : String(value)
 }
@@ -427,6 +443,47 @@ export class MysqlStore implements IStore {
   }
   async clearCheckpoint(key: string): Promise<void> {
     await this.query(`DELETE FROM \`${this.t.checkpoints}\` WHERE \`key\` = ?`, [key])
+  }
+  /**
+   * Compare-and-set write (see `IStore.setCheckpointIf`), judged by the rows MATCHED of one
+   * conditional statement (mysql2 connects with `FOUND_ROWS`, so `affectedRows` counts
+   * matched rows too; the header's `info` is read for the honest count). Revision 0 first
+   * tries `INSERT IGNORE` (exactly one concurrent writer inserts) and, when the row exists,
+   * a conditional `UPDATE` that only matches a row whose JSON has no revision.
+   */
+  async setCheckpointIf(key: string, cp: FlowCheckpoint, expectedRevision: number): Promise<boolean> {
+    if (!Number.isInteger(expectedRevision) || expectedRevision < 0) {
+      throw new RangeError(`MysqlStore.setCheckpointIf: expectedRevision must be a non-negative integer, got ${String(expectedRevision)}`)
+    }
+    const t = this.t.checkpoints
+    const json = JSON.stringify(cp)
+    if (expectedRevision === 0) {
+      const [inserted] = await this.query(`INSERT IGNORE INTO \`${t}\` (\`key\`, cp) VALUES (?, ?)`, [key, json])
+      if (affectedRows(inserted) === 1) return true
+      const [header] = await this.query(
+        `UPDATE \`${t}\` SET cp = ? WHERE \`key\` = ? AND COALESCE(JSON_EXTRACT(cp, '$.revision'), 0) = 0`,
+        [json, key],
+      )
+      return matchedRows(header) === 1
+    }
+    const [header] = await this.query(
+      `UPDATE \`${t}\` SET cp = ? WHERE \`key\` = ? AND JSON_EXTRACT(cp, '$.revision') = ?`,
+      [json, key, expectedRevision],
+    )
+    return matchedRows(header) === 1
+  }
+  async clearCheckpointIf(key: string, expectedRevision: number): Promise<boolean> {
+    if (!Number.isInteger(expectedRevision) || expectedRevision < 0) {
+      throw new RangeError(`MysqlStore.clearCheckpointIf: expectedRevision must be a non-negative integer, got ${String(expectedRevision)}`)
+    }
+    const t = this.t.checkpoints
+    const [header] = await this.query(
+      `DELETE FROM \`${t}\` WHERE \`key\` = ? AND COALESCE(JSON_EXTRACT(cp, '$.revision'), 0) = ?`,
+      [key, expectedRevision],
+    )
+    if (affectedRows(header) === 1) return true
+    const [rows] = await this.query(`SELECT cp FROM \`${t}\` WHERE \`key\` = ?`, [key])
+    return rows.length === 0 // absent counts as cleared
   }
   async listCheckpoints(): Promise<Array<[string, FlowCheckpoint]>> {
     const [rows] = await this.query(`SELECT \`key\`, cp FROM \`${this.t.checkpoints}\``)

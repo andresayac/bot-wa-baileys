@@ -25,6 +25,7 @@ import type { BotConfig, ChatId, ConnectionState, IProvider, MessageContext, Out
 import type { DispatchContext, Dispatcher } from '../Dispatcher.js'
 import type { ExternalSendClock, Pacer } from '../messaging.js'
 import type { InboundDeduper } from '../dedupe.js'
+import type { SentRefRing } from '../echo.js'
 import type { ChatIdleWatchers } from '../idle.js'
 import type { WelcomeTracker } from '../welcome.js'
 import type { DynamicFlowRegistry } from '../flowRegistry.js'
@@ -108,6 +109,8 @@ export interface BotKernel {
   readonly access: { readonly blacklist: AccessList; readonly whitelist: Whitelist }
   /** Inbound idempotency guard (`BotConfig.dedupe`); `null` when disabled. */
   readonly inboundDedupe: InboundDeduper | null
+  /** Echo filter (`BotConfig.echoFilter`): refs of the bot's own sends; `null` when off. */
+  readonly echoes: SentRefRing | null
   /** Serializes this bot's chat upserts per chat (see `persistence.ts`). */
   readonly chatWrites: KeyedQueue
   /** Sends outside a chat's own `ctx` replies — they invalidate `ctx.edit(content)` targets. */

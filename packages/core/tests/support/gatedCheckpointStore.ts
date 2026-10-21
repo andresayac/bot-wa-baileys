@@ -47,7 +47,8 @@ export class GatedCheckpointStore extends MemoryStore {
     return reachedP
   }
 
-  override async setCheckpoint(key: string, cp: FlowCheckpoint): Promise<void> {
+  /** Record the write and apply the first matching gate (hold or fail) to it. */
+  private async gate(key: string, cp: FlowCheckpoint): Promise<void> {
     this.writes.push({ key, cp: structuredClone(cp) })
     const i = this.gates.findIndex((g) => g.match(cp, key))
     if (i >= 0) {
@@ -56,12 +57,27 @@ export class GatedCheckpointStore extends MemoryStore {
       if (gate.mode === 'fail') throw new Error('store unavailable (test)')
       await gate.released
     }
+  }
+
+  override async setCheckpoint(key: string, cp: FlowCheckpoint): Promise<void> {
+    await this.gate(key, cp)
     return super.setCheckpoint(key, cp)
+  }
+
+  /** The compare-and-set path (what a coordinated bot uses) goes through the same gates. */
+  override async setCheckpointIf(key: string, cp: FlowCheckpoint, expectedRevision: number): Promise<boolean> {
+    await this.gate(key, cp)
+    return super.setCheckpointIf(key, cp, expectedRevision)
   }
 
   override async clearCheckpoint(key: string): Promise<void> {
     this.clears.push(key)
     return super.clearCheckpoint(key)
+  }
+
+  override async clearCheckpointIf(key: string, expectedRevision: number): Promise<boolean> {
+    this.clears.push(key)
+    return super.clearCheckpointIf(key, expectedRevision)
   }
 
   /** The checkpoint of conversation key `key` (the bot scopes store keys). */

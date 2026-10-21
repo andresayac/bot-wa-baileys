@@ -73,6 +73,7 @@ export function toPrometheus(snapshot: BotMetricsSnapshot, options: PrometheusOp
     [{ reason: 'duplicate' }, snapshot.dropped.duplicate],
     [{ reason: 'blocked' }, snapshot.dropped.blocked],
     [{ reason: 'handoff' }, snapshot.dropped.handoff],
+    ...(snapshot.dropped.echo !== undefined ? [[{ reason: 'echo' }, snapshot.dropped.echo] as [Record<string, string>, number]] : []),
   ])
   family('triggers_total', 'counter', 'Conversations started through bot.trigger().', [[{}, snapshot.triggered]])
   family('errors_total', 'counter', 'Errors reported to the bot error channel.', [[{}, snapshot.errors]])

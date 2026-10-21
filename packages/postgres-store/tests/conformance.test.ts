@@ -16,6 +16,7 @@ function legacySeeder(pool: FakePool) {
 }
 
 runStoreConformance('PostgresStore', {
+  checkpointCas: true,
   async make() {
     const pool = new FakePool()
     const store = new PostgresStore({ pool })

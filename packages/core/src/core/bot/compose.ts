@@ -30,6 +30,7 @@ import { parseTimerDuration } from '../../utils/timers.js'
 import { validateConfig } from '../../utils/validateConfig.js'
 import { Dispatcher } from '../Dispatcher.js'
 import { createInboundDeduper } from '../dedupe.js'
+import { createEchoFilter } from '../echo.js'
 import { DynamicFlowRegistry } from '../flowRegistry.js'
 import type { ChatIdleWatchers } from '../idle.js'
 import { MessageLog } from '../ledger.js'
@@ -100,6 +101,8 @@ export function composeBot(host: ComposeHost, inputConfig: BotConfig, fields: Co
   k.config = config
   k.provider = provider
   k.inboundDedupe = createInboundDeduper(inputConfig.dedupe)
+  k.echoes = createEchoFilter(inputConfig.echoFilter)
+  if (k.echoes) fields.counters.trackEchoes = true
 
   const logger: Logger = inputConfig.logger as Logger ?? pino({
     // 'warn' by default so plugin/handler failures logged at warn stay visible.
@@ -172,6 +175,8 @@ export function composeBot(host: ComposeHost, inputConfig: BotConfig, fields: Co
     selfId: () => provider.selfId ?? undefined,
     persistChat: (chat) => persistence.persistChat(chat),
     reportError: (error) => k.events.error({ error }),
+    // Echo filter: every successful send (direct, durable outbox, sweeper) is remembered here.
+    ...(k.echoes ? { echoes: k.echoes } : {}),
   })
   k.users = new UserDataService(store, { logger: logger.child({ module: 'user-data' }) })
   k.i18n = new I18n({ logger: logger.child({ module: 'i18n' }) })
@@ -179,6 +184,9 @@ export function composeBot(host: ComposeHost, inputConfig: BotConfig, fields: Co
 
   const conv = config.conversation ?? {}
   const conversationTimeoutMs = conv.timeout !== undefined ? parseTimerDuration(conv.timeout, 'conversation.timeout') : undefined
+  // Multi-replica: checkpoint writes use the store's compare-and-set when it offers one.
+  const casCheckpoints = typeof (store as Partial<CheckpointStore>).setCheckpointIf === 'function'
+    && typeof (store as Partial<CheckpointStore>).clearCheckpointIf === 'function'
   // Built below; late-bound by the closures that need it (durability replays, hand-over answers).
   let inbound!: InboundPipeline
   // Multi-replica: conversation hand-over between replicas (answers of cut-short steps, coordination.handover).
@@ -218,6 +226,10 @@ export function composeBot(host: ComposeHost, inputConfig: BotConfig, fields: Co
           },
           // A replica that lost the chat never writes the checkpoint of the one that took it.
           fence: (key: string) => { k.coordination?.assertTurn(key) },
+          // ...and, with a store that can, a replica that lost it WITHOUT knowing yet cannot either.
+          casCheckpoints,
+          onFenced: (key: string) => { k.coordination?.markLost(key) },
+          fenceOf: (key: string) => k.coordination?.fenceOf(key),
           answers: handover!.answers,
           ...(handoverPolicy ? { handover: handoverPolicy } : {}),
         }
@@ -243,6 +255,7 @@ export function composeBot(host: ComposeHost, inputConfig: BotConfig, fields: Co
       logger: logger.child({ module: 'coordination' }),
       emit: (event, payload) => { k.events.emit(event, payload) },
       reportError: (error, ctx) => k.events.error({ error, ctx: ctx as unknown as MessageContext | undefined }),
+      casCheckpoints,
     })
   }
 

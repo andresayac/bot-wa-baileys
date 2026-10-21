@@ -254,6 +254,27 @@ new Bot({ provider, dedupe: false })                      // desactivar
   como `blocked`, no como `duplicate`).
 - Si falla la persistencia antes de los handlers (store caído), la clave se
   libera y el reintento del transporte sí se procesa.
+
+## Filtro de ecos
+
+Cada provider marca sus propios mensajes con `fromMe`, y el core los descarta
+antes que nada. Algunos transportes solo conocen su propio id tras un
+handshake, y un buzón o una pasarela puede devolver un mensaje que el bot
+acaba de enviar sin esa marca. `echoFilter` complementa a `fromMe` (no lo
+sustituye): el bot recuerda los refs de sus envíos correctos y descarta un
+mensaje entrante cuyo ref esté recordado, antes de las listas de acceso, el
+dedupe y el journal, así que un eco nunca cuenta como tráfico entrante.
+
+```ts
+new Bot({ provider, echoFilter: true })                       // 1000 refs, sin TTL
+new Bot({ provider, echoFilter: { size: 5000, ttl: '10m' } }) // ajustar
+```
+
+Los descartes cuentan en `metrics().dropped.echo` (Prometheus:
+`botwa_dropped_total{reason="echo"}`) y solo con la opción activa; sin ella el
+bot se comporta exactamente igual que antes. El anillo vive en memoria (por
+proceso) y cada ref recordado lo consume el primer eco que coincide; una
+re-entrega posterior es cosa del dedupe.
 - Un mensaje que seguía en la cola de su chat cuando se llamó a
   `bot.stop()` se descarta sin procesar y su clave se libera, así que el
   mismo id re-entregado después de `bot.start()` sí se procesa.
