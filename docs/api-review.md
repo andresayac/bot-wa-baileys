@@ -326,9 +326,12 @@ passes through untouched, anything else is wrapped: `trace` forwarded or no-op, 
 fallback `'info'`, `child()` when available) and the `BaileysLogger` type.
 `@bot-wa/email` already took a `LoggerLike`; its double cast is gone.
 
-Known gap, out of this pass: `core/src/core/bot/compose.ts` still casts `BotConfig.logger`
-to pino and calls `.child()`, so a `LoggerLike` without `child` fails in the `Bot`
-constructor.
+Closed later (same alpha): `core/src/core/bot/compose.ts` no longer casts `BotConfig.logger`
+to pino. `toBotLogger()` (`core/src/core/bot/logger.ts`) passes a pino-shaped logger
+through untouched and wraps any other `LoggerLike`: `child()` forwards to the logger's own
+`child` (or reuses it, dropping the bindings), `trace`/`fatal` are no-ops and the four
+levels forward every argument. So `new Bot({ provider, logger: console })` and a custom
+`{ debug, info, warn, error }` both construct and log.
 
 ### 4. `HookHandler<TCtx = unknown>` and `Plugin.install` narrowed to `void` (F13, F15)
 

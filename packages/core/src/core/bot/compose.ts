@@ -7,7 +7,7 @@
  * dispatcher; the ledger persists chats through `persistence`) are kept as lazy closures
  * over the kernel, never as eager reads.
  */
-import pino, { type Logger } from 'pino'
+import type { Logger } from 'pino'
 
 import { HookSystem } from '../../hooks/HookSystem.js'
 import { MemoryStore } from '../../store/MemoryStore.js'
@@ -34,6 +34,7 @@ import { createEchoFilter } from '../echo.js'
 import { DynamicFlowRegistry } from '../flowRegistry.js'
 import type { ChatIdleWatchers } from '../idle.js'
 import { MessageLog } from '../ledger.js'
+import { toBotLogger } from './logger.js'
 import { ExternalSendClock, createPacer, normalizeTypingConfig } from '../messaging.js'
 import type { BotConfig, ChatId, MessageContext, Trigger } from '../types.js'
 import { WelcomeTracker } from '../welcome.js'
@@ -104,10 +105,10 @@ export function composeBot(host: ComposeHost, inputConfig: BotConfig, fields: Co
   k.echoes = createEchoFilter(inputConfig.echoFilter)
   if (k.echoes) fields.counters.trackEchoes = true
 
-  const logger: Logger = inputConfig.logger as Logger ?? pino({
-    // 'warn' by default so plugin/handler failures logged at warn stay visible.
-    level: inputConfig.debug ? 'debug' : 'warn',
-  })
+  // Any `LoggerLike` (pino, `console`, a custom object): a pino-shaped one passes through
+  // and the rest is adapted (see `toBotLogger`). 'warn' by default so plugin/handler
+  // failures logged at warn stay visible.
+  const logger: Logger = toBotLogger(inputConfig.logger, { debug: inputConfig.debug === true })
   k.logger = logger
   k.state = fields.state
   k.scheduler = fields.scheduler

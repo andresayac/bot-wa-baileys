@@ -4,6 +4,9 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/). Versionado po
 
 ## [Unreleased]
 
+### `BotConfig.logger` acepta cualquier `LoggerLike` (2026-10)
+- **`@bot-wa/core`**: el constructor del `Bot` ya no castea `BotConfig.logger` a pino. `toBotLogger()` deja pasar intacto un logger con forma de pino y adapta cualquier otro (`console`, un objeto con `debug/info/warn/error`): `child()` reenvía al `child()` propio si existe (o reutiliza el logger, descartando los bindings), `trace`/`fatal` son no-ops y los cuatro niveles reenvían todos los argumentos. Cierra el hueco que quedaba anotado en `docs/api-review.md`: antes, un `LoggerLike` sin `child` compilaba pero reventaba al construir el bot.
+
 ### Flujos declarativos: `@bot-wa/flow-schema` (2026-10)
 Paquete privado nuevo con la definición única del **documento de flujo JSON** (sin código), compartida por el manager y los despliegues.
 - **Esquema versionado** (`version: 1`, draft 2020-12, `GET /v1/flows/schema`): `say`, `ask`, `choose`, `condition`, `delay`, `goto`, `end`, `media`, `form`, `guard`, `subflow`, `http`, `handoff` y `ai`; límites estructurales y errores con rutas JSON Pointer.
