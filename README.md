@@ -6,11 +6,11 @@ Framework moderno y **agnóstico de transporte** para bots de mensajería: flows
 
 ## Paquetes
 
-El monorepo tiene **40 paquetes**: 10 **Alpha** (publicables), 25 **Experimentales** y 5 **Prototipos**. No todos están al mismo nivel de madurez, y la columna **Estado** lo dice sin rodeos:
+El monorepo tiene **42 paquetes**: 10 **Alpha** (publicables), 25 **Experimentales** y 7 de **Producto** e infraestructura. No todos están al mismo nivel de madurez, y la columna **Estado** lo dice sin rodeos:
 
 - **Alpha**: forma parte de la primera alpha publicable. **Todavía no está en npm**; la primera publicación se está preparando.
 - **Experimental**: implementación real y con tests, pero el paquete es `private`. No se publica todavía y su API puede cambiar.
-- **Prototipo**: esqueleto mínimo en memoria (`private`) para explorar el diseño. No sirve para producción: no persiste nada ni escala más allá de un proceso.
+- **Producto / interno**: implementación real y persistente (`private`), sobre cualquier `DurableKv` del core. Aislamiento por tenant y compare-and-set en el backend; la API puede cambiar mientras la alpha no salga.
 
 | Paquete | Estado | Descripción |
 | --- | --- | --- |
@@ -53,12 +53,14 @@ El monorepo tiene **40 paquetes**: 10 **Alpha** (publicables), 25 **Experimental
 | [`@bot-wa/graph-core`](packages/graph-core) | Alpha | Helpers Meta Graph compartidos (verificación de webhook, mapeo de errores, guard de ingest) usados por meta/messenger/instagram. |
 | [`@bot-wa/wa-gateway-kit`](packages/wa-gateway-kit) | Interno | Código compartido por los gateways REST de WhatsApp (`evolution`, `wppconnect`): cliente REST sobre `secureFetch`, resolución de media saliente y reconciliación de identidad LID/PN. Privado; no se instala directamente. |
 | [`@bot-wa/server`](packages/server) | Experimental | Ingress de webhooks para los providers: body crudo, límites de tamaño, timeouts, concurrencia y endpoints de salud para `node:http`, Express, Fastify y Hono (sin dependencias). |
-| **Producto / operación** | | |
-| [`@bot-wa/inbox`](packages/inbox) | Prototipo | Inbox omnicanal en memoria: asignación, handoff, notas, unread, SLA y CAS por conversación. |
-| [`@bot-wa/crm`](packages/crm) | Prototipo | Contactos, tags, atributos, consentimiento y segmentos por tenant, en memoria. |
-| [`@bot-wa/hub`](packages/hub) | Prototipo | Manifiestos de plugins, permisos declarados y compatibilidad por tenant. No ejecuta ni aísla código. |
-| [`@bot-wa/campaigns`](packages/campaigns) | Prototipo | Planificador de campañas (consentimiento, segmentos, deduplicación). No envía mensajes. |
-| [`@bot-wa/deployments`](packages/deployments) | Prototipo | Registro en memoria de versiones de despliegue, publicación y rollback lógico por tenant. |
+| **Producto / operación** (privados, persistentes) | | |
+| [`@bot-wa/inbox`](packages/inbox) | Producto | Inbox omnicanal persistente: asignación con CAS, handoff, notas, unread, SLA y proyección del ledger (`attachInbox`). |
+| [`@bot-wa/crm`](packages/crm) | Producto | Contactos, tags, atributos, consentimiento (CAS sin pérdidas) y segmentos por tenant. |
+| [`@bot-wa/hub`](packages/hub) | Producto | Registro de plugins por tenant: manifiestos validados y habilitación condicionada a permisos. No ejecuta ni aísla código. |
+| [`@bot-wa/campaigns`](packages/campaigns) | Producto | Campañas con consentimiento: reservas durables por destinatario (TTL), liquidación atómica y `sendCampaign()` sobre `bot.broadcast()`. |
+| [`@bot-wa/deployments`](packages/deployments) | Producto | Versiones inmutables, versión activa, reservas de gate, rollback y auditoría de gate runs (incluido el gate de transcripciones doradas). |
+| [`@bot-wa/tenant-kv`](packages/tenant-kv) | Interno | Documentos JSON por tenant con compare-and-set sobre cualquier `DurableKv`: la base de los paquetes de producto. |
+| [`@bot-wa/flow-schema`](packages/flow-schema) | Interno | Esquema JSON versionado de flujos sin código, expresiones seguras, compilación a `CompiledFlow`, exportación inversa, migraciones y helpers de despliegue. |
 | **Tooling** | | |
 | [`create-bot-wa`](packages/create-bot-wa) | Alpha | CLI scaffolder (`npm create bot-wa`), 10 templates: `baileys`, `meta`, `telegram`, `ai` y los de caso de uso `games`, `support`, `store`, `restaurant`, `clinic`, `ai-full`. Cada proyecto incluye un `AGENTS.md` para agentes de código. |
 | [`eslint-plugin-bot-wa`](packages/eslint-plugin) | Experimental | Reglas de ESLint para bots: restos de la API v1, `runtime.enter` bloqueante, `install` async, triggers vacíos, `ask` sin timeout y estado global por usuario. |
