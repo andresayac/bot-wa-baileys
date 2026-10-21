@@ -52,6 +52,10 @@
 - [WhatsApp Cloud API 24h window and pricing](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/guide/session-window.md)
 - [Operations: bot.metrics(), Prometheus, conversation events, ops packages](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/guide/operations.md)
 - [Tracing: BotConfig.telemetry, span catalogue, @bot-wa/otel, Jaeger / Grafana Tempo](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/guide/tracing.md)
+- [Durable processing: inbox/outbox, replay, sweeper](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/guide/durability.md)
+- [Multiple replicas: coordination, chat turns, hand-over](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/guide/replicas.md)
+- [JSON flow documents (schema, expressions, migrations, publish gate)](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/guide/flow-schema.md)
+- [Security: webhook authentication, untrusted surfaces, audit](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/guide/security.md)
 - [Terminal simulator (bot-wa dev)](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/guide/dev-simulator.md)
 - [Testing (createTestBot, MockProvider, chaos)](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/guide/testing.md)
 - [Inspect & lint flows (bot.describe/bot.lint)](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/guide/flow-tools.md)
@@ -61,7 +65,7 @@
 - [Deployment](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/guide/deploy.md)
 - [FAQ](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/guide/faq.md)
 
-## Package status (39 packages)
+## Package status (43 packages)
 Alpha = in the first publishable alpha (not on npm yet). Experimental = real, tested
 implementation but private/unpublished, API may change. Prototype = private, minimal,
 in-memory sketch; not for production.
@@ -92,6 +96,7 @@ Experimental (private, not published):
 - eslint-plugin-bot-wa — ESLint rules (v1 API leftovers, awaited runtime.enter, async Plugin.install, asks without timeout, ...)
 
 Product packages (private, persistent over any DurableKv of @bot-wa/core: MemoryKv, FileDurability, SQLiteDurableKv, PostgresDurableKv, RedisDurableKv): @bot-wa/inbox (conversations, CAS assignment, handoff, notes, SLA, ledger projection), @bot-wa/crm (contacts, tags, attributes, consent, segments), @bot-wa/campaigns (consent-aware planning, durable per-recipient reservations with TTL, sendCampaign over bot.broadcast), @bot-wa/hub (validated plugin manifests, permission-gated enable), @bot-wa/deployments (immutable versions, active version, gate reservations, rollback, audited gate runs, golden-transcript publish gate). Shared storage glue: @bot-wa/tenant-kv (tenant-scoped JSON documents with backend CAS). Each package: Memory*Store reference + Kv*Store adapter + test-utils/*-store-conformance.ts
+- @bot-wa/flow-schema — owner of the code-free JSON flow document (schema, safe expressions, compiler, reverse export, migrations, publish gate); see "JSON flows" below
 
 ## API essentials (v2)
 - import { Bot, flow } from '@bot-wa/core'; import { BaileysProvider } from '@bot-wa/baileys'
