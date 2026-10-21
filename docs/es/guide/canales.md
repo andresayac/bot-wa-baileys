@@ -57,7 +57,8 @@ este monorepo (`"workspace:*"`).
   Evolution API o un WPPConnect Server. El bot habla con ese gateway por REST
   y recibe sus webhooks. Ambos gateways manejan WhatsApp Web, así que valen
   las mismas advertencias que con Baileys (no oficial, sin botones nativos
-  fiables).
+  fiables). Lo común (cliente REST, media, reconciliación LID/PN) vive en el
+  paquete privado `@bot-wa/wa-gateway-kit`; se instala el canal, nunca el kit.
 - **`@bot-wa/twilio`** / **`@bot-wa/gupshup`**: envías WhatsApp a través de
   la cuenta de ese proveedor. Admiten plantillas; Twilio cubre además SMS/MMS
   con la misma clase.
