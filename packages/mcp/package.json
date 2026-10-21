@@ -1,0 +1,48 @@
+{
+  "name": "@bot-wa/mcp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "MCP server (stdio) for BotWA: validates, analyzes, migrates and diffs code-free JSON flow documents and searches the documentation. No dependencies, no network.",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "bin": {
+    "bot-wa-mcp": "./lib/bin.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    }
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "files": [
+    "./lib/**/*"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "prepublishOnly": "pnpm build",
+    "typecheck": "tsc -p tsconfig.test.json"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "bot-wa",
+    "flows"
+  ],
+  "author": "Andres Aya",
+  "license": "MIT",
+  "dependencies": {
+    "@bot-wa/core": "workspace:*",
+    "@bot-wa/flow-schema": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "typescript": "^7.0.2",
+    "vite": "^7.3.6",
+    "vitest": "^4.1.10"
+  }
+}

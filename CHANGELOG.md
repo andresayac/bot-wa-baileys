@@ -4,6 +4,13 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/). Versionado po
 
 ## [Unreleased]
 
+### MCP: servidor para agentes sobre flujos y documentación (2026-10)
+- **`@bot-wa/mcp`** (paquete privado nuevo, sin dependencias): servidor **MCP por stdio** que expone las piezas deterministas del proyecto para que un agente escriba y verifique flujos **sin arrancar un bot**. Herramientas: `flow_validate` (issues con JSON Pointer), `flow_analyze` (valida → compila → Mermaid/JSON → `lintFlows`), `flow_migrate`, `flow_diff`, `flow_digest`, `flow_schema` (esquema draft 2020-12, límites y los 14 tipos de paso derivados del propio esquema) y `flow_example`. Con `--docs <dir>` (o `BOTWA_DOCS_DIR`) añade `docs_search` y `docs_page`; sin él no se anuncian.
+- Protocolo escrito a mano (`LineDecoder` + JSON-RPC 2.0 delimitado por líneas): `initialize`/`ping`/`tools/list`/`tools/call`, notificaciones nunca contestadas y `-32601` para capabilities no anunciadas. `initialize` devuelve un bloque `instructions` con las reglas caras de equivocar (la API v1 no existe, los documentos son datos, `void runtime.enter(...)`, ids opacos).
+- Convención de errores: un documento inválido es una llamada correcta con `valid: false` y sus issues; `isError` queda para la petición (argumentos, versión no migrable, ruta fuera de docs).
+- Búsqueda de documentación determinista: IDF + presencia + bonus por heading y frase, stopwords EN/ES, secciones bilingües en una sola consulta; descarta `api/`, `dist/`, `.vitepress/` y `superpowers/`, y `docs_page` rechaza rutas que se salgan del directorio.
+- Guía EN/ES (`docs/guide/mcp.md`, `docs/es/guide/mcp.md`), `.vscode/mcp.json`, README del paquete y `llms.txt`.
+
 ### Trazas: span de ciclo de vida (`bot.lifecycle`) (2026-10)
 - **`@bot-wa/core`**: cada paso del [ciclo de vida](docs/guide/architecture.md#lifecycle) (`storage`, `coordination`, `restore`, `durability`, `transport`, `jobs`) abre un span **raíz** `bot.lifecycle` con `bot.lifecycle.step` y `bot.lifecycle.phase` (`start`, `stop` tras el drenado, `rollback` de un `start()` fallido), más `bot.id`/`bot.provider.id`. El de `transport` mide el handshake con el provider (conexión + QR de Baileys, polling de Telegram, login IMAP), que hasta ahora era invisible: un arranque lento o un `start()` que revienta se ve en la traza. Sin `telemetry` no se llama a ningún wrapper: el paso corre tal cual.
 - **`@bot-wa/otel`**: histograma `botwa.lifecycle.duration` derivado del span (`bot.lifecycle.step`/`phase`, `bot.provider.id`, `error.type`), para alertar de un connect lento sin muestrear trazas.

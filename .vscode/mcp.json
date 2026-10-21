@@ -1,0 +1,13 @@
+{
+  "servers": {
+    "bot-wa": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "${workspaceFolder}/packages/mcp/lib/bin.js",
+        "--docs",
+        "${workspaceFolder}/docs"
+      ]
+    }
+  }
+}

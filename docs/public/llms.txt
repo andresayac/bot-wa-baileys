@@ -56,6 +56,7 @@
 - [Multiple replicas: coordination, chat turns, hand-over](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/guide/replicas.md)
 - [JSON flow documents (schema, expressions, migrations, publish gate)](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/guide/flow-schema.md)
 - [Security: webhook authentication, untrusted surfaces, audit](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/guide/security.md)
+- [MCP server (@bot-wa/mcp): validate/analyze/migrate/diff flow documents, docs search](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/guide/mcp.md)
 - [Terminal simulator (bot-wa dev)](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/guide/dev-simulator.md)
 - [Testing (createTestBot, MockProvider, chaos)](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/guide/testing.md)
 - [Inspect & lint flows (bot.describe/bot.lint)](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/guide/flow-tools.md)
@@ -65,7 +66,7 @@
 - [Deployment](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/guide/deploy.md)
 - [FAQ](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/guide/faq.md)
 
-## Package status (43 packages)
+## Package status (44 packages)
 Alpha = in the first publishable alpha (not on npm yet). Experimental = real, tested
 implementation but private/unpublished, API may change. Prototype = private, minimal,
 in-memory sketch; not for production.
@@ -94,6 +95,7 @@ Experimental (private, not published):
 - @bot-wa/manager — BotManager multi-bot registry (persisted per-tenant configs, auto-reconnect) + HTTP control plane: createRestApi (full /v1 REST API with scoped tokens, OpenAPI 3.1, idempotency, rate limiting), plus createControlPlaneApi and the legacy createManagerApi; JSON flow documents (compileFlowDocument)
 - @bot-wa/events — event envelopes, idempotent journal, EventWorker retries + dead-letter, fencing tokens (StaleLeaseError) against expired leases
 - eslint-plugin-bot-wa — ESLint rules (v1 API leftovers, awaited runtime.enter, async Plugin.install, asks without timeout, ...)
+- @bot-wa/mcp — MCP server over stdio (private, zero dependencies): flow_validate / flow_analyze / flow_migrate / flow_diff / flow_digest / flow_schema / flow_example over @bot-wa/flow-schema + core lintFlows/describeFlows, plus docs_search / docs_page when started with --docs <dir>. An invalid document answers valid:false with JSON Pointer issues (isError is only for a bad request). Run: node packages/mcp/lib/bin.js --docs docs ; VS Code wiring in .vscode/mcp.json. Guide: docs/guide/mcp.md
 
 Product packages (private, persistent over any DurableKv of @bot-wa/core: MemoryKv, FileDurability, SQLiteDurableKv, PostgresDurableKv, RedisDurableKv): @bot-wa/inbox (conversations, CAS assignment, handoff, notes, SLA, ledger projection), @bot-wa/crm (contacts, tags, attributes, consent, segments), @bot-wa/campaigns (consent-aware planning, durable per-recipient reservations with TTL, sendCampaign over bot.broadcast), @bot-wa/hub (validated plugin manifests, permission-gated enable), @bot-wa/deployments (immutable versions, active version, gate reservations, rollback, audited gate runs, golden-transcript publish gate). Shared storage glue: @bot-wa/tenant-kv (tenant-scoped JSON documents with backend CAS). Each package: Memory*Store reference + Kv*Store adapter + test-utils/*-store-conformance.ts
 - @bot-wa/flow-schema — owner of the code-free JSON flow document (schema, safe expressions, compiler, reverse export, migrations, publish gate); see "JSON flows" below

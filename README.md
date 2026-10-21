@@ -6,7 +6,7 @@ Framework moderno y **agnóstico de transporte** para bots de mensajería: flows
 
 ## Paquetes
 
-El monorepo tiene **43 paquetes**: 10 **Alpha** (publicables), 25 **Experimentales** y 8 de **Producto** e infraestructura. No todos están al mismo nivel de madurez, y la columna **Estado** lo dice sin rodeos:
+El monorepo tiene **44 paquetes**: 10 **Alpha** (publicables), 26 **Experimentales** y 8 de **Producto** e infraestructura. No todos están al mismo nivel de madurez, y la columna **Estado** lo dice sin rodeos:
 
 - **Alpha**: forma parte de la primera alpha publicable. **Todavía no está en npm**; la primera publicación se está preparando.
 - **Experimental**: implementación real y con tests, pero el paquete es `private`. No se publica todavía y su API puede cambiar.
@@ -64,6 +64,7 @@ El monorepo tiene **43 paquetes**: 10 **Alpha** (publicables), 25 **Experimental
 | **Tooling** | | |
 | [`create-bot-wa`](packages/create-bot-wa) | Alpha | CLI scaffolder (`npm create bot-wa`), 10 templates: `baileys`, `meta`, `telegram`, `ai` y los de caso de uso `games`, `support`, `store`, `restaurant`, `clinic`, `ai-full`. Cada proyecto incluye un `AGENTS.md` para agentes de código. |
 | [`eslint-plugin-bot-wa`](packages/eslint-plugin) | Experimental | Reglas de ESLint para bots: restos de la API v1, `runtime.enter` bloqueante, `install` async, triggers vacíos, `ask` sin timeout y estado global por usuario. |
+| [`@bot-wa/mcp`](packages/mcp) | Experimental | Servidor MCP por stdio (sin dependencias) para agentes: valida, compila, dibuja, lintea, migra y compara documentos de flujo JSON sin arrancar un bot; con `--docs`, busca en estas guías. |
 
 Empieza por el [README del core](packages/core/README.md) para el quickstart.
 

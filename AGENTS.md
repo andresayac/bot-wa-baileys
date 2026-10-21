@@ -4,7 +4,7 @@ Guía para agentes de código (y humanos) que trabajan en este repositorio. Comp
 
 ## Qué es
 
-Framework de bots de mensajería **agnóstico de transporte**, en un **monorepo pnpm** (`packages/*` y `examples/*`). El motor es `@bot-wa/core`; los canales (WhatsApp vía Baileys, Cloud API, Evolution API, WPPConnect, Twilio o Gupshup; Messenger, Instagram, Telegram, Discord, GoHighLevel, email y TikTok) son paquetes que implementan `IProvider`. Hay **43 paquetes** en `packages/` y un ejemplo ejecutable en `examples/bakery-ai` (`@bot-wa/example-bakery-ai`, privado). Todo es **ESM-only**, **Node >= 22** y está en alpha; todavía no hay nada en npm (la publicación va por Changesets, ver [Publicar una versión](#publicar-una-versión)).
+Framework de bots de mensajería **agnóstico de transporte**, en un **monorepo pnpm** (`packages/*` y `examples/*`). El motor es `@bot-wa/core`; los canales (WhatsApp vía Baileys, Cloud API, Evolution API, WPPConnect, Twilio o Gupshup; Messenger, Instagram, Telegram, Discord, GoHighLevel, email y TikTok) son paquetes que implementan `IProvider`. Hay **44 paquetes** en `packages/` y un ejemplo ejecutable en `examples/bakery-ai` (`@bot-wa/example-bakery-ai`, privado). Todo es **ESM-only**, **Node >= 22** y está en alpha; todavía no hay nada en npm (la publicación va por Changesets, ver [Publicar una versión](#publicar-una-versión)).
 
 Capas (las dependencias van siempre hacia abajo, nunca al revés):
 
@@ -17,17 +17,17 @@ Capas (las dependencias van siempre hacia abajo, nunca al revés):
 | Plugins | `ai`, `rag`, `voice`, `nlu`, `dialogflow`, `chatwoot`, `tickets`, `moderation`, `manager`, `events`, `otel` (OpenTelemetry) |
 | Producto (privado, persistente) | `inbox`, `crm`, `hub`, `campaigns`, `deployments` (+ infra `tenant-kv`: documentos JSON por tenant con CAS sobre cualquier `DurableKv`) |
 | Flujos declarativos | `flow-schema` (`@bot-wa/flow-schema`: esquema JSON versionado, expresiones seguras, compilación a `CompiledFlow`, exportación inversa, migraciones y helpers de despliegue; lo consume `manager` y opcionalmente `deployments`) |
-| Tooling | `create-bot-wa` (CLI scaffolder), `eslint-plugin` (`eslint-plugin-bot-wa`) |
+| Tooling | `create-bot-wa` (CLI scaffolder), `eslint-plugin` (`eslint-plugin-bot-wa`), `mcp` (servidor MCP por stdio) |
 | Ejemplos | `examples/bakery-ai` (asistente de pedidos con IA sobre Baileys o Twilio) |
 
 El nombre del directorio no siempre coincide con el del paquete (`packages/baileys-provider` → `@bot-wa/baileys`, `packages/meta-provider` → `@bot-wa/meta`, `packages/*-provider` → `@bot-wa/<canal>`, `packages/eslint-plugin` → `eslint-plugin-bot-wa`). Mira el `name` en su `package.json` antes de usar `--filter`.
 
-Solo 10 paquetes son **públicos**: `core`, `baileys`, `meta`, `telegram`, `sqlite-store`, `redis-store`, `ai`, `http`, `graph-core` y `create-bot-wa`. Los otros 33 (más el ejemplo) llevan `"private": true` y nunca se publican:
+Solo 10 paquetes son **públicos**: `core`, `baileys`, `meta`, `telegram`, `sqlite-store`, `redis-store`, `ai`, `http`, `graph-core` y `create-bot-wa`. Los otros 34 (más el ejemplo) llevan `"private": true` y nunca se publican:
 
 - Canales: `discord`, `messenger`, `instagram`, `evolution`, `wppconnect`, `twilio`, `gohighlevel`, `gupshup`, `email`, `tiktok`.
 - Stores: `mongo-store`, `postgres-store`, `mysql-store`.
 - Plugins e infra: `server`, `wa-gateway-kit`, `rag`, `voice`, `nlu`, `dialogflow`, `chatwoot`, `tickets`, `moderation`, `manager`, `events`, `otel`.
-- Tooling: `eslint-plugin-bot-wa`.
+- Tooling: `eslint-plugin-bot-wa`, `@bot-wa/mcp`.
 - Producto: `inbox`, `crm`, `hub`, `campaigns`, `deployments`, `tenant-kv` (todos persistentes sobre cualquier `DurableKv`) y `flow-schema` (documentos de flujo sin código).
 - Ejemplo: `@bot-wa/example-bakery-ai`.
 
