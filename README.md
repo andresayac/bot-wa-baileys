@@ -97,27 +97,27 @@ pnpm run docs           # TypeDoc + VitePress → documentation site
 
 Per package: `pnpm --filter @bot-wa/ai test`, `pnpm --filter @bot-wa/core build`, and so on.
 
-## Ejemplos
+## Examples
 
-| Ejemplo | Qué muestra |
+| Example | What it shows |
 | --- | --- |
-| [`examples/bakery-ai`](examples/bakery-ai) | Asistente de pedidos con IA para una panadería (en inglés) en WhatsApp, vía Baileys (QR) o Twilio (webhook con `@bot-wa/server`). Herramientas con confirmación, totales calculados en código, `dedupe`, lista de acceso, configuración tipada y tests sin red. |
+| [`examples/bakery-ai`](examples/bakery-ai) | AI ordering assistant for a bakery (in English) on WhatsApp, through Baileys (QR) or Twilio (webhook with `@bot-wa/server`). Tools with confirmation, totals computed in code, `dedupe`, an access list, typed configuration and tests with no network. |
 
-Se compilan y prueban con el resto del workspace (`pnpm build`, `pnpm test`). Cada ejemplo trae su README con los comandos para ejecutarlo.
+They build and test with the rest of the workspace (`pnpm build`, `pnpm test`). Each example ships its own README with the commands to run it.
 
-## Documentación
+## Documentation
 
-- Guías: [`docs/`](docs) (inglés en `docs/guide/`, español en `docs/es/guide/`). No hay sitio publicado; para verlas como web en local: `pnpm docs:dev`.
-- Guía de migración v1 → v2: [`docs/MIGRATION-v1-to-v2.md`](docs/MIGRATION-v1-to-v2.md).
-- Plan estratégico de producto e ingeniería: [`ROADMAP.md`](ROADMAP.md).
-- Catálogo detallado de propuestas: [`FEATURES.md`](FEATURES.md).
-- Política de reporte de vulnerabilidades: [`SECURITY.md`](SECURITY.md).
-- Diseño y decisiones: [`docs/superpowers/specs/`](docs/superpowers/specs) y [`docs/superpowers/plans/`](docs/superpowers/plans).
+- Guides: [`docs/`](docs) (English in `docs/guide/`, Spanish in `docs/es/guide/`). There is no published site; to read them as a website locally: `pnpm docs:dev`.
+- Migration guide v1 → v2: [`docs/MIGRATION-v1-to-v2.md`](docs/MIGRATION-v1-to-v2.md).
+- Product and engineering roadmap: [`ROADMAP.md`](ROADMAP.md).
+- Detailed catalogue of proposals: [`FEATURES.md`](FEATURES.md).
+- Vulnerability reporting policy: [`SECURITY.md`](SECURITY.md).
+- Design and decisions: [`docs/superpowers/specs/`](docs/superpowers/specs) and [`docs/superpowers/plans/`](docs/superpowers/plans).
 
-## Contribuir
+## Contributing
 
-Ver [`CONTRIBUTING.md`](CONTRIBUTING.md). Cambios relevantes en [`CHANGELOG.md`](CHANGELOG.md).
+See [`CONTRIBUTING.md`](CONTRIBUTING.md). Relevant changes go in [`CHANGELOG.md`](CHANGELOG.md).
 
-## Licencia
+## License
 
 MIT © Andres Aya
