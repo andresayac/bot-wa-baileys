@@ -18,7 +18,8 @@
  * ```
  */
 
-import pino, { type Logger } from 'pino'
+import pino from 'pino'
+import type { LoggerLike } from '@bot-wa/core'
 import type {
   ChatId,
   IProvider,
@@ -75,7 +76,7 @@ export class MessengerProvider implements IProvider<unknown> {
   }
 
   private readonly config: Required<Pick<MessengerProviderConfig, 'apiVersion' | 'graphUrl' | 'pageId'>> & MessengerProviderConfig
-  private readonly logger: Logger
+  private readonly logger: LoggerLike
   private listeners = new Set<(e: InboundEvent) => void | Promise<void>>()
 
   constructor(config: MessengerProviderConfig) {

@@ -13,6 +13,8 @@
 
 export { BaileysProvider } from './BaileysProvider.js'
 export type { BaileysProviderConfig, QrConfig } from './BaileysProvider.js'
+export { toBaileysLogger, isBaileysLogger } from './logger.js'
+export type { BaileysLogger } from './logger.js'
 export type { BrowserConfig, BrowserPreset } from './browser.js'
 export type { PollStore, StoredPoll, PollOption } from './polls.js'
 

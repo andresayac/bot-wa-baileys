@@ -163,14 +163,18 @@ definePlugin({
 })
 ```
 
-::: warning `install()` must be synchronous
-`bot.plug()` does not `await` `install()`: the bot keeps going before an
-`async install` finishes, and a rejection only reaches the `'error'` event
-(older core versions let it crash the process) — nothing is rolled back and
-the plugin counts as plugged. If your
-plugin needs async setup (open a connection, load an SDK), keep `install`
-synchronous and resolve lazily on first use, reporting configuration errors
-without crashing. That's how `@bot-wa/ai` loads its provider SDKs.
+::: warning `install()` must be synchronous and return nothing
+`bot.plug()` does not `await` `install()`. TypeScript rejects an `async install`
+(or one that returns a promise or any other value) at compile time:
+`PluginSpec.install` returns `void | SyncInstallError`, and the error message
+names the reason. In JavaScript the bot keeps going before an `async install`
+finishes, and its rejection only reaches the `'error'` event (older core
+versions let it crash the process) — nothing is rolled back and the plugin
+counts as plugged; the ESLint rule
+[`no-async-plugin-install`](./eslint#bot-wa-no-async-plugin-install) covers that
+case. If your plugin needs async setup (open a connection, load an SDK), keep
+`install` synchronous and resolve lazily on first use, reporting configuration
+errors without crashing. That's how `@bot-wa/ai` loads its provider SDKs.
 :::
 
 ## Plugin packages

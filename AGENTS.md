@@ -48,6 +48,7 @@ pnpm --filter "./packages/*-store" test   # los stores (con BOTWA_TEST_*_URL, ta
 pnpm bench:soak                           # carga/soak/fugas del runtime (tras pnpm build; no entra en pnpm test, ver CONTRIBUTING)
 pnpm changeset                            # añade un changeset (todo cambio visible de un paquete público)
 pnpm pack:smoke                           # empaqueta los paquetes públicos y los prueba instalados desde tarballs (no publica)
+pnpm api-check                            # tras pnpm build: tipos sin exportar, `any` y `@internal` en los .d.ts públicos (scripts/api-check.cjs)
 pnpm test:scripts                         # tests de los helpers de scripts/ (semver del smoke test, enlaces de los README)
 
 pnpm docs:dev                             # sitio VitePress en local (http://localhost:5173/)
@@ -91,6 +92,7 @@ Las dependencias internas se declaran como `"workspace:*"` en los paquetes priva
 - **Sin `any` en tipos públicos exportados.** Usa `unknown` y estrecha el tipo. En los parámetros de listeners de interfaces, `unknown` en lugar de `never` (que rompe los sitios `implements` con TS2420).
 - **Errores de envío tipados:** los providers rechazan con las subclases de `ProviderError` del core (`UnsupportedContentError`, `RateLimitedError`, `RecipientUnreachableError`, `PayloadTooLargeError`, `OutsideSessionWindowError`), no con `Error` genérico.
 - **SDKs opcionales con carga lazy:** en `@bot-wa/ai`, los SDKs de proveedor (`@anthropic-ai/sdk`, `openai`, `@google/generative-ai`) son `peerDependencies` opcionales y se cargan con `loadModule()`. Nunca los importes al top level. Lo mismo vale para `better-sqlite3` en `sqlite-store`, `imapflow`/`nodemailer` en `@bot-wa/email` y `pdf-parse` en `@bot-wa/rag`.
+- **`@internal` desaparece de los `.d.ts` publicados** (`stripInternal` en `tsconfig.base.json`): un símbolo o miembro con esa etiqueta es invisible para los demás paquetes tras el build (compilan contra `lib/`) y para los usuarios; no lo uses entre paquetes y no etiquetes así nada que otro paquete importe. `pnpm api-check` (tras `pnpm build`) lo comprueba junto con los tipos sin exportar y los `any` de la API pública; `pnpm pack:smoke` falla si un tarball lleva `@internal`.
 - **Comentarios y código en inglés**; la documentación de usuario (README, guías, CHANGELOG) está en español (más la versión en inglés del sitio).
 - **TDD:** escribe primero el test que falla. Todo cambio de comportamiento lleva su test.
 

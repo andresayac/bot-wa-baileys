@@ -11,7 +11,10 @@
 import type { Logger } from 'pino'
 import type { RuntimeMessage } from '../conversations/ConversationRuntime.js'
 import type { Bot } from './Bot.js'
-import type { DefaultTools, SentMessage, ChatId } from './provider.js'
+import type {
+  CallEvent, ChatId, ConnectionUpdate, DefaultTools, DeliveryStatus, GroupEvent, InboundReaction, MessageContext,
+  MessageRef, OutboundContent, PollVote, PresenceEvent, SendOptions, SentMessage,
+} from './provider.js'
 import type { TypeTrigger, WelcomeTrigger } from './triggers.js'
 
 /* ============================================================================
@@ -87,21 +90,85 @@ export type HookEvent =
   | 'presence'
   | 'reaction'
   | 'poll'
+  | 'status'
   // Custom plugin events are any other string; `string & {}` keeps editor autocomplete
   // for the built-in names (a bare `| string` collapses the union to `string`).
   | (string & {})
 
 export type HookPhase = 'before' | 'after' | 'error'
 
-export type HookHandler<TCtx = any> = (
+/**
+ * A `before`/`after` hook: `(ctx, next)`. `before` hooks must call `next()` to let the event
+ * through (returning without it stops the event, like `ctx.abort()`); `after` hooks receive
+ * no usable `next`. The context type is inferred from the event name through
+ * {@link HookContextMap}; for a custom event it is `unknown` unless the handler annotates it.
+ */
+export type HookHandler<TCtx = unknown> = (
   ctx: TCtx,
   next: () => Promise<void>,
 ) => void | Promise<void>
 
+/** An `error`-phase hook (`bot.onError`): receives the failing context and the error. */
+export type HookErrorHandler<TCtx = unknown> = (
+  ctx: TCtx,
+  error: unknown,
+) => void | Promise<void>
+
+/**
+ * Payload of the `'send'` hooks: every outbound send (`ctx.reply`, `bot.send`, broadcasts),
+ * plus edits (`edit`) and streamed output (`stream`). A `before` hook may rewrite `content`
+ * and `options` in place, or `abort()` to skip the send (it then resolves `skipped`).
+ */
+export interface SendHookContext {
+  chatId: ChatId
+  content: OutboundContent
+  options?: SendOptions
+  /** Set on streamed output: a new message, a live edit or a native draft preview. */
+  stream?: 'message' | 'draft' | 'edit'
+  /** Set when the send edits an existing message in place (`ctx.edit()`). */
+  edit?: MessageRef
+}
+
+/**
+ * Context type of each built-in hook event. Augment it (declaration merging) to type the
+ * hooks of a plugin's custom event:
+ *
+ * ```ts
+ * declare module '@bot-wa/core' {
+ *   interface HookContextMap { 'crm.lead': { leadId: string } }
+ * }
+ * bot.after('crm.lead', (lead) => lead.leadId) // typed
+ * ```
+ */
+export interface HookContextMap {
+  message: MessageContext
+  send: SendHookContext
+  connection: ConnectionUpdate
+  group: GroupEvent
+  call: CallEvent
+  presence: PresenceEvent
+  reaction: InboundReaction
+  poll: PollVote
+  status: DeliveryStatus
+}
+
+/** The context a hook on `E` receives: the {@link HookContextMap} entry, else `TCtx` (default `unknown`). */
+export type HookContextOf<E extends HookEvent, TCtx = unknown> = E extends keyof HookContextMap ? HookContextMap[E] : TCtx
+
+/** A `before` hook's context: the event context plus `abort()`. */
+export type HookBeforeContext<T> = T & { abort(): void }
+
+/**
+ * Registry-side handler type: every {@link HookHandler} and {@link HookErrorHandler} is
+ * assignable to it (the parameter is `never`), so it can hold handlers of any event. It is
+ * not callable without a cast; the hook pipeline does that internally.
+ */
+export type AnyHookHandler = HookHandler<never> | HookErrorHandler<never>
+
 export interface HookRegistration {
   event: HookEvent
   phase: HookPhase
-  handler: HookHandler
+  handler: AnyHookHandler
   priority: number // higher = runs first; default 0
 }
 
@@ -129,15 +196,24 @@ export interface PluginSpec<TConfig = Record<string, unknown>> {
    */
   requires?: string[]
   /**
-   * Register the plugin's handlers, hooks and tools. Keep it synchronous: `bot.plug()`
-   * does not await it — a rejected promise is reported on the bot's `'error'` event
-   * (it does not crash the process), but the plugin is already considered installed and
-   * nothing is rolled back. Do async setup lazily on first use instead.
-   * (`Promise<void>` stays in the type for compatibility.)
+   * Register the plugin's handlers, hooks and tools. It must be **synchronous and return
+   * nothing**: `bot.plug()` does not await it. An `async install` (or one that returns a
+   * promise) does not compile ({@link SyncInstallError} names the reason); at runtime a
+   * rejected promise is still reported on the bot's `'error'` event, but the plugin is
+   * already considered installed and nothing is rolled back. Do async setup lazily on first
+   * use (the `LazyProvider` pattern in `@bot-wa/ai`).
    */
-  install(ctx: PluginContext, config?: TConfig): void | Promise<void>
+  install(ctx: PluginContext, config?: TConfig): void | SyncInstallError
   uninstall?(ctx: PluginContext): void | Promise<void>
 }
+
+/**
+ * Carried in the return type of {@link PluginSpec.install} so an `async install()` fails to
+ * compile with this text in the error (`Promise<void>` is not assignable to it). Never a
+ * value: a sync `install` returns nothing.
+ */
+export type SyncInstallError =
+  'Plugin.install() must be synchronous and return nothing: bot.plug() does not await it. Do async setup lazily on first use (LazyProvider in @bot-wa/ai).'
 
 /** A plugin is just a PluginSpec or a factory returning one. */
 export type Plugin<TConfig = Record<string, unknown>> =

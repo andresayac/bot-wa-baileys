@@ -25,7 +25,8 @@
  * ```
  */
 
-import pino, { type Logger } from 'pino'
+import pino from 'pino'
+import type { LoggerLike } from '@bot-wa/core'
 import type {
   ChatId,
   ConnectionState,
@@ -109,7 +110,7 @@ export class WPPConnectProvider implements IProvider<unknown> {
   private readonly baseUrl: string
   private readonly sessionPath: string
   private readonly http: RestHttpOptions
-  private readonly logger: Logger
+  private readonly logger: LoggerLike
   private readonly identity: WaIdentityStore
   private readonly listeners = new Set<(e: InboundEvent) => void | Promise<void>>()
   /** LIDs whose pn-lid lookup failed or found no PN → time they may be retried (bounded). */

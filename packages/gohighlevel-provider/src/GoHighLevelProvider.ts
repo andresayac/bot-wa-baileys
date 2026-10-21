@@ -18,7 +18,8 @@
  */
 
 import { createPublicKey, type KeyObject } from 'node:crypto'
-import pino, { type Logger } from 'pino'
+import pino from 'pino'
+import type { LoggerLike } from '@bot-wa/core'
 import type {
   ChatId,
   IProvider,
@@ -58,7 +59,7 @@ export class GoHighLevelProvider implements IProvider<GhlWebhookBody> {
   }
 
   private readonly config: GoHighLevelProviderConfig & { apiVersion: string; baseUrl: string; defaultChannel: GhlChannel }
-  private readonly logger: Logger
+  private readonly logger: LoggerLike
   private readonly listeners = new Set<(e: InboundEvent<GhlWebhookBody>) => void | Promise<void>>()
   /** contactId → channel of the contact's last inbound message. */
   private readonly channels = new BoundedMap<ChatId, GhlChannel>()

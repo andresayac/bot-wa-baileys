@@ -12,7 +12,7 @@ import { FlowBuilder, isCompiledFlow, type CompiledFlow } from '../../flows/Flow
 import type { ConversationFn } from '../../conversations/ConversationRuntime.js'
 import type { ConversationHandler } from '../../conversations/handler.js'
 import type { CommandHandler, MessageHandler } from '../Bot.js'
-import type { HookEvent, HookHandler, HookPhase, MessageContext, MessageType, Plugin, Trigger } from '../types.js'
+import type { AnyHookHandler, HookEvent, HookPhase, MessageContext, MessageType, Plugin, Trigger } from '../types.js'
 import { asMessage, type BotKernel } from './kernel.js'
 
 /** Registers the route that enters conversation/flow `target` when `trigger` matches. */
@@ -91,7 +91,7 @@ export class RouteRegistrar {
     return unsub
   }
 
-  hook(event: HookEvent, phase: HookPhase, handler: HookHandler, priority: number): void {
+  hook(event: HookEvent, phase: HookPhase, handler: AnyHookHandler, priority: number): void {
     this.k.disposables.add(this.k.hooks.register(event, phase, handler, priority))
   }
 }

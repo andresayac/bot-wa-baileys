@@ -20,7 +20,8 @@
 import { readFile } from 'node:fs/promises'
 import { basename } from 'node:path'
 import { timingSafeEqual } from 'node:crypto'
-import pino, { type Logger } from 'pino'
+import pino from 'pino'
+import type { LoggerLike } from '@bot-wa/core'
 import { SecureHttpError, secureFetch } from '@bot-wa/http'
 import type {
   ChatId,
@@ -111,7 +112,7 @@ export class TelegramProvider implements IProvider<unknown> {
   private readonly deliverEdits: boolean
   /** Consecutive getUpdates failures — drives the exponential backoff; reset on success. */
   private pollErrors = 0
-  private readonly logger: Logger
+  private readonly logger: LoggerLike
   private listeners = new Set<(e: InboundEvent) => void | Promise<void>>()
   private _selfId: string | null = null
   private running = false

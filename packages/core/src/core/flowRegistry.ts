@@ -30,7 +30,9 @@ export interface FlowTriggerTarget {
 
 /** Options of {@link Bot.triggerFlow} (mapped onto {@link Bot.trigger}'s `data` / `body`). */
 export interface FlowTriggerOptions {
-  /** Shallow-merged into `c.state` before the first step runs. */
+  /** Shallow-merged into `c.state` before the first step runs (same as {@link Bot.trigger}'s `data`). */
+  data?: Record<string, unknown>
+  /** @deprecated Use `data`. Alias kept for the alpha; passing both throws a `TypeError`. */
   state?: Record<string, unknown>
   /** `ctx.body` of the synthetic triggering message. Default `''`. */
   body?: string

@@ -17,6 +17,7 @@
     "docs:check": "node scripts/smoke/docs-check.mjs",
     "typecheck": "pnpm -r typecheck",
     "pack:smoke": "node scripts/pack-smoke.mjs",
+    "api-check": "node scripts/api-check.cjs missing && node scripts/api-check.cjs any && node scripts/api-check.cjs internal",
     "test:scripts": "node --test scripts/smoke/semver.test.mjs scripts/smoke/readme-links.test.mjs scripts/smoke/docs-check.test.mjs scripts/smoke/latest-render.test.mjs",
     "bench:soak": "node --expose-gc scripts/soak/soak.mjs",
     "changeset": "changeset",

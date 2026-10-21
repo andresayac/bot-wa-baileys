@@ -15,7 +15,7 @@ describe('@bot-wa/rag + aiPlugin', () => {
     const retriever: AIRetriever = rag // structural compatibility (compile-time)
     const mock = new MockAIProvider({ reply: (i) => (i.system?.includes('3 días hábiles') ? 'Tardan 3 días hábiles [1].' : 'no sé') })
     const { bot, chat } = await createTestBot()
-    bot.plug(aiPlugin({ __provider: mock, rag: { retriever, appendSources: true } }))
+    bot.plug(aiPlugin({ instance: mock, rag: { retriever, appendSources: true } }))
     await chat.send('¿Cuánto tardan los envíos?')
     await chat.expectReply('Tardan 3 días hábiles [1].\n\nFuentes: [1] faq.md › Tienda › Envíos')
     expect(mock.calls[0]!.system).toContain('[1] (faq.md › Tienda › Envíos)')
@@ -25,7 +25,7 @@ describe('@bot-wa/rag + aiPlugin', () => {
   it('ctx.tools.ai.replyInChatDetailed exposes the citations', async () => {
     const rag = createRag({ documents: [{ id: 'faq', source: 'faq.md', text: FAQ, format: 'markdown' }], topK: 2 })
     const { bot, chat } = await createTestBot()
-    bot.plug(aiPlugin({ __provider: new MockAIProvider({ reply: 'Con tarjeta [1].' }), rag, autoReply: false }))
+    bot.plug(aiPlugin({ instance: new MockAIProvider({ reply: 'Con tarjeta [1].' }), rag, autoReply: false }))
     bot.when('pagos', async (ctx) => {
       const r = await ctx.tools.ai.replyInChatDetailed(ctx.from, 'medios de pago con tarjeta', { userId: ctx.sender })
       await ctx.reply(`${r.text} | ${r.citations.map((c) => c.citation).join(', ')}`)

@@ -59,7 +59,7 @@ interface BaileysProviderConfig {
   pollStore?: PollStore         // persistencia de encuestas para leer votos tras un reinicio (ver Encuestas y votos)
   durableMedia?: { viewOnce?: boolean } // con durability: anotar también la media de visualización única (por defecto no)
   debug?: boolean               // nivel 'debug' en el logger por defecto (si no, 'error')
-  logger?: Logger               // logger compatible con pino
+  logger?: LoggerLike           // cualquier logger con debug/info/warn/error (pino, console…); Baileys recibe un adaptador (toBaileysLogger)
 }
 ```
 

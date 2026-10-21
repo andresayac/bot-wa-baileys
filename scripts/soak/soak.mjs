@@ -146,7 +146,7 @@ const model = new MockAIProvider({
 })
 let toolRuns = 0
 ai.plug(aiPlugin({
-  __provider: model,
+  instance: model,
   tools: { borrar: { description: 'Borra', title: 'Borrar pedido', confirm: true, handler: () => { toolRuns++; return 'borrado' } } },
   toolConfirm: { timeout: '60ms' },
 }))

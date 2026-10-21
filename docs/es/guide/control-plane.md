@@ -160,16 +160,17 @@ directamente en cualquier bot:
 | `bot.unregisterFlow(id)` | Quita un flujo o una conversación; sus triggers dejan de coincidir. `false` si no existe. |
 | `bot.hasFlow(id)` | Si hay un flujo o una conversación registrados con `id`. |
 | `bot.listFlows()` | `RegisteredFlowInfo[]`: `{ id, kind: 'flow', steps, persistent }` o `{ id, kind: 'conversation' }`. |
-| `bot.triggerFlow(id, { chatId, userId?, isGroup? }, { state?, body? })` | Inicia un flujo de forma proactiva en un chat. Devuelve `Promise<boolean>`. |
+| `bot.triggerFlow(id, { chatId, userId?, isGroup? }, { data?, body? })` | Inicia un flujo de forma proactiva en un chat. Devuelve `Promise<boolean>`. |
 | `bot.listConversations()` | `ConversationSnapshot[]`: `{ key, state, waiting, queued, accepts? }`. |
 | `bot.abortConversation(key)` | Aborta una conversación viva por su clave. |
 
 `triggerFlow()` es una envoltura fina sobre `bot.trigger()` con
 `ifActive: 'replace'`: pasa por los mismos gates de listas de acceso y handoff,
 el turno FIFO del chat, la resolución de idioma y las métricas, y reemplaza una
-conversación que ya esté en curso (o dormida) en la misma clave. `state` se
-mezcla (superficialmente) en `c.state`; `body` es el `ctx.body` del mensaje
-sintético (por defecto `''`). Resuelve `false` si el flujo no existe, las
+conversación que ya esté en curso (o dormida) en la misma clave. `data` se
+mezcla (superficialmente) en `c.state` (la misma opción que `bot.trigger()`;
+`state` es un alias obsoleto y pasar los dos lanza un `TypeError`); `body` es
+el `ctx.body` del mensaje sintético (por defecto `''`). Resuelve `false` si el flujo no existe, las
 listas de acceso bloquean al sujeto o el chat está en handoff, y rechaza si el
 bot no está arrancado.
 
@@ -177,7 +178,7 @@ bot no está arrancado.
 import { flow } from '@bot-wa/core'
 
 bot.registerFlow(flow('encuesta').ask('¿Tu nombre?', 'name').say((_ctx, c) => `Gracias ${c.state.name}`))
-await bot.triggerFlow('encuesta', { chatId }, { state: { source: 'campaign' } })
+await bot.triggerFlow('encuesta', { chatId }, { data: { source: 'campaign' } })
 ```
 
 ## Flows JSON

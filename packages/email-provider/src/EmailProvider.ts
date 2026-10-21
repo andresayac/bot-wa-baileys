@@ -162,7 +162,7 @@ export class EmailProvider implements IProvider<EmailRaw> {
     }
     this.address = candidate.trim()
     this.self = normalizeAddress(candidate)
-    this.logger = config.logger ?? (pino({ level: config.debug ? 'debug' : 'error' }) as unknown as LoggerLike)
+    this.logger = config.logger ?? pino({ level: config.debug ? 'debug' : 'error' })
     this.tracker = new ThreadTracker({
       store: config.threadStore ?? new MemoryThreadStore(),
       mode: config.threading ?? 'thread',

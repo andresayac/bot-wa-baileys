@@ -11,14 +11,14 @@
  * Plugins register handlers with `bot.before('message', ...)` etc.
  */
 
-import type { HookEvent, HookHandler, HookPhase } from '../core/types.js'
+import type { AnyHookHandler, HookEvent, HookPhase } from '../core/types.js'
 import { randomId } from '../utils/timers.js'
 
 export interface RegisteredHook {
   id: string
   event: HookEvent
   phase: HookPhase
-  handler: HookHandler
+  handler: AnyHookHandler
   priority: number
 }
 
@@ -36,7 +36,7 @@ export class HookSystem {
   register(
     event: HookEvent,
     phase: HookPhase,
-    handler: HookHandler,
+    handler: AnyHookHandler,
     priority = 0
   ): () => void {
     const key = `${event}:${phase}` as const

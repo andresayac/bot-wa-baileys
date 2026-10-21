@@ -8,7 +8,8 @@
  * and, at startup, warmed up eagerly: a misconfiguration (missing SDK, unknown
  * provider, bad api key) is **logged as an error** and then degrades to the
  * configured `errorMessage` on each message — the process never crashes. A
- * pre-built provider can be injected via the TEST-ONLY `__provider` hook.
+ * pre-built provider (`MockAIProvider`, your own `AIProvider`) is used as is through
+ * the `instance` option.
  *
  * Unless disabled it also registers a catch-all autoresponder (`onMessage`,
  * text-only) and a `/reset` command that clears the chat's AI context.
@@ -50,7 +51,12 @@ function tracingOf(bot: unknown): BotTracing | undefined {
 
 /** Public config for {@link aiPlugin}. */
 export type AIPluginConfig = AIConfig & {
-  /** @internal test-only injection hook — pre-built provider, bypasses lazy resolution. */
+  /**
+   * A ready-built provider used as is (`MockAIProvider` in tests, or your own `AIProvider`).
+   * Skips the `provider`/`apiKey`/`model` resolution and the lazy SDK load.
+   */
+  instance?: AIProvider
+  /** @internal Old name of `instance` (stripped from the published types; still honoured). */
   __provider?: AIProvider
 }
 
@@ -73,8 +79,9 @@ export function aiPlugin(config: AIPluginConfig = {}): PluginSpec<AIPluginConfig
     install(ctx: PluginContext, cfg: AIPluginConfig = config) {
       const bot = ctx.bot
       // Resolve lazily so install stays sync: a bad config can't crash the process.
-      const lazy = cfg.__provider ? undefined : new LazyProvider(() => resolveProvider(cfg))
-      const provider: AIProvider = cfg.__provider ?? lazy!
+      const injected = cfg.instance ?? cfg.__provider
+      const lazy = injected ? undefined : new LazyProvider(() => resolveProvider(cfg))
+      const provider: AIProvider = injected ?? lazy!
       const ctxMgr = new ContextManager(bot.getStore(), { maxMessages: cfg.context?.maxMessages })
       const rag = toRagConfig(cfg.rag)
       const client = new AIClient(provider, ctxMgr, {
@@ -94,7 +101,7 @@ export function aiPlugin(config: AIPluginConfig = {}): PluginSpec<AIPluginConfig
         ...(cfg.toolConfirm?.systemNote !== undefined ? { toolNote: cfg.toolConfirm.systemNote } : {}),
         // Tracing: model/tool spans join the bot's trace (no-op unless BotConfig.telemetry is set).
         ...(tracingOf(bot) ? { tracing: tracingOf(bot) } : {}),
-        providerName: cfg.__provider?.name ?? cfg.provider ?? 'anthropic',
+        providerName: injected?.name ?? cfg.provider ?? 'anthropic',
         onToolEvent: (event: AIToolEvent) => {
           // Audit trail: metadata only in the log (no args / results), full event to sinks.
           ctx.logger.debug({ tool: event.tool, type: event.type, step: event.step, durationMs: event.durationMs }, 'ai tool event')

@@ -5,8 +5,8 @@
  * additive and we only read what the normalizer needs.
  */
 
-import type { Logger } from 'pino'
 import type { SecureFetchOptions } from '@bot-wa/http'
+import type { LoggerLike } from '@bot-wa/core'
 
 export interface TelegramProviderConfig {
   /** Bot token from @BotFather. */
@@ -65,7 +65,7 @@ export interface TelegramProviderConfig {
   /** Pause (ms) after an empty getUpdates batch. Default 250 (server long-poll already waited). */
   pollIdleMs?: number
   debug?: boolean
-  logger?: Logger
+  logger?: LoggerLike
 }
 
 /* --- Bot API envelopes ---------------------------------------------------- */

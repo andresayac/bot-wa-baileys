@@ -37,7 +37,7 @@ interface TelegramProviderConfig {
   errorBackoffMs?: number  // backoff after a failed poll round, default 1000
   pollIdleMs?: number      // pause after an empty batch, default 250
   debug?: boolean
-  logger?: Logger      // pino-compatible
+  logger?: LoggerLike  // pino, console o cualquier { debug, info, warn, error }
 }
 ```
 

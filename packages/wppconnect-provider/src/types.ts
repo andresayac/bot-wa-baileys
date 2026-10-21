@@ -6,8 +6,8 @@
  * on the event, so every id field is typed loosely.
  */
 
-import type { Logger } from 'pino'
 import type { IdentityPersistence, RestHttpOptions } from '@bot-wa/wa-gateway-kit'
+import type { LoggerLike } from '@bot-wa/core'
 
 export interface WPPConnectProviderConfig {
   /** wppconnect-server base URL. Default `http://localhost:21465`. */
@@ -62,7 +62,7 @@ export interface WPPConnectProviderConfig {
    */
   identityPersistence?: IdentityPersistence
   debug?: boolean
-  logger?: Logger
+  logger?: LoggerLike
 }
 
 /** A WA-JS id: serialized string or a `Wid`/`MsgKey`-like object. */

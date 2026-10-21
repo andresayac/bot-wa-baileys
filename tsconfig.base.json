@@ -5,6 +5,7 @@
     "moduleResolution": "nodenext",
     "lib": ["es2022"],
     "declaration": true,
+    "stripInternal": true,
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true

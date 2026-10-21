@@ -15,7 +15,8 @@
 
 import { basename } from 'node:path'
 import { readFile } from 'node:fs/promises'
-import pino, { type Logger } from 'pino'
+import pino from 'pino'
+import type { LoggerLike } from '@bot-wa/core'
 import type {
   ChatId,
   IProvider,
@@ -91,7 +92,7 @@ export class DiscordProvider implements IProvider<unknown> {
   private readonly config: Required<
     Pick<DiscordProviderConfig, 'intents' | 'gatewayUrl' | 'apiUrl' | 'apiVersion' | 'reconnectDelayMs'>
   > & DiscordProviderConfig
-  private readonly logger: Logger
+  private readonly logger: LoggerLike
   private readonly rest: DiscordRestClient
   private gateway: GatewaySocket | null = null
   private listeners = new Set<(e: InboundEvent) => void | Promise<void>>()

@@ -29,6 +29,10 @@ import type {
   ConnectionState,
   ConnectionUpdate,
   DefaultTools,
+  AnyHookHandler,
+  HookBeforeContext,
+  HookContextOf,
+  HookErrorHandler,
   HookEvent,
   HookHandler,
   HookPhase,
@@ -738,23 +742,35 @@ export class Bot extends EventEmitter {
    * HOOKS
    * ====================================================================== */
 
-  /** Register a `before` hook (higher `priority` runs first). Chainable. */
-  before(event: HookEvent, handler: HookHandler, priority = 0): this {
+  /**
+   * Register a `before` hook (higher `priority` runs first). Chainable. The context is typed
+   * by the event ({@link HookContextMap}: `MessageContext` for `'message'`,
+   * `SendHookContext` for `'send'`, …) plus `abort()`; a custom event's context is
+   * `unknown` unless the handler annotates it (or `TCtx` is given).
+   */
+  before<E extends HookEvent, TCtx = unknown>(event: E, handler: HookHandler<HookBeforeContext<HookContextOf<E, TCtx>>>, priority = 0): this {
     this.routes.hook(event, 'before', handler, priority)
     return this
   }
-  /** Register an `after` hook (higher `priority` runs first). Chainable. */
-  after(event: HookEvent, handler: HookHandler, priority = 0): this {
+  /** Register an `after` hook (higher `priority` runs first). Chainable. Context typed like {@link before}. */
+  after<E extends HookEvent, TCtx = unknown>(event: E, handler: HookHandler<HookContextOf<E, TCtx>>, priority = 0): this {
     this.routes.hook(event, 'after', handler, priority)
     return this
   }
-  /** Register an `error`-phase hook. `priority` orders it like {@link before}/{@link after} (default 0). */
-  onError(event: HookEvent, handler: HookHandler, priority = 0): this {
+  /**
+   * Register an `error`-phase hook: `(ctx, error)` with the failing context. `priority`
+   * orders it like {@link before}/{@link after} (default 0).
+   */
+  onError<E extends HookEvent, TCtx = unknown>(event: E, handler: HookErrorHandler<HookContextOf<E, TCtx>>, priority = 0): this {
     this.routes.hook(event, 'error', handler, priority)
     return this
   }
   /** Register a hook for any phase: the generic form of {@link before}/{@link after}/{@link onError}. */
-  hook(event: HookEvent, phase: HookPhase, handler: HookHandler, priority = 0): this {
+  hook<E extends HookEvent, TCtx = unknown>(event: E, phase: 'before', handler: HookHandler<HookBeforeContext<HookContextOf<E, TCtx>>>, priority?: number): this
+  hook<E extends HookEvent, TCtx = unknown>(event: E, phase: 'after', handler: HookHandler<HookContextOf<E, TCtx>>, priority?: number): this
+  hook<E extends HookEvent, TCtx = unknown>(event: E, phase: 'error', handler: HookErrorHandler<HookContextOf<E, TCtx>>, priority?: number): this
+  hook(event: HookEvent, phase: HookPhase, handler: AnyHookHandler, priority?: number): this
+  hook(event: HookEvent, phase: HookPhase, handler: AnyHookHandler, priority = 0): this {
     this.routes.hook(event, phase, handler, priority)
     return this
   }

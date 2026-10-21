@@ -3,8 +3,8 @@
  * transport.
  */
 
-import type { Logger } from 'pino'
 import type { SecureFetchOptions } from '@bot-wa/http'
+import type { LoggerLike } from '@bot-wa/core'
 
 export interface MessengerProviderConfig {
   /** Page access token with pages_messaging (from the Meta app dashboard). */
@@ -36,7 +36,7 @@ export interface MessengerProviderConfig {
   /** Page id (or 'me') that owns the Send API endpoint. Default 'me'. */
   pageId?: string
   debug?: boolean
-  logger?: Logger
+  logger?: LoggerLike
 }
 
 /* --- Graph API request/response shapes (subset used) --------------------- */

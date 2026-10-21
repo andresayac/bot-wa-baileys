@@ -100,7 +100,9 @@ el nombre del receptor (por defecto `runtime$`, sin distinguir mayúsculas).
 `Plugin.install()` debe ser síncrono: `bot.plug()` no lo espera, así que el
 bot arranca antes de que un `install` async termine y su rechazo solo llega al
 evento `'error'` (en versiones anteriores del core era un unhandled rejection
-que tumbaba el proceso). La regla revisa el objeto que se pasa a `definePlugin(...)`, cualquier
+que tumbaba el proceso). TypeScript ya rechaza un `install` async al compilar
+(`PluginSpec.install` devuelve `void | SyncInstallError`); la regla cubre
+JavaScript y los escapes con `as any`. Revisa el objeto que se pasa a `definePlugin(...)`, cualquier
 objeto literal con `name` e `install`, y las clases con un método `install`
 que declaran un campo `name` o `implements Plugin`. Para inicialización async
 usa el patrón lazy (resolver en el primer uso y reportar los errores de

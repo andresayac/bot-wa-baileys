@@ -2,12 +2,12 @@
  * @bot-wa/meta — types for the WhatsApp Cloud API (official Meta) transport.
  */
 
-import type { Logger } from 'pino'
 import type { SecureFetchOptions } from '@bot-wa/http'
 import type { IdentityMap } from './identity.js'
 import type { SessionWindowManager, SessionWindowOptions } from './sessionWindow.js'
 import type { UsageTracker, UsageTrackerOptions } from './pricing.js'
 import type { FlowRef } from './flows.js'
+import type { LoggerLike } from '@bot-wa/core'
 
 export interface CloudAPIProviderConfig {
   /** Permanent (system-user) access token with whatsapp_business_messaging. */
@@ -68,7 +68,7 @@ export interface CloudAPIProviderConfig {
   /** WhatsApp Business Account id — needed only by `publishForm()`. */
   wabaId?: string
   debug?: boolean
-  logger?: Logger
+  logger?: LoggerLike
 }
 
 /* --- Graph API request/response shapes (subset used) --------------------- */
