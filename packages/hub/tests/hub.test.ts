@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
+import { MemoryKv } from '@bot-wa/core'
 
-import { PluginManifestError, PluginRegistry, validateManifest } from '../src/index.js'
+import { KvPluginStore, MemoryPluginStore, PluginManifestError, PluginRegistry, validateManifest } from '../src/index.js'
 
 const manifest = {
   id: 'crm-sync',
@@ -10,16 +11,43 @@ const manifest = {
   permissions: ['contacts:read', 'network:egress'] as const,
 }
 
-describe('plugin hub', () => {
-  it('validates compatibility and requires grants per tenant', () => {
-    const registry = new PluginRegistry()
-    registry.install('a', manifest, '2.1.0')
+const stores = [
+  ['MemoryPluginStore', () => new PluginRegistry(new MemoryPluginStore(), { clock: () => 1_000 })],
+  ['KvPluginStore', () => new PluginRegistry(new KvPluginStore(new MemoryKv()), { clock: () => 1_000 })],
+] as const
 
-    expect(() => registry.enable('a', 'crm-sync', ['contacts:read'])).toThrow(/network:egress/)
-    expect(registry.enable('a', 'crm-sync', manifest.permissions)).toMatchObject({ enabled: true })
-    expect(registry.list('b')).toEqual([])
+describe.each(stores)('plugin hub over %s', (_name, make) => {
+  it('validates compatibility and requires grants per tenant', async () => {
+    const registry = make()
+    await registry.install('a', manifest, '2.1.0')
+
+    await expect(registry.enable('a', 'crm-sync', ['contacts:read'])).rejects.toThrow(/network:egress/)
+    expect(await registry.enable('a', 'crm-sync', manifest.permissions)).toMatchObject({ enabled: true })
+    expect(await registry.list('b')).toEqual([])
   })
 
+  it('disables plugins and re-installing resets them to disabled', async () => {
+    const registry = make()
+    await registry.install('a', manifest, '2.0.0')
+    await registry.enable('a', 'crm-sync', manifest.permissions)
+
+    expect(await registry.disable('a', 'crm-sync')).toMatchObject({ enabled: false })
+
+    await registry.enable('a', 'crm-sync', manifest.permissions)
+    await registry.install('a', manifest, '2.0.0')
+    expect(await registry.list('a')).toMatchObject([{ enabled: false }])
+  })
+
+  it('fails on plugins not installed in the tenant', async () => {
+    const registry = make()
+    await registry.install('a', manifest, '2.0.0')
+
+    await expect(registry.enable('b', 'crm-sync', manifest.permissions)).rejects.toThrow('plugin not installed')
+    await expect(registry.disable('b', 'crm-sync')).rejects.toBeInstanceOf(PluginManifestError)
+  })
+})
+
+describe('manifest validation', () => {
   it('rejects unsafe manifests', () => {
     expect(() => validateManifest({ ...manifest, entry: '../escape.js' }, '2.0.0')).toThrow(PluginManifestError)
     expect(() => validateManifest({ ...manifest, botwa: '^3.0.0' }, '2.0.0')).toThrow(/incompatible/)
@@ -39,26 +67,6 @@ describe('plugin hub', () => {
     )
 
     expect(valid.permissions).toEqual(['contacts:read', 'network:egress'])
-  })
-
-  it('disables plugins and re-installing resets them to disabled', () => {
-    const registry = new PluginRegistry()
-    registry.install('a', manifest, '2.0.0')
-    registry.enable('a', 'crm-sync', manifest.permissions)
-
-    expect(registry.disable('a', 'crm-sync')).toMatchObject({ enabled: false })
-
-    registry.enable('a', 'crm-sync', manifest.permissions)
-    registry.install('a', manifest, '2.0.0')
-    expect(registry.list('a')).toMatchObject([{ enabled: false }])
-  })
-
-  it('fails on plugins not installed in the tenant', () => {
-    const registry = new PluginRegistry()
-    registry.install('a', manifest, '2.0.0')
-
-    expect(() => registry.enable('b', 'crm-sync', manifest.permissions)).toThrow('plugin not installed')
-    expect(() => registry.disable('b', 'crm-sync')).toThrow(PluginManifestError)
   })
 })
 
