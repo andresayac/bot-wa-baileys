@@ -1,40 +1,40 @@
 # Contributing
 
-Gracias por querer contribuir a `botmesh`. Este repo es un **monorepo pnpm** transporte-agnóstico: el motor es `@botmesh/core` (`packages/core`), rodeado de transportes (baileys/meta/messenger/instagram/telegram/discord), stores (sqlite/redis/mongo/postgres/mysql), helpers compartidos (`@botmesh/graph-core`, `@botmesh/http`) y tooling (`@botmesh/ai`, `@botmesh/nlu`, `@botmesh/manager`, `create-botmesh`). Ver la tabla completa en el [README](README.md#packages). Si eres un agente de código, lee también [`AGENTS.md`](AGENTS.md).
+Thanks for wanting to contribute to `botmesh`. This repo is a transport-agnostic **pnpm monorepo**: the engine is `@botmesh/core` (`packages/core`), surrounded by transports (baileys/meta/messenger/instagram/telegram/discord), stores (sqlite/redis/mongo/postgres/mysql), shared helpers (`@botmesh/graph-core`, `@botmesh/http`) and tooling (`@botmesh/ai`, `@botmesh/nlu`, `@botmesh/manager`, `create-botmesh`). See the full table in the [README](README.md#packages). If you are a coding agent, read [`AGENTS.md`](AGENTS.md) too.
 
-## Requisitos
+## Requirements
 
-- **Node >= 22** (recomendado 24 LTS).
-- **pnpm** (ver la versión en `packageManager` de `package.json`; instala con `corepack enable`).
-- **Docker**, solo si vas a correr los tests de integración de los stores.
+- **Node >= 22** (24 LTS recommended).
+- **pnpm** (see the version in `packageManager` in `package.json`; install it with `corepack enable`).
+- **Docker**, only if you are going to run the store integration tests.
 
-## Puesta en marcha
+## Getting started
 
 ```bash
-pnpm install          # instala todo el workspace
-pnpm build            # compila todos los paquetes (pnpm -r build, en orden topológico)
-pnpm typecheck        # tsc -p tsconfig.test.json en cada paquete (src + tests)
-pnpm test             # suite completa (pnpm -r test, vitest run en cada paquete)
+pnpm install          # install the whole workspace
+pnpm build            # compile every package (pnpm -r build, in topological order)
+pnpm typecheck        # tsc -p tsconfig.test.json per package (src + tests)
+pnpm test             # full suite (pnpm -r test, vitest run per package)
 ```
 
-Trabajar en un solo paquete (el `--filter` usa el `name` del `package.json`, que no siempre coincide con el directorio):
+Working on a single package (`--filter` uses the `name` from `package.json`, which does not always match the directory):
 
 ```bash
 pnpm --filter @botmesh/ai test
 pnpm --filter @botmesh/core build
-pnpm --filter "@botmesh/meta..." build     # el paquete + sus dependencias del workspace
+pnpm --filter "@botmesh/meta..." build     # the package plus its workspace dependencies
 ```
 
-Los paquetes se resuelven entre sí por `exports` → `lib/` (salida compilada): si cambias `core` y pruebas un paquete que lo usa, compila `core` primero.
+Packages resolve each other through `exports` → `lib/` (compiled output): if you change `core` and then test a package that uses it, build `core` first.
 
-**Windows:** abre la terminal en la ruta con la unidad en **mayúscula** (`C:\laragon\www\botmesh`). Si la unidad llega en minúscula (`c:\...`, habitual en la terminal de VS Code), un `pnpm -r <script>` lanzado a mano no reconoce el directorio, incluye el paquete raíz y todo se ejecuta dos veces. Los scripts raíz (`pnpm build`, `pnpm test`, `pnpm typecheck`) no tienen ese problema.
+**Windows:** start the terminal with the drive letter in **uppercase**. A lowercase drive letter (the usual thing in the VS Code terminal) makes a hand-run `pnpm -r <script>` fail to match the workspace directory, which pulls in the root package and runs everything twice. The root scripts (`pnpm build`, `pnpm test`, `pnpm typecheck`) do not have that problem.
 
-## Tests de integración de stores (Docker)
+## Store integration tests (Docker)
 
-Los tests unitarios de los stores son herméticos (fakes en memoria o un archivo SQLite temporal). Además, `mongo-store`, `mysql-store`, `postgres-store` y `redis-store` traen un `tests/integration.test.ts` que corre contra un servidor **real**. Cada suite lee su variable `BOTWA_TEST_*_URL` y **se salta sola si no está definida**, así que `pnpm test` nunca necesita red.
+The store unit tests are hermetic (in-memory fakes or a temporary SQLite file). On top of that, `mongo-store`, `mysql-store`, `postgres-store` and `redis-store` ship a `tests/integration.test.ts` that runs against a **real** server. Each suite reads its `BOTWA_TEST_*_URL` variable and **skips itself when it is not defined**, so `pnpm test` never needs the network.
 
 ```bash
-# servidores desechables (puertos altos para no chocar con un MySQL/Redis local, p. ej. Laragon)
+# disposable servers (high ports so they do not clash with a local MySQL/Redis)
 docker run -d --name botwa-it-postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=botwa -p 55432:5432 postgres:16
 docker run -d --name botwa-it-mysql -e MYSQL_ROOT_PASSWORD=root -e MYSQL_DATABASE=botwa -p 53306:3306 mysql:8.4
 docker run -d --name botwa-it-mongo -p 57017:27017 mongo:7
@@ -45,26 +45,28 @@ export BOTWA_TEST_MYSQL_URL=mysql://root:root@127.0.0.1:53306/botwa
 export BOTWA_TEST_MONGO_URL=mongodb://127.0.0.1:57017
 export BOTWA_TEST_REDIS_URL=redis://127.0.0.1:56379
 
-pnpm --filter "./packages/*-store" test   # MySQL tarda unos segundos en aceptar conexiones
+pnpm --filter "./packages/*-store" test   # MySQL takes a few seconds to accept connections
 
 docker rm -f botwa-it-postgres botwa-it-mysql botwa-it-mongo botwa-it-redis
 ```
 
-`redis-store` también trae suites contra un **Redis Cluster** real (`tests/cluster.integration.test.ts` y `tests/cluster-migrate.integration.test.ts`; la segunda usa además `BOTWA_TEST_REDIS_URL`). Los puertos 47100-47105 quedan lejos de los anteriores; el bus del cluster (57100-57105) no sale del contenedor:
+On Windows, always use `127.0.0.1` instead of `localhost`: `localhost` resolves to `::1` first and Docker Desktop's IPv6 forwarding accepts the TCP connection only to cut it, so the hooks time out.
+
+`redis-store` also ships suites against a real **Redis Cluster** (`tests/cluster.integration.test.ts` and `tests/cluster-migrate.integration.test.ts`; the second one also uses `BOTWA_TEST_REDIS_URL`). Ports 47100-47105 stay well away from the ones above; the cluster bus (57100-57105) never leaves the container:
 
 ```bash
 docker run -d --name botwa-it-redis-cluster -e IP=0.0.0.0 -e INITIAL_PORT=47100 -e MASTERS=3 -e SLAVES_PER_MASTER=1 -p 127.0.0.1:47100-47105:47100-47105 grokzen/redis-cluster:7.0.10
 export BOTWA_TEST_REDIS_CLUSTER_URL=redis://127.0.0.1:47100
-export BOTWA_TEST_REDIS_CLUSTER_CHAOS=1   # opcional: failover y migración de un slot bajo carga
+export BOTWA_TEST_REDIS_CLUSTER_CHAOS=1   # optional: failover and slot migration under load
 pnpm --filter @botmesh/redis-store test
 docker rm -f botwa-it-redis-cluster
 ```
 
-En PowerShell, las variables se definen con `$env:BOTWA_TEST_POSTGRES_URL = 'postgres://postgres:postgres@127.0.0.1:55432/botwa'` (y así con las demás). Puedes definir solo las que te interesen: el resto de suites se salta.
+In PowerShell, environment variables are set with `$env:BOTWA_TEST_POSTGRES_URL = 'postgres://postgres:postgres@127.0.0.1:55432/botwa'` (and likewise for the rest). You can define only the ones you care about: the other suites skip themselves.
 
-### Email (`@botmesh/email`) contra GreenMail
+### Email (`@botmesh/email`) against GreenMail
 
-`packages/email-provider/tests/integration.test.ts` prueba el provider de email con `imapflow` y `nodemailer` reales contra [GreenMail](https://greenmail-mail-test.github.io/greenmail/) (IMAP IDLE, SMTP, hilos, adjuntos, protección contra bucles, reinicios y un flujo del `Bot`). Se activa con `BOTWA_TEST_EMAIL`:
+`packages/email-provider/tests/integration.test.ts` exercises the email provider with real `imapflow` and `nodemailer` against [GreenMail](https://greenmail-mail-test.github.io/greenmail/) (IMAP IDLE, SMTP, threading, attachments, loop protection, restarts and a full `Bot` flow). It turns on with `BOTWA_TEST_EMAIL`:
 
 ```bash
 docker run -d --name botwa-it-greenmail \
@@ -76,146 +78,139 @@ BOTWA_TEST_EMAIL=1 pnpm --filter @botmesh/email test
 docker rm -f botwa-it-greenmail
 ```
 
-Host y puertos: `BOTWA_TEST_EMAIL_HOST`, `BOTWA_TEST_EMAIL_SMTP_PORT` y `BOTWA_TEST_EMAIL_IMAP_PORT` (por defecto `127.0.0.1`, `3025` y `3143`). Más detalles en el [README del paquete](packages/email-provider/README.md#tests-de-integración). Si tocas `email-provider`, córrelo en local: CI no lo ejecuta.
+Host and ports: `BOTWA_TEST_EMAIL_HOST`, `BOTWA_TEST_EMAIL_SMTP_PORT` and `BOTWA_TEST_EMAIL_IMAP_PORT` (default `127.0.0.1`, `3025` and `3143`). More detail in the [package README](packages/email-provider/README.md#integration-tests). If you touch `email-provider`, run it locally: CI does not.
 
-## Carga, soak y fugas (`pnpm bench:soak`)
+## Load, soak and leaks (`pnpm bench:soak`)
 
-`scripts/soak/soak.mjs` mete carga en el runtime de `@botmesh/core` (y en `@botmesh/ai` con `MockAIProvider`) sobre `MockProvider`: miles de chats y participantes de grupo con flows (`ask`/validación/reintentos/timeouts/`delay`), conversaciones con `c.idle`, `bot.onIdle`, dedupe de entrada, handoff, idioma "pegajoso", `ctx.user`, broadcast, métricas, pacer de typing, streaming y confirmaciones de herramientas de IA (botones, respuestas escritas, timeouts, `/reset`, pulsaciones viejas). Tras cada ronda espera a que los bots queden ociosos, fuerza GC y mide heap, handles activos (`process.getActiveResourcesInfo()`), tamaño de los mapas internos, lag del event loop y throughput. Al final hace `stop({ drain: true })` **bajo carga** y falla (código 2) si queda algún temporizador vivo. No forma parte de `pnpm test`.
+`scripts/soak/soak.mjs` drives the `@botmesh/core` runtime (and `@botmesh/ai` with `MockAIProvider`) through `MockProvider`: thousands of chats and group participants running flows (`ask`/validation/retries/timeouts/`delay`), conversations with `c.idle`, `bot.onIdle`, inbound dedupe, handoff, sticky language, `ctx.user`, broadcast, metrics, the typing pacer, streaming and AI tool confirmations (buttons, typed answers, timeouts, `/reset`, stale presses). After every round it waits for the bots to go idle, forces GC and measures heap, active handles (`process.getActiveResourcesInfo()`), internal map sizes, event-loop lag and throughput. At the end it calls `stop({ drain: true })` **under load** and fails (exit code 2) if any timer is still alive. It is not part of `pnpm test`.
 
 ```bash
-pnpm build                                        # usa lib/ compilado
-pnpm bench:soak                                   # unos segundos
-pnpm bench:soak -- --chats 2000 --rounds 20       # más carga
-pnpm bench:soak -- --duration 600                 # soak de 10 minutos
-pnpm bench:soak -- --fresh 0                      # solo chats repetidos: el heap debe quedar plano
-pnpm bench:soak -- --json > soak.json             # informe en JSON
-pnpm bench:soak -- --rounds 1 --trace-timers      # de dónde salen los temporizadores que quedan tras stop()
+pnpm build                                        # uses the compiled lib/
+pnpm bench:soak                                   # a few seconds
+pnpm bench:soak -- --chats 2000 --rounds 20       # more load
+pnpm bench:soak -- --duration 600                 # a 10-minute soak
+pnpm bench:soak -- --fresh 0                      # repeated chats only: the heap must stay flat
+pnpm bench:soak -- --json > soak.json             # JSON report
+pnpm bench:soak -- --rounds 1 --trace-timers      # where the timers left after stop() come from
 ```
 
-Opciones: `--chats`, `--groups`, `--participants`, `--ai-chats`, `--fresh` (chats nuevos por ronda; hacen crecer el `MemoryStore` a propósito y el informe mide el heap tras borrarlos), `--rounds`, `--duration` (segundos), `--json`, `--trace-timers`. Cada fuga que se arregle lleva además un test rápido en la suite normal (`packages/core/tests/soak-regressions.test.ts`, `packages/ai/tests/soak-regressions.test.ts`).
+Options: `--chats`, `--groups`, `--participants`, `--ai-chats`, `--fresh` (new chats per round; they grow `MemoryStore` on purpose and the report measures the heap after deleting them), `--rounds`, `--duration` (seconds), `--json`, `--trace-timers`. Every leak that gets fixed also gets a fast regression test in the normal suite (`packages/core/tests/soak-regressions.test.ts`, `packages/ai/tests/soak-regressions.test.ts`).
 
-## Reglas del código
+## Code rules
 
-- **ESM-only**: `"type": "module"`, imports relativos con extensión `.js` (NodeNext). Node >= 22.
-- **Sin `console.*`** en `src/` — usa el `logger` inyectado. La salida del QR por terminal es la única excepción.
-- **Sin `any`** en tipos exportados públicos.
-- **TDD**: escribe el test que falla primero, luego la implementación mínima. Cada cambio de comportamiento necesita su test.
-- El paquete de IA carga los SDKs de proveedor de forma lazy; nunca los importes al top-level.
+- **ESM-only**: `"type": "module"`, relative imports with the `.js` extension (NodeNext). Node >= 22.
+- **No `console.*`** in `src/` — use the injected `logger`. QR output to the terminal is the only exception.
+- **No `any`** in exported public types.
+- **TDD**: write the failing test first, then the minimal implementation. Every behaviour change needs its test.
+- The AI package loads provider SDKs lazily; never import them at the top level.
 
 ## Commits
 
-[Conventional Commits](https://www.conventionalcommits.org/): `feat(scope): ...`, `fix(...)`, `docs(...)`, `refactor(...)`, `test(...)`, `build(...)`, `chore(...)`. Sujeto en imperativo, ≤ 72 chars.
+[Conventional Commits](https://www.conventionalcommits.org/): `feat(scope): ...`, `fix(...)`, `docs(...)`, `refactor(...)`, `test(...)`, `build(...)`, `chore(...)`. Imperative subject, ≤ 72 chars.
 
 ## Changesets
 
-Todo cambio **visible para el usuario** de un paquete publicable (feature, fix, cambio de API o de comportamiento) lleva un *changeset* en el mismo PR:
+Every **user-visible** change to a publishable package (feature, fix, API or behaviour change) carries a *changeset* in the same PR:
 
 ```bash
-pnpm changeset        # elige paquetes, tipo de bump (patch/minor/major) y escribe la nota
+pnpm changeset        # pick packages, bump type (patch/minor/major) and write the note
 ```
 
-Se genera un `.changeset/<nombre>.md` que se commitea con el PR. No hace falta para tests, CI, docs del sitio, refactors internos sin efecto observable ni paquetes privados (`pnpm changeset --empty` si quieres dejarlo explícito). Detalles en [`.changeset/README.md`](.changeset/README.md).
+It creates a `.changeset/<name>.md` that is committed with the PR. Not needed for tests, CI, site docs, internal refactors with no observable effect, or private packages (`pnpm changeset --empty` if you want to be explicit). Details in [`.changeset/README.md`](.changeset/README.md).
 
-## Antes de abrir un PR
+## Before opening a PR
 
 ```bash
-pnpm build && pnpm typecheck && pnpm test   # todo verde
-pnpm changeset                              # si cambia algo publicable
-pnpm run docs                               # opcional: verifica que el sitio compila sin links muertos (usa `pnpm run`: `pnpm docs` es un builtin de pnpm)
+pnpm build && pnpm typecheck && pnpm test   # all green
+pnpm changeset                              # if anything publishable changed
+pnpm run docs                               # optional: checks the site builds with no dead links (use `pnpm run`: `pnpm docs` is a pnpm builtin)
 ```
 
-CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) corre `build` y `test` en Node 22 y 24 en cada push a `main` y en cada PR contra `main` (en Node 24 también `pnpm run docs`). `pnpm typecheck` y los tests de integración de stores **no** corren en CI: ejecútalos en local antes de abrir el PR (los de stores, si tocas un store).
+CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs `build` and `test` on Node 22 and 24 on every push to `main` and on every PR against `main` (plus `pnpm run docs` on Node 24). `pnpm typecheck` and the store integration tests do **not** run in CI: run them locally before opening the PR (the store ones only if you touch a store).
 
-## Publicar una versión
+## Publishing a version
 
-Las versiones se gestionan con [Changesets](https://changesets.dev) (CLI v3) y se publican **a mano** desde la máquina del mantenedor. No hay workflow de release.
+Versions are managed with [Changesets](https://changesets.dev) (CLI v3) and published **by hand** from the maintainer's machine. There is no release workflow.
 
-**Paquetes públicos** (se publican en npm): `@botmesh/core`, `@botmesh/baileys`, `@botmesh/meta`, `@botmesh/telegram`, `@botmesh/sqlite-store`, `@botmesh/redis-store`, `@botmesh/ai`, `@botmesh/http`, `@botmesh/graph-core` y `create-botmesh`.
+**Public packages** (published to npm): `@botmesh/core`, `@botmesh/baileys`, `@botmesh/meta`, `@botmesh/telegram`, `@botmesh/sqlite-store`, `@botmesh/redis-store`, `@botmesh/ai`, `@botmesh/http`, `@botmesh/graph-core` and `create-botmesh`.
 
-**Paquetes privados** (`"private": true`, nunca se publican): todo lo demás — los canales experimentales (`discord`, `messenger`, `instagram`, `evolution`, `wppconnect`, `twilio`, `gohighlevel`, `gupshup`, `email`, `tiktok`), los stores `mongo`/`postgres`/`mysql`, la infraestructura (`server`, `wa-gateway-kit`), los plugins e integraciones (`nlu`, `rag`, `voice`, `dialogflow`, `chatwoot`, `tickets`, `moderation`, `manager`, `events`, `otel`), los paquetes de producto (`inbox`, `crm`, `hub`, `campaigns`, `deployments`, `tenant-kv`, `flow-schema`) y el tooling (`eslint-plugin-botmesh`, `@botmesh/mcp`). La tabla del [README](README.md#packages) es la lista canónica.
+**Private packages** (`"private": true`, never published): everything else — the experimental channels (`discord`, `messenger`, `instagram`, `evolution`, `wppconnect`, `twilio`, `gohighlevel`, `gupshup`, `email`, `tiktok`), the `mongo`/`postgres`/`mysql` stores, the infrastructure (`server`, `wa-gateway-kit`), the plugins and integrations (`nlu`, `rag`, `voice`, `dialogflow`, `chatwoot`, `tickets`, `moderation`, `manager`, `events`, `otel`), the product packages (`inbox`, `crm`, `hub`, `campaigns`, `deployments`, `tenant-kv`, `flow-schema`) and the tooling (`eslint-plugin-botmesh`, `@botmesh/mcp`). The [README](README.md#packages) table is the canonical list.
 
-### Traspaso desde `@bot-wa/*`
+### The `@bot-wa/*` packages are deprecated
 
-El proyecto se llamaba `@bot-wa/*` hasta octubre de 2026. Aquellos paquetes siguen en npm y hay que **deprecarlos** (no despublicarlos: despublicar rompe a quien ya los instaló) para que quien llegue por el nombre viejo encuentre el nuevo.
+The project was called `@bot-wa/*` until October 2026. Those packages were **deprecated**, not unpublished (unpublishing breaks whoever already installed them), so anyone arriving through the old name sees the pointer to the new one:
 
-`npm deprecate` es una escritura autenticada, así que la cuenta con 2FA `auth-and-writes` exige un OTP **por paquete**. Dos avisos de este entorno:
-
-- **`npm` es un alias de pnpm** en la terminal de VS Code. `pnpm deprecate` no sabe pedir el OTP (falla con `ERR_PNPM_UNAUTHORIZED`) y no acepta `@*`; usa siempre el npm real: `& "C:\nvm4w\nodejs\npm.cmd"` en PowerShell, o desactiva el alias.
-- No hay forma de meter una lista en un solo `deprecate`: hay que ir versión por versión (el rango `@*` no vale).
-
-**Opción sin OTP (recomendada).** Crea en <https://www.npmjs.com/settings/andresaya/tokens> un **Granular Access Token** con permiso *Read and write*, marcado para **bypass 2FA**, y úsalo solo para esta operación:
-
-```powershell
-$env:NPM_TOKEN = 'npm_...'   # solo en esta sesión, nunca en un archivo del repo
-foreach ($p in 'core','baileys','meta','telegram','sqlite-store','redis-store','ai','http','graph-core') {
-  $v = if ($p -eq 'core') { '2.0.0-alpha.2' } else { '0.2.0-alpha.0' }
-  & "C:\nvm4w\nodejs\npm.cmd" deprecate "@bot-wa/$p@$v" "Renamed to @botmesh/$p. Install with: npm i @botmesh/$p@alpha"
-}
-& "C:\nvm4w\nodejs\npm.cmd" deprecate "create-bot-wa@0.2.0-alpha.0" "Renamed to create-botmesh. Run: npm create botmesh@alpha"
-Remove-Item Env:\NPM_TOKEN
+```
+@bot-wa/core@2.0.0-alpha.2            → Renamed to @botmesh/core
+@bot-wa/{baileys,meta,telegram,sqlite-store,redis-store,ai,http,graph-core}@0.2.0-alpha.0
+                                     → Renamed to @botmesh/<same name>
+create-bot-wa@0.2.0-alpha.0          → Renamed to create-botmesh
 ```
 
-**Opción manual.** Sin token, ejecuta cada comando en una terminal interactiva (sin tuberías, o npm no puede preguntar) y teclea el OTP cuando lo pida; son 10 códigos.
+To reverse a deprecation (for example, to publish a fix under the old name after all), run `npm deprecate "<package>@<version>" ""`. Two things worth knowing if you ever repeat the operation:
 
-`npm deprecate` deja un aviso en la instalación pero mantiene el paquete descargable, y es reversible con `npm deprecate "<pkg>@<version>" ""`. Los `CHANGELOG.md` de cada paquete y `docs/superpowers/` conservan los nombres antiguos a propósito: narran lo que se publicó con ellos.
+- `npm deprecate` is an authenticated write, so an account with `auth-and-writes` 2FA needs a one-time password **per package**, and the range `@*` is not accepted: go version by version. A Granular Access Token marked to bypass 2FA does the whole list in one pass, and it must be kept out of the repo (environment variable only, never a file).
+- If `npm` resolves to a pnpm shim in your shell, `npm deprecate` runs pnpm instead, which cannot prompt for the OTP and fails with `ERR_PNPM_UNAUTHORIZED`. Use your Node installation's official npm CLI for that operation, with no pipes, so it can prompt.
 
+Package `CHANGELOG.md` files and `docs/superpowers/` keep the old names on purpose: they narrate what was published under them.
 
-### Flujo
+### Flow
 
-1. Cada PR incluye su changeset (`pnpm changeset`).
-2. Para publicar, en `main` con el árbol limpio y sesión iniciada en npm (`pnpm login`):
+1. Every PR carries its changeset (`pnpm changeset`).
+2. To publish, on `main` with a clean tree and an npm session (`pnpm login`):
 
 ```bash
-pnpm version-packages      # changeset version: sube versiones y escribe los CHANGELOG de cada paquete
-git commit -am "chore(release): version packages"
-pnpm changeset publish-plan   # revisa qué se va a publicar
-pnpm pack:smoke            # empaqueta e instala los tarballs en un proyecto limpio (no publica nada)
-pnpm test:scripts          # tests de los helpers de scripts/ (semver del smoke test)
-pnpm release               # pnpm clean && pnpm build && changeset publish: publica y crea los tags <paquete>@<versión>
+pnpm version-packages         # changeset version: bumps versions and writes each package CHANGELOG
+git add -A                    # the per-package CHANGELOG.md files are new, so -am would miss them
+git commit -m "chore(release): version packages"
+pnpm changeset publish-plan   # review what is about to be published
+pnpm pack:smoke               # packs and installs the tarballs in a clean project (publishes nothing)
+pnpm test:scripts             # tests of the scripts/ helpers (smoke-test semver)
+pnpm release                  # pnpm clean && pnpm build && changeset publish: publishes and tags <package>@<version>
 git push --follow-tags
 ```
 
-> **El orden importa.** `pnpm release` a secas publica las versiones **actuales** de los `package.json` y deja los changesets sin aplicar (`changeset publish` no los consume): la primera vez subiría `0.1.0` / `2.0.0-alpha.1` con todo el trabajo pendiente fuera. Siempre `version-packages` → commit → `release`.
+> **Order matters.** A bare `pnpm release` publishes the **current** versions in the `package.json` files and leaves the changesets unconsumed (`changeset publish` does not consume them): the first time it would have shipped `0.1.0` / `2.0.0-alpha.1` with all the pending work left out. Always `version-packages` → commit → `release`.
 
-### Checklist de release
+### Release checklist
 
-Se ejecuta completo antes de `changeset publish` (es el checklist que exige el safety gate de [`ROADMAP.md`](ROADMAP.md)); el modelo de amenazas y sus riesgos residuales están en [docs/guide/threat-model.md](docs/guide/threat-model.md).
+Run the whole thing before `changeset publish` (it is the checklist the [`ROADMAP.md`](ROADMAP.md) safety gate asks for); the threat model and its residual risks live in [docs/guide/threat-model.md](docs/guide/threat-model.md).
 
-- [ ] `main` limpio, sin ramas `wave*` ni worktrees, con todo lo que se publica ya commiteado.
-- [ ] `pnpm build && pnpm typecheck && pnpm test` en verde (Node 22 y 24; el CI cubre build y test).
-- [ ] `pnpm api-check` (0 hallazgos) y `pnpm pack:smoke` (tarballs instalados de verdad y plantillas resueltas).
-- [ ] `pnpm version-packages` ejecutado y revisado con `pnpm changeset status --verbose` y `pnpm changeset publish-plan`; commit `chore(release): version packages`.
-- [ ] `pnpm run docs:site && pnpm docs:check` sin errores ni avisos, y `docs/public/llms.txt` al día.
-- [ ] Ningún secreto, credencial de sesión ni `.env` en el árbol ni en los tarballs (`git status`, `scripts/pack-smoke.mjs`).
-- [ ] Threat model y este checklist revisados si el release cambia superficies (canal nuevo, capability nueva, paquete público nuevo).
-- [ ] Tras publicar: `npm dist-tag ls` de cada paquete, instalación limpia desde el registro con el tag correcto y un `npm create botmesh@alpha` de humo en un directorio vacío.
+- [ ] `main` clean, no `wave*` branches or worktrees, everything that gets published already committed.
+- [ ] `pnpm build && pnpm typecheck && pnpm test` green (Node 22 and 24; CI covers build and test).
+- [ ] `pnpm api-check` (0 findings) and `pnpm pack:smoke` (tarballs installed for real and templates resolved).
+- [ ] `pnpm version-packages` run and reviewed with `pnpm changeset status --verbose` and `pnpm changeset publish-plan`; commit `chore(release): version packages`.
+- [ ] `pnpm run docs:site && pnpm docs:check` with no errors or warnings, and `docs/public/llms.txt` up to date.
+- [ ] No secret, session credential or `.env` in the tree or in the tarballs (`git status`, `scripts/pack-smoke.mjs`).
+- [ ] Threat model and this checklist reviewed when the release changes surfaces (new channel, new capability, new public package).
+- [ ] After publishing: `npm dist-tag ls` for every package, a clean install from the registry with the right tag, and a smoke `npm create botmesh@alpha` in an empty directory.
 
-### Smoke test de empaquetado
+### Packaging smoke test
 
-`pnpm pack:smoke` (`scripts/pack-smoke.mjs`) simula instalar desde npm **sin publicar**: compila, ejecuta `pnpm pack` en cada paquete público hacia un directorio temporal fuera del repo, revisa cada tarball (archivos de `main`/`types`/`exports`/`bin`, README y LICENSE; nada de `src`, tests, source maps, configs ni credenciales; salida de `lib/` sin fuente; `engines`; dependencias privadas o con `workspace:`; tamaños) y luego, en un proyecto npm limpio, instala los tarballs y comprueba que cada subpath de `exports` se importa, que un consumidor TypeScript compila con `moduleResolution` `nodenext` y `bundler`, que los SDKs opcionales de IA ausentes solo fallan al usarse, que los bins `botmesh` y `create-botmesh` funcionan que ningún README publicado tiene enlaces relativos (se rompen en npmjs.com) y que cada plantilla de `create-botmesh` resuelve sus versiones contra los tarballs y se instala **sin tocar sus rangos `@botmesh/*`** (un registro npm local y temporal, `scripts/smoke/registry.mjs`, sirve los tarballs al scope `@botmesh`, así que es npm quien resuelve los rangos, prereleases incluidas) y arranca en `botmesh dev`. Necesita red para las dependencias de terceros y tarda unos minutos. Opciones: `--no-build`, `--no-scaffold-install` (más rápido), `--keep` (conserva el directorio temporal). Es un script local: no hay workflow de CI para él.
+`pnpm pack:smoke` (`scripts/pack-smoke.mjs`) simulates installing from npm **without publishing**: it builds, runs `pnpm pack` on every public package into a temporary directory outside the repo, checks each tarball (`main`/`types`/`exports`/`bin` files, README and LICENSE; no `src`, tests, source maps, configs or credentials; `lib/` output without source; `engines`; private or `workspace:` dependencies; sizes) and then, in a clean npm project, installs the tarballs and verifies that every `exports` subpath imports, that a TypeScript consumer compiles with `moduleResolution` `nodenext` and `bundler`, that the optional AI SDKs only fail when used, that the `botmesh` and `create-botmesh` bins work, that no published README has relative links (they break on npmjs.com) and that every `create-botmesh` template resolves its versions against the tarballs and installs **without touching its `@botmesh/*` ranges** (a local, temporary npm registry, `scripts/smoke/registry.mjs`, serves the tarballs to the `@botmesh` scope, so npm itself resolves the ranges, prereleases included) and boots in `botmesh dev`. It needs network access for third-party dependencies and takes a few minutes. Options: `--no-build`, `--no-scaffold-install` (faster), `--keep` (keeps the temporary directory). It is a local script: there is no CI workflow for it.
 
-### Modo prerelease `alpha`
+### Prerelease mode `alpha`
 
-El repo está en **modo prerelease `alpha`** de Changesets (`.changeset/pre.json`, creado con `pnpm changeset pre enter alpha`). Mientras siga así:
+The repo is in Changesets' **`alpha` prerelease mode** (`.changeset/pre.json`, created with `pnpm changeset pre enter alpha`). While it stays that way:
 
-- `pnpm version-packages` genera versiones de prerelease: `@botmesh/core` sale como `2.0.0-alpha.N` y el resto como `x.y.z-alpha.N` (p. ej. `0.2.0-alpha.0`). `pnpm changeset status --verbose` muestra las versiones que se generarían.
-- `pnpm release` publica con el dist-tag `alpha`, no `latest`: quien instala sin indicar tag no recibe la serie alpha (`npm i @botmesh/core@alpha` sí).
-- `.changeset/pre.json` registra el estado del modo pre; no lo borres ni lo edites a mano.
+- `pnpm version-packages` produces prerelease versions: `@botmesh/core` comes out as `2.0.0-alpha.N` and the rest as `x.y.z-alpha.N` (e.g. `0.2.0-alpha.0`). `pnpm changeset status --verbose` shows the versions that would be generated.
+- `pnpm release` publishes under the `alpha` dist-tag. A package that **has never been published** also gets `latest`, because npm assigns it to the first version of a name; for an existing package it is not moved, so `npm i @botmesh/core` only resolves while that package is brand new.
+- `.changeset/pre.json` records the pre-mode state; do not delete or hand-edit it.
 
-Para salir del modo prerelease cuando la API se estabilice:
+To leave prerelease mode once the API settles:
 
 ```bash
-pnpm changeset pre exit    # la siguiente version-packages genera las versiones estables (sin -alpha.N) y publica bajo latest
+pnpm changeset pre exit    # the next version-packages produces stable versions (no -alpha.N) and publishes under latest
 ```
 
-Antes de la primera publicación, el mantenedor debe crear o reclamar el scope **`@botmesh`** en npm (una organización con ese nombre) y comprobar que el nombre `create-botmesh` sigue libre.
+The scope **`@botmesh`** already exists on npm, and `create-botmesh` is taken by this project; both are prerequisites of the first publish and are done.
 
-### Promover un paquete privado
+### Promoting a private package
 
-Quita `"private": true` de su `package.json`, comprueba que tiene `publishConfig.access: "public"`, `repository.directory` y `files`, y añade un changeset. Ningún paquete público puede depender de uno privado (Changesets lo rechaza). Las versiones que estampa `create-botmesh` se regeneran solas desde los `package.json` (`create-botmesh/src/versions.ts`, en `pnpm build` y `pnpm version-packages`).
+Remove `"private": true` from its `package.json`, check that it has `publishConfig.access: "public"`, `repository.directory` and `files`, and add a changeset. No public package may depend on a private one (Changesets rejects it). The versions `create-botmesh` stamps are regenerated from the `package.json` files (`create-botmesh/src/versions.ts`, on `pnpm build` and `pnpm version-packages`).
 
-## Documentación
+## Documentation
 
-- Sitio VitePress en `docs/` (`pnpm docs:dev` para previsualizar en `http://localhost:5173/`). No se publica en ningún hosting: la documentación se lee en el propio repo. Antes de dar por buenos cambios en `docs/`, ejecuta `pnpm run docs:site && pnpm docs:check` (enlaces y anclas rotos, diagramas Mermaid sin renderizar, títulos repetidos).
-- Referencia de API generada con TypeDoc (`pnpm docs:api`) — nota: TypeDoc corre contra TypeScript 5.9 en la raíz (TypeDoc 0.28 aún no soporta TS 7, que es el compilador de los paquetes).
-- Diseños y decisiones históricas: `docs/superpowers/specs/` y `docs/superpowers/plans/`.
+- VitePress site in `docs/` (`pnpm docs:dev` to preview on `http://localhost:5173/`). It is not hosted anywhere: the docs are read in the repo itself. Before accepting changes under `docs/`, run `pnpm run docs:site && pnpm docs:check` (broken links and anchors, Mermaid diagrams that do not render, repeated headings).
+- API reference generated with TypeDoc (`pnpm docs:api`) — note that TypeDoc runs against TypeScript 5.9 at the root (TypeDoc 0.28 does not support TS 7 yet, which is what compiles the packages).
+- Historical designs and decisions: `docs/superpowers/specs/` and `docs/superpowers/plans/`.
