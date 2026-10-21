@@ -14,7 +14,7 @@ Stores implement the generic, transport-neutral `IStore` from `@botmesh/core` �
 | `MongoStore` · `PostgresStore` · `MysqlStore` | `@botmesh/mongo-store` · `@botmesh/postgres-store` · `@botmesh/mysql-store` | MongoDB / PostgreSQL / MySQL | **Experimental** — real, tested implementations, not published yet |
 
 `MemoryStore` ships with the core. `SQLiteStore` and `RedisStore` are part of
-the first alpha (not on npm yet — the first publish is being prepared). The
+the first alpha, under the `alpha` dist-tag. The
 MongoDB, PostgreSQL and MySQL stores pass the same `IStore` conformance
 suite but stay private (unpublished) for now; see their READMEs in the
 [repository](https://github.com/andresayac/botmesh/tree/main/packages).

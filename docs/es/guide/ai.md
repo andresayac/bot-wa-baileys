@@ -38,10 +38,9 @@ antes de salir a producción.
 
 ## Instalación
 
-::: warning Alpha — primera publicación en npm pendiente
-`@botmesh/ai` forma parte de la primera alpha, que **todavía no está en npm**.
-Hasta que se publique, úsalo desde el monorepo (`workspace:*`); los comandos
-de abajo son los que funcionarán cuando se publique.
+::: warning Alpha — instalar con el tag `alpha`
+`@botmesh/ai` está publicado como `0.2.0-alpha.0`; los comandos de abajo usan
+`@alpha`, porque `changeset publish` no crea el tag `latest`.
 :::
 
 ```bash

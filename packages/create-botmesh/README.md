@@ -2,15 +2,12 @@
 
 Scaffold a new [@botmesh](https://github.com/andresayac/botmesh) bot project in seconds — no runtime dependencies (only `node:` builtins).
 
-> **Alpha — first npm publish pending.** `create-botmesh` and the `@botmesh/*` packages it stamps into
-> generated projects are part of the first alpha, which is **not on npm yet**. Until it is, `npm create botmesh`
-> will not resolve and a generated project cannot `npm install` its dependencies from the public registry;
-> run the CLI from this monorepo instead, targeting a directory **outside** the repo
-> (`pnpm --filter create-botmesh build && node packages/create-botmesh/lib/cli.js ../my-bot`). A target inside the
+> **Alpha — published under the `alpha` tag.** `create-botmesh` and the `@botmesh/*` packages it stamps into
+> generated projects live under the **`alpha` dist-tag** (`changeset publish` does not create `latest`), so the
+> commands below use `@alpha`. Drop the tag when a stable version ships. To run the CLI from a checkout of this
+> monorepo instead, target a directory **outside** the repo
+> (`pnpm --filter create-botmesh build && node packages/create-botmesh/lib/cli.js ../my-bot`); a target inside the
 > botmesh monorepo is refused (it would join the framework workspace) unless you pass `--force`.
->
-> Once published, the alpha series lives under the **`alpha` dist-tag** (`changeset publish` does not create
-> `latest`), so the commands below use `@alpha`. Drop the tag when a stable version ships.
 
 ## Usage
 

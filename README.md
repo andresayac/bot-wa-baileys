@@ -2,13 +2,13 @@
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE.md)
 
-A modern, **transport-agnostic** framework for messaging bots: declarative flows to get going in 30 seconds, an async conversation runtime when you need full control, and a multi-provider AI plugin. Two WhatsApp transports —[Baileys 7](https://github.com/WhiskeySockets/Baileys) (unofficial) and the **official Meta Cloud API**— behind the same `IProvider`, plus Telegram and experimental channels (Messenger, Instagram, Discord, TikTok, email, and WhatsApp through Evolution API, WPPConnect, Twilio or Gupshup). **pnpm monorepo** in **alpha**: the first npm publish is being prepared.
+A modern, **transport-agnostic** framework for messaging bots: declarative flows to get going in 30 seconds, an async conversation runtime when you need full control, and a multi-provider AI plugin. Two WhatsApp transports —[Baileys 7](https://github.com/WhiskeySockets/Baileys) (unofficial) and the **official Meta Cloud API**— behind the same `IProvider`, plus Telegram and experimental channels (Messenger, Instagram, Discord, TikTok, email, and WhatsApp through Evolution API, WPPConnect, Twilio or Gupshup). **pnpm monorepo** in **alpha**: the packages are on npm under the `alpha` dist-tag (`pnpm add @botmesh/core@alpha`).
 
 ## Packages
 
 The monorepo has **44 packages**: 10 **Alpha** (publishable), 26 **Experimental** and 8 **Product** and infrastructure ones. They are not all equally mature, and the **Status** column says so plainly:
 
-- **Alpha**: part of the first publishable alpha. **Not on npm yet**; the first publish is being prepared.
+- **Alpha**: published on npm under the **`alpha` dist-tag** (install with `@alpha`; there is no `latest` yet).
 - **Experimental**: real, tested implementation, but the package is `private`. Not published yet and its API may change.
 - **Product / internal**: real, persistent implementation (`private`) over any core `DurableKv`. Per-tenant isolation and compare-and-set in the backend; the API may change until the alpha ships.
 
@@ -70,7 +70,7 @@ Start with the [core README](packages/core/README.md) for the quickstart.
 
 ## Installation (as a user)
 
-> **Alpha — first npm publish pending.** No `@botmesh/*` package is on npm yet. The commands below are the ones that will work once the first alpha ships; until then, clone the repo and use the packages from the workspace (see [Development](#development-in-this-repo)). Only the **Alpha** packages in the table above go out in that first batch.
+> **Alpha — published under the `alpha` dist-tag.** The packages below are on npm, but `changeset publish` does not create a `latest` tag, so the commands use `@alpha`. Only the **Alpha** packages in the table above are published; the rest are private.
 
 ```bash
 pnpm add @botmesh/core@alpha @botmesh/baileys@alpha   # WhatsApp bot (Baileys)

@@ -7,9 +7,9 @@ herramienta una vez; el plugin la traduce para Anthropic, OpenAI, Gemini u
 Ollama, ejecuta un bucle de varios pasos y le devuelve los resultados al modelo
 hasta que escribe la respuesta final.
 
-::: warning Alpha — primera publicación en npm pendiente
-`@botmesh/ai` forma parte de la primera alpha, que **todavía no está en npm**.
-Úsalo desde el monorepo (`workspace:*`) hasta que se publique.
+::: warning Alpha — instalar con el tag `alpha`
+`@botmesh/ai` está publicado como `0.2.0-alpha.0`; instálalo con el tag
+(`pnpm add @botmesh/ai@alpha`).
 :::
 
 ## Declarar herramientas

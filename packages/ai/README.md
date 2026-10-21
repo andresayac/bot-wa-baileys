@@ -7,10 +7,9 @@ OpenAI-compatible presets) for
 conversation memory; `ctx.tools.ai` gives you the full client to use wherever
 you want (flows, conversations, commands).
 
-> **Alpha — first npm publish pending.** `@botmesh/ai` ships with the first
-alpha but is **not on npm yet**: until then, use it from this monorepo
->(`workspace:*`). The `pnpm add` commands below are the ones that will work
->once it is published.
+> **Alpha — published under the `alpha` tag.** `@botmesh/ai` is on npm as
+> `0.2.0-alpha.0`; install it with the tag (`pnpm add @botmesh/ai@alpha`),
+> because `changeset publish` does not create a `latest` tag.
 
 ## WhatsApp AI policy (since 2026-01-15)
 

@@ -37,10 +37,9 @@ before going live.
 
 ## Install
 
-::: warning Alpha — first npm publish pending
-`@botmesh/ai` is part of the first alpha, which is **not on npm yet**. Until
-it is published, use it from the monorepo (`workspace:*`); the commands
-below are the ones that will work once it is.
+::: warning Alpha — install with the `alpha` tag
+`@botmesh/ai` is published as `0.2.0-alpha.0`; the commands below use
+`@alpha`, because `changeset publish` does not create a `latest` tag.
 :::
 
 ```bash

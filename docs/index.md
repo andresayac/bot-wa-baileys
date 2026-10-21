@@ -4,7 +4,7 @@ layout: home
 hero:
   name: botmesh
   text: Transport-Agnostic Bot Framework
-  tagline: Flows, hooks, plugins and conversations behind one IProvider — WhatsApp (Baileys / Cloud API) and Telegram, plus experimental Messenger, Instagram and Discord. Simple, declarative, TypeScript. Alpha, not on npm yet.
+  tagline: Flows, hooks, plugins and conversations behind one IProvider — WhatsApp (Baileys / Cloud API) and Telegram, plus experimental Messenger, Instagram and Discord. Simple, declarative, TypeScript. Alpha on npm — install with `@alpha`.
   actions:
     - theme: brand
       text: Get Started

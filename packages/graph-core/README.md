@@ -6,8 +6,8 @@ Shared **Meta Graph** helpers for the Meta transports of [`@botmesh/core`](https
 return the same Graph error codes; this package gathers that logic in one place so it is not
 duplicated in every provider.
 
-> **Internal package.** The providers use it; you do not need to import it to build a bot. It ships with the
-> first alpha as a dependency of `@botmesh/meta`, and it is not on npm yet.
+> **Internal package.** The providers use it; you do not need to import it to build a bot. It is
+> published as a dependency of `@botmesh/meta` under the `alpha` dist-tag.
 
 ## Installation
 

@@ -6,9 +6,9 @@ provider's native tool / function calling. You declare every tool once; the
 plugin maps it to Anthropic, OpenAI, Gemini or Ollama, runs a multi-step loop
 and feeds the results back to the model until it writes the final answer.
 
-::: warning Alpha — first npm publish pending
-`@botmesh/ai` is part of the first alpha, which is **not on npm yet**. Use it
-from the monorepo (`workspace:*`) until it is published.
+::: warning Alpha — install with the `alpha` tag
+`@botmesh/ai` is published as `0.2.0-alpha.0`; write `pnpm add @botmesh/ai@alpha`,
+because `changeset publish` does not create a `latest` tag.
 :::
 
 ## Declaring tools

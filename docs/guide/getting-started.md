@@ -21,22 +21,19 @@ also `require()` them via Node's experimental `require(esm)` support, but
 the examples below use plain `import`.
 :::
 
-::: warning Alpha — first npm publish pending
-botmesh is in **alpha** and **no `@botmesh/*` package is on npm yet**: the
-first publish is being prepared. The `pnpm add` commands on this site are the
-ones that will work once it ships, with the **`@alpha` tag** (`changeset
-publish` creates the `alpha` dist-tag, not `latest`, so an install without a
-tag will not resolve). Until then, clone
-[the repository](https://github.com/andresayac/botmesh) and use the
-packages from the pnpm workspace (`workspace:*`).
+::: warning Alpha — published under the `alpha` tag
+botmesh is in **alpha**: every package is on npm, but only under the **`alpha`
+dist-tag** (`changeset publish` does not create `latest`). An install without a
+tag will not resolve, so always write `pnpm add @botmesh/core@alpha`. Once a
+stable version ships, the tag can be dropped.
 :::
 
 ## Scaffold a project with create-botmesh
 
 The fastest start is the `create-botmesh` CLI, which generates a runnable
-project (it is part of the same alpha, so until the first publish run it from
-the monorepo, pointing it **outside** the repo:
-`pnpm --filter create-botmesh build && node packages/create-botmesh/lib/cli.js ../my-bot`;
+project. To run it from a checkout of this monorepo instead, point it
+**outside** the repo
+(`pnpm --filter create-botmesh build && node packages/create-botmesh/lib/cli.js ../my-bot`;
 a target inside the botmesh monorepo is refused unless you pass `--force`):
 
 ```bash

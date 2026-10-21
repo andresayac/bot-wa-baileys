@@ -1,7 +1,7 @@
 # @botmesh/redis-store
 
 > [!WARNING]
-> **Experimental — not on npm yet.** It ships with the first alpha, but nothing is on npm: until then use it from this monorepo (`workspace:*`); the `pnpm add` below will work once it is published. The API may change without notice. It is tested against a real Redis (see [Integration tests](#integration-tests)).
+> **Experimental — published under the `alpha` tag.** It is on npm as `0.2.0-alpha.0`; install it with the tag (`pnpm add @botmesh/redis-store@alpha`). The API may change without notice. It is tested against a real Redis (see [Integration tests](#integration-tests)).
 
 Redis [`IStore`](https://github.com/andresayac/botmesh/tree/main/packages/core) implementation for **@botmesh/core** — distributed, shared bot state backed by Redis (node-redis v4). Point any number of bot replicas at the same Redis instance and they share message logs, chats, contacts, flow checkpoints, AI conversation history and delivery cursors.
 

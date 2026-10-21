@@ -2,7 +2,7 @@
 
 SQLite [`IStore`](https://github.com/andresayac/botmesh/tree/main/packages/core) implementation for **@botmesh/core**: persistent bot state in a single file, backed by [better-sqlite3](https://github.com/WiseLibs/better-sqlite3). Message logs, chats, contacts, flow checkpoints, AI conversation history and delivery cursors survive restarts with no server to run.
 
-> **Alpha, first npm publish pending.** This package is part of the first alpha, but nothing is on npm yet. Until it is, use it from this monorepo (`workspace:*`); the `pnpm add` below is the command that will work once it is published.
+> **Alpha, published under the `alpha` dist-tag.** Install it with the tag (`pnpm add @botmesh/sqlite-store@alpha`); `changeset publish` does not create a `latest` tag.
 
 - One file, zero config. Tables are created on construction (`CREATE TABLE IF NOT EXISTS`), so there are no migrations to run by hand.
 - **WAL** journal mode by default (`synchronous = NORMAL`) for better concurrent reads.

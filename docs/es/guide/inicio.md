@@ -22,22 +22,19 @@ experimental `require(esm)` de Node, pero los ejemplos de abajo usan
 `import` normal.
 :::
 
-::: warning Alpha — primera publicación en npm pendiente
-botmesh está en **alpha** y **ningún paquete `@botmesh/*` está en npm
-todavía**: la primera publicación se está preparando. Los comandos
-`pnpm add` de este sitio son los que funcionarán cuando salga, **con el tag
-`@alpha`** (`changeset publish` crea el dist-tag `alpha`, no `latest`, así que
-una instalación sin tag no resuelve). Mientras tanto, clona
-[el repositorio](https://github.com/andresayac/botmesh) y usa
-los paquetes desde el workspace de pnpm (`workspace:*`).
+::: warning Alpha — publicada bajo el tag `alpha`
+botmesh está en **alpha**: todos los paquetes están en npm, pero solo bajo el
+**dist-tag `alpha`** (`changeset publish` no crea `latest`). Una instalación sin
+tag no resuelve, así que escribe siempre `pnpm add @botmesh/core@alpha`. Cuando
+salga una versión estable el tag se puede omitir.
 :::
 
 ## Crear un proyecto con create-botmesh
 
 La forma más rápida de empezar es la CLI `create-botmesh`, que genera un
-proyecto listo para ejecutar (forma parte de la misma alpha, así que hasta la
-primera publicación ejecútala desde el monorepo apuntando **fuera** del repo:
-`pnpm --filter create-botmesh build && node packages/create-botmesh/lib/cli.js ../my-bot`;
+proyecto listo para ejecutar. Para ejecutarla desde una copia de este monorepo,
+apunta **fuera** del repo
+(`pnpm --filter create-botmesh build && node packages/create-botmesh/lib/cli.js ../my-bot`;
 un destino dentro del monorepo de botmesh se rechaza salvo que pases `--force`):
 
 ```bash
