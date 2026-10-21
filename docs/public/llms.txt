@@ -56,6 +56,7 @@
 - [Multiple replicas: coordination, chat turns, hand-over](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/guide/replicas.md)
 - [JSON flow documents (schema, expressions, migrations, publish gate)](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/guide/flow-schema.md)
 - [Security: webhook authentication, untrusted surfaces, audit](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/guide/security.md)
+- [Threat model: assets, trust boundaries, threats T1-T12 and residual risks](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/guide/threat-model.md)
 - [MCP server (@bot-wa/mcp): validate/analyze/migrate/diff flow documents, docs search](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/guide/mcp.md)
 - [Terminal simulator (bot-wa dev)](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/guide/dev-simulator.md)
 - [Testing (createTestBot, MockProvider, chaos)](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/guide/testing.md)

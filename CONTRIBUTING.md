@@ -132,7 +132,7 @@ Las versiones se gestionan con [Changesets](https://changesets.dev) (CLI v3) y s
 
 **Paquetes públicos** (se publican en npm): `@bot-wa/core`, `@bot-wa/baileys`, `@bot-wa/meta`, `@bot-wa/telegram`, `@bot-wa/sqlite-store`, `@bot-wa/redis-store`, `@bot-wa/ai`, `@bot-wa/http`, `@bot-wa/graph-core` y `create-bot-wa`.
 
-**Paquetes privados** (`"private": true`, nunca se publican): `@bot-wa/discord`, `@bot-wa/messenger`, `@bot-wa/instagram`, `@bot-wa/mongo-store`, `@bot-wa/postgres-store`, `@bot-wa/mysql-store`, `@bot-wa/nlu`, `@bot-wa/manager`, `@bot-wa/events`, `@bot-wa/inbox`, `@bot-wa/crm`, `@bot-wa/hub`, `@bot-wa/campaigns` y `@bot-wa/deployments`.
+**Paquetes privados** (`"private": true`, nunca se publican): todo lo demás — los canales experimentales (`discord`, `messenger`, `instagram`, `evolution`, `wppconnect`, `twilio`, `gohighlevel`, `gupshup`, `email`, `tiktok`), los stores `mongo`/`postgres`/`mysql`, la infraestructura (`server`, `wa-gateway-kit`), los plugins e integraciones (`nlu`, `rag`, `voice`, `dialogflow`, `chatwoot`, `tickets`, `moderation`, `manager`, `events`, `otel`), los paquetes de producto (`inbox`, `crm`, `hub`, `campaigns`, `deployments`, `tenant-kv`, `flow-schema`) y el tooling (`eslint-plugin-bot-wa`, `@bot-wa/mcp`). La tabla del [README](README.md#paquetes) es la lista canónica.
 
 ### Flujo
 
@@ -148,6 +148,21 @@ pnpm test:scripts          # tests de los helpers de scripts/ (semver del smoke 
 pnpm release               # pnpm clean && pnpm build && changeset publish: publica y crea los tags <paquete>@<versión>
 git push --follow-tags
 ```
+
+> **El orden importa.** `pnpm release` a secas publica las versiones **actuales** de los `package.json` y deja los changesets sin aplicar (`changeset publish` no los consume): la primera vez subiría `0.1.0` / `2.0.0-alpha.1` con todo el trabajo pendiente fuera. Siempre `version-packages` → commit → `release`.
+
+### Checklist de release
+
+Se ejecuta completo antes de `changeset publish` (es el checklist que exige el safety gate de [`ROADMAP.md`](ROADMAP.md)); el modelo de amenazas y sus riesgos residuales están en [docs/guide/threat-model.md](docs/guide/threat-model.md).
+
+- [ ] `main` limpio, sin ramas `wave*` ni worktrees, con todo lo que se publica ya commiteado.
+- [ ] `pnpm build && pnpm typecheck && pnpm test` en verde (Node 22 y 24; el CI cubre build y test).
+- [ ] `pnpm api-check` (0 hallazgos) y `pnpm pack:smoke` (tarballs instalados de verdad y plantillas resueltas).
+- [ ] `pnpm version-packages` ejecutado y revisado con `pnpm changeset status --verbose` y `pnpm changeset publish-plan`; commit `chore(release): version packages`.
+- [ ] `pnpm run docs:site && pnpm docs:check` sin errores ni avisos, y `docs/public/llms.txt` al día.
+- [ ] Ningún secreto, credencial de sesión ni `.env` en el árbol ni en los tarballs (`git status`, `scripts/pack-smoke.mjs`).
+- [ ] Threat model y este checklist revisados si el release cambia superficies (canal nuevo, capability nueva, paquete público nuevo).
+- [ ] Tras publicar: `npm dist-tag ls` de cada paquete, instalación limpia desde el registro con el tag correcto y un `npm create bot-wa@alpha` de humo en un directorio vacío.
 
 ### Smoke test de empaquetado
 

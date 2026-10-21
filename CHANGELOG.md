@@ -4,6 +4,12 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/). Versionado po
 
 ## [Unreleased]
 
+### Documentación de release: threat model, checklist y tag `@alpha` (2026-10)
+- **Threat model EN/ES** (`docs/guide/threat-model.md`, `docs/es/guide/modelo-amenazas.md`): activos, fronteras de confianza con diagrama, doce amenazas (T1–T12) con su control y su riesgo residual — incluidos los que no son obvios: los plugins corren **en proceso sin sandbox**, el MCP es solo stdio local y no escribe en disco, y los webhooks sin timestamp de plataforma siguen siendo replicables. Cierra el criterio «threat model actualizado» del safety gate del `ROADMAP.md`.
+- **Checklist de release** en `CONTRIBUTING.md`, con la trampa del orden documentada: `pnpm release` a secas publicaría las versiones actuales y dejaría los changesets sin aplicar.
+- Las guías ya no prometen comandos que fallarían: `pnpm add @bot-wa/core@alpha` y `npm create bot-wa@alpha` (README, getting-started/inicio, store, ai, MIGRATION, READMEs de `core` y `create-bot-wa`, ayuda de la CLI), porque la alpha vive bajo el dist-tag `alpha` y `latest` no existe hasta una versión estable.
+- La lista de paquetes privados de `CONTRIBUTING.md` estaba congelada en 14 de 34; ahora remite a la tabla canónica del README.
+
 ### MCP: servidor para agentes sobre flujos y documentación (2026-10)
 - **`@bot-wa/mcp`** (paquete privado nuevo, sin dependencias): servidor **MCP por stdio** que expone las piezas deterministas del proyecto para que un agente escriba y verifique flujos **sin arrancar un bot**. Herramientas: `flow_validate` (issues con JSON Pointer), `flow_analyze` (valida → compila → Mermaid/JSON → `lintFlows`), `flow_migrate`, `flow_diff`, `flow_digest`, `flow_schema` (esquema draft 2020-12, límites y los 14 tipos de paso derivados del propio esquema) y `flow_example`. Con `--docs <dir>` (o `BOTWA_DOCS_DIR`) añade `docs_search` y `docs_page`; sin él no se anuncian.
 - Protocolo escrito a mano (`LineDecoder` + JSON-RPC 2.0 delimitado por líneas): `initialize`/`ping`/`tools/list`/`tools/call`, notificaciones nunca contestadas y `-32601` para capabilities no anunciadas. `initialize` devuelve un bloque `instructions` con las reglas caras de equivocar (la API v1 no existe, los documentos son datos, `void runtime.enter(...)`, ids opacos).
