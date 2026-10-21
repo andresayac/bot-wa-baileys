@@ -1,6 +1,6 @@
 {
   "name": "@bot-wa/baileys",
-  "version": "0.1.0",
+  "version": "0.2.0-alpha.0",
   "type": "module",
   "description": "WhatsApp transport for @bot-wa/core, built on Baileys 7 (IProvider v2).",
   "main": "lib/index.js",

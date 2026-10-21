@@ -1,6 +1,6 @@
 {
   "name": "@bot-wa/sqlite-store",
-  "version": "0.1.0",
+  "version": "0.2.0-alpha.0",
   "type": "module",
   "description": "Persistent SQLite IStore (better-sqlite3) for @bot-wa/core.",
   "main": "lib/index.js",

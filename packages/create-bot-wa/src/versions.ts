@@ -3,15 +3,15 @@
 
 /** Dependency range stamped into scaffolded projects for each public `@bot-wa/*` package. */
 export const BOTWA_VERSIONS = {
-  '@bot-wa/ai': '^0.1.0',
-  '@bot-wa/baileys': '^0.1.0',
-  '@bot-wa/core': '^2.0.0-alpha.1',
-  '@bot-wa/graph-core': '^0.1.0',
-  '@bot-wa/http': '^0.1.0',
-  '@bot-wa/meta': '^0.1.0',
-  '@bot-wa/redis-store': '^0.1.0',
-  '@bot-wa/sqlite-store': '^0.1.0',
-  '@bot-wa/telegram': '^0.1.0',
+  '@bot-wa/ai': '^0.2.0-alpha.0',
+  '@bot-wa/baileys': '^0.2.0-alpha.0',
+  '@bot-wa/core': '^2.0.0-alpha.2',
+  '@bot-wa/graph-core': '^0.2.0-alpha.0',
+  '@bot-wa/http': '^0.2.0-alpha.0',
+  '@bot-wa/meta': '^0.2.0-alpha.0',
+  '@bot-wa/redis-store': '^0.2.0-alpha.0',
+  '@bot-wa/sqlite-store': '^0.2.0-alpha.0',
+  '@bot-wa/telegram': '^0.2.0-alpha.0',
 } as const
 
 /** A public `@bot-wa/*` package name. */

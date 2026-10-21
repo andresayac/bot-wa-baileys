@@ -1,6 +1,6 @@
 {
   "name": "@bot-wa/telegram",
-  "version": "0.1.0",
+  "version": "0.2.0-alpha.0",
   "type": "module",
   "description": "Telegram Bot API transport for @bot-wa/core — long-poll or webhook, inline keyboards, native polls.",
   "main": "lib/index.js",

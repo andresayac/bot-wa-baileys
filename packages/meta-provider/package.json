@@ -1,6 +1,6 @@
 {
   "name": "@bot-wa/meta",
-  "version": "0.1.0",
+  "version": "0.2.0-alpha.0",
   "type": "module",
   "description": "WhatsApp Cloud API (official Meta) transport for @bot-wa/core — webhook-based, no ban risk, native buttons/lists/templates.",
   "main": "lib/index.js",

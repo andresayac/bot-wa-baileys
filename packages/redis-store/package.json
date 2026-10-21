@@ -1,6 +1,6 @@
 {
   "name": "@bot-wa/redis-store",
-  "version": "0.1.0",
+  "version": "0.2.0-alpha.0",
   "type": "module",
   "description": "Redis IStore for @bot-wa/core — distributed state, TTL, per-chat message logs.",
   "main": "lib/index.js",

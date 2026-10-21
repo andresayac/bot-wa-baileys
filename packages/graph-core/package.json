@@ -1,6 +1,6 @@
 {
   "name": "@bot-wa/graph-core",
-  "version": "0.1.0",
+  "version": "0.2.0-alpha.0",
   "type": "module",
   "description": "Shared Meta Graph helpers (webhook verification, typed error mapping, ingest guard) for @bot-wa/meta, @bot-wa/messenger and @bot-wa/instagram.",
   "main": "lib/index.js",

@@ -1,6 +1,6 @@
 {
   "name": "create-bot-wa",
-  "version": "0.1.0",
+  "version": "0.2.0-alpha.0",
   "type": "module",
   "description": "Scaffold a new @bot-wa bot project (npm create bot-wa).",
   "main": "lib/index.js", "types": "lib/index.d.ts",
