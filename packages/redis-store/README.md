@@ -1,7 +1,7 @@
 # @bot-wa/redis-store
 
 > [!WARNING]
-> **Experimental — aún no publicado en npm.** Forma parte de la primera alpha, pero todavía no hay nada en npm: hasta entonces úsalo desde este monorepo (`workspace:*`); el `pnpm add` de abajo funcionará cuando se publique. La API puede cambiar sin aviso. Está probado contra un Redis real (ver [Tests de integración](#tests-de-integración)).
+> **Experimental — not on npm yet.** It ships with the first alpha, but nothing is on npm: until then use it from this monorepo (`workspace:*`); the `pnpm add` below will work once it is published. The API may change without notice. It is tested against a real Redis (see [Integration tests](#integration-tests)).
 
 Redis [`IStore`](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/core) implementation for **@bot-wa/core** — distributed, shared bot state backed by Redis (node-redis v4). Point any number of bot replicas at the same Redis instance and they share message logs, chats, contacts, flow checkpoints, AI conversation history and delivery cursors.
 
@@ -213,39 +213,39 @@ const store = new RedisStore({ client: cluster, prefix: 'mybot' })            //
   - Once connected, a dropped connection is logged through `logger.error` and retried with backoff (0–500 ms) instead of crashing the process.
   - `stop()` is idempotent and never hangs: it sends `QUIT` (pending replies still arrive), disconnects immediately if the client is offline, and gives up waiting for the `QUIT` reply after 2 s.
 
-## Tests de integración
+## Integration tests
 
-Los tests unitarios (`tests/redis-store.test.ts`, `tests/conformance.test.ts`, `tests/fakeRedis.test.ts`) usan un cliente falso en memoria (`tests/fakeRedis.ts`) que imita la semántica de Redis para los comandos que envía el store: glob de `KEYS` byte a byte (escapes con `\`, clases `[...]`), `ZRANGE` por rango o por score, validación de `EX`/`PX` y `LIMIT`, `WRONGTYPE`, `MULTI` sin rollback y `EVAL` solo de los scripts del store. Esas expectativas viven en `tests/redis-probes.ts` y `tests/integration.test.ts` las verifica también contra un servidor de verdad, junto con:
+The unit tests (`tests/redis-store.test.ts`, `tests/conformance.test.ts`, `tests/fakeRedis.test.ts`) use an in-memory fake client (`tests/fakeRedis.ts`) that mimics Redis semantics for the commands the store sends: byte-exact `KEYS` globbing (`\` escapes, `[...]` classes), `ZRANGE` by range or by score, `EX`/`PX` and `LIMIT` validation, `WRONGTYPE`, `MULTI` without rollback and `EVAL` only for the store's scripts. Those expectations live in `tests/redis-probes.ts`, and `tests/integration.test.ts` verifies them against a real server too, along with:
 
-- la suite compartida de conformidad de `IStore` (con cliente inyectado y con cliente propio del store);
-- las mismas sondas (`redis-probes.ts`) que usa el fake, para que no se aleje del servidor real;
-- ciclo de vida: `start()` idempotente (también en paralelo), persistencia tras `stop()`/`start()` con una instancia y una conexión nuevas, reinicio de la misma instancia, servidor inalcanzable al arrancar, conexión cortada (vía un proxy TCP local) sin tumbar el proceso, y `stop()` que no se cuelga;
-- log de mensajes: orden y `limit` de `getMessagesByChat` (inserción desordenada, límite por defecto, `Infinity`, fracciones, `0`, negativos), timestamps repetidos, `deleteMessage`, `deleteChat` purgando todas las claves, recorte con `maxMessagesPerChat` y `saveMessage` concurrentes desde una y varias conexiones (también recortando a la vez);
-- merge superficial de `upsertChat`/`upsertContact` (también concurrente, desde varias conexiones/réplicas a la vez, y sin alterar los valores JSON), unicode/emoji en claves y valores, JSON de varios MB y prefijos con metacaracteres de glob;
-- `ttl` (comprobado con `PTTL`, también fraccionario) y el lock distribuido (exclusivo entre conexiones, `PX`, solo el dueño libera, expiración).
+- the shared `IStore` conformance suite (with an injected client and with the store's own client);
+- the same probes (`redis-probes.ts`) the fake uses, so it cannot drift from the real server;
+- lifecycle: idempotent `start()` (also in parallel), persistence across `stop()`/`start()` with a new instance and a new connection, restarting the same instance, an unreachable server at startup, a dropped connection (through a local TCP proxy) without taking the process down, and a `stop()` that never hangs;
+- message log: order and `limit` of `getMessagesByChat` (out-of-order inserts, default limit, `Infinity`, fractions, `0`, negatives), repeated timestamps, `deleteMessage`, `deleteChat` purging every key, `maxMessagesPerChat` trimming and concurrent `saveMessage` from one and several connections (also trimming at the same time);
+- shallow merge of `upsertChat`/`upsertContact` (also concurrent, from several connections/replicas at once, and without altering JSON values), unicode/emoji in keys and values, multi-MB JSON and prefixes with glob metacharacters;
+- `ttl` (checked with `PTTL`, fractions included) and the distributed lock (exclusive across connections, `PX`, only the owner releases, expiration).
 
-Es opt-in: se activa con la variable de entorno `BOTWA_TEST_REDIS_URL` y, si no está definida, el archivo se salta entero, así que `pnpm test` sigue siendo hermético (sin red).
+It is opt-in: it turns on with the `BOTWA_TEST_REDIS_URL` environment variable and, when it is not defined, the whole file is skipped, so `pnpm test` stays hermetic (no network).
 
 ```bash
-# 1. Un Redis desechable (puerto 56379 para no chocar con uno local)
+# 1. A disposable Redis (port 56379 so it does not clash with a local one)
 docker run -d --name botwa-it-redis -p 56379:6379 redis:7-alpine
 
-# 2. Ejecuta la suite contra él
+# 2. Run the suite against it
 BOTWA_TEST_REDIS_URL=redis://127.0.0.1:56379 pnpm --filter @bot-wa/redis-store test
 
-# 3. Limpieza
+# 3. Cleanup
 docker rm -f botwa-it-redis
 ```
 
-En PowerShell: `$env:BOTWA_TEST_REDIS_URL = 'redis://127.0.0.1:56379'; pnpm --filter @bot-wa/redis-store test`.
+On PowerShell: `$env:BOTWA_TEST_REDIS_URL = 'redis://127.0.0.1:56379'; pnpm --filter @bot-wa/redis-store test`.
 
-- **Aislamiento:** todas las claves de una ejecución viven bajo `botwa-it:<pid>-<uuid>:…`, con un prefijo distinto por store, y un `afterAll` borra lo que quede de esa ejecución. No se usa `FLUSHDB`: se puede apuntar a un Redis compartido sin pisar datos ni chocar con otra ejecución en paralelo. La URL admite usuario, contraseña y número de base (`redis://user:pass@host:6379/2`).
-- **Windows + Docker Desktop:** usa `127.0.0.1` en lugar de `localhost`. `localhost` resuelve primero a `::1` y el reenvío IPv6 de Docker Desktop acepta la conexión TCP pero la corta (`ECONNRESET`), así que los hooks expiran.
-- **CI:** esta suite no corre en CI; ejecútala en local con Docker antes de tocar el store.
+- **Isolation:** every key of a run lives under `botwa-it:<pid>-<uuid>:…`, with a different prefix per store, and an `afterAll` deletes whatever that run left behind. `FLUSHDB` is never used: you can point it at a shared Redis without stepping on data or clashing with another run in parallel. The URL accepts a user, a password and a database number (`redis://user:pass@host:6379/2`).
+- **Windows + Docker Desktop:** use `127.0.0.1` instead of `localhost`. `localhost` resolves to `::1` first, and Docker Desktop's IPv6 forwarding accepts the TCP connection but cuts it (`ECONNRESET`), so the hooks time out.
+- **CI:** this suite does not run in CI; run it locally with Docker before touching the store.
 
 ### Redis Cluster
 
-`tests/cluster-*.test.ts` prueban el layout cluster sin red: `tests/fakeClusterRedis.ts` imita un cliente cluster de node-redis (sin `KEYS`/`SCAN`, `CROSSSLOT` exacto en comandos multi-clave, `MULTI` y `EVAL`, `TRYAGAIN` inyectable) y pasa las mismas sondas (`tests/cluster-probes.ts`) que un cluster real. Contra un Redis Cluster real (`tests/cluster.integration.test.ts`): todas las suites de conformidad, `CLUSTER KEYSLOT` de cada clave escrita, coordinación con dos réplicas (también matando un proceso hijo), sesión exclusiva, flujo persistente entre réplicas y, con `BOTWA_TEST_REDIS_CLUSTER_CHAOS=1`, un failover manual y la migración de un slot bajo carga. `tests/cluster-migrate.integration.test.ts` migra un Redis real (con `BOTWA_TEST_REDIS_URL`) en el sitio y hacia el cluster.
+`tests/cluster-*.test.ts` exercise the cluster layout with no network: `tests/fakeClusterRedis.ts` mimics a node-redis cluster client (no `KEYS`/`SCAN`, exact `CROSSSLOT` on multi-key commands, `MULTI` and `EVAL`, injectable `TRYAGAIN`) and runs the same probes (`tests/cluster-probes.ts`) as a real cluster. Against a real Redis Cluster (`tests/cluster.integration.test.ts`): every conformance suite, `CLUSTER KEYSLOT` of every written key, coordination with two replicas (also killing a child process), exclusive session, a persistent flow across replicas and, with `BOTWA_TEST_REDIS_CLUSTER_CHAOS=1`, a manual failover and a slot migration under load. `tests/cluster-migrate.integration.test.ts` migrates a real Redis (with `BOTWA_TEST_REDIS_URL`) in place and into the cluster.
 
 ```bash
 docker run -d --name botwa-it-redis-cluster -e IP=0.0.0.0 -e INITIAL_PORT=47100 -e MASTERS=3 -e SLAVES_PER_MASTER=1 -p 127.0.0.1:47100-47105:47100-47105 grokzen/redis-cluster:7.0.10
