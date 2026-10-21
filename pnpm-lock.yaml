@@ -498,6 +498,34 @@ importers:
         specifier: ^4.1.10
         version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
 
+  packages/flow-schema:
+    dependencies:
+      '@bot-wa/core':
+        specifier: workspace:*
+        version: link:../core
+      '@bot-wa/deployments':
+        specifier: workspace:*
+        version: link:../deployments
+      '@bot-wa/http':
+        specifier: workspace:*
+        version: link:../http
+    devDependencies:
+      '@bot-wa/ai':
+        specifier: workspace:*
+        version: link:../ai
+      '@types/node':
+        specifier: ^26.1.1
+        version: 26.1.1
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
+      vite:
+        specifier: ^7.3.6
+        version: 7.3.6(@types/node@26.1.1)(yaml@2.9.0)
+      vitest:
+        specifier: ^4.1.10
+        version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
+
   packages/gohighlevel-provider:
     dependencies:
       '@bot-wa/core':
@@ -705,6 +733,9 @@ importers:
       '@bot-wa/core':
         specifier: workspace:*
         version: link:../core
+      '@bot-wa/flow-schema':
+        specifier: workspace:*
+        version: link:../flow-schema
       '@bot-wa/http':
         specifier: workspace:*
         version: link:../http
