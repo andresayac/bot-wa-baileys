@@ -4,6 +4,10 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/). Versionado po
 
 ## [Unreleased]
 
+### README en inglés (2026-10)
+- El **README raíz** y los de los paquetes públicos que seguían en español (`@bot-wa/core`, `@bot-wa/baileys`, `@bot-wa/meta`, `@bot-wa/http`, `@bot-wa/graph-core`) están ahora en **inglés**, porque son la cara del proyecto en GitHub y en npmjs.com. Con los cuatro que ya lo estaban (`telegram`, `sqlite-store`, `redis-store`, `create-bot-wa`), 9 de los 10 paquetes publicados comparten idioma; **`@bot-wa/ai` sigue en español** pendiente de traducción.
+- `AGENTS.md` recoge la convención nueva (README en inglés; guías del sitio y `CHANGELOG` en español, sitio bilingüe) y `CONTRIBUTING.md`/`AGENTS.md` apuntan al ancla renombrada `#packages`.
+
 ### Documentación de release: threat model, checklist y tag `@alpha` (2026-10)
 - **Threat model EN/ES** (`docs/guide/threat-model.md`, `docs/es/guide/modelo-amenazas.md`): activos, fronteras de confianza con diagrama, doce amenazas (T1–T12) con su control y su riesgo residual — incluidos los que no son obvios: los plugins corren **en proceso sin sandbox**, el MCP es solo stdio local y no escribe en disco, y los webhooks sin timestamp de plataforma siguen siendo replicables. Cierra el criterio «threat model actualizado» del safety gate del `ROADMAP.md`.
 - **Checklist de release** en `CONTRIBUTING.md`, con la trampa del orden documentada: `pnpm release` a secas publicaría las versiones actuales y dejaría los changesets sin aplicar.
