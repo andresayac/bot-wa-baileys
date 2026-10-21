@@ -25,8 +25,10 @@ experimental `require(esm)` de Node, pero los ejemplos de abajo usan
 ::: warning Alpha — primera publicación en npm pendiente
 bot-wa está en **alpha** y **ningún paquete `@bot-wa/*` está en npm
 todavía**: la primera publicación se está preparando. Los comandos
-`pnpm add` de este sitio son los que funcionarán cuando salga. Mientras tanto,
-clona [el repositorio](https://github.com/andresayac/bot-wa-baileys) y usa
+`pnpm add` de este sitio son los que funcionarán cuando salga, **con el tag
+`@alpha`** (`changeset publish` crea el dist-tag `alpha`, no `latest`, así que
+una instalación sin tag no resuelve). Mientras tanto, clona
+[el repositorio](https://github.com/andresayac/bot-wa-baileys) y usa
 los paquetes desde el workspace de pnpm (`workspace:*`).
 :::
 
@@ -39,8 +41,8 @@ primera publicación ejecútala desde el monorepo apuntando **fuera** del repo:
 un destino dentro del monorepo de bot-wa se rechaza salvo que pases `--force`):
 
 ```bash
-npm create bot-wa@latest my-bot
-npm create bot-wa@latest my-bot -- --template telegram --yes
+npm create bot-wa@alpha my-bot
+npm create bot-wa@alpha my-bot -- --template telegram --yes
 ```
 
 | Plantilla | Qué obtienes |
@@ -89,7 +91,7 @@ paquete **provider**. Para WhatsApp vía Baileys 7 (no oficial, login por QR):
 mkdir my-bot
 cd my-bot
 pnpm init
-pnpm add @bot-wa/core @bot-wa/baileys
+pnpm add @bot-wa/core@alpha @bot-wa/baileys@alpha
 ```
 
 Otros transportes detrás del mismo contrato `IProvider`:

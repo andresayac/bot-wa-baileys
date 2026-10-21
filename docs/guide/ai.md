@@ -44,7 +44,7 @@ below are the ones that will work once it is.
 :::
 
 ```bash
-pnpm add @bot-wa/ai @anthropic-ai/sdk
+pnpm add @bot-wa/ai@alpha @anthropic-ai/sdk
 ```
 
 The second package is the SDK of whichever provider you use:

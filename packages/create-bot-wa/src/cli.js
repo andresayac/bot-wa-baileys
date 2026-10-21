@@ -54,7 +54,7 @@ export function parseArgs(argv) {
 function printUsage(log = console.log) {
   log('Usage: create-bot-wa <dir> [options]')
   log('')
-  log('Scaffold a new @bot-wa bot (npm create bot-wa@latest).')
+  log('Scaffold a new @bot-wa bot (npm create bot-wa@alpha).')
   log('')
   log('Arguments:')
   log('  dir                 target directory; the package name is derived from it')
@@ -68,9 +68,9 @@ function printUsage(log = console.log) {
   log('  -h, --help          show this help')
   log('')
   log('Examples:')
-  log('  npm create bot-wa@latest my-bot')
-  log('  npm create bot-wa@latest my-bot -- --template telegram')
-  log('  npm create bot-wa@latest my-shop -- --template store')
+  log('  npm create bot-wa@alpha my-bot')
+  log('  npm create bot-wa@alpha my-bot -- --template telegram')
+  log('  npm create bot-wa@alpha my-shop -- --template store')
 }
 
 /**

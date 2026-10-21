@@ -201,7 +201,7 @@ Reglas prácticas:
 - **Todo lo que sea sesión/auth/QR/conexión se movió al provider.** `BotConfig` solo acepta opciones agnósticas (`conversation`, `conversationScope`, `groupMode`, `commandPrefix`, `store`, `debug`, ...).
 - **`ctx.key` → `ctx.ref`** (`MessageRef` con `{ id, chatId, native? }`) y **`ctx.rawMessage` → `ctx.raw`** en handlers, hooks y flujos.
 - **El contenido de `bot.send` es un tagged union neutral**: `{ kind: 'image', media, caption }` en lugar del objeto estilo Baileys `{ image: { url }, caption }`.
-- **Instalación típica** (cuando salga la primera alpha; hoy **ningún paquete `@bot-wa/*` está en npm** y se usan desde el monorepo): `pnpm add @bot-wa/core @bot-wa/baileys` (+ `@bot-wa/sqlite-store better-sqlite3` si quieres persistencia, + `@bot-wa/ai` y el SDK del proveedor de IA que uses).
+- **Instalación típica** (cuando salga la primera alpha; hoy **ningún paquete `@bot-wa/*` está en npm** y se usan desde el monorepo): `pnpm add @bot-wa/core@alpha @bot-wa/baileys@alpha` (+ `@bot-wa/sqlite-store@alpha better-sqlite3` si quieres persistencia, + `@bot-wa/ai@alpha` y el SDK del proveedor de IA que uses). El tag `@alpha` es obligatorio mientras la serie alpha sea la única publicada.
 
 ## Desviaciones respecto a la API v1 / BuilderBot
 

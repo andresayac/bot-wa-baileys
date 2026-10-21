@@ -24,7 +24,9 @@ the examples below use plain `import`.
 ::: warning Alpha — first npm publish pending
 bot-wa is in **alpha** and **no `@bot-wa/*` package is on npm yet**: the
 first publish is being prepared. The `pnpm add` commands on this site are the
-ones that will work once it ships. Until then, clone
+ones that will work once it ships, with the **`@alpha` tag** (`changeset
+publish` creates the `alpha` dist-tag, not `latest`, so an install without a
+tag will not resolve). Until then, clone
 [the repository](https://github.com/andresayac/bot-wa-baileys) and use the
 packages from the pnpm workspace (`workspace:*`).
 :::
@@ -38,8 +40,8 @@ the monorepo, pointing it **outside** the repo:
 a target inside the bot-wa monorepo is refused unless you pass `--force`):
 
 ```bash
-npm create bot-wa@latest my-bot
-npm create bot-wa@latest my-bot -- --template telegram --yes
+npm create bot-wa@alpha my-bot
+npm create bot-wa@alpha my-bot -- --template telegram --yes
 ```
 
 | Template | What you get |
@@ -88,7 +90,7 @@ The engine (`@bot-wa/core`) is transport-agnostic: you pair it with a
 mkdir my-bot
 cd my-bot
 pnpm init
-pnpm add @bot-wa/core @bot-wa/baileys
+pnpm add @bot-wa/core@alpha @bot-wa/baileys@alpha
 ```
 
 Other transports behind the same `IProvider` contract:

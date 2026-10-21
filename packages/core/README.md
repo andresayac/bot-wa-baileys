@@ -11,7 +11,7 @@ Motor de bots **agnóstico de transporte**: flows declarativos para empezar en 3
 ## Instalación
 
 ```
-npm i @bot-wa/core @bot-wa/baileys
+npm i @bot-wa/core@alpha @bot-wa/baileys@alpha
 ```
 
 Requiere **Node >= 22** (ESM-only). El core no tiene dependencias de transporte — las instala el paquete del transporte que uses.

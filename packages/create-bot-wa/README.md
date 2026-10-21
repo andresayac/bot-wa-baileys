@@ -8,19 +8,22 @@ Scaffold a new [@bot-wa](https://github.com/andresayac/bot-wa-baileys) bot proje
 > run the CLI from this monorepo instead, targeting a directory **outside** the repo
 > (`pnpm --filter create-bot-wa build && node packages/create-bot-wa/lib/cli.js ../my-bot`). A target inside the
 > bot-wa monorepo is refused (it would join the framework workspace) unless you pass `--force`.
+>
+> Once published, the alpha series lives under the **`alpha` dist-tag** (`changeset publish` does not create
+> `latest`), so the commands below use `@alpha`. Drop the tag when a stable version ships.
 
 ## Usage
 
 ```bash
-npm create bot-wa@latest my-bot
+npm create bot-wa@alpha my-bot
 # or
-pnpm create bot-wa my-bot
+pnpm create bot-wa@alpha my-bot
 ```
 
 You'll be prompted for a template (in a TTY), or pass everything up front:
 
 ```bash
-npm create bot-wa@latest my-bot -- --template telegram --yes
+npm create bot-wa@alpha my-bot -- --template telegram --yes
 ```
 
 ## Templates

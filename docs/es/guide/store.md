@@ -51,7 +51,7 @@ Pasa `maxMessagesPerChat: Infinity` para conservarlo todo.
 Una base de datos real con [better-sqlite3](https://github.com/WiseLibs/better-sqlite3) — síncrona, cero config, un solo archivo. Perfecta para una sola instancia de bot en un VPS o contenedor Docker. Es un **paquete separado**; `better-sqlite3` es una peer dependency que instalas a su lado (se carga al construir el store, así que si falta obtienes un error claro):
 
 ```bash
-pnpm add @bot-wa/sqlite-store better-sqlite3
+pnpm add @bot-wa/sqlite-store@alpha better-sqlite3
 ```
 
 ```ts
@@ -120,7 +120,7 @@ Si el proceso se cae a mitad del flujo, el próximo mensaje de ese usuario **rea
 Cuando necesitas estado compartido entre procesos/instancias (escalamiento horizontal, logs por chat con TTL), usa el store de Redis:
 
 ```bash
-pnpm add @bot-wa/redis-store
+pnpm add @bot-wa/redis-store@alpha
 ```
 
 ```ts

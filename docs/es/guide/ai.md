@@ -45,7 +45,7 @@ de abajo son los que funcionarán cuando se publique.
 :::
 
 ```bash
-pnpm add @bot-wa/ai @anthropic-ai/sdk
+pnpm add @bot-wa/ai@alpha @anthropic-ai/sdk
 ```
 
 El segundo paquete es el SDK del proveedor que vayas a usar:

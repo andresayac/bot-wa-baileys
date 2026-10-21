@@ -50,7 +50,7 @@ everything.
 A real database backed by [better-sqlite3](https://github.com/WiseLibs/better-sqlite3) — synchronous, zero-config, single-file. Perfect for a single bot instance on a VPS or Docker container. It's a **separate package**; `better-sqlite3` is a peer dependency you install next to it (it is loaded when the store is constructed, so a missing install fails with a clear error):
 
 ```bash
-pnpm add @bot-wa/sqlite-store better-sqlite3
+pnpm add @bot-wa/sqlite-store@alpha better-sqlite3
 ```
 
 ```ts
@@ -119,7 +119,7 @@ If the process crashes mid-flow, the next message from that user **resumes at th
 When you need state shared across processes/instances (horizontal scaling, TTL'd per-chat logs), use the Redis store:
 
 ```bash
-pnpm add @bot-wa/redis-store
+pnpm add @bot-wa/redis-store@alpha
 ```
 
 ```ts

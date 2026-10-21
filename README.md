@@ -73,10 +73,14 @@ Empieza por el [README del core](packages/core/README.md) para el quickstart.
 > **Alpha, primera publicación en npm pendiente.** Ningún paquete `@bot-wa/*` está en npm todavía. Los comandos de abajo son los que funcionarán cuando salga la primera alpha; mientras tanto, clona el repo y usa los paquetes desde el workspace (ver [Desarrollo](#desarrollo-en-este-repo)). Solo los paquetes **Alpha** de la tabla se van a publicar en esa primera tanda.
 
 ```bash
-pnpm add @bot-wa/core @bot-wa/baileys        # bot WhatsApp (Baileys)
-# o @bot-wa/core @bot-wa/meta                # bot WhatsApp oficial (Cloud API)
-pnpm add @bot-wa/ai @anthropic-ai/sdk        # + IA (opcional; instala el SDK del proveedor que uses)
+pnpm add @bot-wa/core@alpha @bot-wa/baileys@alpha   # bot WhatsApp (Baileys)
+# o @bot-wa/core@alpha @bot-wa/meta@alpha           # bot WhatsApp oficial (Cloud API)
+pnpm add @bot-wa/ai@alpha @anthropic-ai/sdk         # + IA (opcional; instala el SDK del proveedor que uses)
 ```
+
+El tag **`@alpha` es obligatorio** mientras la alpha sea la única serie publicada: `changeset publish` en
+modo prerelease crea el dist-tag `alpha`, no `latest`, así que `pnpm add @bot-wa/core` sin tag no resuelve.
+Cuando salga una versión estable el tag se puede omitir (ver [modo prerelease](CONTRIBUTING.md#modo-prerelease-alpha)).
 
 Requiere **Node >= 22**. Todos los paquetes son **ESM-only**.
 
