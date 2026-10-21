@@ -1,5 +1,5 @@
 /**
- * @bot-wa/manager — multi-bot orchestrator for `@bot-wa/core`.
+ * @botmesh/manager — multi-bot orchestrator for `@botmesh/core`.
  *
  * - {@link BotManager}: registry, running-state tracking, lifecycle
  *   (`start`/`stop`/`startAll`/`stopAll`), events.

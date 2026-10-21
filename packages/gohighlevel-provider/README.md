@@ -1,8 +1,8 @@
-# @bot-wa/gohighlevel
+# @botmesh/gohighlevel
 
 > **Experimental — aún no publicado en npm.** Implementación real y con tests, pero el paquete es `private`: su API puede cambiar. Úsalo desde este monorepo (`workspace:*`).
 
-Transporte **HighLevel (GoHighLevel / LeadConnector) Conversations API** para [`@bot-wa/core`](../core). Un bot que contesta a los contactos del CRM por el canal que usaron: **SMS, WhatsApp, Email, Facebook, Instagram, Live chat, GMB o un proveedor Custom**. Entrada por el webhook `InboundMessage` (firmado con **Ed25519, `X-GHL-Signature`**), salida por `POST /conversations/messages`.
+Transporte **HighLevel (GoHighLevel / LeadConnector) Conversations API** para [`@botmesh/core`](../core). Un bot que contesta a los contactos del CRM por el canal que usaron: **SMS, WhatsApp, Email, Facebook, Instagram, Live chat, GMB o un proveedor Custom**. Entrada por el webhook `InboundMessage` (firmado con **Ed25519, `X-GHL-Signature`**), salida por `POST /conversations/messages`.
 
 ## Requisitos
 
@@ -14,8 +14,8 @@ Transporte **HighLevel (GoHighLevel / LeadConnector) Conversations API** para [`
 
 ```ts
 import express from 'express'
-import { Bot } from '@bot-wa/core'
-import { GoHighLevelProvider } from '@bot-wa/gohighlevel'
+import { Bot } from '@botmesh/core'
+import { GoHighLevelProvider } from '@botmesh/gohighlevel'
 
 const provider = new GoHighLevelProvider({
   accessToken: process.env.GHL_TOKEN!,

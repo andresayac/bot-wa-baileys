@@ -7,7 +7,7 @@
  * entries are skipped by their sequence) and a torn last line (a crash mid-append) is
  * ignored and cut off. It knows nothing about what an entry means.
  *
- * `@bot-wa/events` keeps a sibling copy (`packages/events/src/fileLog.ts`): the core must
+ * `@botmesh/events` keeps a sibling copy (`packages/events/src/fileLog.ts`): the core must
  * not grow a public helper just for a private package. Keep the on-disk format in sync.
  */
 

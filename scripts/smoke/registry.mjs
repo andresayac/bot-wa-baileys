@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 /**
  * Throwaway npm registry for the packaging smoke test: serves the packed
- * `@bot-wa/*` tarballs (one version each) so a scaffolded project can
+ * `@botmesh/*` tarballs (one version each) so a scaffolded project can
  * `npm install` its UNMODIFIED dependency ranges, routed here with a scoped
- * `@bot-wa:registry=` entry. npm resolves the ranges itself (prerelease rules
+ * `@botmesh:registry=` entry. npm resolves the ranges itself (prerelease rules
  * included); everything else still comes from the public registry.
  *
  *   node registry.mjs <packages.json>

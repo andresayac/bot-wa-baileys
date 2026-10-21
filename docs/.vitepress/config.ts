@@ -238,7 +238,7 @@ function localeAlternates(): Record<string, Record<string, string>> {
 
 // https://vitepress.dev/reference/site-config
 export default defineConfig({
-  title: 'bot-wa-baileys',
+  title: 'botmesh',
   description: 'A modern, transport-agnostic bot framework — WhatsApp (Baileys 7 / Cloud API), Telegram and Discord behind one IProvider',
 
   // Output to docs/dist/ (local preview only; the site is not hosted)
@@ -266,7 +266,7 @@ export default defineConfig({
     },
     plugins: [
       {
-        name: 'bot-wa:locale-links',
+        name: 'botmesh:locale-links',
         enforce: 'pre',
         resolveId(source, importer) {
           if (!importer || !/[\\/]vitepress[\\/]dist[\\/]client[\\/]theme-default[\\/]/.test(importer)) return null
@@ -274,7 +274,7 @@ export default defineConfig({
         },
       },
       {
-        name: 'bot-wa:resolve-vue-through-vitepress',
+        name: 'botmesh:resolve-vue-through-vitepress',
         enforce: 'pre',
         resolveId(source, importer, options) {
           if (!/^vue(\/|$)/.test(source) || importer === vitepressEntry) return null
@@ -329,7 +329,7 @@ export default defineConfig({
         ],
         sidebar: enSidebar,
         editLink: {
-          pattern: 'https://github.com/andresayac/bot-wa-baileys/edit/main/docs/:path',
+          pattern: 'https://github.com/andresayac/botmesh/edit/main/docs/:path',
           text: 'Edit this page on GitHub',
         },
         search: {
@@ -360,7 +360,7 @@ export default defineConfig({
         },
         editLink: {
           // :path is relative to srcDir and already starts with es/
-          pattern: 'https://github.com/andresayac/bot-wa-baileys/edit/main/docs/:path',
+          pattern: 'https://github.com/andresayac/botmesh/edit/main/docs/:path',
           text: 'Editar esta página en GitHub',
         },
         search: {
@@ -390,7 +390,7 @@ export default defineConfig({
     // Read by ./theme/langs.ts (the language switcher).
     localeAlternates: localeAlternates(),
     socialLinks: [
-      { icon: 'github', link: 'https://github.com/andresayac/bot-wa-baileys' },
+      { icon: 'github', link: 'https://github.com/andresayac/botmesh' },
     ],
     footer: {
       message: 'Released under the MIT License.',

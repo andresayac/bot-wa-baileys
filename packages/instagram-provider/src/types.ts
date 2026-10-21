@@ -1,11 +1,11 @@
 /**
- * @bot-wa/instagram — types for the Instagram DM (Messenger API for Instagram,
+ * @botmesh/instagram — types for the Instagram DM (Messenger API for Instagram,
  * Meta Graph) transport. The IG account is connected to a Facebook Page; events
  * arrive on the same 'page' webhook object and sending goes through the Send API.
  */
 
-import type { SecureFetchOptions } from '@bot-wa/http'
-import type { LoggerLike } from '@bot-wa/core'
+import type { SecureFetchOptions } from '@botmesh/http'
+import type { LoggerLike } from '@botmesh/core'
 
 export interface InstagramProviderConfig {
   /** Page access token of the Facebook Page the IG account is connected to. */
@@ -28,7 +28,7 @@ export interface InstagramProviderConfig {
   /**
    * Durable inbox (`BotConfig.durability`): hosts whose attachment URLs are journaled so a
    * replayed message can download its media again. A name also allows its subdomains.
-   * Default: the Meta attachment CDNs (`META_MEDIA_HOSTS` of `@bot-wa/graph-core`). Plain
+   * Default: the Meta attachment CDNs (`META_MEDIA_HOSTS` of `@botmesh/graph-core`). Plain
    * `http:` URLs are only accepted with `mediaDownload.allowHttp`.
    */
   mediaRefHosts?: string[]

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { ProviderError } from '@bot-wa/core'
+import { ProviderError } from '@botmesh/core'
 import { TelegramProvider } from '../src/index.js'
 
 afterEach(() => vi.unstubAllGlobals())

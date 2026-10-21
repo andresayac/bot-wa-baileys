@@ -11,8 +11,8 @@ import {
   type SttAdapter,
   type TtsAdapter,
 } from '../src/index.js'
-import { createTestBot } from '@bot-wa/core/testing'
-import type { MessageContext } from '@bot-wa/core'
+import { createTestBot } from '@botmesh/core/testing'
+import type { MessageContext } from '@botmesh/core'
 import { Readable } from 'node:stream'
 import { fakeFetch, json, makeOgg, publicResolver } from './helpers.js'
 

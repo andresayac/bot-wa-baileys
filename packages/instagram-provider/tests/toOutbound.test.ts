@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { UnsupportedContentError } from '@bot-wa/core'
+import { UnsupportedContentError } from '@botmesh/core'
 import { toOutbound } from '../src/toOutbound.js'
 
 describe('toOutbound (Instagram)', () => {

@@ -1,22 +1,22 @@
-# @bot-wa/chatwoot
+# @botmesh/chatwoot
 
 > **Experimental — aún no publicado en npm.** Paquete `private` del monorepo: úsalo con `workspace:*`; su API puede cambiar.
 
-Integración de [Chatwoot](https://www.chatwoot.com) para [`@bot-wa/core`](../core), construida sobre la API de *human handoff* del core (`ctx.handoff()`, `bot.resume()`, `bot.sendTo()` y los eventos `'handoff'`/`'resume'`).
+Integración de [Chatwoot](https://www.chatwoot.com) para [`@botmesh/core`](../core), construida sobre la API de *human handoff* del core (`ctx.handoff()`, `bot.resume()`, `bot.sendTo()` y los eventos `'handoff'`/`'resume'`).
 
 - **Sincronización bidireccional:** cada mensaje entrante (también durante el handoff) se publica como `incoming` en Chatwoot y cada envío del bot como `outgoing`.
 - **Mapeo chat ↔ contacto/conversación** persistido en el store del bot (API de cursores, con namespace por bot): sobrevive a reinicios.
 - **Webhook de agente → `bot.sendTo`**, autenticado con token compartido y/o HMAC-SHA256 sobre el body crudo.
 - **Auto-handoff** cuando un agente responde, y **`bot.resume()`** cuando la conversación se marca como resuelta.
 - **Labels** al hacer handoff/resume, por mensaje (`labels.message`) o a mano (`addLabels`/`removeLabels`).
-- Todo el HTTP saliente pasa por `secureFetch` de [`@bot-wa/http`](../http) (HTTPS, anti-SSRF, timeouts, sin seguir redirecciones).
+- Todo el HTTP saliente pasa por `secureFetch` de [`@botmesh/http`](../http) (HTTPS, anti-SSRF, timeouts, sin seguir redirecciones).
 
 ## Uso
 
 ```ts
 import { createServer } from 'node:http'
-import { Bot } from '@bot-wa/core'
-import { chatwootPlugin } from '@bot-wa/chatwoot'
+import { Bot } from '@botmesh/core'
+import { chatwootPlugin } from '@botmesh/chatwoot'
 
 const bot = new Bot({ provider, handoff: { allowCommands: ['/bot'] } })
 
@@ -99,7 +99,7 @@ Se ignoran: notas privadas, mensajes `incoming`, mensajes de *agent bots*, otros
 
 - Los medios entrantes se reflejan como texto (`[image] caption`), no se suben como adjuntos.
 - Un chat ↔ una conversación; si Chatwoot devuelve 404 para la conversación mapeada se crea otra.
-- Resolver la conversación en Chatwoot **reanuda el bot** (`bot.resume()`), pero **no cierra ningún ticket**: el plugin no conoce [`@bot-wa/tickets`](../tickets) (ni ningún otro sistema de tickets) y no se acopla a él. Si usas ambos, ciérralo tú en el evento `'resume'`:
+- Resolver la conversación en Chatwoot **reanuda el bot** (`bot.resume()`), pero **no cierra ningún ticket**: el plugin no conoce [`@botmesh/tickets`](../tickets) (ni ningún otro sistema de tickets) y no se acopla a él. Si usas ambos, ciérralo tú en el evento `'resume'`:
 
   ```ts
   bot.on('resume', async ({ chatId, reason }) => {

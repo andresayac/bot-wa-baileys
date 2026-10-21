@@ -8,7 +8,7 @@
 import { randomUUID } from 'node:crypto'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { createClient } from 'redis'
-import type { StoredMessage } from '@bot-wa/core'
+import type { StoredMessage } from '@botmesh/core'
 import {
   RedisCoordinator, RedisDurability, RedisStore, inspectKeyspace, migrateToClusterLayout, type NativeRedisClient,
 } from '../src/index.js'

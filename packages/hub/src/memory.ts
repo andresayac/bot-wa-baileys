@@ -4,7 +4,7 @@
  * restart (use `KvPluginStore` to persist).
  */
 
-import { assertTenantId } from '@bot-wa/tenant-kv'
+import { assertTenantId } from '@botmesh/tenant-kv'
 import type { PluginStore } from './store.js'
 import { PluginManifestError, type InstalledPlugin, type PluginManifest } from './types.js'
 

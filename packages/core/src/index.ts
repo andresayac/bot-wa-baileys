@@ -1,14 +1,14 @@
 /**
- * @bot-wa/core — transport-agnostic bot engine.
+ * @botmesh/core — transport-agnostic bot engine.
  *
  * Flows, hooks, plugins, conversations, scheduler and DI. Pair it with a
- * transport provider (`@bot-wa/baileys` for WhatsApp) and, optionally, a store
- * (`@bot-wa/sqlite-store`, `@bot-wa/redis-store`) and the `@bot-wa/ai` plugin.
+ * transport provider (`@botmesh/baileys` for WhatsApp) and, optionally, a store
+ * (`@botmesh/sqlite-store`, `@botmesh/redis-store`) and the `@botmesh/ai` plugin.
  *
  * @example
  * ```ts
- * import { Bot, flow } from '@bot-wa/core'
- * import { BaileysProvider } from '@bot-wa/baileys'
+ * import { Bot, flow } from '@botmesh/core'
+ * import { BaileysProvider } from '@botmesh/baileys'
  *
  * const bot = new Bot({ provider: new BaileysProvider({ session: 'demo' }) })
  * bot.when('hola', async (ctx) => await ctx.reply('¡Hola! 👋'))
@@ -29,7 +29,7 @@ export type {
   ConversationTarget,
 } from './core/Bot.js'
 export {
-  /** @deprecated Import from '@bot-wa/core/internal' (engine internal; removed from the main entry in v3). */
+  /** @deprecated Import from '@botmesh/core/internal' (engine internal; removed from the main entry in v3). */
   buildMessageContext,
 } from './internal.js'
 export { Dispatcher } from './core/Dispatcher.js'
@@ -136,7 +136,7 @@ export type {
 // Referenced by RuntimeConfig.answers / RuntimeConfig.handover (multi-replica hand-over).
 export type { AnswerCodec, RuntimeHandover, RuntimeHandoverFallback } from './conversations/handover.js'
 export {
-  /** @deprecated Import from '@bot-wa/core/internal' (engine internal; removed from the main entry in v3). */
+  /** @deprecated Import from '@botmesh/core/internal' (engine internal; removed from the main entry in v3). */
   createControls,
 } from './internal.js'
 export type { ConversationControls, WaitMediaType } from './conversations/controls.js'
@@ -194,11 +194,11 @@ export { MemoryLeaseProvider } from './coordination/lease.js'
 export type { LeaseProvider, LeaseGrant, SchedulerLease } from './coordination/lease.js'
 
 // Engine internals (buildMessageContext, createPacer, runBroadcast, MetricsCollector, …) live
-// under the "./internal" subpath (import from '@bot-wa/core/internal'). The main entry still
+// under the "./internal" subpath (import from '@botmesh/core/internal'). The main entry still
 // re-exports them, marked @deprecated, until v3.
 
 // Testing helpers live under the "./testing" subpath export
-// (import from '@bot-wa/core/testing') — not re-exported here to keep the entry lean.
+// (import from '@botmesh/core/testing') — not re-exported here to keep the entry lean.
 
 // describe-lint
 export { describeFlows } from './flows/describe.js'
@@ -277,16 +277,16 @@ export {
 export type { TypeTrigger, WelcomeTrigger } from './core/triggers.js'
 
 // dev-simulator
-// Bot factory pattern shared by `npm start` and the `bot-wa dev` terminal simulator.
+// Bot factory pattern shared by `npm start` and the `botmesh dev` terminal simulator.
 // The simulator itself (DevSession, DevProvider, runCli, ...) lives under the
-// "./dev" subpath export (import from '@bot-wa/core/dev').
+// "./dev" subpath export (import from '@botmesh/core/dev').
 export { defineBot, isBotFactory, isMainModule } from './dev/defineBot.js'
 export type { BotFactory } from './dev/defineBot.js'
 export type { ConversationSnapshot, WaitAccepts } from './conversations/ConversationRuntime.js'
 
 // chaos-mock
 // Inbound idempotency (BotConfig.dedupe). The chaos kit and the identity
-// contract helpers live under '@bot-wa/core/testing'.
+// contract helpers live under '@botmesh/core/testing'.
 export { InboundDeduper, createInboundDeduper, inboundDedupeKey, DEFAULT_DEDUPE_SIZE } from './core/dedupe.js'
 export type { InboundDedupeOptions, InboundDeduperOptions, InboundDedupeKey } from './core/dedupe.js'
 // Echo filter (BotConfig.echoFilter): the bot's own sends coming back as inbound are dropped.
@@ -306,7 +306,7 @@ export type { UserDataEntry } from './core/provider.js'
 // golden-transcripts
 // Recording + redaction are usable in production (wrap the real provider; the recorder
 // keeps a bounded, unredacted buffer in RAM, see `maxTurns`, so clear() it after use); the
-// replay/diff helpers (replayTranscript, assertTranscript) live under '@bot-wa/core/testing'.
+// replay/diff helpers (replayTranscript, assertTranscript) live under '@botmesh/core/testing'.
 export {
   TRANSCRIPT_FORMAT,
   TRANSCRIPT_VERSION,
@@ -359,19 +359,19 @@ export type { SchemaWaitOptions } from './conversations/controls.js'
 // capability resolution (native / degraded / unsupported).
 export { DEFAULT_TYPING, messagingSupport, PacedSendCancelled } from './core/messaging.js'
 export {
-  /** @deprecated Import from '@bot-wa/core/internal' (engine internal; removed from the main entry in v3). */
+  /** @deprecated Import from '@botmesh/core/internal' (engine internal; removed from the main entry in v3). */
   TYPING_REFRESH_MS,
-  /** @deprecated Import from '@bot-wa/core/internal' (engine internal; removed from the main entry in v3). */
+  /** @deprecated Import from '@botmesh/core/internal' (engine internal; removed from the main entry in v3). */
   ExternalSendClock,
-  /** @deprecated Import from '@bot-wa/core/internal' (engine internal; removed from the main entry in v3). */
+  /** @deprecated Import from '@botmesh/core/internal' (engine internal; removed from the main entry in v3). */
   createPacer,
-  /** @deprecated Import from '@bot-wa/core/internal' (engine internal; removed from the main entry in v3). */
+  /** @deprecated Import from '@botmesh/core/internal' (engine internal; removed from the main entry in v3). */
   normalizeTypingConfig,
-  /** @deprecated Import from '@bot-wa/core/internal' (engine internal; removed from the main entry in v3). */
+  /** @deprecated Import from '@botmesh/core/internal' (engine internal; removed from the main entry in v3). */
   resolveReplyTyping,
-  /** @deprecated Import from '@bot-wa/core/internal' (engine internal; removed from the main entry in v3). */
+  /** @deprecated Import from '@botmesh/core/internal' (engine internal; removed from the main entry in v3). */
   typingDuration,
-  /** @deprecated Import from '@bot-wa/core/internal' (engine internal; removed from the main entry in v3). */
+  /** @deprecated Import from '@botmesh/core/internal' (engine internal; removed from the main entry in v3). */
   parseReplyDelay,
 } from './internal.js'
 export type {
@@ -391,15 +391,15 @@ export type {
 // bot.broadcast() engine, bot.trigger() types, bot.metrics() snapshot + Prometheus exporter,
 // and the conversation lifecycle types behind the 'conversation:started'/'conversation:ended' events.
 export {
-  /** @deprecated Import from '@bot-wa/core/internal' (engine internal; removed from the main entry in v3). */
+  /** @deprecated Import from '@botmesh/core/internal' (engine internal; removed from the main entry in v3). */
   runBroadcast,
 } from './internal.js'
 export type { BroadcastOptions, BroadcastFailure, BroadcastProgress, BroadcastDeps } from './ops/broadcast.js'
 export type { TriggerOptions, TriggerResult, TriggerSkipReason, TriggerRaw } from './ops/trigger.js'
 export {
-  /** @deprecated Import from '@bot-wa/core/internal' (engine internal; removed from the main entry in v3). */
+  /** @deprecated Import from '@botmesh/core/internal' (engine internal; removed from the main entry in v3). */
   MetricsCollector,
-  /** @deprecated Import from '@bot-wa/core/internal' (engine internal; removed from the main entry in v3). */
+  /** @deprecated Import from '@botmesh/core/internal' (engine internal; removed from the main entry in v3). */
   formatUptime,
 } from './internal.js'
 export type { BotMetricsSnapshot, ConversationCounters, ConversationStartedEvent, ConversationEndedEvent } from './ops/metrics.js'
@@ -435,13 +435,13 @@ export type { StreamSource, StreamStrategy, StreamOptions, StreamResult, StreamT
 export type { StreamingMode, TextFormat, DraftOptions } from './core/provider.js'
 // wa-flows
 // Native forms: `flow().form(definition)` renders a WhatsApp Flow on providers with
-// `capabilities.forms === 'native'` (@bot-wa/meta) and asks field by field elsewhere.
+// `capabilities.forms === 'native'` (@botmesh/meta) and asks field by field elsewhere.
 export {
-  /** @deprecated Import from '@bot-wa/core/internal' (engine internal; removed from the main entry in v3). */
+  /** @deprecated Import from '@botmesh/core/internal' (engine internal; removed from the main entry in v3). */
   runFormStep,
-  /** @deprecated Import from '@bot-wa/core/internal' (engine internal; removed from the main entry in v3). */
+  /** @deprecated Import from '@botmesh/core/internal' (engine internal; removed from the main entry in v3). */
   resolveFormMode,
-  /** @deprecated Import from '@bot-wa/core/internal' (engine internal; removed from the main entry in v3). */
+  /** @deprecated Import from '@botmesh/core/internal' (engine internal; removed from the main entry in v3). */
   newFormToken,
 } from './internal.js'
 export { formReplyBody, parseFormReply } from './forms/reply.js'
@@ -460,12 +460,12 @@ export type {
 export type { FlowGraphFormInfo } from './flows/describe.js'
 // voice
 // Lazily download an inbound message's media (populates `ctx.media`); used by
-// plugins such as @bot-wa/voice that need the bytes before routing.
+// plugins such as @botmesh/voice that need the bytes before routing.
 export { loadMediaOf } from './core/context.js'
 export type { LoadMediaOptions } from './core/context.js'
 // multi-replica coordination
 // `BotConfig.coordination`: per-chat turns (cross-replica FIFO) and leader-elected
-// provider sessions. Backends: MemoryCoordinator here, RedisCoordinator in @bot-wa/redis-store.
+// provider sessions. Backends: MemoryCoordinator here, RedisCoordinator in @botmesh/redis-store.
 export {
   LeaseLostError, CoordinationUnavailableError, MemoryCoordinator, MemoryCoordinationHub, ProviderNotLeaderError,
 } from './coordination/index.js'
@@ -502,7 +502,7 @@ export type { SerializedMediaRef, MediaUnavailableReason } from './core/mediaRef
 
 // Telemetry
 // Tracing hooks (BotConfig.telemetry, bot.tracing): the minimal BotTracer contract an
-// integration implements (OpenTelemetry: @bot-wa/otel) and the attribute names.
+// integration implements (OpenTelemetry: @botmesh/otel) and the attribute names.
 export { noopTracer, NOOP_TRACING, errorTypeOf } from './telemetry/tracing.js'
 export { TRACE_ATTR, SPAN_NAMES } from './telemetry/attributes.js'
 export type {

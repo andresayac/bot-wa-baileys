@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { Bot } from '@bot-wa/core'
-import { MockProvider } from '@bot-wa/core/testing'
+import { Bot } from '@botmesh/core'
+import { MockProvider } from '@botmesh/core/testing'
 
 import { lazyOtelTracer, loadOtelApi } from '../src/index.js'
 import { api, memoryTracing, tick } from './helpers.js'

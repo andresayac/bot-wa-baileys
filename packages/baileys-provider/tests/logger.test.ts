@@ -4,7 +4,7 @@
  */
 import { describe, expect, it, vi } from 'vitest'
 import pino from 'pino'
-import type { LoggerLike } from '@bot-wa/core'
+import type { LoggerLike } from '@botmesh/core'
 import { BaileysProvider } from '../src/BaileysProvider.js'
 import { isBaileysLogger, toBaileysLogger, type BaileysLogger } from '../src/logger.js'
 

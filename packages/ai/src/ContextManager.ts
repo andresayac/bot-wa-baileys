@@ -1,4 +1,4 @@
-import type { AIMessage } from '@bot-wa/core'
+import type { AIMessage } from '@botmesh/core'
 
 export interface ConvStore {
   getConversation(k: string): Promise<AIMessage[] | undefined>

@@ -1,8 +1,8 @@
-# @bot-wa/wa-gateway-kit (private)
+# @botmesh/wa-gateway-kit (private)
 
 Internal package: the code shared by the WhatsApp REST gateway transports
-[`@bot-wa/evolution`](../evolution-provider) and
-[`@bot-wa/wppconnect`](../wppconnect-provider). It is `"private": true`, never
+[`@botmesh/evolution`](../evolution-provider) and
+[`@botmesh/wppconnect`](../wppconnect-provider). It is `"private": true`, never
 published, and its API can change at any time. Use those providers instead;
 they re-export the public pieces (`WaIdentityStore`, `normalizeJid`,
 `IdentityPersistence`, `RestHttpOptions`).

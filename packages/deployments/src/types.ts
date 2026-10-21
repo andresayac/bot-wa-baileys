@@ -1,10 +1,10 @@
 /**
- * Records of `@bot-wa/deployments`: published versions, the gate trace kept on a
+ * Records of `@botmesh/deployments`: published versions, the gate trace kept on a
  * version that passed its gate, the audit record of every gate run, and the errors
  * the registry and stores reject with.
  */
 
-import type { JsonValue } from '@bot-wa/core'
+import type { JsonValue } from '@botmesh/core'
 
 /** One published version of a bot. */
 export interface Deployment {

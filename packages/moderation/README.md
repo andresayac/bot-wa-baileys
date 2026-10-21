@@ -1,16 +1,16 @@
-# @bot-wa/moderation
+# @botmesh/moderation
 
 > **Experimental — aún no publicado en npm.** Implementación real y probada, pero el paquete es `private`: no forma parte de la primera alpha y su API puede cambiar. Úsalo desde este monorepo (`workspace:*`).
 
-Plugin de **moderación de grupos** para [`@bot-wa/core`](../core): anti-spam por ventana de tiempo, filtros de palabras/regex, filtro de enlaces (invitaciones a grupos ajenos) y acciones `warn` / `mute` / `kick` / `delete`, con configuración por grupo y bypass para administradores.
+Plugin de **moderación de grupos** para [`@botmesh/core`](../core): anti-spam por ventana de tiempo, filtros de palabras/regex, filtro de enlaces (invitaciones a grupos ajenos) y acciones `warn` / `mute` / `kick` / `delete`, con configuración por grupo y bypass para administradores.
 
 Es agnóstico de transporte: los ids de chat y de usuario son strings opacos, los enlaces se detectan en el **texto** del mensaje y cada capacidad del provider (borrar mensajes, expulsar, listar admins) es **opcional**. Si el provider no la tiene, la acción se degrada y se reporta.
 
 ## Uso
 
 ```ts
-import { Bot } from '@bot-wa/core'
-import { moderationPlugin } from '@bot-wa/moderation'
+import { Bot } from '@botmesh/core'
+import { moderationPlugin } from '@botmesh/moderation'
 
 const bot = new Bot({ provider })
 

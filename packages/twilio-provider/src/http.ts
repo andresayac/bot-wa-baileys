@@ -1,12 +1,12 @@
 /**
  * Small transport helpers shared by the provider: header lookup, raw-body
  * handling, constant-time comparison, the numbered-text fallback for buttons /
- * lists, and the REST call wrapper over `secureFetch` (@bot-wa/http).
+ * lists, and the REST call wrapper over `secureFetch` (@botmesh/http).
  */
 
 import { timingSafeEqual } from 'node:crypto'
-import { SecureHttpError, secureFetch, type SecureFetchOptions } from '@bot-wa/http'
-import { PayloadTooLargeError, ProviderError, type Button, type ListSection } from '@bot-wa/core'
+import { SecureHttpError, secureFetch, type SecureFetchOptions } from '@botmesh/http'
+import { PayloadTooLargeError, ProviderError, type Button, type ListSection } from '@botmesh/core'
 
 export type HeaderBag = Record<string, string | string[] | undefined>
 

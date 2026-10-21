@@ -6,7 +6,7 @@
  */
 
 import type { AnyMessageContent, WAMessage } from '@whiskeysockets/baileys'
-import { UnsupportedContentError, type OutboundContent } from '@bot-wa/core'
+import { UnsupportedContentError, type OutboundContent } from '@botmesh/core'
 import { toMediaUpload, resolveRemoteMedia, makeSticker, transcodeToOpus, type RemoteMediaConfig } from './MediaProcessor.js'
 
 function vcard(phone: string, displayName?: string): string {

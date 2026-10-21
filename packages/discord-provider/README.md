@@ -1,8 +1,8 @@
-# @bot-wa/discord
+# @botmesh/discord
 
 > **Experimental — aún no publicado en npm.** Implementación real y con tests, pero el paquete es `private`: no forma parte de la primera alpha y su API puede cambiar. Úsalo desde este monorepo (`workspace:*`); el `pnpm add` de abajo funcionará cuando se publique.
 
-Transporte **Discord** para [`@bot-wa/core`](../core): **Gateway websocket**
+Transporte **Discord** para [`@botmesh/core`](../core): **Gateway websocket**
 para eventos entrantes (mensajes, botones, menús y slash commands) y **REST**
 para enviar. El provider es dueño del socket (`pushIngress: false`) — no hay
 webhook que cablear.
@@ -10,7 +10,7 @@ webhook que cablear.
 ## Instalación
 
 ```bash
-pnpm add @bot-wa/core @bot-wa/discord
+pnpm add @botmesh/core @botmesh/discord
 ```
 
 Dependencias: `ws` (gateway), `fetch`/`FormData` nativos de Node ≥ 22 (REST).
@@ -28,8 +28,8 @@ Dependencias: `ws` (gateway), `fetch`/`FormData` nativos de Node ≥ 22 (REST).
 ## Uso
 
 ```ts
-import { Bot } from '@bot-wa/core'
-import { DiscordProvider, GatewayIntents } from '@bot-wa/discord'
+import { Bot } from '@botmesh/core'
+import { DiscordProvider, GatewayIntents } from '@botmesh/discord'
 
 const provider = new DiscordProvider({
   token: process.env.DISCORD_TOKEN!,
@@ -109,7 +109,7 @@ cada mensaje (LRU en memoria, `reactionMemory`, 1000 mensajes por defecto):
 
 ## Errores tipados
 
-Los fallos REST (HTTP ≥ 400) se mapean a los errores de `@bot-wa/core`:
+Los fallos REST (HTTP ≥ 400) se mapean a los errores de `@botmesh/core`:
 `429` → `RateLimitedError` (con `retryAfterMs` desde `retry_after`), `403` →
 `RecipientUnreachableError` (también los códigos 10003 *Unknown Channel*,
 10013 *Unknown User*, 50001 *Missing Access* y 50007 *Cannot send messages to

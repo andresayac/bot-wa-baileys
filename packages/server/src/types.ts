@@ -1,6 +1,6 @@
 /**
- * Structural types for @bot-wa/server. Nothing here imports a web framework or
- * `@bot-wa/core`: any object with the right shape works, so a provider
+ * Structural types for @botmesh/server. Nothing here imports a web framework or
+ * `@botmesh/core`: any object with the right shape works, so a provider
  * (`CloudAPIProvider`, `TelegramProvider`, ...) or a `Bot` is accepted as-is.
  */
 

@@ -3,7 +3,7 @@
  * with the voice error mapping (timeouts, non-2xx, 429, transport failures).
  */
 
-import { secureFetch, SecureHttpError } from '@bot-wa/http'
+import { secureFetch, SecureHttpError } from '@botmesh/http'
 import { VoiceError, VoiceHttpError, VoiceRateLimitedError, VoiceTimeoutError } from './errors.js'
 import type { VoiceHttpOptions } from './types.js'
 

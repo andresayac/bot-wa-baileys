@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { PayloadTooLargeError, ProviderError, RateLimitedError, RecipientUnreachableError } from '@bot-wa/core'
+import { PayloadTooLargeError, ProviderError, RateLimitedError, RecipientUnreachableError } from '@botmesh/core'
 import { parseEmail } from '../src/mime.js'
 import { detectAutomated, SenderFloodGuard } from '../src/loop.js'
 import { detectBounce } from '../src/bounce.js'

@@ -1,8 +1,8 @@
 import { createHmac } from 'node:crypto'
 import { Readable } from 'node:stream'
 import { describe, expect, it, vi } from 'vitest'
-import { Bot, MemoryStore } from '@bot-wa/core'
-import { MockProvider, createTestBot } from '@bot-wa/core/testing'
+import { Bot, MemoryStore } from '@botmesh/core'
+import { MockProvider, createTestBot } from '@botmesh/core/testing'
 import { chatwootPlugin, type ChatwootPluginConfig } from '../src/index.js'
 import { FakeChatwoot, publicResolver } from './fakeChatwoot.js'
 

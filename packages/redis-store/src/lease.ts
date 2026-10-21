@@ -12,7 +12,7 @@
  * Every operation touches one key, so the same key names work on Redis Cluster; the
  * `layout` option only validates the prefix for the cluster layout.
  */
-import type { LeaseGrant, LeaseProvider } from '@bot-wa/core'
+import type { LeaseGrant, LeaseProvider } from '@botmesh/core'
 import type { RedisLikeClient } from './RedisStore.js'
 import { casJson } from './cas.js'
 import { asRedisLike, resolveLayout, type AnyRedisClient } from './client.js'

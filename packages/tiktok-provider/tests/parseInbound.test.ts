@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import type { InboundEvent, InboundMessage } from '@bot-wa/core'
+import type { InboundEvent, InboundMessage } from '@botmesh/core'
 import { parseWebhook } from '../src/parseInbound.js'
 import { parseJsonLossless } from '../src/json.js'
 import type { TikTokWebhookBody } from '../src/types.js'

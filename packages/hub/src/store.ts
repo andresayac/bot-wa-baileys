@@ -1,7 +1,7 @@
 /**
- * PluginStore — the storage contract of `@bot-wa/hub`. `MemoryPluginStore` is the
+ * PluginStore — the storage contract of `@botmesh/hub`. `MemoryPluginStore` is the
  * reference implementation and `KvPluginStore` persists through any `DurableKv` of
- * `@bot-wa/core`; both pass `test-utils/plugin-store-conformance.ts`.
+ * `@botmesh/core`; both pass `test-utils/plugin-store-conformance.ts`.
  *
  * `install` replaces the record (and disables it again), `setEnabled` is a
  * compare-and-set loop, and every read returns a copy.

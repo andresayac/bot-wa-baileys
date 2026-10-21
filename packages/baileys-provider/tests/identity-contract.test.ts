@@ -1,9 +1,9 @@
 /**
  * The identity stability contract, checked with the reusable helper from
- * `@bot-wa/core/testing` against this provider's real normalization path.
+ * `@botmesh/core/testing` against this provider's real normalization path.
  */
 import { describe, it, expect } from 'vitest'
-import { assertStableIdentity, checkIdentityContract } from '@bot-wa/core/testing'
+import { assertStableIdentity, checkIdentityContract } from '@botmesh/core/testing'
 import type { WAMessage } from '@whiskeysockets/baileys'
 import { IdentityStore } from '../src/identity.js'
 import { toInbound } from '../src/toInbound.js'

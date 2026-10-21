@@ -2,7 +2,7 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { FileDurability, MemoryKv } from '@bot-wa/core'
+import { FileDurability, MemoryKv } from '@botmesh/core'
 import { MemoryCampaignStore, makeDeliveryId } from '../src/memory.js'
 import { KvCampaignStore } from '../src/kv.js'
 import { runCampaignStoreConformance } from '../../../test-utils/campaign-store-conformance.js'

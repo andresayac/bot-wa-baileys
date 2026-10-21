@@ -2,7 +2,7 @@
  * Single-process durability backend persisted to one JSON file.
  *
  * Every committed write rewrites the snapshot atomically (temp file + rename), the
- * same technique as `@bot-wa/events`' `FileEventJournal`, so a crash leaves either the
+ * same technique as `@botmesh/events`' `FileEventJournal`, so a crash leaves either the
  * previous or the next snapshot, never a torn one. A `<file>.lock` advisory lock holding
  * the owner's pid keeps a second PROCESS from opening the same journal while the first
  * is alive; a lock left by a dead process is taken over. Within one process, a second

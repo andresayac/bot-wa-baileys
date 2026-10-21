@@ -1,9 +1,9 @@
-# Webhook server (`@bot-wa/server`)
+# Webhook server (`@botmesh/server`)
 
 Webhook providers (WhatsApp Cloud API, Messenger, Instagram, Telegram in
 webhook mode, Evolution, Twilio, TikTok...) do not open a connection: the
 channel POSTs events to **your** HTTP server, and you hand each request to
-`provider.ingest()`. `@bot-wa/server` is that HTTP layer, done right:
+`provider.ingest()`. `@botmesh/server` is that HTTP layer, done right:
 
 - **Raw body bytes**: `ingest()` gets the exact `Buffer` that arrived.
   Signatures such as Meta's `X-Hub-Signature-256` are computed over those
@@ -20,7 +20,7 @@ channel POSTs events to **your** HTTP server, and you hand each request to
 - **No framework dependencies**: adapters for `node:http`, Express, Fastify,
   Hono and fetch-style runtimes, typed structurally.
 
-> `@bot-wa/server` is **experimental**: the package is `private`, not
+> `@botmesh/server` is **experimental**: the package is `private`, not
 > published to npm. Use it from this monorepo (`"workspace:*"`).
 
 Socket providers (Baileys, Discord, Telegram in polling mode, Email over
@@ -30,10 +30,10 @@ IMAP) need no ingress.
 
 ```ts
 import { createServer } from 'node:http'
-import { Bot } from '@bot-wa/core'
-import { CloudAPIProvider } from '@bot-wa/meta'
-import { TelegramProvider } from '@bot-wa/telegram'
-import { createIngress, createNodeHandler } from '@bot-wa/server'
+import { Bot } from '@botmesh/core'
+import { CloudAPIProvider } from '@botmesh/meta'
+import { TelegramProvider } from '@botmesh/telegram'
+import { createIngress, createNodeHandler } from '@botmesh/server'
 
 const whatsapp = new CloudAPIProvider({
   accessToken: process.env.META_TOKEN!,
@@ -82,7 +82,7 @@ instead.
 
 ```ts
 import express from 'express'
-import { expressIngress } from '@bot-wa/server/express'
+import { expressIngress } from '@botmesh/server/express'
 
 const app = express()
 app.use(expressIngress(ingress)) // BEFORE express.json()
@@ -99,7 +99,7 @@ earlier), the ingress answers `500` instead of re-serializing. Behind
 
 ```ts
 import Fastify from 'fastify'
-import { fastifyIngress } from '@bot-wa/server/fastify'
+import { fastifyIngress } from '@botmesh/server/fastify'
 
 const app = Fastify()
 app.register(fastifyIngress(ingress), { prefix: '/hooks' }) // /hooks/webhook/whatsapp, /hooks/healthz...
@@ -113,8 +113,8 @@ JSON parser.
 
 ```ts
 import { Hono } from 'hono'
-import { honoIngress } from '@bot-wa/server/hono'
-import { createFetchHandler } from '@bot-wa/server'
+import { honoIngress } from '@botmesh/server/hono'
+import { createFetchHandler } from '@botmesh/server'
 
 const app = new Hono()
 app.use('*', honoIngress(ingress)) // unserved paths → next()
@@ -261,4 +261,4 @@ framework and call `provider.ingest(body, headers, req.originalUrl)` /
 
 - [Channels](/guide/channels): which providers are webhook-based.
 - [Deployment](/guide/deploy)
-- [`@bot-wa/server` README](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/server)
+- [`@botmesh/server` README](https://github.com/andresayac/botmesh/tree/main/packages/server)

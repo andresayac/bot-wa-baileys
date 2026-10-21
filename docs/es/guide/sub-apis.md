@@ -2,7 +2,7 @@
 
 En v1 el bot exponía 5 sub-APIs tipadas de WhatsApp: `bot.groups`,
 `bot.profile`, `bot.privacy`, `bot.chats`, `bot.presence`. **En v2 fueron
-eliminadas del core**: `@bot-wa/core` es agnóstico de transporte, y la
+eliminadas del core**: `@botmesh/core` es agnóstico de transporte, y la
 gestión de grupos/privacidad/perfil es específica de WhatsApp — no existe
 con la misma forma en Telegram o Discord.
 
@@ -36,8 +36,8 @@ el provider de Baileys. El provider mantiene un handle de depuración
 (`provider.connection`) y un getter tipado (`provider.socket`):
 
 ```ts
-import { Bot } from '@bot-wa/core'
-import { BaileysProvider } from '@bot-wa/baileys'
+import { Bot } from '@botmesh/core'
+import { BaileysProvider } from '@botmesh/baileys'
 
 const provider = new BaileysProvider({ session: 'mi-bot' })
 const bot = new Bot({ provider })
@@ -64,7 +64,7 @@ await bot.start()
 
 ::: warning El código específico de transporte se queda específico
 Todo lo que escribas contra `provider.socket` solo funciona con
-`@bot-wa/baileys` (y solo contra una conexión real de WhatsApp — no con el
+`@botmesh/baileys` (y solo contra una conexión real de WhatsApp — no con el
 `MockProvider` que usa `createTestBot()`). Protégelo detrás de
 `provider.id === 'baileys'` si tu código puede correr en otros transportes.
 :::

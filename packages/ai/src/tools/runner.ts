@@ -1,4 +1,4 @@
-import type { BotTracing, MessageContext } from '@bot-wa/core'
+import type { BotTracing, MessageContext } from '@botmesh/core'
 import { activeTracing, ToolCallSpan } from '../tracing.js'
 import { AI_MESSAGES, aiOverride, aiText, type AITranslatable } from '../i18n.js'
 import type { AIChatMessage, GenerateInput, GenerateResult } from '../types.js'

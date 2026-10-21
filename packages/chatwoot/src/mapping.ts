@@ -7,7 +7,7 @@
  * Chat ids are opaque: they are only used as keys, never parsed.
  */
 
-import type { ChatId, IStore } from '@bot-wa/core'
+import type { ChatId, IStore } from '@botmesh/core'
 
 /** Minimal string key/value the mapping persists to. An empty string means "deleted". */
 export interface ChatwootKeyValue {

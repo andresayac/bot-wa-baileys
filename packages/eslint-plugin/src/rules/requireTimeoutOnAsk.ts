@@ -1,5 +1,5 @@
 /**
- * `bot-wa/require-timeout-on-ask` — every wait for user input should have a
+ * `botmesh/require-timeout-on-ask` — every wait for user input should have a
  * timeout, so an abandoned conversation does not stay open (and keep
  * capturing that user's messages) forever.
  *

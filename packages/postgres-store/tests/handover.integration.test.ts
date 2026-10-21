@@ -11,8 +11,8 @@ import pg from 'pg'
 import {
   Bot, MemoryCoordinationHub, MemoryCoordinator, flow,
   type BotConfig, type ConversationHandoverConfig, type DurabilityBackend,
-} from '@bot-wa/core'
-import { CrashableProvider, crashable } from '@bot-wa/core/testing'
+} from '@botmesh/core'
+import { CrashableProvider, crashable } from '@botmesh/core/testing'
 import { PostgresDurability, PostgresStore } from '../src/index.js'
 
 const URL = process.env.BOTWA_TEST_POSTGRES_URL

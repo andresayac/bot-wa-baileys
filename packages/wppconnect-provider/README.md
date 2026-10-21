@@ -1,14 +1,14 @@
-# @bot-wa/wppconnect
+# @botmesh/wppconnect
 
 Transporte [WPPConnect Server](https://github.com/wppconnect-team/wppconnect-server)
-([`IProvider` v2](../core/src/core/provider.ts)) para [@bot-wa/core](../core).
+([`IProvider` v2](../core/src/core/provider.ts)) para [@botmesh/core](../core).
 `wppconnect-server` expone WhatsApp Web (WA-JS) como API REST; el bot habla con
 él por HTTP y recibe los eventos por webhook.
 
 > Paquete **privado** (alpha): no se publica en npm.
 
 - **Salida:** `POST {baseUrl}/api/{session}/<endpoint>` con
-  `Authorization: Bearer <token>`, por `secureFetch` de `@bot-wa/http` (sin
+  `Authorization: Bearer <token>`, por `secureFetch` de `@botmesh/http` (sin
   seguir redirecciones). Con `secretKey`, el token se genera en `start()` y se
   regenera una vez ante un 401 (la `secretKey` nunca aparece en los errores).
 - **Entrada:** webhooks (`onmessage`, `onack`, `onreactionmessage`,
@@ -31,8 +31,8 @@ Transporte [WPPConnect Server](https://github.com/wppconnect-team/wppconnect-ser
 
 ```ts
 import express from 'express'
-import { Bot } from '@bot-wa/core'
-import { WPPConnectProvider } from '@bot-wa/wppconnect'
+import { Bot } from '@botmesh/core'
+import { WPPConnectProvider } from '@botmesh/wppconnect'
 
 const provider = new WPPConnectProvider({
   baseUrl: 'http://localhost:21465',

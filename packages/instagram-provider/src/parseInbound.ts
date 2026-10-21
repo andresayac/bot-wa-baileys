@@ -9,7 +9,7 @@
  * (IGSID) of the sender — stable, opaque.
  */
 
-import { toInboundLocation } from '@bot-wa/core'
+import { toInboundLocation } from '@botmesh/core'
 import type {
   InboundEvent,
   InboundInteraction,
@@ -18,7 +18,7 @@ import type {
   InboundReaction,
   MediaRef,
   MessageType,
-} from '@bot-wa/core'
+} from '@botmesh/core'
 
 /* Loose webhook shapes (only the fields we read). */
 interface IgAttachmentPayload {

@@ -31,7 +31,7 @@
  *   without downloading its body.
  */
 
-import type { ConnectionState, DisconnectReason, LoggerLike } from '@bot-wa/core'
+import type { ConnectionState, DisconnectReason, LoggerLike } from '@botmesh/core'
 import type { EmailMailboxCursor } from './threading.js'
 import type { ImapClientLike } from './types.js'
 

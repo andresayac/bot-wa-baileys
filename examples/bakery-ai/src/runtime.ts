@@ -3,7 +3,7 @@
  * graceful shutdown.
  */
 import { pino, type Logger } from 'pino'
-import type { Bot } from '@bot-wa/core'
+import type { Bot } from '@botmesh/core'
 import { ConfigError, loadDotEnv } from './config.js'
 
 /**

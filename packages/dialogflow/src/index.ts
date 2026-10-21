@@ -1,5 +1,5 @@
 /**
- * @bot-wa/dialogflow — Dialogflow ES/CX context for `@bot-wa/core`.
+ * @botmesh/dialogflow — Dialogflow ES/CX context for `@botmesh/core`.
  *
  * - {@link dialogflowPlugin} / {@link dialogflowContext} — detectIntent on every
  *   inbound text (before-hook), exposed as `ctx.tools.dialogflow`.
@@ -30,9 +30,9 @@ export {
 export type { AccessTokenSource, HttpOptions, ServiceAccountCredentials } from './auth.js'
 
 /**
- * Augment `@bot-wa/core` so `ctx.tools.dialogflow` is typed once the plugin is installed.
+ * Augment `@botmesh/core` so `ctx.tools.dialogflow` is typed once the plugin is installed.
  */
-declare module '@bot-wa/core' {
+declare module '@botmesh/core' {
   interface DefaultTools {
     /** Present when `dialogflowPlugin` is plugged into the Bot. */
     dialogflow?: DialogflowContext

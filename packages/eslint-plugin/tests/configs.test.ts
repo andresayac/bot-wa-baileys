@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 import botWa, { configs, rules } from '../src/index.js'
 
 const V1_BOT = `
-import { addKeyword, definePlugin } from '@bot-wa/core'
+import { addKeyword, definePlugin } from '@botmesh/core'
 const users = new Map()
 export const welcome = addKeyword('').addAnswer('¿Nombre?', { capture: true }, async (ctx, { flowDynamic, globalState }) => {
   users.set(ctx.from, ctx.body)
@@ -15,7 +15,7 @@ export async function start(runtime, h, m) { await runtime.enter(h, m) }
 `
 
 const V2_BOT = `
-import { Bot, defineBot, flow, isMainModule } from '@bot-wa/core'
+import { Bot, defineBot, flow, isMainModule } from '@botmesh/core'
 const createBot = defineBot((provider) => {
   const bot = new Bot({ provider })
   bot.when('hola', async (ctx) => { await ctx.user.set('seen', true); await ctx.reply('¡Hola!') })
@@ -34,8 +34,8 @@ function lint(code: string, config = configs.recommended) {
 
 describe('plugin shape', () => {
   it('exposes meta, the six rules and flat configs', () => {
-    expect(botWa.meta.name).toBe('eslint-plugin-bot-wa')
-    expect(botWa.meta.namespace).toBe('bot-wa')
+    expect(botWa.meta.name).toBe('eslint-plugin-botmesh')
+    expect(botWa.meta.namespace).toBe('botmesh')
     expect(Object.keys(rules).sort()).toEqual([
       'no-async-plugin-install',
       'no-await-runtime-enter',
@@ -50,8 +50,8 @@ describe('plugin shape', () => {
     }
     // Every rule is enabled in both presets, and the presets register the plugin itself.
     for (const preset of [configs.recommended, configs.strict]) {
-      expect(preset.plugins?.['bot-wa']).toBe(botWa)
-      expect(Object.keys(preset.rules ?? {}).sort()).toEqual(Object.keys(rules).map((r) => 'bot-wa/' + r).sort())
+      expect(preset.plugins?.['botmesh']).toBe(botWa)
+      expect(Object.keys(preset.rules ?? {}).sort()).toEqual(Object.keys(rules).map((r) => 'botmesh/' + r).sort())
     }
     expect(botWa.configs.recommended).toBe(configs.recommended)
   })
@@ -60,11 +60,11 @@ describe('plugin shape', () => {
 describe('recommended preset', () => {
   it('flags a v1-style bot', () => {
     const ids = lint(V1_BOT).map((m) => m.ruleId)
-    expect(ids).toContain('bot-wa/no-v1-api')
-    expect(ids).toContain('bot-wa/no-empty-trigger')
-    expect(ids).toContain('bot-wa/no-async-plugin-install')
-    expect(ids).toContain('bot-wa/no-await-runtime-enter')
-    expect(ids).toContain('bot-wa/prefer-ctx-user-over-global-state')
+    expect(ids).toContain('botmesh/no-v1-api')
+    expect(ids).toContain('botmesh/no-empty-trigger')
+    expect(ids).toContain('botmesh/no-async-plugin-install')
+    expect(ids).toContain('botmesh/no-await-runtime-enter')
+    expect(ids).toContain('botmesh/prefer-ctx-user-over-global-state')
     const fatal = lint(V1_BOT).filter((m) => m.fatal)
     expect(fatal).toEqual([])
   })
@@ -75,8 +75,8 @@ describe('recommended preset', () => {
   })
 
   it('reports require-timeout-on-ask as a warning (severity 1) in recommended, error in strict', () => {
-    const code = "import { flow } from '@bot-wa/core'\nexport const f = flow('a').ask('?', 'k')\n"
-    expect(lint(code).map((m) => [m.ruleId, m.severity])).toEqual([['bot-wa/require-timeout-on-ask', 1]])
-    expect(lint(code, configs.strict).map((m) => [m.ruleId, m.severity])).toEqual([['bot-wa/require-timeout-on-ask', 2]])
+    const code = "import { flow } from '@botmesh/core'\nexport const f = flow('a').ask('?', 'k')\n"
+    expect(lint(code).map((m) => [m.ruleId, m.severity])).toEqual([['botmesh/require-timeout-on-ask', 1]])
+    expect(lint(code, configs.strict).map((m) => [m.ruleId, m.severity])).toEqual([['botmesh/require-timeout-on-ask', 2]])
   })
 })

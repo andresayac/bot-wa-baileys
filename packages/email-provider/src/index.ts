@@ -1,5 +1,5 @@
 /**
- * @bot-wa/email — email transport (IMAP IDLE inbound + SMTP outbound) for @bot-wa/core.
+ * @botmesh/email — email transport (IMAP IDLE inbound + SMTP outbound) for @botmesh/core.
  */
 
 export { EmailProvider } from './EmailProvider.js'

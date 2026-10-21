@@ -2,7 +2,7 @@
  * Config validation — runtime checks for the transport-agnostic BotConfig.
  *
  * WhatsApp/session fields (qr, pairingCode, sessionsDir, browser, …) moved to
- * @bot-wa/baileys' BaileysProviderConfig and are validated there, not here.
+ * @botmesh/baileys' BaileysProviderConfig and are validated there, not here.
  */
 
 import type { BotConfig } from '../core/types.js'

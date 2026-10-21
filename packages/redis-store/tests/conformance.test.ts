@@ -1,5 +1,5 @@
 /** RedisStore against the shared IStore conformance suite (in-memory fake client). */
-import { legacyMessageKey, type StoredMessage } from '@bot-wa/core'
+import { legacyMessageKey, type StoredMessage } from '@botmesh/core'
 import { RedisStore, type RedisLikeClient } from '../src/RedisStore.js'
 import { FakeRedisClient, ScanningFakeRedisClient } from './fakeRedis.js'
 import { runStoreConformance } from '../../../test-utils/store-conformance.js'

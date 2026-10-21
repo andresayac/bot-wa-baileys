@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { InboundDeduper } from '@bot-wa/core'
-import type { InboundEvent, InboundMessage } from '@bot-wa/core'
+import { InboundDeduper } from '@botmesh/core'
+import type { InboundEvent, InboundMessage } from '@botmesh/core'
 import { TelegramProvider, isEditedMessage, parseUpdate } from '../src/index.js'
 
 const ana = { id: 77, first_name: 'Ana' }

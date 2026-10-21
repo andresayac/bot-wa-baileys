@@ -1,5 +1,5 @@
 /** MongoStore against the shared IStore conformance suite (in-memory fake client). */
-import { legacyMessageKey, type StoredMessage } from '@bot-wa/core'
+import { legacyMessageKey, type StoredMessage } from '@botmesh/core'
 import { MongoStore } from '../src/MongoStore.js'
 import { FakeMongoClient } from './fakeMongo.js'
 import { runStoreConformance } from '../../../test-utils/store-conformance.js'

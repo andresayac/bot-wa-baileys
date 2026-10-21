@@ -1,5 +1,5 @@
 /**
- * `@bot-wa/mcp` — an MCP server (Model Context Protocol) over stdio for BotWA.
+ * `@botmesh/mcp` — an MCP server (Model Context Protocol) over stdio for BotWA.
  *
  * It exposes the project's pure, deterministic pieces to any MCP client (an AI coding
  * agent, an editor) so a flow document can be written, validated, compiled, rendered,
@@ -15,7 +15,7 @@
  *
  * @example
  * ```ts
- * import { createMcpServer, serveStream } from '@bot-wa/mcp'
+ * import { createMcpServer, serveStream } from '@botmesh/mcp'
  *
  * const server = createMcpServer({ docsDir: 'docs' })
  * await serveStream(process.stdin, { server, write: (line) => console.log(line) })

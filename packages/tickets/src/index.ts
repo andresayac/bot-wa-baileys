@@ -1,5 +1,5 @@
 /**
- * @bot-wa/tickets — support tickets and queues for `@bot-wa/core`.
+ * @botmesh/tickets — support tickets and queues for `@botmesh/core`.
  *
  * - {@link ticketsPlugin} — installs a {@link TicketDesk} as `ctx.tools.tickets`.
  * - {@link TicketDesk} — the engine (usable without a Bot).
@@ -35,7 +35,7 @@ export type {
 } from './workingHours.js'
 
 /** Types `ctx.tools.tickets` once this package is imported. */
-declare module '@bot-wa/core' {
+declare module '@botmesh/core' {
   interface DefaultTools {
     /** Present when `ticketsPlugin` is plugged into the Bot. */
     tickets?: TicketsApi

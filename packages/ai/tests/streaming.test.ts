@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
-import { createTestBot } from '@bot-wa/core/testing'
-import type { AIMessage } from '@bot-wa/core'
+import { createTestBot } from '@botmesh/core/testing'
+import type { AIMessage } from '@botmesh/core'
 import { MockAIProvider } from '../src/MockAIProvider.js'
 import { AIClient, AITimeoutError } from '../src/AIClient.js'
 import { ContextManager } from '../src/ContextManager.js'
@@ -205,7 +205,7 @@ describe('aiPlugin with stream', () => {
 
 describe('streaming + memory / RAG / tools', () => {
   it('streamReplyInChat injects user facts and RAG passages, yields the sources last and keeps them out of the history', async () => {
-    const { MemoryStore, UserDataService } = await import('@bot-wa/core')
+    const { MemoryStore, UserDataService } = await import('@botmesh/core')
     const { MemoryManager } = await import('../src/memory/MemoryManager.js')
     const store = new MemoryStore()
     const users = new UserDataService(store)

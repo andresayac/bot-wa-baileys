@@ -22,7 +22,7 @@
  * ```
  */
 
-import type { ClaimResult, CompletePatch, ScheduleKind, ScheduleRecord, ScheduleStore } from '@bot-wa/core'
+import type { ClaimResult, CompletePatch, ScheduleKind, ScheduleRecord, ScheduleStore } from '@botmesh/core'
 
 /** A stored schedule document. */
 export interface ScheduleDoc {

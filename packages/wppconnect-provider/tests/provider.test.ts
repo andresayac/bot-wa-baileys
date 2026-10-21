@@ -7,7 +7,7 @@ import {
   RecipientUnreachableError,
   UnsupportedContentError,
   type InboundEvent,
-} from '@bot-wa/core'
+} from '@botmesh/core'
 import { WPPConnectProvider } from '../src/WPPConnectProvider.js'
 import type { WPPConnectProviderConfig } from '../src/types.js'
 import { fakeFetch, fixture, resolver, type Responder } from './support/fake.js'

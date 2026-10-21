@@ -4,6 +4,12 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/). Versionado po
 
 ## [Unreleased]
 
+### El proyecto pasa a llamarse `botmesh` (2026-10)
+- **Nombres nuevos:** el repositorio es [`andresayac/botmesh`](https://github.com/andresayac/botmesh), el scope de npm es **`@botmesh/*`** (`@botmesh/core`, `@botmesh/baileys`, `@botmesh/meta`, `@botmesh/telegram`, `@botmesh/sqlite-store`, `@botmesh/redis-store`, `@botmesh/ai`, `@botmesh/http`, `@botmesh/graph-core`) y el scaffolder es **`create-botmesh`** (`npm create botmesh`), con el directorio `packages/create-botmesh`. El bin del simulador pasa de `bot-wa dev` a **`botmesh dev`**. El nombre anterior anunciaba dos cosas que el proyecto ya no es: un solo transporte y, peor, un canal concreto (Baileys) de los trece.
+- **Renombrados también:** `BOTMESH_VERSIONS` / `BotMeshPackage` / `botMeshRange`, los guards `findBotMeshMonorepo()` / `isBotMeshRoot()`, el package raíz (`botmesh-monorepo`) y las rutas temporales de las suites.
+- **Lo que NO se renombra, a propósito:** el prefijo por defecto `botwa` de `RedisStore`/`RedisCoordinator`/`RedisDurability`, el canal `'botwa:durable'` de `@botmesh/events/durability` y las variables `BOTWA_TEST_*_URL`. Son claves ya escritas en datos y en documentación de operación; cambiarlas rompería instalaciones existentes sin ganar nada. Los `CHANGELOG.md` de cada paquete y `docs/superpowers/` conservan los nombres antiguos porque narran lo que ya se publicó con ellos.
+- **Publicado antes del cambio:** `@bot-wa/core@2.0.0-alpha.2` y siete paquetes `@bot-wa/*@0.2.0-alpha.0` siguen en npm. Hay que deprecarlos apuntando a `@botmesh/*` (ver `CONTRIBUTING.md`).
+
 ### README en inglés (2026-10)
 - El **README raíz** y los de los paquetes públicos que seguían en español (`@bot-wa/core`, `@bot-wa/baileys`, `@bot-wa/meta`, `@bot-wa/http`, `@bot-wa/graph-core`) están ahora en **inglés**, porque son la cara del proyecto en GitHub y en npmjs.com. Con los cuatro que ya lo estaban (`telegram`, `sqlite-store`, `redis-store`, `create-bot-wa`), 9 de los 10 paquetes publicados comparten idioma; **`@bot-wa/ai` sigue en español** pendiente de traducción.
 - `AGENTS.md` recoge la convención nueva (README en inglés; guías del sitio y `CHANGELOG` en español, sitio bilingüe) y `CONTRIBUTING.md`/`AGENTS.md` apuntan al ancla renombrada `#packages`.

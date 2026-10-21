@@ -1,6 +1,6 @@
 /** Durable media references: the journaled Twilio media URL round-trips, only for Twilio hosts. */
 import { describe, expect, it } from 'vitest'
-import { ProviderError, type SerializedMediaRef } from '@bot-wa/core'
+import { ProviderError, type SerializedMediaRef } from '@botmesh/core'
 import { TwilioProvider } from '../src/TwilioProvider.js'
 import { fakeHttp } from './support.js'
 import { WA_IMAGE } from './fixtures.js'

@@ -19,7 +19,7 @@ import {
 const roots: string[] = []
 
 function tempRoot(): string {
-  const root = mkdtempSync(join(tmpdir(), 'bot-wa-session-'))
+  const root = mkdtempSync(join(tmpdir(), 'botmesh-session-'))
   roots.push(root)
   return root
 }

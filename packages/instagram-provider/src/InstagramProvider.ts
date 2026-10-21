@@ -1,6 +1,6 @@
 /**
  * InstagramProvider — Instagram DM (Messenger API for Instagram) transport for
- * @bot-wa/core. Webhook-based (pushIngress): there is no socket. The host
+ * @botmesh/core. Webhook-based (pushIngress): there is no socket. The host
  * receives the 'page' webhook, verifies it with `verifyChallenge` (GET) and
  * forwards the POST body to `ingest()`. Outbound goes to the Graph
  * `me/messages` Send API endpoint.
@@ -23,7 +23,7 @@
  */
 
 import pino from 'pino'
-import type { LoggerLike } from '@bot-wa/core'
+import type { LoggerLike } from '@botmesh/core'
 import type {
   ChatId,
   IProvider,
@@ -36,8 +36,8 @@ import type {
   SendResult,
   SerializedMediaRef,
   UserId,
-} from '@bot-wa/core'
-import { ProviderError } from '@bot-wa/core'
+} from '@botmesh/core'
+import { ProviderError } from '@botmesh/core'
 import type { InstagramProviderConfig } from './types.js'
 import { GraphClient } from './graphClient.js'
 import { toOutbound } from './toOutbound.js'
@@ -45,8 +45,8 @@ import { parseInbound, type IgWebhookBody } from './parseInbound.js'
 import {
   verifyChallenge, checkGraphSignature, tryParseGraphBody, META_MEDIA_HOSTS, serializeUrlMediaRef, rehydrateUrlMediaRef,
   type ChallengeQuery,
-} from '@bot-wa/graph-core'
-import { isAllowedHostUrl } from '@bot-wa/http'
+} from '@botmesh/graph-core'
+import { isAllowedHostUrl } from '@botmesh/http'
 
 export class InstagramProvider implements IProvider<unknown> {
   readonly id = 'instagram'

@@ -59,12 +59,12 @@ export { DEFAULT_RAG_INSTRUCTIONS, ragContextBlock, citedChunks, citedPassages, 
 export type { AIRetriever, AIRetrievedChunk, AIRagConfig, AICitedPassage } from './rag.js'
 
 /**
- * Augment `@bot-wa/core` so `ctx.tools.ai` is typed as {@link AIClient} in
+ * Augment `@botmesh/core` so `ctx.tools.ai` is typed as {@link AIClient} in
  * handlers (`bot.when`, `bot.onMessage`, `bot.command`, ...) — no casts needed.
- * It applies to any project that imports `@bot-wa/ai`; the value exists at
+ * It applies to any project that imports `@botmesh/ai`; the value exists at
  * runtime once `aiPlugin` is plugged into the Bot (and until it is unplugged).
  */
-declare module '@bot-wa/core' {
+declare module '@botmesh/core' {
   interface DefaultTools {
     /** Injected by `aiPlugin` via `bot.provide('ai', client)`. */
     ai: AIClient

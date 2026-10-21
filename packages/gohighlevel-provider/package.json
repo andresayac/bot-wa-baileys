@@ -1,9 +1,9 @@
 {
-  "name": "@bot-wa/gohighlevel",
+  "name": "@botmesh/gohighlevel",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "GoHighLevel (LeadConnector) transport for @bot-wa/core — Conversations API + signed InboundMessage webhooks.",
+  "description": "GoHighLevel (LeadConnector) transport for @botmesh/core — Conversations API + signed InboundMessage webhooks.",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
   "exports": {
@@ -16,7 +16,7 @@
     "node": ">=22"
   },
   "keywords": [
-    "bot-wa",
+    "botmesh",
     "gohighlevel",
     "highlevel",
     "leadconnector",
@@ -28,12 +28,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/andresayac/bot-wa-baileys.git",
+    "url": "git+https://github.com/andresayac/botmesh.git",
     "directory": "packages/gohighlevel-provider"
   },
-  "homepage": "https://github.com/andresayac/bot-wa-baileys/tree/main/packages/gohighlevel-provider#readme",
+  "homepage": "https://github.com/andresayac/botmesh/tree/main/packages/gohighlevel-provider#readme",
   "bugs": {
-    "url": "https://github.com/andresayac/bot-wa-baileys/issues"
+    "url": "https://github.com/andresayac/botmesh/issues"
   },
   "files": [
     "./lib/**/*"
@@ -45,8 +45,8 @@
     "typecheck": "tsc -p tsconfig.test.json"
   },
   "dependencies": {
-    "@bot-wa/core": "workspace:*",
-    "@bot-wa/http": "workspace:*",
+    "@botmesh/core": "workspace:*",
+    "@botmesh/http": "workspace:*",
     "pino": "^10.3.1"
   },
   "devDependencies": {

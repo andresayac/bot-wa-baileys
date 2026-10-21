@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { parseWebhook } from '../src/parseInbound.js'
-import { WaIdentityStore } from '@bot-wa/wa-gateway-kit'
+import { WaIdentityStore } from '@botmesh/wa-gateway-kit'
 
 const PN = '573001112233@s.whatsapp.net'
 const ctx = () => ({ identity: new WaIdentityStore(), selfId: '573009998877@s.whatsapp.net' })

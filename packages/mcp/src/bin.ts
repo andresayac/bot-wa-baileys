@@ -11,6 +11,6 @@
 import { runStdio } from './stdio.js'
 
 runStdio().catch((error: unknown) => {
-  process.stderr.write(`bot-wa-mcp: ${error instanceof Error ? error.message : String(error)}\n`)
+  process.stderr.write(`botmesh-mcp: ${error instanceof Error ? error.message : String(error)}\n`)
   process.exitCode = 1
 })

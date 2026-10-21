@@ -12,7 +12,7 @@
  * each message is kept in `chat.platformData.channel` (and used to reply).
  */
 
-import type { InboundEvent, MediaRef, MessageType } from '@bot-wa/core'
+import type { InboundEvent, MediaRef, MessageType } from '@botmesh/core'
 import type { GhlChannel, GhlWebhookBody } from './types.js'
 
 const CHANNEL_ALIASES: Record<string, GhlChannel> = {

@@ -8,7 +8,7 @@ import {
   type InboundEvent,
   type InboundMessage,
   MemoryStore,
-} from '@bot-wa/core'
+} from '@botmesh/core'
 import { cursorThreadStore, EmailProvider, MemoryThreadStore, type EmailProviderConfig, type EmailRaw } from '../src/index.js'
 import { email, FakeImapServer, FakeSmtp, waitFor } from './support/fakes.js'
 

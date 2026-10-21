@@ -7,8 +7,8 @@ path string, or a `Buffer`.
 ## Setup
 
 ```ts
-import { Bot } from '@bot-wa/core'
-import { BaileysProvider } from '@bot-wa/baileys'
+import { Bot } from '@botmesh/core'
+import { BaileysProvider } from '@botmesh/baileys'
 
 const bot = new Bot({
   provider: new BaileysProvider({ session: 'demo-bot', qr: { terminal: true, small: true } }),
@@ -108,7 +108,7 @@ once and leaves them on `ctx.media` (see
 [Access media content](/guide/messages#access-media-content)):
 
 ```ts
-import { loadMediaOf } from '@bot-wa/core'
+import { loadMediaOf } from '@botmesh/core'
 
 bot.onImage(async (ctx) => {
   await ctx.reply('📸 Got your image. Converting to sticker...')

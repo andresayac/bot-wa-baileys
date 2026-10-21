@@ -8,7 +8,7 @@ importers:
 
   .:
     devDependencies:
-      '@bot-wa/core':
+      '@botmesh/core':
         specifier: workspace:*
         version: link:packages/core
       '@changesets/cli':
@@ -38,19 +38,19 @@ importers:
 
   examples/bakery-ai:
     dependencies:
-      '@bot-wa/ai':
+      '@botmesh/ai':
         specifier: workspace:*
         version: link:../../packages/ai
-      '@bot-wa/baileys':
+      '@botmesh/baileys':
         specifier: workspace:*
         version: link:../../packages/baileys-provider
-      '@bot-wa/core':
+      '@botmesh/core':
         specifier: workspace:*
         version: link:../../packages/core
-      '@bot-wa/server':
+      '@botmesh/server':
         specifier: workspace:*
         version: link:../../packages/server
-      '@bot-wa/twilio':
+      '@botmesh/twilio':
         specifier: workspace:*
         version: link:../../packages/twilio-provider
       pino:
@@ -72,7 +72,7 @@ importers:
 
   packages/ai:
     dependencies:
-      '@bot-wa/core':
+      '@botmesh/core':
         specifier: workspace:^
         version: link:../core
       '@google/generative-ai':
@@ -82,7 +82,7 @@ importers:
       '@anthropic-ai/sdk':
         specifier: ^0.68.0
         version: 0.68.0
-      '@bot-wa/telegram':
+      '@botmesh/telegram':
         specifier: workspace:^
         version: link:../telegram-provider
       '@types/node':
@@ -97,10 +97,10 @@ importers:
 
   packages/baileys-provider:
     dependencies:
-      '@bot-wa/core':
+      '@botmesh/core':
         specifier: workspace:^
         version: link:../core
-      '@bot-wa/http':
+      '@botmesh/http':
         specifier: workspace:^
         version: link:../http
       '@cacheable/node-cache':
@@ -161,20 +161,20 @@ importers:
 
   packages/campaigns:
     dependencies:
-      '@bot-wa/core':
+      '@botmesh/core':
         specifier: workspace:*
         version: link:../core
-      '@bot-wa/tenant-kv':
+      '@botmesh/tenant-kv':
         specifier: workspace:*
         version: link:../tenant-kv
     devDependencies:
-      '@bot-wa/postgres-store':
+      '@botmesh/postgres-store':
         specifier: workspace:*
         version: link:../postgres-store
-      '@bot-wa/redis-store':
+      '@botmesh/redis-store':
         specifier: workspace:*
         version: link:../redis-store
-      '@bot-wa/sqlite-store':
+      '@botmesh/sqlite-store':
         specifier: workspace:*
         version: link:../sqlite-store
       '@types/node':
@@ -204,10 +204,10 @@ importers:
 
   packages/chatwoot:
     dependencies:
-      '@bot-wa/core':
+      '@botmesh/core':
         specifier: workspace:*
         version: link:../core
-      '@bot-wa/http':
+      '@botmesh/http':
         specifier: workspace:*
         version: link:../http
     devDependencies:
@@ -243,7 +243,7 @@ importers:
         specifier: ^4.1.10
         version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@26.1.1)(vite@7.3.6(@types/node@26.1.1)(yaml@2.9.0))
 
-  packages/create-bot-wa:
+  packages/create-botmesh:
     devDependencies:
       '@types/node':
         specifier: ^26.1.1
@@ -260,20 +260,20 @@ importers:
 
   packages/crm:
     dependencies:
-      '@bot-wa/core':
+      '@botmesh/core':
         specifier: workspace:*
         version: link:../core
-      '@bot-wa/tenant-kv':
+      '@botmesh/tenant-kv':
         specifier: workspace:*
         version: link:../tenant-kv
     devDependencies:
-      '@bot-wa/postgres-store':
+      '@botmesh/postgres-store':
         specifier: workspace:*
         version: link:../postgres-store
-      '@bot-wa/redis-store':
+      '@botmesh/redis-store':
         specifier: workspace:*
         version: link:../redis-store
-      '@bot-wa/sqlite-store':
+      '@botmesh/sqlite-store':
         specifier: workspace:*
         version: link:../sqlite-store
       '@types/node':
@@ -303,20 +303,20 @@ importers:
 
   packages/deployments:
     dependencies:
-      '@bot-wa/core':
+      '@botmesh/core':
         specifier: workspace:*
         version: link:../core
-      '@bot-wa/tenant-kv':
+      '@botmesh/tenant-kv':
         specifier: workspace:*
         version: link:../tenant-kv
     devDependencies:
-      '@bot-wa/postgres-store':
+      '@botmesh/postgres-store':
         specifier: workspace:*
         version: link:../postgres-store
-      '@bot-wa/redis-store':
+      '@botmesh/redis-store':
         specifier: workspace:*
         version: link:../redis-store
-      '@bot-wa/sqlite-store':
+      '@botmesh/sqlite-store':
         specifier: workspace:*
         version: link:../sqlite-store
       '@types/node':
@@ -346,10 +346,10 @@ importers:
 
   packages/dialogflow:
     dependencies:
-      '@bot-wa/core':
+      '@botmesh/core':
         specifier: workspace:*
         version: link:../core
-      '@bot-wa/http':
+      '@botmesh/http':
         specifier: workspace:*
         version: link:../http
     devDependencies:
@@ -368,10 +368,10 @@ importers:
 
   packages/discord-provider:
     dependencies:
-      '@bot-wa/core':
+      '@botmesh/core':
         specifier: workspace:*
         version: link:../core
-      '@bot-wa/http':
+      '@botmesh/http':
         specifier: workspace:*
         version: link:../http
       pino:
@@ -399,10 +399,10 @@ importers:
 
   packages/email-provider:
     dependencies:
-      '@bot-wa/core':
+      '@botmesh/core':
         specifier: workspace:*
         version: link:../core
-      '@bot-wa/http':
+      '@botmesh/http':
         specifier: workspace:*
         version: link:../http
       pino:
@@ -436,9 +436,9 @@ importers:
       '@types/node':
         specifier: ^26.1.1
         version: 26.1.1
-      create-bot-wa:
+      create-botmesh:
         specifier: workspace:*
-        version: link:../create-bot-wa
+        version: link:../create-botmesh
       eslint:
         specifier: ^10.13.0
         version: 10.13.0
@@ -454,7 +454,7 @@ importers:
 
   packages/events:
     devDependencies:
-      '@bot-wa/core':
+      '@botmesh/core':
         specifier: workspace:*
         version: link:../core
       '@types/node':
@@ -472,13 +472,13 @@ importers:
 
   packages/evolution-provider:
     dependencies:
-      '@bot-wa/core':
+      '@botmesh/core':
         specifier: workspace:*
         version: link:../core
-      '@bot-wa/http':
+      '@botmesh/http':
         specifier: workspace:*
         version: link:../http
-      '@bot-wa/wa-gateway-kit':
+      '@botmesh/wa-gateway-kit':
         specifier: workspace:*
         version: link:../wa-gateway-kit
       pino:
@@ -500,17 +500,17 @@ importers:
 
   packages/flow-schema:
     dependencies:
-      '@bot-wa/core':
+      '@botmesh/core':
         specifier: workspace:*
         version: link:../core
-      '@bot-wa/deployments':
+      '@botmesh/deployments':
         specifier: workspace:*
         version: link:../deployments
-      '@bot-wa/http':
+      '@botmesh/http':
         specifier: workspace:*
         version: link:../http
     devDependencies:
-      '@bot-wa/ai':
+      '@botmesh/ai':
         specifier: workspace:*
         version: link:../ai
       '@types/node':
@@ -528,10 +528,10 @@ importers:
 
   packages/gohighlevel-provider:
     dependencies:
-      '@bot-wa/core':
+      '@botmesh/core':
         specifier: workspace:*
         version: link:../core
-      '@bot-wa/http':
+      '@botmesh/http':
         specifier: workspace:*
         version: link:../http
       pino:
@@ -553,7 +553,7 @@ importers:
 
   packages/graph-core:
     dependencies:
-      '@bot-wa/core':
+      '@botmesh/core':
         specifier: workspace:^
         version: link:../core
     devDependencies:
@@ -572,10 +572,10 @@ importers:
 
   packages/gupshup-provider:
     dependencies:
-      '@bot-wa/core':
+      '@botmesh/core':
         specifier: workspace:*
         version: link:../core
-      '@bot-wa/http':
+      '@botmesh/http':
         specifier: workspace:*
         version: link:../http
       pino:
@@ -616,20 +616,20 @@ importers:
 
   packages/hub:
     dependencies:
-      '@bot-wa/core':
+      '@botmesh/core':
         specifier: workspace:*
         version: link:../core
-      '@bot-wa/tenant-kv':
+      '@botmesh/tenant-kv':
         specifier: workspace:*
         version: link:../tenant-kv
     devDependencies:
-      '@bot-wa/postgres-store':
+      '@botmesh/postgres-store':
         specifier: workspace:*
         version: link:../postgres-store
-      '@bot-wa/redis-store':
+      '@botmesh/redis-store':
         specifier: workspace:*
         version: link:../redis-store
-      '@bot-wa/sqlite-store':
+      '@botmesh/sqlite-store':
         specifier: workspace:*
         version: link:../sqlite-store
       '@types/node':
@@ -659,20 +659,20 @@ importers:
 
   packages/inbox:
     dependencies:
-      '@bot-wa/core':
+      '@botmesh/core':
         specifier: workspace:*
         version: link:../core
-      '@bot-wa/tenant-kv':
+      '@botmesh/tenant-kv':
         specifier: workspace:*
         version: link:../tenant-kv
     devDependencies:
-      '@bot-wa/postgres-store':
+      '@botmesh/postgres-store':
         specifier: workspace:*
         version: link:../postgres-store
-      '@bot-wa/redis-store':
+      '@botmesh/redis-store':
         specifier: workspace:*
         version: link:../redis-store
-      '@bot-wa/sqlite-store':
+      '@botmesh/sqlite-store':
         specifier: workspace:*
         version: link:../sqlite-store
       '@types/node':
@@ -702,13 +702,13 @@ importers:
 
   packages/instagram-provider:
     dependencies:
-      '@bot-wa/core':
+      '@botmesh/core':
         specifier: workspace:*
         version: link:../core
-      '@bot-wa/graph-core':
+      '@botmesh/graph-core':
         specifier: workspace:*
         version: link:../graph-core
-      '@bot-wa/http':
+      '@botmesh/http':
         specifier: workspace:*
         version: link:../http
       pino:
@@ -730,13 +730,13 @@ importers:
 
   packages/manager:
     dependencies:
-      '@bot-wa/core':
+      '@botmesh/core':
         specifier: workspace:*
         version: link:../core
-      '@bot-wa/flow-schema':
+      '@botmesh/flow-schema':
         specifier: workspace:*
         version: link:../flow-schema
-      '@bot-wa/http':
+      '@botmesh/http':
         specifier: workspace:*
         version: link:../http
       pino:
@@ -758,10 +758,10 @@ importers:
 
   packages/mcp:
     dependencies:
-      '@bot-wa/core':
+      '@botmesh/core':
         specifier: workspace:*
         version: link:../core
-      '@bot-wa/flow-schema':
+      '@botmesh/flow-schema':
         specifier: workspace:*
         version: link:../flow-schema
     devDependencies:
@@ -780,13 +780,13 @@ importers:
 
   packages/messenger-provider:
     dependencies:
-      '@bot-wa/core':
+      '@botmesh/core':
         specifier: workspace:*
         version: link:../core
-      '@bot-wa/graph-core':
+      '@botmesh/graph-core':
         specifier: workspace:*
         version: link:../graph-core
-      '@bot-wa/http':
+      '@botmesh/http':
         specifier: workspace:*
         version: link:../http
       pino:
@@ -808,13 +808,13 @@ importers:
 
   packages/meta-provider:
     dependencies:
-      '@bot-wa/core':
+      '@botmesh/core':
         specifier: workspace:^
         version: link:../core
-      '@bot-wa/graph-core':
+      '@botmesh/graph-core':
         specifier: workspace:^
         version: link:../graph-core
-      '@bot-wa/http':
+      '@botmesh/http':
         specifier: workspace:^
         version: link:../http
       pino:
@@ -836,7 +836,7 @@ importers:
 
   packages/moderation:
     dependencies:
-      '@bot-wa/core':
+      '@botmesh/core':
         specifier: workspace:*
         version: link:../core
     devDependencies:
@@ -855,7 +855,7 @@ importers:
 
   packages/mongo-store:
     dependencies:
-      '@bot-wa/core':
+      '@botmesh/core':
         specifier: workspace:*
         version: link:../core
       mongodb:
@@ -877,7 +877,7 @@ importers:
 
   packages/mysql-store:
     dependencies:
-      '@bot-wa/core':
+      '@botmesh/core':
         specifier: workspace:*
         version: link:../core
       mysql2:
@@ -899,7 +899,7 @@ importers:
 
   packages/nlu:
     dependencies:
-      '@bot-wa/core':
+      '@botmesh/core':
         specifier: workspace:*
         version: link:../core
     devDependencies:
@@ -918,7 +918,7 @@ importers:
 
   packages/otel:
     dependencies:
-      '@bot-wa/core':
+      '@botmesh/core':
         specifier: workspace:*
         version: link:../core
     devDependencies:
@@ -949,7 +949,7 @@ importers:
 
   packages/postgres-store:
     dependencies:
-      '@bot-wa/core':
+      '@botmesh/core':
         specifier: workspace:*
         version: link:../core
       pg:
@@ -974,14 +974,14 @@ importers:
 
   packages/rag:
     dependencies:
-      '@bot-wa/http':
+      '@botmesh/http':
         specifier: workspace:*
         version: link:../http
     devDependencies:
-      '@bot-wa/ai':
+      '@botmesh/ai':
         specifier: workspace:*
         version: link:../ai
-      '@bot-wa/core':
+      '@botmesh/core':
         specifier: workspace:*
         version: link:../core
       '@types/node':
@@ -1002,7 +1002,7 @@ importers:
 
   packages/redis-store:
     dependencies:
-      '@bot-wa/core':
+      '@botmesh/core':
         specifier: workspace:^
         version: link:../core
       redis:
@@ -1024,13 +1024,13 @@ importers:
 
   packages/server:
     devDependencies:
-      '@bot-wa/core':
+      '@botmesh/core':
         specifier: workspace:*
         version: link:../core
-      '@bot-wa/meta':
+      '@botmesh/meta':
         specifier: workspace:*
         version: link:../meta-provider
-      '@bot-wa/telegram':
+      '@botmesh/telegram':
         specifier: workspace:*
         version: link:../telegram-provider
       '@types/express':
@@ -1060,7 +1060,7 @@ importers:
 
   packages/sqlite-store:
     dependencies:
-      '@bot-wa/core':
+      '@botmesh/core':
         specifier: workspace:^
         version: link:../core
     devDependencies:
@@ -1082,10 +1082,10 @@ importers:
 
   packages/telegram-provider:
     dependencies:
-      '@bot-wa/core':
+      '@botmesh/core':
         specifier: workspace:^
         version: link:../core
-      '@bot-wa/http':
+      '@botmesh/http':
         specifier: workspace:^
         version: link:../http
       pino:
@@ -1107,7 +1107,7 @@ importers:
 
   packages/tenant-kv:
     dependencies:
-      '@bot-wa/core':
+      '@botmesh/core':
         specifier: workspace:*
         version: link:../core
     devDependencies:
@@ -1126,7 +1126,7 @@ importers:
 
   packages/tickets:
     dependencies:
-      '@bot-wa/core':
+      '@botmesh/core':
         specifier: workspace:*
         version: link:../core
     devDependencies:
@@ -1145,10 +1145,10 @@ importers:
 
   packages/tiktok-provider:
     dependencies:
-      '@bot-wa/core':
+      '@botmesh/core':
         specifier: workspace:*
         version: link:../core
-      '@bot-wa/http':
+      '@botmesh/http':
         specifier: workspace:*
         version: link:../http
       pino:
@@ -1170,10 +1170,10 @@ importers:
 
   packages/twilio-provider:
     dependencies:
-      '@bot-wa/core':
+      '@botmesh/core':
         specifier: workspace:*
         version: link:../core
-      '@bot-wa/http':
+      '@botmesh/http':
         specifier: workspace:*
         version: link:../http
       pino:
@@ -1195,10 +1195,10 @@ importers:
 
   packages/voice:
     dependencies:
-      '@bot-wa/core':
+      '@botmesh/core':
         specifier: workspace:*
         version: link:../core
-      '@bot-wa/http':
+      '@botmesh/http':
         specifier: workspace:*
         version: link:../http
     devDependencies:
@@ -1217,10 +1217,10 @@ importers:
 
   packages/wa-gateway-kit:
     dependencies:
-      '@bot-wa/core':
+      '@botmesh/core':
         specifier: workspace:*
         version: link:../core
-      '@bot-wa/http':
+      '@botmesh/http':
         specifier: workspace:*
         version: link:../http
     devDependencies:
@@ -1239,13 +1239,13 @@ importers:
 
   packages/wppconnect-provider:
     dependencies:
-      '@bot-wa/core':
+      '@botmesh/core':
         specifier: workspace:*
         version: link:../core
-      '@bot-wa/http':
+      '@botmesh/http':
         specifier: workspace:*
         version: link:../http
-      '@bot-wa/wa-gateway-kit':
+      '@botmesh/wa-gateway-kit':
         specifier: workspace:*
         version: link:../wa-gateway-kit
       pino:

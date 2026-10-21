@@ -3,7 +3,7 @@ import { SecureHttpError, assertSafeTarget, fetchBuffer, isPrivateAddress, secur
 
 const publicResolver = async () => ['93.184.216.34']
 
-describe('@bot-wa/http', () => {
+describe('@botmesh/http', () => {
   it('rejects unsafe URL schemes, credentials and private networks', async () => {
     await expect(assertSafeTarget(new URL('http://example.com'), { resolver: publicResolver })).rejects.toMatchObject({ code: 'UNSAFE_URL' })
     await expect(assertSafeTarget(new URL('https://user:pass@example.com'), { resolver: publicResolver })).rejects.toMatchObject({ code: 'UNSAFE_URL' })

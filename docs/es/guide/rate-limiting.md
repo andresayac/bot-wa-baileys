@@ -34,8 +34,8 @@ flowchart LR
 Pasa `rateLimit` al constructor del **provider**:
 
 ```ts
-import { Bot } from '@bot-wa/core'
-import { BaileysProvider } from '@bot-wa/baileys'
+import { Bot } from '@botmesh/core'
+import { BaileysProvider } from '@botmesh/baileys'
 
 const bot = new Bot({
   provider: new BaileysProvider({
@@ -90,7 +90,7 @@ Un número de WhatsApp recién registrado se banea más rápido que uno con anti
 La instancia de `RateLimiter` es interna, pero puedes importar la clase desde el paquete de transporte para uso avanzado:
 
 ```ts
-import { RateLimiter } from '@bot-wa/baileys'
+import { RateLimiter } from '@botmesh/baileys'
 
 const limiter = new RateLimiter({
   perChat: { max: 5, window: '10s' },

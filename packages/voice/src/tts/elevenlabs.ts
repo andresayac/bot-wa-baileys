@@ -2,7 +2,7 @@
  * ElevenLabs text-to-speech (`POST /v1/text-to-speech/{voice_id}`).
  *
  * The default `outputFormat` is `mp3_44100_128` (available on every plan). For
- * WhatsApp voice notes `@bot-wa/baileys` transcodes to OGG/Opus itself; on other
+ * WhatsApp voice notes `@botmesh/baileys` transcodes to OGG/Opus itself; on other
  * channels prefer an `opus_48000_*` format if your plan offers it.
  */
 

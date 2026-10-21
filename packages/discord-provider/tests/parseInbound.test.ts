@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import type { InboundInteraction, InboundMessage } from '@bot-wa/core'
+import type { InboundInteraction, InboundMessage } from '@botmesh/core'
 import { parseDispatch, snowflakeTimestamp } from '../src/parseInbound.js'
 
 const msg = (over: Record<string, unknown> = {}): Record<string, unknown> => ({

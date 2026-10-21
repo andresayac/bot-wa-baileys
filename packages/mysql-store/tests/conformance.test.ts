@@ -1,5 +1,5 @@
 /** MysqlStore against the shared IStore conformance suite (in-memory FakePool). */
-import { legacyMessageKey, type StoredMessage } from '@bot-wa/core'
+import { legacyMessageKey, type StoredMessage } from '@botmesh/core'
 import { MysqlStore } from '../src/MysqlStore.js'
 import { FakePool } from './fakePool.js'
 import { runStoreConformance } from '../../../test-utils/store-conformance.js'

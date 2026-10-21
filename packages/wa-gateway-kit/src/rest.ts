@@ -1,5 +1,5 @@
 /**
- * Minimal JSON-over-HTTP client on top of `secureFetch` (@bot-wa/http).
+ * Minimal JSON-over-HTTP client on top of `secureFetch` (@botmesh/http).
  *
  * The gateway base URL is operator configuration, usually a self-hosted
  * container on `http://localhost` / a private network, so by default plain HTTP
@@ -8,8 +8,8 @@
  * never a hop to a URL nobody configured.
  */
 
-import { secureFetch, type HostResolver } from '@bot-wa/http'
-import { ProviderError } from '@bot-wa/core'
+import { secureFetch, type HostResolver } from '@botmesh/http'
+import { ProviderError } from '@botmesh/core'
 
 /** Network policy for calls to the gateway's REST API. */
 export interface RestHttpOptions {

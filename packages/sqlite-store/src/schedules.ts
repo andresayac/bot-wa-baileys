@@ -24,7 +24,7 @@ import {
   type ScheduleKind,
   type ScheduleRecord,
   type ScheduleStore,
-} from '@bot-wa/core'
+} from '@botmesh/core'
 
 /**
  * Idempotent schema of the schedules table, plus `schedule_fences`: the last fencing token

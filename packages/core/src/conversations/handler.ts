@@ -10,7 +10,7 @@ import type { ConversationControls } from './controls.js'
  *
  * `ctx` is the full `MessageContext` of the message that started it — reply helpers
  * (`photo`, `poll`, `react`, `quote`…), `senderInfo`, `chat`, and `ctx.tools` typed with every
- * `DefaultTools` augmentation (e.g. `ctx.tools.nlu` once `@bot-wa/nlu` is imported). The
+ * `DefaultTools` augmentation (e.g. `ctx.tools.nlu` once `@botmesh/nlu` is imported). The
  * low-level `ConversationRuntime` keeps working with the minimal `RuntimeMessage`;
  * handlers written against that older, narrower type remain assignable to this one.
  * The resolved value is ignored, so `async (c, ctx) => ctx.reply('…')` is fine; the

@@ -7,7 +7,7 @@
  *   docker run -d --name botwa-it-postgres -e POSTGRES_PASSWORD=postgres \
  *     -e POSTGRES_DB=botwa -p 55432:5432 postgres:16-alpine
  *   BOTWA_TEST_POSTGRES_URL=postgres://postgres:postgres@127.0.0.1:55432/botwa \
- *     pnpm --filter @bot-wa/postgres-store test
+ *     pnpm --filter @botmesh/postgres-store test
  *
  * Isolation: every run gets a random table-prefix namespace (`it<hex>_`) and
  * every store built here a unique sub-prefix, so reruns and parallel CI jobs
@@ -17,7 +17,7 @@
 import { randomBytes } from 'node:crypto'
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest'
 import pg from 'pg'
-import { MemoryStore, legacyMessageKey, type FlowCheckpoint, type StoredChat, type StoredContact, type StoredMessage } from '@bot-wa/core'
+import { MemoryStore, legacyMessageKey, type FlowCheckpoint, type StoredChat, type StoredContact, type StoredMessage } from '@botmesh/core'
 import { PostgresStore, type PostgresStoreOptions } from '../src/PostgresStore.js'
 import { runStoreConformance } from '../../../test-utils/store-conformance.js'
 import { runUserDataConformance } from '../../../test-utils/user-data-conformance.js'

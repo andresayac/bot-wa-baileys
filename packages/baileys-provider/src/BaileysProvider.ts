@@ -39,13 +39,13 @@ import type {
   SendResult,
   SerializedMediaRef,
   UserId,
-} from '@bot-wa/core'
+} from '@botmesh/core'
 import {
   ProviderError,
   RateLimitedError,
   RecipientUnreachableError,
   PayloadTooLargeError,
-} from '@bot-wa/core'
+} from '@botmesh/core'
 import { classifyDisconnect, backoffDelay, MAX_RECONNECT_ATTEMPTS } from './reconnect.js'
 import { putBounded } from './boundedMap.js'
 import { resolveBrowser, type BrowserConfig } from './browser.js'
@@ -117,7 +117,7 @@ export interface BaileysProviderConfig {
   rateLimit?: RateLimitConfig
   /**
    * How outbound `{ url }` media is fetched. By default the provider downloads
-   * it through `@bot-wa/http` (redirects vetted, private hosts refused, 64 MiB
+   * it through `@botmesh/http` (redirects vetted, private hosts refused, 64 MiB
    * cap) instead of letting Baileys follow redirects blindly. See
    * {@link RemoteMediaConfig}.
    */

@@ -1,6 +1,6 @@
 /**
- * @bot-wa/wa-gateway-kit — internal building blocks shared by the WhatsApp
- * REST gateway transports (@bot-wa/evolution, @bot-wa/wppconnect). Private:
+ * @botmesh/wa-gateway-kit — internal building blocks shared by the WhatsApp
+ * REST gateway transports (@botmesh/evolution, @botmesh/wppconnect). Private:
  * never published; each provider re-exports the public pieces it documents.
  */
 

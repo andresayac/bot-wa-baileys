@@ -1,6 +1,6 @@
 # MCP server
 
-`@bot-wa/mcp` (private, monorepo only) is a **Model Context Protocol** server over stdio. It gives an AI coding agent (or an editor) the project's deterministic pieces so a flow document can be written, validated, compiled, drawn, linted, migrated and diffed **without starting a bot**: no phone, no credentials, no network.
+`@botmesh/mcp` (private, monorepo only) is a **Model Context Protocol** server over stdio. It gives an AI coding agent (or an editor) the project's deterministic pieces so a flow document can be written, validated, compiled, drawn, linted, migrated and diffed **without starting a bot**: no phone, no credentials, no network.
 
 Every tool is a function of its arguments. The server has **no dependencies** (the JSON-RPC transport is ~150 lines of `LineDecoder` + envelopes), never evaluates code and never writes to disk.
 
@@ -15,12 +15,12 @@ node packages/mcp/lib/bin.js                   # flow tools only
 
 `--docs <dir>` (or `BOTWA_DOCS_DIR`) points at a docs tree; without it the two docs tools are **not** advertised in `tools/list`, so a client never sees a tool that cannot work.
 
-In VS Code the repo already ships `.vscode/mcp.json`: run `pnpm build` once, then start the *bot-wa* server from the MCP view.
+In VS Code the repo already ships `.vscode/mcp.json`: run `pnpm build` once, then start the *botmesh* server from the MCP view.
 
 ### Programmatically
 
 ```ts
-import { createMcpServer, serveStream } from '@bot-wa/mcp'
+import { createMcpServer, serveStream } from '@botmesh/mcp'
 
 const server = createMcpServer({ docsDir: 'docs' })
 await serveStream(process.stdin, { server, write: (line) => process.stdout.write(`${line}\n`) })
@@ -40,7 +40,7 @@ await serveStream(process.stdin, { server, write: (line) => process.stdout.write
 | `docs_search` | `query`, `limit?` | Sections with `path`, `title`, `heading`, `snippet` and `score` (only with a docs directory). |
 | `docs_page` | `path` | The markdown of one page (only with a docs directory). |
 
-`flow_analyze` runs the **same** `describeFlows()` and `lintFlows()` that `bot.describe()` and `bot.lint()` use, and `flow_*` wraps `@bot-wa/flow-schema`, so the server can never disagree with the runtime or the deployment gate.
+`flow_analyze` runs the **same** `describeFlows()` and `lintFlows()` that `bot.describe()` and `bot.lint()` use, and `flow_*` wraps `@botmesh/flow-schema`, so the server can never disagree with the runtime or the deployment gate.
 
 ### Valid or invalid is a result, not an error
 
@@ -70,4 +70,4 @@ Ranking is deterministic and deliberately simple: accent- and case-insensitive t
 
 ## Tests
 
-`pnpm --filter @bot-wa/mcp test` covers the framing (messages split across chunks, `\r\n`, a last line without a newline, UTF-8 chunks), every tool with valid and invalid input, the 14 step kinds, subflow resolution, migration of a versionless document, a bilingual search over a temporary tree (including `../` rejection) and the version lockstep with `package.json`.
+`pnpm --filter @botmesh/mcp test` covers the framing (messages split across chunks, `\r\n`, a last line without a newline, UTF-8 chunks), every tool with valid and invalid input, the 14 step kinds, subflow resolution, migration of a versionless document, a bilingual search over a temporary tree (including `../` rejection) and the version lockstep with `package.json`.

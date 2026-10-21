@@ -6,8 +6,8 @@ vuelva a entregar), y una respuesta que se estaba enviando puede haber salido o 
 Para muchos bots eso basta. Cuando no basta, activa la **durabilidad**:
 
 ```ts
-import { Bot } from '@bot-wa/core'
-import { PostgresDurability, PostgresStore } from '@bot-wa/postgres-store'
+import { Bot } from '@botmesh/core'
+import { PostgresDurability, PostgresStore } from '@botmesh/postgres-store'
 
 const bot = new Bot({
   provider,
@@ -39,11 +39,11 @@ código que antes, en memoria y en un solo proceso.
 
 | Backend | Paquete | Sobrevive a una caída | Varias réplicas |
 | --- | --- | --- | --- |
-| `MemoryDurability` (el de `durability: {}`) | `@bot-wa/core` | No (solo reintentos, backoff y DLQ) | No |
-| `FileDurability.open(ruta)` | `@bot-wa/core` | Sí | No (un archivo de lock rechaza un segundo proceso vivo, y un segundo `open()` en el mismo proceso hasta `close()`) |
-| `PostgresDurability({ pool \| connectionString, tablePrefix })` | `@bot-wa/postgres-store` | Sí | Sí, con enrutado fijo por chat (ver *Varias réplicas*) |
-| `RedisDurability({ client \| url, prefix })` | `@bot-wa/redis-store` | Sí (con la persistencia de Redis activada) | Sí, con enrutado fijo por chat (ver *Varias réplicas*) |
-| `eventsDurability({ journal })` | `@bot-wa/events/durability` (privado, solo en el monorepo) | Con un `FileEventJournal` abierto con `{ lock: true }` o un `SharedFileEventJournal` | Con un `SharedFileEventJournal` (procesos en un mismo host; ver *Un journal de `@bot-wa/events`*) |
+| `MemoryDurability` (el de `durability: {}`) | `@botmesh/core` | No (solo reintentos, backoff y DLQ) | No |
+| `FileDurability.open(ruta)` | `@botmesh/core` | Sí | No (un archivo de lock rechaza un segundo proceso vivo, y un segundo `open()` en el mismo proceso hasta `close()`) |
+| `PostgresDurability({ pool \| connectionString, tablePrefix })` | `@botmesh/postgres-store` | Sí | Sí, con enrutado fijo por chat (ver *Varias réplicas*) |
+| `RedisDurability({ client \| url, prefix })` | `@botmesh/redis-store` | Sí (con la persistencia de Redis activada) | Sí, con enrutado fijo por chat (ver *Varias réplicas*) |
+| `eventsDurability({ journal })` | `@botmesh/events/durability` (privado, solo en el monorepo) | Con un `FileEventJournal` abierto con `{ lock: true }` o un `SharedFileEventJournal` | Con un `SharedFileEventJournal` (procesos en un mismo host; ver *Un journal de `@botmesh/events`*) |
 
 PostgreSQL crea una tabla, `{tablePrefix}durable`, de forma idempotente al
 arrancar. Redis usa claves bajo `{prefix}:{durable:inbox:<scope>}` y
@@ -69,14 +69,14 @@ El bot arranca y detiene el backend por su cuenta. Usa también un **store**
 persistente: los checkpoints de un flow `.persistent()` viven en el store y el
 reproceso depende de ellos.
 
-### Un journal de `@bot-wa/events`
+### Un journal de `@botmesh/events`
 
-Una app que ya lleva un journal de `@bot-wa/events` puede usarlo como backend, sin
+Una app que ya lleva un journal de `@botmesh/events` puede usarlo como backend, sin
 otro store:
 
 ```ts
-import { FileEventJournal } from '@bot-wa/events'
-import { eventsDurability } from '@bot-wa/events/durability'
+import { FileEventJournal } from '@botmesh/events'
+import { eventsDurability } from '@botmesh/events/durability'
 
 const journal = await FileEventJournal.open('./data/events.json', { lock: true })
 const bot = new Bot({ provider, durability: { journal: eventsDurability({ journal }) } })
@@ -107,7 +107,7 @@ const bot = new Bot({ provider, durability: { journal: eventsDurability({ journa
   procesos. El outbox vive en el mismo archivo y también se comparte:
 
   ```ts
-  import { SharedFileEventJournal } from '@bot-wa/events'
+  import { SharedFileEventJournal } from '@botmesh/events'
 
   const journal = await SharedFileEventJournal.open('./data/events.json')
   const bot = new Bot({ provider, durability: { journal: eventsDurability({ journal }) } })
@@ -278,12 +278,12 @@ y la media se descarga igual que con un mensaje en vivo.
 
 | Provider | Qué se anota | Notas |
 | --- | --- | --- |
-| `@bot-wa/baileys` | El contenido de la media (url del CDN, ruta directa, clave y hashes, sin miniatura, pie de foto ni contexto citado) y la clave del mensaje | Si la media caducó en el CDN, se pide de nuevo al teléfono del remitente al descargarla, como con la media en vivo. La media de visualización única **no** se anota salvo con `durableMedia: { viewOnce: true }`. |
-| `@bot-wa/meta` (Cloud API) | El id de la media | Meta guarda la media entrante unos 30 días. |
-| `@bot-wa/telegram` | El `file_id` | Solo sirve con el mismo token del bot. |
-| `@bot-wa/twilio` | La URL de la media | Al leerla solo se aceptan URLs `https` del origen de la API o de un host `twilio.com`. |
-| `@bot-wa/messenger`, `@bot-wa/instagram` | La URL del adjunto | Solo se guardan y se aceptan URLs de las CDN de Meta (`fbcdn.net`, `fbsbx.com`, `cdninstagram.com`; `mediaRefHosts` reemplaza la lista). Las URLs van firmadas y caducan, así que una reproducción tardía no puede descargar. |
-| `@bot-wa/discord` | La URL del adjunto | Solo URLs de las CDN de Discord (`discordapp.com`, `discordapp.net`; `mediaRefHosts` reemplaza la lista). Las URLs de adjuntos de Discord caducan a las 24 horas, más o menos. |
+| `@botmesh/baileys` | El contenido de la media (url del CDN, ruta directa, clave y hashes, sin miniatura, pie de foto ni contexto citado) y la clave del mensaje | Si la media caducó en el CDN, se pide de nuevo al teléfono del remitente al descargarla, como con la media en vivo. La media de visualización única **no** se anota salvo con `durableMedia: { viewOnce: true }`. |
+| `@botmesh/meta` (Cloud API) | El id de la media | Meta guarda la media entrante unos 30 días. |
+| `@botmesh/telegram` | El `file_id` | Solo sirve con el mismo token del bot. |
+| `@botmesh/twilio` | La URL de la media | Al leerla solo se aceptan URLs `https` del origen de la API o de un host `twilio.com`. |
+| `@botmesh/messenger`, `@botmesh/instagram` | La URL del adjunto | Solo se guardan y se aceptan URLs de las CDN de Meta (`fbcdn.net`, `fbsbx.com`, `cdninstagram.com`; `mediaRefHosts` reemplaza la lista). Las URLs van firmadas y caducan, así que una reproducción tardía no puede descargar. |
+| `@botmesh/discord` | La URL del adjunto | Solo URLs de las CDN de Discord (`discordapp.com`, `discordapp.net`; `mediaRefHosts` reemplaza la lista). Las URLs de adjuntos de Discord caducan a las 24 horas, más o menos. |
 | Otros providers | El token tal cual (como antes) | Sus tokens ya son ids o URLs. |
 
 No se anota ninguna credencial: los tokens y las claves se añaden de nuevo al
@@ -366,13 +366,13 @@ así que mantén `retention` por encima de tu pausa de conversación más larga.
 
 ## Probar la recuperación ante caídas
 
-`@bot-wa/core/testing` exporta `crashable(backend)`, que puede "matar" un bot en una
+`@botmesh/core/testing` exporta `crashable(backend)`, que puede "matar" un bot en una
 escritura concreta del journal, y `CrashableProvider`. Abandona el bot caído y
 arranca uno nuevo sobre el mismo backend y el mismo store, con el mismo
 `instanceId`:
 
 ```ts
-import { crashable, CrashableProvider, MockProvider } from '@bot-wa/core/testing'
+import { crashable, CrashableProvider, MockProvider } from '@botmesh/core/testing'
 
 const shared = new MemoryDurability()
 const a = crashable(shared)

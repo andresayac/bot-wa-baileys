@@ -7,7 +7,7 @@
  */
 
 import type BetterSqlite3 from 'better-sqlite3'
-import type { UserDataEntry, UserId } from '@bot-wa/core'
+import type { UserDataEntry, UserId } from '@botmesh/core'
 
 /** Default rows per DELETE of {@link SqliteUserData.purge}. */
 export const DEFAULT_PURGE_BATCH_SIZE = 1000

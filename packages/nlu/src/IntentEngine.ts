@@ -13,7 +13,7 @@
  *
  * @example
  * ```ts
- * import { IntentEngine } from '@bot-wa/nlu'
+ * import { IntentEngine } from '@botmesh/nlu'
  *
  * const nlu = new IntentEngine() // default threshold 0.5
  * nlu.define('greeting', ['hola', 'buenas', 'buenos días'])

@@ -1,12 +1,12 @@
 import { Linter } from 'eslint'
 import { describe, expect, it } from 'vitest'
-import { TEMPLATES, TEMPLATE_NAMES } from 'create-bot-wa'
+import { TEMPLATES, TEMPLATE_NAMES } from 'create-botmesh'
 
 import { configs } from '../src/index.js'
 
-// Every project create-bot-wa generates must already be clean under the plugin:
+// Every project create-botmesh generates must already be clean under the plugin:
 // the templates are what new users (and AI agents) copy from.
-describe('create-bot-wa templates pass the plugin', () => {
+describe('create-botmesh templates pass the plugin', () => {
   const linter = new Linter({ configType: 'flat' })
 
   it.each(TEMPLATE_NAMES)('template "%s" has no findings under the strict config', (template) => {

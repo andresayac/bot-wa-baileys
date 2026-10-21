@@ -1,9 +1,9 @@
 /**
- * Public types of `@bot-wa/voice`: the STT/TTS adapter contracts and the
+ * Public types of `@botmesh/voice`: the STT/TTS adapter contracts and the
  * shared HTTP knobs every built-in adapter accepts.
  */
 
-import type { HostResolver } from '@bot-wa/http'
+import type { HostResolver } from '@botmesh/http'
 
 /** Audio handed to a speech-to-text adapter. */
 export interface AudioInput {
@@ -82,7 +82,7 @@ export interface TtsAdapter {
 
 /**
  * Shared HTTP options of the built-in adapters. Requests go through
- * `secureFetch` from `@bot-wa/http` (HTTPS only, SSRF guard, timeouts, size caps).
+ * `secureFetch` from `@botmesh/http` (HTTPS only, SSRF guard, timeouts, size caps).
  */
 export interface VoiceHttpOptions {
   /** Override the service base URL (proxies, Azure-compatible gateways, self-hosted servers). */

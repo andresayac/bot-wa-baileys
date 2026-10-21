@@ -27,7 +27,7 @@ describe('config', () => {
     expect(c).toMatchObject({ channel: 'baileys', session: 'bakery', sessionsDir: 'sessions', groupMode: 'commands', allowedUsers: [] })
   })
 
-  it('reads any @bot-wa/ai provider or preset', () => {
+  it('reads any @botmesh/ai provider or preset', () => {
     expect(loadBaileysConfig({ AI_PROVIDER: 'anthropic', AI_API_KEY: 'k' }).ai).toMatchObject({ provider: 'anthropic', apiKey: 'k', timeoutMs: 120_000 })
     expect(loadBaileysConfig({ AI_PROVIDER: 'anthropic' }).ai).not.toHaveProperty('model')
     expect(loadBaileysConfig({ AI_PROVIDER: 'groq', AI_MODEL: 'm' }).ai).toMatchObject({ provider: 'groq', model: 'm' })

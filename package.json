@@ -1,5 +1,5 @@
 {
-  "name": "bot-wa-monorepo",
+  "name": "botmesh-monorepo",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@11.9.0",
@@ -21,12 +21,12 @@
     "test:scripts": "node --test scripts/smoke/semver.test.mjs scripts/smoke/readme-links.test.mjs scripts/smoke/docs-check.test.mjs scripts/smoke/latest-render.test.mjs",
     "bench:soak": "node --expose-gc scripts/soak/soak.mjs",
     "changeset": "changeset",
-    "version-packages": "changeset version && pnpm --filter create-bot-wa run gen:versions",
+    "version-packages": "changeset version && pnpm --filter create-botmesh run gen:versions",
     "release": "pnpm clean && pnpm build && changeset publish",
     "clean": "node scripts/clean-lib.mjs"
   },
   "devDependencies": {
-    "@bot-wa/core": "workspace:*",
+    "@botmesh/core": "workspace:*",
     "@changesets/cli": "^3.0.3",
     "mermaid": "^11.17.2",
     "typedoc": "^0.28.20",

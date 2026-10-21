@@ -5,8 +5,8 @@ Recetas prácticas para responder a mensajes de texto.
 ## Configuración
 
 ```ts
-import { Bot } from '@bot-wa/core'
-import { BaileysProvider } from '@bot-wa/baileys'
+import { Bot } from '@botmesh/core'
+import { BaileysProvider } from '@botmesh/baileys'
 
 const bot = new Bot({
   provider: new BaileysProvider({ session: 'demo-bot', qr: { terminal: true, small: true } }),
@@ -106,7 +106,7 @@ bot.when('who', async (ctx) => {
 
 WhatsApp Web eliminó los botones nativos, así que en Baileys un sí/no rápido
 se resuelve mejor con una encuesta real (ver [Enviar media](./media) para más
-opciones de encuestas). En la Cloud API oficial (`@bot-wa/meta`) es al revés:
+opciones de encuestas). En la Cloud API oficial (`@botmesh/meta`) es al revés:
 los botones nativos funcionan y las encuestas no, así que ahí usa
 `ctx.buttons()`.
 

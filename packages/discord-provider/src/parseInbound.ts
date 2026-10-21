@@ -13,7 +13,7 @@ import type {
   InboundMessage,
   MediaRef,
   MessageType,
-} from '@bot-wa/core'
+} from '@botmesh/core'
 import {
   ComponentType,
   InteractionType,

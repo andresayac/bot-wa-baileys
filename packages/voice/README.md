@@ -1,25 +1,25 @@
-# @bot-wa/voice
+# @botmesh/voice
 
 > **Experimental — aún no publicado en npm.** Implementación real y probada, pero el paquete es `private`: no forma parte de la primera alpha y su API puede cambiar. Úsalo desde este monorepo (`workspace:*`).
 
-Voz para bots de [`@bot-wa/core`](../core): **speech-to-text** (STT) de las notas de voz entrantes y **text-to-speech** (TTS) para responder con audio. Es un plugin, no un provider: funciona igual con WhatsApp (Baileys o Cloud API), Telegram o cualquier canal que entregue `voice`/`audio`.
+Voz para bots de [`@botmesh/core`](../core): **speech-to-text** (STT) de las notas de voz entrantes y **text-to-speech** (TTS) para responder con audio. Es un plugin, no un provider: funciona igual con WhatsApp (Baileys o Cloud API), Telegram o cualquier canal que entregue `voice`/`audio`.
 
 - STT: OpenAI (`whisper-1`, `gpt-4o-transcribe`, `gpt-4o-mini-transcribe` y cualquier servidor compatible) y Deepgram (`nova-3`).
 - TTS: OpenAI (`gpt-4o-mini-tts`, `tts-1`) y ElevenLabs.
-- Sin SDKs: llamadas HTTPS con `secureFetch` de [`@bot-wa/http`](../http) (anti-SSRF, timeouts, límite de tamaño).
+- Sin SDKs: llamadas HTTPS con `secureFetch` de [`@botmesh/http`](../http) (anti-SSRF, timeouts, límite de tamaño).
 - `install()` síncrono; los adapters se resuelven en el primer uso y un `warmup()` no fatal avisa al arrancar si falta una api key.
 
 Dentro del monorepo, decláralo como dependencia del workspace (todavía no se puede instalar desde npm):
 
 ```json
-{ "dependencies": { "@bot-wa/voice": "workspace:*" } }
+{ "dependencies": { "@botmesh/voice": "workspace:*" } }
 ```
 
 ## Inicio rápido
 
 ```ts
-import { VOICE_NOTE } from '@bot-wa/core'
-import { voicePlugin } from '@bot-wa/voice'
+import { VOICE_NOTE } from '@botmesh/core'
+import { voicePlugin } from '@botmesh/voice'
 
 bot.plug(voicePlugin({
   stt: { provider: 'openai', model: 'whisper-1', apiKey: process.env.OPENAI_API_KEY, language: 'es' },
@@ -52,7 +52,7 @@ Un hook `before('message')` (prioridad 100) descarga cada nota de voz, la transc
 | --- | --- | --- | --- |
 | `types` | `('voice' \| 'audio')[]` | `['voice']` | Qué tipos transcribir. Añade `'audio'` para archivos de audio. |
 | `setBody` | `boolean` | `true` | Escribe la transcripción en `ctx.body`. |
-| `asText` | `boolean \| 'auto'` | `'auto'` | `true`: siempre `ctx.type = 'text'` (el autoresponder de `@bot-wa/ai` contesta audios, pero `VOICE_NOTE` deja de coincidir). `false`: nunca. |
+| `asText` | `boolean \| 'auto'` | `'auto'` | `true`: siempre `ctx.type = 'text'` (el autoresponder de `@botmesh/ai` contesta audios, pero `VOICE_NOTE` deja de coincidir). `false`: nunca. |
 | `trimPunctuation` | `boolean` | `true` | Quita la puntuación de los extremos del `body`. |
 | `language` / `prompt` | `string` | — | Pistas para el STT en cada mensaje. Sin `language`, se usa el idioma que el i18n resolvió (`ctx.lang`, código base: `en-gb` → `en`) si viene de una señal real (preferencia, provider o `detect`), nunca el valor por defecto; si no, el servicio lo detecta. |
 | `useContextLanguage` | `boolean` | `true` | `false` ignora `ctx.lang` como pista. |
@@ -105,7 +105,7 @@ Las api keys caen a `OPENAI_API_KEY`, `DEEPGRAM_API_KEY` y `ELEVENLABS_API_KEY`.
 También puedes pasar un adapter propio (un modelo local, otro servicio):
 
 ```ts
-import type { SttAdapter } from '@bot-wa/voice'
+import type { SttAdapter } from '@botmesh/voice'
 
 const local: SttAdapter = {
   name: 'local-whisper',
@@ -119,7 +119,7 @@ bot.plug(voicePlugin({ stt: local }))
 ## Formatos de audio
 
 - **Entrada:** las notas de voz de WhatsApp y Telegram llegan en OGG/Opus, que Whisper, `gpt-4o-*-transcribe` y Deepgram aceptan directamente. Si el canal no informa el mimetype, se detecta por los primeros bytes (OGG, WAV, MP3, MP4/M4A, WebM, FLAC, AMR) y, si no, se asume OGG.
-- **Salida para WhatsApp:** una nota de voz (PTT) debe ser **OGG/Opus**. `@bot-wa/baileys` transcodifica `kind: 'voice'` a OGG/Opus por su cuenta (con el binario de `ffmpeg` que incluye vía `@ffmpeg-installer/ffmpeg`), así que cualquier formato vale. Para Cloud API y Telegram pide OGG/Opus al TTS: es el valor por defecto en OpenAI (`format: 'opus'`); en ElevenLabs usa `outputFormat: 'opus_48000_64'` si tu plan lo ofrece (por defecto es `mp3_44100_128`, que Telegram y Cloud API aceptan como audio pero no siempre como nota de voz).
+- **Salida para WhatsApp:** una nota de voz (PTT) debe ser **OGG/Opus**. `@botmesh/baileys` transcodifica `kind: 'voice'` a OGG/Opus por su cuenta (con el binario de `ffmpeg` que incluye vía `@ffmpeg-installer/ffmpeg`), así que cualquier formato vale. Para Cloud API y Telegram pide OGG/Opus al TTS: es el valor por defecto en OpenAI (`format: 'opus'`); en ElevenLabs usa `outputFormat: 'opus_48000_64'` si tu plan lo ofrece (por defecto es `mp3_44100_128`, que Telegram y Cloud API aceptan como audio pero no siempre como nota de voz).
 - No hay transcodificación dentro de este paquete (no depende de `ffmpeg`).
 
 ## Límites
@@ -159,8 +159,8 @@ Los mensajes de error y los logs nunca incluyen api keys, audio ni transcripcion
 ## Tests
 
 ```ts
-import { createTestBot } from '@bot-wa/core/testing'
-import { voicePlugin } from '@bot-wa/voice'
+import { createTestBot } from '@botmesh/core/testing'
+import { voicePlugin } from '@botmesh/voice'
 
 const { bot, chat, provider } = await createTestBot()
 provider.downloadMedia = async () => Buffer.from('OggS...')

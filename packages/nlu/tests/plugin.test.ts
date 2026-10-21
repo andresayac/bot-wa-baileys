@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { createTestBot } from '@bot-wa/core/testing'
+import { createTestBot } from '@botmesh/core/testing'
 import { IntentEngine, nluPlugin, whenIntent } from '../src/index.js'
 
 describe('whenIntent — Bot integration', () => {
@@ -81,7 +81,7 @@ describe('nluPlugin', () => {
 
     whenIntent(bot, nlu!, 'order.status', (ctx, m) => ctx.reply(`id=${m.entities?.id}`))
     bot.onMessage((ctx) => {
-      // ctx.tools.nlu is typed through the @bot-wa/core module augmentation.
+      // ctx.tools.nlu is typed through the @botmesh/core module augmentation.
       const viaCtx = ctx.tools.nlu
       return ctx.reply(`unmatched:${viaCtx ? viaCtx.intents().join('+') : 'no-engine'}`)
     })

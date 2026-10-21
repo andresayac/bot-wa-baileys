@@ -14,7 +14,7 @@
  * `reaction`, whose target chat may differ from the send chatId.
  */
 
-import { UnsupportedContentError, type OutboundContent } from '@bot-wa/core'
+import { UnsupportedContentError, type OutboundContent } from '@botmesh/core'
 import { targetOf } from './refs.js'
 
 /** How the provider resolved a MediaSource for the Bot API. */

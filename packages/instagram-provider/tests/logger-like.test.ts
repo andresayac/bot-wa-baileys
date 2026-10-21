@@ -3,7 +3,7 @@
  * constructs the provider and receives its log lines.
  */
 import { describe, expect, it, vi } from 'vitest'
-import type { LoggerLike } from '@bot-wa/core'
+import type { LoggerLike } from '@botmesh/core'
 import { InstagramProvider } from '../src/InstagramProvider.js'
 
 describe('InstagramProvider logger', () => {

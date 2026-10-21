@@ -3,7 +3,7 @@
 Cómo ejecutar tu bot en producción, siempre conectado.
 
 ::: tip Solo ESM, Node >= 22
-`@bot-wa/core` y los paquetes de transporte son ESM puro — no hay build de
+`@botmesh/core` y los paquetes de transporte son ESM puro — no hay build de
 CommonJS. Asegúrate de que el `package.json` de producción tenga
 `"type": "module"` (o que tu entrypoint use `.mjs`), y que el runtime sea
 **Node >= 22**.
@@ -112,9 +112,9 @@ const bot = new Bot({
 El `MemoryStore` por defecto vive solo en memoria. Para producción, usa **`SQLiteStore`** — una base de datos real que persiste mensajes, chats, contactos, estado de flujos, checkpoints y conversaciones AI:
 
 ```ts
-import { Bot } from '@bot-wa/core'
-import { BaileysProvider } from '@bot-wa/baileys'
-import { SQLiteStore } from '@bot-wa/sqlite-store'
+import { Bot } from '@botmesh/core'
+import { BaileysProvider } from '@botmesh/baileys'
+import { SQLiteStore } from '@botmesh/sqlite-store'
 
 const bot = new Bot({
   provider: new BaileysProvider({ session: 'mi-bot' }),

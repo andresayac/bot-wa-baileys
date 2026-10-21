@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { createHmac } from 'node:crypto'
-import { OutsideSessionWindowError, RateLimitedError } from '@bot-wa/core'
+import { OutsideSessionWindowError, RateLimitedError } from '@botmesh/core'
 import { CloudAPIProvider } from '../src/CloudAPIProvider.js'
 
 interface Call { url: string; init?: RequestInit }

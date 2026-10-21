@@ -1,14 +1,14 @@
-# @bot-wa/evolution
+# @botmesh/evolution
 
 Transporte [Evolution API](https://github.com/EvolutionAPI/evolution-api) v2
-([`IProvider` v2](../core/src/core/provider.ts)) para [@bot-wa/core](../core).
+([`IProvider` v2](../core/src/core/provider.ts)) para [@botmesh/core](../core).
 Evolution es un gateway REST self-hosted de WhatsApp construido sobre Baileys:
 el bot no abre el socket, habla con tu servidor Evolution por HTTP.
 
 > Paquete **privado** (alpha): no se publica en npm.
 
 - **Salida:** `POST {baseUrl}/message/<endpoint>/{instance}` con la cabecera
-  `apikey`, siempre por `secureFetch` de `@bot-wa/http` (sin seguir redirecciones).
+  `apikey`, siempre por `secureFetch` de `@botmesh/http` (sin seguir redirecciones).
 - **Entrada:** webhooks de Evolution → `provider.ingest(body, headers)`, con
   autenticación obligatoria (secreto compartido en cabecera o el `jwt_key` HS256
   de Evolution).
@@ -29,8 +29,8 @@ el bot no abre el socket, habla con tu servidor Evolution por HTTP.
 
 ```ts
 import express from 'express'
-import { Bot } from '@bot-wa/core'
-import { EvolutionProvider } from '@bot-wa/evolution'
+import { Bot } from '@botmesh/core'
+import { EvolutionProvider } from '@botmesh/evolution'
 
 const provider = new EvolutionProvider({
   baseUrl: 'http://localhost:8080',

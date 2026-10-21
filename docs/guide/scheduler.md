@@ -137,8 +137,8 @@ It is opt-in: tasks without `id` and bots without `scheduler` behave exactly as
 before.
 
 ```ts
-import { Bot } from '@bot-wa/core'
-import { SQLiteStore } from '@bot-wa/sqlite-store'
+import { Bot } from '@botmesh/core'
+import { SQLiteStore } from '@botmesh/sqlite-store'
 
 const store = new SQLiteStore({ file: './data/bot.db' })
 const bot = new Bot({ provider, store, scheduler: { store: store.schedules() } })
@@ -253,14 +253,14 @@ connection and prefix:
 
 | Store | `store.schedules()` | Storage |
 |---|---|---|
-| `@bot-wa/sqlite-store` | `SQLiteScheduleStore` | Table `schedules` (plus `schedule_fences`); each call is a `BEGIN IMMEDIATE` transaction. |
-| `@bot-wa/redis-store` | `RedisScheduleStore` | `{prefix}:sched:{id}`, compare-and-set scripts. |
-| `@bot-wa/postgres-store` | `PostgresScheduleStore` | Table `{tablePrefix}schedules`; every call is one atomic statement (`UPDATE … RETURNING` claims). |
-| `@bot-wa/mysql-store` | `MysqlScheduleStore` | Table `{tablePrefix}schedules` (VARBINARY ids, up to 1024 bytes); claims run `SELECT … FOR UPDATE` in a short transaction. |
-| `@bot-wa/mongo-store` | `MongoScheduleStore` | Collection `{collectionPrefix}schedules`; single-document commands (`findOneAndUpdate`), so a standalone `mongod` works. |
+| `@botmesh/sqlite-store` | `SQLiteScheduleStore` | Table `schedules` (plus `schedule_fences`); each call is a `BEGIN IMMEDIATE` transaction. |
+| `@botmesh/redis-store` | `RedisScheduleStore` | `{prefix}:sched:{id}`, compare-and-set scripts. |
+| `@botmesh/postgres-store` | `PostgresScheduleStore` | Table `{tablePrefix}schedules`; every call is one atomic statement (`UPDATE … RETURNING` claims). |
+| `@botmesh/mysql-store` | `MysqlScheduleStore` | Table `{tablePrefix}schedules` (VARBINARY ids, up to 1024 bytes); claims run `SELECT … FOR UPDATE` in a short transaction. |
+| `@botmesh/mongo-store` | `MongoScheduleStore` | Collection `{collectionPrefix}schedules`; single-document commands (`findOneAndUpdate`), so a standalone `mongod` works. |
 
 ```ts
-import { PostgresStore } from '@bot-wa/postgres-store'
+import { PostgresStore } from '@botmesh/postgres-store'
 
 const store = new PostgresStore({ connectionString: process.env.DATABASE_URL })
 const bot = new Bot({ provider, store, scheduler: { store: store.schedules() } })
@@ -275,7 +275,7 @@ still hold their token (for example `DELETE FROM schedules WHERE deleted AND
 updated_at < <a day ago>`).
 
 Any object implementing `ScheduleStore` works (exported from
-`@bot-wa/core`, with `MemoryScheduleStore` as the reference and the shared
+`@botmesh/core`, with `MemoryScheduleStore` as the reference and the shared
 suite `test-utils/schedule-store-conformance.ts` to check it).
 
 ### Guarantees and limits

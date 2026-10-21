@@ -31,7 +31,7 @@ const OUTCOMES: Array<[keyof ConversationCounters, string]> = [
  *
  * @example
  * ```ts
- * import { toPrometheus, PROMETHEUS_CONTENT_TYPE } from '@bot-wa/core'
+ * import { toPrometheus, PROMETHEUS_CONTENT_TYPE } from '@botmesh/core'
  * http.createServer((req, res) => {
  *   res.setHeader('Content-Type', PROMETHEUS_CONTENT_TYPE)
  *   res.end(toPrometheus(bot.metrics(), { labels: { bot: 'ventas' } }))

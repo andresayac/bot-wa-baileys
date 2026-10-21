@@ -8,7 +8,7 @@ continúa.
 ## Flujo básico
 
 ```ts
-import { flow } from '@bot-wa/core'
+import { flow } from '@botmesh/core'
 
 const greet = flow('hola')
   .ask('👋 Hello! What is your name?', 'name')

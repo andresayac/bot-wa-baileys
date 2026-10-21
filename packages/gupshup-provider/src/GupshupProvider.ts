@@ -23,7 +23,7 @@
  */
 
 import pino from 'pino'
-import type { LoggerLike } from '@bot-wa/core'
+import type { LoggerLike } from '@botmesh/core'
 import type {
   ChatId,
   IProvider,
@@ -35,8 +35,8 @@ import type {
   SendResult,
   SerializedMediaRef,
   UserId,
-} from '@bot-wa/core'
-import { ProviderError } from '@bot-wa/core'
+} from '@botmesh/core'
+import { ProviderError } from '@botmesh/core'
 import { fetchTyped, header, rawText, request, retryAfterMs, safeEqual, type HeaderBag } from './http.js'
 import { parseInbound } from './parseInbound.js'
 import { toOutbound } from './toOutbound.js'

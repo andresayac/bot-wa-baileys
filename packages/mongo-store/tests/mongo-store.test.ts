@@ -6,7 +6,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { MongoStore } from '../src/MongoStore.js'
 import { FakeMongoClient, FakeMongoCollection } from './fakeMongo.js'
-import type { FlowCheckpoint, StoredMessage } from '@bot-wa/core'
+import type { FlowCheckpoint, StoredMessage } from '@botmesh/core'
 
 // Mock the 'mongodb' module so `new MongoStore({ url })` (no injected client)
 // builds a fake instead of a real socket. Async factory keeps it hoist-safe.

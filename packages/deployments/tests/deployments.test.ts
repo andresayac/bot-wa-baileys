@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { MemoryKv } from '@bot-wa/core'
+import { MemoryKv } from '@botmesh/core'
 
 import { DeploymentExistsError, DeploymentNotFoundError, DeploymentRegistry, KvDeploymentStore, MemoryDeploymentStore } from '../src/index.js'
 

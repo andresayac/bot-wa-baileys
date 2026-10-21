@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { OutsideSessionWindowError, RateLimitedError, type OutboundContent, type SendResult } from '@bot-wa/core'
+import { OutsideSessionWindowError, RateLimitedError, type OutboundContent, type SendResult } from '@botmesh/core'
 import {
   MemorySessionWindowStore,
   SessionWindowManager,

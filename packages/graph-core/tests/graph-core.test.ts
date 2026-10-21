@@ -15,7 +15,7 @@ import {
   RecipientUnreachableError,
   OutsideSessionWindowError,
   UnsupportedContentError,
-} from '@bot-wa/core'
+} from '@botmesh/core'
 
 describe('verifyChallenge', () => {
   it('echoes the challenge when mode+token match', () => {

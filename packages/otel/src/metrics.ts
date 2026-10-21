@@ -6,7 +6,7 @@
  * `bot.resetMetrics()` zeroes the snapshot: the cumulative counters then drop, which
  * OpenTelemetry and Prometheus treat as a counter reset.
  */
-import { definePlugin, type BotMetricsSnapshot, type ConversationCounters, type ConversationEndedEvent, type PluginContext, type PluginSpec } from '@bot-wa/core'
+import { definePlugin, type BotMetricsSnapshot, type ConversationCounters, type ConversationEndedEvent, type PluginContext, type PluginSpec } from '@botmesh/core'
 import type { Attributes, MeterProvider, Observable } from '@opentelemetry/api'
 
 import { loadOtelApi, type OtelApi } from './load.js'
@@ -17,7 +17,7 @@ export interface OtelMetricsOptions {
   api?: OtelApi
   /** Default: the global one (`api.metrics.getMeterProvider()`, set by the SDK). */
   meterProvider?: MeterProvider
-  /** Instrumentation scope name. Default `'@bot-wa/otel'`. */
+  /** Instrumentation scope name. Default `'@botmesh/otel'`. */
   meterName?: string
   /** Metric name prefix. Default `'botwa'`. */
   prefix?: string
@@ -42,7 +42,7 @@ const OUTCOMES = ['completed', 'ended', 'guarded', 'cancelled', 'timedOut', 'ret
 
 /** Register the bridge on a loaded API (synchronous). Returns the unregister function. */
 export function bridgeMetrics(api: OtelApi, bot: MetricsSource, opts: OtelMetricsOptions = {}): () => void {
-  const meter = (opts.meterProvider ?? api.metrics.getMeterProvider()).getMeter(opts.meterName ?? '@bot-wa/otel')
+  const meter = (opts.meterProvider ?? api.metrics.getMeterProvider()).getMeter(opts.meterName ?? '@botmesh/otel')
   const p = opts.prefix ?? 'botwa'
   const base: Attributes = { 'bot.id': bot.getNamespace().botId, ...opts.attributes }
   const perFlow = opts.perFlow !== false

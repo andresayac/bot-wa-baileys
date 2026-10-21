@@ -1,8 +1,8 @@
-# @bot-wa/telegram
+# @botmesh/telegram
 
-Telegram Bot API transport ([`IProvider` v2](https://github.com/andresayac/bot-wa-baileys/blob/main/packages/core/src/core/provider.ts)) for
-[@bot-wa/core](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/core). Plain HTTP over Node's global `fetch` — no extra
-runtime dependencies beyond `@bot-wa/core` and `pino`.
+Telegram Bot API transport ([`IProvider` v2](https://github.com/andresayac/botmesh/blob/main/packages/core/src/core/provider.ts)) for
+[@botmesh/core](https://github.com/andresayac/botmesh/tree/main/packages/core). Plain HTTP over Node's global `fetch` — no extra
+runtime dependencies beyond `@botmesh/core` and `pino`.
 
 - **Ingress:** long-polling (`getUpdates`, default) **or** webhook (`ingest()`).
 - **Outbound:** text, photo, video, audio, voice, document, sticker, location,
@@ -18,7 +18,7 @@ runtime dependencies beyond `@bot-wa/core` and `pino`.
 In the monorepo the workspace package is already available. From an app:
 
 ```bash
-pnpm add @bot-wa/core @bot-wa/telegram
+pnpm add @botmesh/core @botmesh/telegram
 ```
 
 Create a bot with [@BotFather](https://t.me/BotFather) and keep the token.
@@ -44,8 +44,8 @@ interface TelegramProviderConfig {
 ## Usage — long-poll (default)
 
 ```ts
-import { Bot } from '@bot-wa/core'
-import { TelegramProvider } from '@bot-wa/telegram'
+import { Bot } from '@botmesh/core'
+import { TelegramProvider } from '@botmesh/telegram'
 
 const provider = new TelegramProvider({ token: process.env.TG_TOKEN! })
 
@@ -69,8 +69,8 @@ await bot.start()   // resolves selfId via getMe, then polls getUpdates
 
 ```ts
 import express from 'express'
-import { Bot } from '@bot-wa/core'
-import { TelegramProvider } from '@bot-wa/telegram'
+import { Bot } from '@botmesh/core'
+import { TelegramProvider } from '@botmesh/telegram'
 
 const provider = new TelegramProvider({ token: process.env.TG_TOKEN!, polling: false })
 const bot = new Bot({ provider })
@@ -108,7 +108,7 @@ if (ctx.media) {
 
 `downloadMedia(ref)` resolves `file_id → getFile → file_path` and fetches
 `{baseUrl}/file/bot{token}/{file_path}` (20 MB Bot API limit) through the
-anti-SSRF `secureFetch` of `@bot-wa/http`. Download failures reject with typed
+anti-SSRF `secureFetch` of `@botmesh/http`. Download failures reject with typed
 errors (`PayloadTooLargeError` over `mediaDownload.maxBytes`, 16 MiB by default;
 `ProviderError` otherwise) whose messages never include the URL (it carries the token).
 
@@ -157,7 +157,7 @@ An edit is routed like any message (it can answer a pending `ask()`). If that
 is not what you want, branch on it or turn edits off:
 
 ```ts
-import { TelegramProvider, isEditedMessage } from '@bot-wa/telegram'
+import { TelegramProvider, isEditedMessage } from '@botmesh/telegram'
 
 bot.before('message', async (ctx, next) => { if (!isEditedMessage(ctx)) await next() }) // skip edits
 new TelegramProvider({ token, editedMessages: 'ignore' })                   // or never receive them
@@ -186,7 +186,7 @@ the update is acknowledged (200) and dropped (also leave it out of
 
 ## Error mapping
 
-Bot API errors become typed `@bot-wa/core` errors:
+Bot API errors become typed `@botmesh/core` errors:
 
 | HTTP | Maps to                                              |
 | ---- | ---------------------------------------------------- |

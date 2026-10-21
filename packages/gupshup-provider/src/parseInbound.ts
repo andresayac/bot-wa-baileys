@@ -19,8 +19,8 @@
  * by `gsId` when present.
  */
 
-import { toInboundLocation } from '@bot-wa/core'
-import type { InboundEvent, InboundLocation, MediaRef, MessageType } from '@bot-wa/core'
+import { toInboundLocation } from '@botmesh/core'
+import type { InboundEvent, InboundLocation, MediaRef, MessageType } from '@botmesh/core'
 import type { GupshupCallback, GupshupEventPayload, GupshupMessagePayload } from './types.js'
 
 function str(value: unknown): string | undefined {

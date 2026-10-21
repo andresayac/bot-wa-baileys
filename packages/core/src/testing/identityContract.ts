@@ -24,7 +24,7 @@
  *
  * @example
  * ```ts
- * import { assertStableIdentity } from '@bot-wa/core/testing'
+ * import { assertStableIdentity } from '@botmesh/core/testing'
  *
  * const events = [
  *   toInbound(msg({ remoteJid: LID, remoteJidAlt: PN, id: 'm1' }), identity),

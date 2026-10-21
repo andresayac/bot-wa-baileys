@@ -8,7 +8,7 @@
  * a different intent — simply fall through to other matchers / `onMessage`.
  */
 
-import type { Bot, MessageContext } from '@bot-wa/core'
+import type { Bot, MessageContext } from '@botmesh/core'
 import type { IntentEngine, IntentMatch } from './IntentEngine.js'
 
 /** Handler for an intent-matched message; receives the context plus the match result. */

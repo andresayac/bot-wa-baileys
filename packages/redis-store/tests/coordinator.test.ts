@@ -3,8 +3,8 @@
  * scripts run in coordination.integration.test.ts).
  */
 import { describe, it, expect, vi } from 'vitest'
-import { Bot, CoordinationUnavailableError, LeaseLostError, MemoryStore } from '@bot-wa/core'
-import { MockProvider } from '@bot-wa/core/testing'
+import { Bot, CoordinationUnavailableError, LeaseLostError, MemoryStore } from '@botmesh/core'
+import { MockProvider } from '@botmesh/core/testing'
 import { RedisCoordinator, RedisStore } from '../src/index.js'
 import { RELEASE_TURN_SCRIPT, RESERVE_SCRIPT } from '../src/coordScripts.js'
 import { FakeRedisClient } from './fakeRedis.js'

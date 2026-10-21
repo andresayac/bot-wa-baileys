@@ -5,8 +5,8 @@ Los plugins son paquetes reutilizables de funcionalidad.
 ## Usar un plugin
 
 ```ts
-import { Bot, slashCommandsPlugin } from '@bot-wa/core'
-import { BaileysProvider } from '@bot-wa/baileys'
+import { Bot, slashCommandsPlugin } from '@botmesh/core'
+import { BaileysProvider } from '@botmesh/baileys'
 
 const bot = new Bot({ provider: new BaileysProvider({ session: 'my-bot' }) })
 
@@ -87,7 +87,7 @@ Los `/comandos` desconocidos reciben automáticamente una respuesta de
 ### Plugin simple
 
 ```ts
-import { definePlugin } from '@bot-wa/core'
+import { definePlugin } from '@botmesh/core'
 
 const loggingPlugin = definePlugin({
   name: 'logging',
@@ -172,26 +172,26 @@ mensaje de error explica el motivo. En JavaScript el bot sigue antes de que un
 `install` async termine y su rechazo solo llega al evento `'error'` (en
 versiones anteriores del core tumbaba el proceso): no se revierte nada y el
 plugin cuenta como enchufado; la regla de ESLint
-[`no-async-plugin-install`](./eslint#bot-wa-no-async-plugin-install) cubre ese
+[`no-async-plugin-install`](./eslint#botmesh-no-async-plugin-install) cubre ese
 caso. Si tu plugin necesita inicialización async (abrir una conexión, cargar
 un SDK), mantén `install` síncrono y resuelve de forma perezosa en el primer
 uso, reportando los errores de configuración sin tumbar el bot. Así carga
-`@bot-wa/ai` los SDKs de sus proveedores.
+`@botmesh/ai` los SDKs de sus proveedores.
 :::
 
 ## Paquetes de plugins
 
 Además de `slashCommandsPlugin`, estos paquetes traen plugins listos:
 
-- [IA](/es/guide/ai) — `@bot-wa/ai`: respuestas con LLM (`aiPlugin`), con
+- [IA](/es/guide/ai) — `@botmesh/ai`: respuestas con LLM (`aiPlugin`), con
   [herramientas](/es/guide/ai-herramientas),
   [memoria y RAG](/es/guide/ai-memoria-rag) y
   [streaming](/es/guide/streaming).
-- [Voz](/es/guide/voz) — el experimental `@bot-wa/voice` (`voicePlugin`):
+- [Voz](/es/guide/voz) — el experimental `@botmesh/voice` (`voicePlugin`):
   voz a texto para las notas de voz entrantes y respuestas con texto a voz.
 - [Integraciones](/es/guide/integraciones) — los experimentales
-  `@bot-wa/chatwoot`, `@bot-wa/tickets`, `@bot-wa/moderation` y
-  `@bot-wa/dialogflow`.
+  `@botmesh/chatwoot`, `@botmesh/tickets`, `@botmesh/moderation` y
+  `@botmesh/dialogflow`.
 
 ## Siguientes pasos
 

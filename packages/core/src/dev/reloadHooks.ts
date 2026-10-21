@@ -1,11 +1,11 @@
 /**
- * Module-resolution hooks that make `bot-wa dev` hot reload reach the WHOLE
+ * Module-resolution hooks that make `botmesh dev` hot reload reach the WHOLE
  * local import graph, not just the entry file.
  *
  * ESM modules are cached by URL, so re-importing `bot.js?botwa_v=2` re-runs the
  * entry but would still reuse the cached `./flows/menu.js`. These hooks copy the
  * importer's `botwa_v` query onto every RELATIVE import (`./x`, `../y`), so each
- * reload gets a fresh copy of your own modules. Package imports (`@bot-wa/core`,
+ * reload gets a fresh copy of your own modules. Package imports (`@botmesh/core`,
  * `node:*`, anything under `node_modules`) are never re-versioned, and
  * `require()` is left alone.
  *

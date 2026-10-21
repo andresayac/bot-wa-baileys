@@ -6,7 +6,7 @@
  * `before`/`after('send')` hooks still run for every send.
  */
 
-import type { Bot, BroadcastOptions, BroadcastResult, OutboundContent } from '@bot-wa/core'
+import type { Bot, BroadcastOptions, BroadcastResult, OutboundContent } from '@botmesh/core'
 import type { CampaignPlanner } from './planner.js'
 import type { Campaign, CampaignRecipient, Delivery } from './types.js'
 

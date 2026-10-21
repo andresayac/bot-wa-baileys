@@ -1,13 +1,13 @@
 /**
  * Bakery assistant on WhatsApp through Baileys (WhatsApp Web protocol).
  *
- *   pnpm --filter @bot-wa/example-bakery-ai build
- *   pnpm --filter @bot-wa/example-bakery-ai start:baileys
+ *   pnpm --filter @botmesh/example-bakery-ai build
+ *   pnpm --filter @botmesh/example-bakery-ai start:baileys
  *
  * Scan the QR printed in the terminal from WhatsApp → Linked devices. The
  * session is saved in WA_SESSIONS_DIR (git-ignored): never commit or share it.
  */
-import { BaileysProvider } from '@bot-wa/baileys'
+import { BaileysProvider } from '@botmesh/baileys'
 import { createBakeryBot } from './bot.js'
 import { describeConfig, loadBaileysConfig } from './config.js'
 import { attachBotLogging, createLogger, loadConfigOrExit, onShutdown } from './runtime.js'

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { PayloadTooLargeError, UnsupportedContentError, type OutboundContent } from '@bot-wa/core'
+import { PayloadTooLargeError, UnsupportedContentError, type OutboundContent } from '@botmesh/core'
 import { toCommentReply, toDirectReply, toDmMessage } from '../src/toOutbound.js'
 
 const dm = { businessId: 'B', conversationId: 'C' }

@@ -1,11 +1,11 @@
 /**
- * @bot-wa/core — Public Types
+ * @botmesh/core — Public Types
  * ===========================
  *
  * Transport-agnostic. The provider/message/store contract lives in
  * `core/provider.ts`; this module re-exports the shared pieces and adds the
  * core-only vocabulary (hooks, plugins, triggers, scheduler, conversations).
- * WhatsApp-specific types (JID, QrConfig, GroupsAPI, …) live in @bot-wa/baileys.
+ * WhatsApp-specific types (JID, QrConfig, GroupsAPI, …) live in @botmesh/baileys.
  */
 
 import type { Logger } from 'pino'
@@ -134,7 +134,7 @@ export interface SendHookContext {
  * hooks of a plugin's custom event:
  *
  * ```ts
- * declare module '@bot-wa/core' {
+ * declare module '@botmesh/core' {
  *   interface HookContextMap { 'crm.lead': { leadId: string } }
  * }
  * bot.after('crm.lead', (lead) => lead.leadId) // typed
@@ -201,7 +201,7 @@ export interface PluginSpec<TConfig = Record<string, unknown>> {
    * promise) does not compile ({@link SyncInstallError} names the reason); at runtime a
    * rejected promise is still reported on the bot's `'error'` event, but the plugin is
    * already considered installed and nothing is rolled back. Do async setup lazily on first
-   * use (the `LazyProvider` pattern in `@bot-wa/ai`).
+   * use (the `LazyProvider` pattern in `@botmesh/ai`).
    */
   install(ctx: PluginContext, config?: TConfig): void | SyncInstallError
   uninstall?(ctx: PluginContext): void | Promise<void>
@@ -213,7 +213,7 @@ export interface PluginSpec<TConfig = Record<string, unknown>> {
  * value: a sync `install` returns nothing.
  */
 export type SyncInstallError =
-  'Plugin.install() must be synchronous and return nothing: bot.plug() does not await it. Do async setup lazily on first use (LazyProvider in @bot-wa/ai).'
+  'Plugin.install() must be synchronous and return nothing: bot.plug() does not await it. Do async setup lazily on first use (LazyProvider in @botmesh/ai).'
 
 /** A plugin is just a PluginSpec or a factory returning one. */
 export type Plugin<TConfig = Record<string, unknown>> =

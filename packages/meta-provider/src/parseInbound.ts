@@ -17,8 +17,8 @@ import type {
   MediaRef,
   SenderInfo,
   FormReply,
-} from '@bot-wa/core'
-import { formReplyBody, toInboundLocation } from '@bot-wa/core'
+} from '@botmesh/core'
+import { formReplyBody, toInboundLocation } from '@botmesh/core'
 import {
   IdentityResolver,
   MemoryIdentityMap,

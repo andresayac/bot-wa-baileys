@@ -24,13 +24,13 @@
  *     (including the `ctx.tools.ai` DefaultTools augmentation); a small runtime
  *     scenario (createTestBot, aiPlugin + MockAIProvider, SQLiteStore); optional
  *     AI SDK peers absent → import works, a clear lazy error only on use; the
- *     `bot-wa` and `create-bot-wa` bins run.
- *  4. Scaffold every create-bot-wa template, check its @bot-wa ranges resolve
+ *     `botmesh` and `create-botmesh` bins run.
+ *  4. Scaffold every create-botmesh template, check its @botmesh ranges resolve
  *     to the packed versions (npm prerelease rules), then `npm install` it with
  *     its ranges UNTOUCHED: a throwaway local registry (scripts/smoke/registry.mjs,
- *     routed with a scoped `@bot-wa:registry=`) serves the packed tarballs, so
+ *     routed with a scoped `@botmesh:registry=`) serves the packed tarballs, so
  *     npm itself must resolve every stamped range. `node --check` every .js and
- *     boot it in `bot-wa dev` (non-interactive).
+ *     boot it in `botmesh dev` (non-interactive).
  *
  * Network: npm still downloads third-party dependencies (baileys, redis, ...).
  * Never publishes, never touches the npm registry with our packages.
@@ -49,20 +49,20 @@ import { satisfies } from './smoke/semver.mjs'
 /* Consumer sources                                                           */
 /* -------------------------------------------------------------------------- */
 
-const CONSUMER_TS = `import { Bot, flow, defineBot, isMainModule } from '@bot-wa/core'
-import type { IProvider, MessageContext } from '@bot-wa/core'
-import { createTestBot, MockProvider } from '@bot-wa/core/testing'
-import { runCli } from '@bot-wa/core/dev'
-import { createPacer } from '@bot-wa/core/internal'
-import { aiPlugin, MockAIProvider, type AIClient } from '@bot-wa/ai'
-import { TelegramProvider } from '@bot-wa/telegram'
-import { CloudAPIProvider } from '@bot-wa/meta'
-import { BaileysProvider } from '@bot-wa/baileys'
-import { SQLiteStore } from '@bot-wa/sqlite-store'
-import { RedisStore } from '@bot-wa/redis-store'
-import { secureFetch } from '@bot-wa/http'
-import { verifySignature } from '@bot-wa/graph-core'
-import { scaffold } from 'create-bot-wa'
+const CONSUMER_TS = `import { Bot, flow, defineBot, isMainModule } from '@botmesh/core'
+import type { IProvider, MessageContext } from '@botmesh/core'
+import { createTestBot, MockProvider } from '@botmesh/core/testing'
+import { runCli } from '@botmesh/core/dev'
+import { createPacer } from '@botmesh/core/internal'
+import { aiPlugin, MockAIProvider, type AIClient } from '@botmesh/ai'
+import { TelegramProvider } from '@botmesh/telegram'
+import { CloudAPIProvider } from '@botmesh/meta'
+import { BaileysProvider } from '@botmesh/baileys'
+import { SQLiteStore } from '@botmesh/sqlite-store'
+import { RedisStore } from '@botmesh/redis-store'
+import { secureFetch } from '@botmesh/http'
+import { verifySignature } from '@botmesh/graph-core'
+import { scaffold } from 'create-botmesh'
 
 export const providers: IProvider[] = [
   // logger takes any LoggerLike (console included), not only pino.
@@ -83,7 +83,7 @@ const createBot = defineBot((provider) => {
   // @ts-expect-error async install is rejected at compile time
   bot.plug({ name: 'p', version: '0', async install() {} })
   bot.when('hola', async (ctx) => {
-    // DefaultTools augmentation from @bot-wa/ai: no cast needed.
+    // DefaultTools augmentation from @botmesh/ai: no cast needed.
     const ai: AIClient = ctx.tools.ai
     await ctx.reply(typeof ai)
   })
@@ -99,9 +99,9 @@ export const ctxType: MessageContext | undefined = undefined
 `
 
 const RUNTIME_MJS = `import assert from 'node:assert/strict'
-import { createTestBot } from '@bot-wa/core/testing'
-import { aiPlugin, MockAIProvider } from '@bot-wa/ai'
-import { SQLiteStore } from '@bot-wa/sqlite-store'
+import { createTestBot } from '@botmesh/core/testing'
+import { aiPlugin, MockAIProvider } from '@botmesh/ai'
+import { SQLiteStore } from '@botmesh/sqlite-store'
 
 const t = await createTestBot()
 t.bot.when('hola', (ctx) => ctx.reply('hi there'))
@@ -129,7 +129,7 @@ console.log('RUNTIME OK')
 process.exit(0)
 `
 
-const DEV_BOT = `import { Bot, defineBot } from '@bot-wa/core'
+const DEV_BOT = `import { Bot, defineBot } from '@botmesh/core'
 export default defineBot((provider) => {
   const bot = new Bot({ provider })
   bot.when('hola', (ctx) => ctx.reply('PONG-SMOKE'))
@@ -272,7 +272,7 @@ const specifier = (name, sub) => (sub === '.' ? name : `${name}/${sub.slice(2)}`
 /* Main                                                                       */
 /* -------------------------------------------------------------------------- */
 
-const tmpBase = mkdtempSync(join(tmpdir(), 'bot-wa-pack-smoke-'))
+const tmpBase = mkdtempSync(join(tmpdir(), 'botmesh-pack-smoke-'))
 if (resolve(tmpBase).toLowerCase().startsWith(ROOT.toLowerCase() + sep)) {
   console.error(`temp dir ${tmpBase} is inside the repo; refusing`)
   process.exit(2)
@@ -421,7 +421,7 @@ step('clean consumer project (npm)')
 mkdirSync(CONSUMER)
 writeFileSync(
   join(CONSUMER, 'package.json'),
-  JSON.stringify({ name: 'bot-wa-pack-smoke-consumer', version: '0.0.0', private: true, type: 'module' }, null, 2),
+  JSON.stringify({ name: 'botmesh-pack-smoke-consumer', version: '0.0.0', private: true, type: 'module' }, null, 2),
 )
 const install = mustRun('consumer', 'npm', [
   'install',
@@ -435,7 +435,7 @@ const install = mustRun('consumer', 'npm', [
 const consumerOk = install.ok
 if (consumerOk) {
   const nm = join(CONSUMER, 'node_modules')
-  // One copy of each of our packages (no nested duplicates of @bot-wa/core).
+  // One copy of each of our packages (no nested duplicates of @botmesh/core).
   const dupes = []
   const walk = (d, depth) => {
     if (depth > 6 || !existsSync(d)) return
@@ -446,12 +446,12 @@ if (consumerOk) {
         walk(p, depth)
         continue
       }
-      if (depth > 0 && relative(nm, p).split(sep).slice(-2).join('/') === '@bot-wa/core') dupes.push(relative(CONSUMER, p))
+      if (depth > 0 && relative(nm, p).split(sep).slice(-2).join('/') === '@botmesh/core') dupes.push(relative(CONSUMER, p))
       if (existsSync(join(p, 'node_modules'))) walk(join(p, 'node_modules'), depth + 1)
     }
   }
   walk(nm, 0)
-  if (dupes.length) fail('consumer', `duplicate @bot-wa/core copies: ${dupes.join(', ')}`)
+  if (dupes.length) fail('consumer', `duplicate @botmesh/core copies: ${dupes.join(', ')}`)
   for (const sdk of ['@anthropic-ai/sdk', 'openai', '@google/generative-ai']) {
     if (existsSync(join(nm, sdk))) fail('consumer', `optional peer ${sdk} got installed`)
   }
@@ -509,7 +509,7 @@ process.exit(bad ? 1 : 0)
       const errors = tsc.out
         .split('\n')
         .filter((l) => /error TS\d+/.test(l))
-        .filter((l) => skipLibCheck || /^(src[\\/]|node_modules[\\/](@bot-wa|create-bot-wa)[\\/])/.test(l))
+        .filter((l) => skipLibCheck || /^(src[\\/]|node_modules[\\/](@botmesh|create-botmesh)[\\/])/.test(l))
       if (errors.length) fail('types', `tsc (${mode}, skipLibCheck=${skipLibCheck}):\n    ${errors.join('\n    ')}`)
       else console.log(`  types OK (${mode}, skipLibCheck=${skipLibCheck})`)
     }
@@ -528,8 +528,8 @@ process.exit(bad ? 1 : 0)
     return rel ? join(nm, ...pkgName.split('/'), rel) : undefined
   }
   for (const [pkgName, bin] of [
-    ['@bot-wa/core', 'bot-wa'],
-    ['create-bot-wa', 'create-bot-wa'],
+    ['@botmesh/core', 'botmesh'],
+    ['create-botmesh', 'create-botmesh'],
   ]) {
     const shim = join(nm, '.bin', IS_WIN ? `${bin}.cmd` : bin)
     if (!existsSync(shim)) failFor(pkgName, `npm did not link the ${bin} bin`)
@@ -538,39 +538,39 @@ process.exit(bad ? 1 : 0)
     const help = run('node', [target, '--help'], { cwd: CONSUMER })
     if (!help.ok || !/Usage/.test(help.out)) failFor(pkgName, `${bin} --help failed:\n${help.out}`)
   }
-  const coreBin = binOf('@bot-wa/core', 'bot-wa')
+  const coreBin = binOf('@botmesh/core', 'botmesh')
   if (coreBin) {
     const ver = run('node', [coreBin, '--version'], { cwd: CONSUMER })
-    if (!ver.out.includes(packedVersions.get('@bot-wa/core'))) failFor('@bot-wa/core', `bot-wa --version printed ${ver.out.trim()}`)
+    if (!ver.out.includes(packedVersions.get('@botmesh/core'))) failFor('@botmesh/core', `botmesh --version printed ${ver.out.trim()}`)
     writeFileSync(join(CONSUMER, 'devbot.mjs'), DEV_BOT)
     const dev = run('node', [coreBin, 'dev', 'devbot.mjs', '--no-watch', '--no-color'], {
       cwd: CONSUMER,
       input: 'hola\n:quit\n',
       timeout: 60_000,
     })
-    if (!dev.ok || !dev.out.includes('PONG-SMOKE')) failFor('@bot-wa/core', `bot-wa dev did not answer:\n${dev.out}`)
-    else console.log('  bot-wa dev answered from a defineBot entry')
+    if (!dev.ok || !dev.out.includes('PONG-SMOKE')) failFor('@botmesh/core', `botmesh dev did not answer:\n${dev.out}`)
+    else console.log('  botmesh dev answered from a defineBot entry')
   }
 
   /* 4. scaffolds ------------------------------------------------------------ */
-  step('create-bot-wa templates')
-  const createBin = binOf('create-bot-wa', 'create-bot-wa')
+  step('create-botmesh templates')
+  const createBin = binOf('create-botmesh', 'create-botmesh')
   const helpText = createBin ? run('node', [createBin, '--help'], { cwd: CONSUMER }).out : ''
   const templates = (/one of: ([^\n(]+)/.exec(helpText)?.[1] ?? '')
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean)
-  if (!templates.length) failFor('create-bot-wa', 'could not read the template list from --help')
+  if (!templates.length) failFor('create-botmesh', 'could not read the template list from --help')
   mkdirSync(SCAFFOLDS)
-  // Local registry for the @bot-wa scope: scaffolds install their stamped ranges as-is.
+  // Local registry for the @botmesh scope: scaffolds install their stamped ranges as-is.
   const registry = SCAFFOLD_INSTALL ? await startRegistry() : undefined
   for (const t of templates) {
     const dirName = `bot-${t}`
-    const scope = `create-bot-wa[${t}]`
+    const scope = `create-botmesh[${t}]`
     const gen = run('node', [createBin, dirName, '--template', t, '--yes'], { cwd: SCAFFOLDS })
     const proj = join(SCAFFOLDS, dirName)
     if (!gen.ok || !existsSync(join(proj, 'package.json'))) {
-      failFor('create-bot-wa', `${t}: scaffold failed\n${gen.out}`)
+      failFor('create-botmesh', `${t}: scaffold failed\n${gen.out}`)
       continue
     }
     const pj = readJson(join(proj, 'package.json'))
@@ -578,7 +578,7 @@ process.exit(bad ? 1 : 0)
       for (const [dep, range] of Object.entries(pj[field] ?? {})) {
         if (!tarballs.has(dep)) continue
         const v = packedVersions.get(dep)
-        if (!satisfies(v, range)) failFor('create-bot-wa', `${t}: ${dep}@${range} does not resolve to packed ${v}`)
+        if (!satisfies(v, range)) failFor('create-botmesh', `${t}: ${dep}@${range} does not resolve to packed ${v}`)
       }
     }
     const jsFiles = []
@@ -593,32 +593,32 @@ process.exit(bad ? 1 : 0)
     collect(proj)
     for (const f of jsFiles) {
       const c = run('node', ['--check', f])
-      if (!c.ok) failFor('create-bot-wa', `${t}: node --check ${relative(proj, f)}\n${c.out}`)
+      if (!c.ok) failFor('create-botmesh', `${t}: node --check ${relative(proj, f)}\n${c.out}`)
     }
     let status = `${jsFiles.length} js checked`
     if (registry) {
-      // The scaffold's package.json is not touched: npm resolves its @bot-wa ranges
+      // The scaffold's package.json is not touched: npm resolves its @botmesh ranges
       // against the packed versions served by the local registry.
-      writeFileSync(join(proj, '.npmrc'), `@bot-wa:registry=${registry.url}\n`)
+      writeFileSync(join(proj, '.npmrc'), `@botmesh:registry=${registry.url}\n`)
       const inst = run('npm', ['install', '--no-audit', '--no-fund', '--loglevel=error', '--prefer-online'], { cwd: proj })
       if (!inst.ok) {
-        failFor('create-bot-wa', `${t}: npm install failed\n${inst.out.split('\n').slice(-15).join('\n')}`)
+        failFor('create-botmesh', `${t}: npm install failed\n${inst.out.split('\n').slice(-15).join('\n')}`)
         continue
       }
       for (const dep of Object.keys(pj.dependencies ?? {})) {
         if (!tarballs.has(dep)) continue
         const got = readJson(join(proj, 'node_modules', ...dep.split('/'), 'package.json')).version
-        if (got !== packedVersions.get(dep)) failFor('create-bot-wa', `${t}: npm installed ${dep}@${got}, expected packed ${packedVersions.get(dep)}`)
+        if (got !== packedVersions.get(dep)) failFor('create-botmesh', `${t}: npm installed ${dep}@${got}, expected packed ${packedVersions.get(dep)}`)
       }
-      const entry = pj.scripts?.dev?.match(/bot-wa dev (\S+)/)?.[1] ?? 'src/bot.js'
-      const devBin = join(proj, 'node_modules', '@bot-wa', 'core', ...String(packedManifests.get('@bot-wa/core')?.bin?.['bot-wa'] ?? 'lib/dev/bin.js').split('/'))
+      const entry = pj.scripts?.dev?.match(/botmesh dev (\S+)/)?.[1] ?? 'src/bot.js'
+      const devBin = join(proj, 'node_modules', '@botmesh', 'core', ...String(packedManifests.get('@botmesh/core')?.bin?.['botmesh'] ?? 'lib/dev/bin.js').split('/'))
       const dev = run('node', [devBin, 'dev', entry, '--no-watch', '--no-color'], { cwd: proj, input: ':quit\n', timeout: 60_000 })
-      if (!dev.ok || !dev.out.includes('terminal simulator')) failFor('create-bot-wa', `${t}: bot-wa dev ${entry} failed\n${dev.out}`)
-      else status += ', installed, boots in bot-wa dev'
+      if (!dev.ok || !dev.out.includes('terminal simulator')) failFor('create-botmesh', `${t}: botmesh dev ${entry} failed\n${dev.out}`)
+      else status += ', installed, boots in botmesh dev'
     }
     console.log(`  ${scope}: ${status}`)
   }
-  row('create-bot-wa').templates = templates.length
+  row('create-botmesh').templates = templates.length
   registry?.stop()
 }
 
@@ -626,10 +626,10 @@ finish()
 
 /* -------------------------------------------------------------------------- */
 
-/** Start scripts/smoke/registry.mjs over the packed @bot-wa tarballs. */
+/** Start scripts/smoke/registry.mjs over the packed @botmesh tarballs. */
 async function startRegistry() {
   const list = [...tarballs]
-    .filter(([n]) => n.startsWith('@bot-wa/') && packedManifests.has(n))
+    .filter(([n]) => n.startsWith('@botmesh/') && packedManifests.has(n))
     .map(([n, file]) => ({ manifest: packedManifests.get(n), file }))
   const listFile = join(tmpBase, 'registry.json')
   writeFileSync(listFile, JSON.stringify(list))
@@ -643,7 +643,7 @@ async function startRegistry() {
     })
     child.once('exit', (code) => rej(new Error(`local registry exited (${code})`)))
   })
-  console.log(`  local @bot-wa registry on 127.0.0.1:${port} (${list.length} packages)`)
+  console.log(`  local @botmesh registry on 127.0.0.1:${port} (${list.length} packages)`)
   stopRegistry = () => child.kill()
   return { url: `http://127.0.0.1:${port}/`, stop: () => child.kill() }
 }

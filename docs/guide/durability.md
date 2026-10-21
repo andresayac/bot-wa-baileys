@@ -6,8 +6,8 @@ and a reply that was being sent may or may not have gone out. That is fine for
 many bots. When it is not, turn on **durability**:
 
 ```ts
-import { Bot } from '@bot-wa/core'
-import { PostgresDurability, PostgresStore } from '@bot-wa/postgres-store'
+import { Bot } from '@botmesh/core'
+import { PostgresDurability, PostgresStore } from '@botmesh/postgres-store'
 
 const bot = new Bot({
   provider,
@@ -38,11 +38,11 @@ before, in memory and in a single process.
 
 | Backend | Package | Survives a crash | Several replicas |
 | --- | --- | --- | --- |
-| `MemoryDurability` (the default with `durability: {}`) | `@bot-wa/core` | No (retries, backoff and DLQ only) | No |
-| `FileDurability.open(path)` | `@bot-wa/core` | Yes | No (a lock file refuses a second live process, and a second open in the same process until `close()`) |
-| `PostgresDurability({ pool \| connectionString, tablePrefix })` | `@bot-wa/postgres-store` | Yes | Yes, with sticky per-chat routing (see [Several replicas](#several-replicas)) |
-| `RedisDurability({ client \| url, prefix })` | `@bot-wa/redis-store` | Yes (with Redis persistence on) | Yes, with sticky per-chat routing (see [Several replicas](#several-replicas)) |
-| `eventsDurability({ journal })` | `@bot-wa/events/durability` (private, monorepo only) | With a `FileEventJournal` opened with `{ lock: true }` or a `SharedFileEventJournal` | With a `SharedFileEventJournal` (processes on one host; see [below](#an-bot-wa-events-journal)) |
+| `MemoryDurability` (the default with `durability: {}`) | `@botmesh/core` | No (retries, backoff and DLQ only) | No |
+| `FileDurability.open(path)` | `@botmesh/core` | Yes | No (a lock file refuses a second live process, and a second open in the same process until `close()`) |
+| `PostgresDurability({ pool \| connectionString, tablePrefix })` | `@botmesh/postgres-store` | Yes | Yes, with sticky per-chat routing (see [Several replicas](#several-replicas)) |
+| `RedisDurability({ client \| url, prefix })` | `@botmesh/redis-store` | Yes (with Redis persistence on) | Yes, with sticky per-chat routing (see [Several replicas](#several-replicas)) |
+| `eventsDurability({ journal })` | `@botmesh/events/durability` (private, monorepo only) | With a `FileEventJournal` opened with `{ lock: true }` or a `SharedFileEventJournal` | With a `SharedFileEventJournal` (processes on one host; see [below](#an-botmesh-events-journal)) |
 
 PostgreSQL creates one table, `{tablePrefix}durable`, idempotently on start.
 Redis uses keys under `{prefix}:{durable:inbox:<scope>}` and `{prefix}:{durable:outbox:<scope>}`.
@@ -66,14 +66,14 @@ two sorted indexes) and wrapping it in `KvDurability`.
 The bot starts and stops the backend itself. Use a persistent **store** too: a
 `.persistent()` flow's checkpoints live in the store, and replay relies on them.
 
-### An `@bot-wa/events` journal
+### An `@botmesh/events` journal
 
-An app that already keeps an `@bot-wa/events` journal can use it as the backend, with
+An app that already keeps an `@botmesh/events` journal can use it as the backend, with
 no other store:
 
 ```ts
-import { FileEventJournal } from '@bot-wa/events'
-import { eventsDurability } from '@bot-wa/events/durability'
+import { FileEventJournal } from '@botmesh/events'
+import { eventsDurability } from '@botmesh/events/durability'
 
 const journal = await FileEventJournal.open('./data/events.json', { lock: true })
 const bot = new Bot({ provider, durability: { journal: eventsDurability({ journal }) } })
@@ -104,7 +104,7 @@ const bot = new Bot({ provider, durability: { journal: eventsDurability({ journa
   the same file and is shared too:
 
   ```ts
-  import { SharedFileEventJournal } from '@bot-wa/events'
+  import { SharedFileEventJournal } from '@botmesh/events'
 
   const journal = await SharedFileEventJournal.open('./data/events.json')
   const bot = new Bot({ provider, durability: { journal: eventsDurability({ journal }) } })
@@ -268,12 +268,12 @@ would for a live message.
 
 | Provider | What is journaled | Notes |
 | --- | --- | --- |
-| `@bot-wa/baileys` | The media content (CDN url, direct path, media key and hashes, without thumbnail, caption or quoted context) and the message key | Expired CDN media is re-requested from the sender's phone on download, as for live media. View-once media is **not** journaled unless you set `durableMedia: { viewOnce: true }`. |
-| `@bot-wa/meta` (Cloud API) | The media id | Meta keeps inbound media for about 30 days. |
-| `@bot-wa/telegram` | The `file_id` | It only works with the same bot token. |
-| `@bot-wa/twilio` | The media URL | Only `https` URLs on the API origin or a `twilio.com` host are accepted back. |
-| `@bot-wa/messenger`, `@bot-wa/instagram` | The attachment URL | Only URLs on the Meta CDNs (`fbcdn.net`, `fbsbx.com`, `cdninstagram.com`; `mediaRefHosts` replaces the list) are journaled and accepted back. The URLs are signed and expire, so a late replay fails to download. |
-| `@bot-wa/discord` | The attachment URL | Only URLs on the Discord CDNs (`discordapp.com`, `discordapp.net`; `mediaRefHosts` replaces the list). Discord attachment URLs expire after about 24 hours. |
+| `@botmesh/baileys` | The media content (CDN url, direct path, media key and hashes, without thumbnail, caption or quoted context) and the message key | Expired CDN media is re-requested from the sender's phone on download, as for live media. View-once media is **not** journaled unless you set `durableMedia: { viewOnce: true }`. |
+| `@botmesh/meta` (Cloud API) | The media id | Meta keeps inbound media for about 30 days. |
+| `@botmesh/telegram` | The `file_id` | It only works with the same bot token. |
+| `@botmesh/twilio` | The media URL | Only `https` URLs on the API origin or a `twilio.com` host are accepted back. |
+| `@botmesh/messenger`, `@botmesh/instagram` | The attachment URL | Only URLs on the Meta CDNs (`fbcdn.net`, `fbsbx.com`, `cdninstagram.com`; `mediaRefHosts` replaces the list) are journaled and accepted back. The URLs are signed and expire, so a late replay fails to download. |
+| `@botmesh/discord` | The attachment URL | Only URLs on the Discord CDNs (`discordapp.com`, `discordapp.net`; `mediaRefHosts` replaces the list). Discord attachment URLs expire after about 24 hours. |
 | Other providers | The token as it is (as before) | Their tokens are already plain ids or URLs. |
 
 No credentials are journaled: tokens and keys are added again at download time. The
@@ -353,12 +353,12 @@ longest conversation pause. See [Conversation hand-over](./replicas.md#conversat
 
 ## Testing crash recovery
 
-`@bot-wa/core/testing` exports `crashable(backend)`, which can "kill" a bot at a
+`@botmesh/core/testing` exports `crashable(backend)`, which can "kill" a bot at a
 precise journal write, and `CrashableProvider`. Abandon the crashed bot and start a
 new one on the same backend and store with the same `instanceId`:
 
 ```ts
-import { crashable, CrashableProvider, MockProvider } from '@bot-wa/core/testing'
+import { crashable, CrashableProvider, MockProvider } from '@botmesh/core/testing'
 
 const shared = new MemoryDurability()
 const a = crashable(shared)

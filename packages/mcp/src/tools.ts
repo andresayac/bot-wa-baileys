@@ -8,7 +8,7 @@
  * arguments, an unmigratable version, a path outside the docs root), never "your flow is
  * wrong".
  */
-import { describeFlows, lintFlows } from '@bot-wa/core'
+import { describeFlows, lintFlows } from '@botmesh/core'
 import {
   FLOW_DOCUMENT_LIMITS,
   FLOW_DOCUMENT_SCHEMA,
@@ -23,7 +23,7 @@ import {
   validateFlowDocument,
   type FlowDocument,
   type FlowDocumentIssue,
-} from '@bot-wa/flow-schema'
+} from '@botmesh/flow-schema'
 
 import { readDocPage, searchDocs } from './docs.js'
 

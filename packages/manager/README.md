@@ -1,16 +1,16 @@
-# @bot-wa/manager
+# @botmesh/manager
 
 > **Experimental — aún no publicado en npm.** Es una implementación real y con tests, pero el paquete es `private`: no forma parte de la primera alpha y su API puede cambiar. Úsalo desde este monorepo (`workspace:*`).
 
-Orquestador multi-bot para [`@bot-wa/core`](../core): gestiona muchas
+Orquestador multi-bot para [`@botmesh/core`](../core): gestiona muchas
 instancias de `Bot` desde un único registro. Añade y quita bots por id, sigue
 su estado de ejecución, arráncalos o detenlos uno a uno o todos a la vez y,
 si quieres, exponlo todo con una pequeña API HTTP sin dependencias.
 
 ```ts
-import { Bot } from '@bot-wa/core'
-import { BaileysProvider } from '@bot-wa/baileys'
-import { BotManager, createManagerApi } from '@bot-wa/manager'
+import { Bot } from '@botmesh/core'
+import { BaileysProvider } from '@botmesh/baileys'
+import { BotManager, createManagerApi } from '@botmesh/manager'
 import { createServer } from 'node:http'
 
 const manager = new BotManager()
@@ -102,7 +102,7 @@ createServer(createControlPlaneApi(manager, {
 })).listen(3000)
 ```
 
-Rutas iniciales: `GET /v1/health`, `GET /v1/bots`, `POST /v1/bots/:id/start`, `POST /v1/bots/:id/stop` y `GET /v1/audit`. Consulta la [guía del plano de control](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/es/guide/control-plane.md).
+Rutas iniciales: `GET /v1/health`, `GET /v1/bots`, `POST /v1/bots/:id/start`, `POST /v1/bots/:id/stop` y `GET /v1/audit`. Consulta la [guía del plano de control](https://github.com/andresayac/botmesh/blob/main/docs/es/guide/control-plane.md).
 
 La API compacta heredada, `createManagerApi(manager, opts?: { prefix?, auth?: { token, header? } })`,
 devuelve un handler de Node `(req, res) => void` (solo usa `node:http`: móntalo
@@ -139,9 +139,9 @@ curl -H "$H" -X POST localhost:3000/api/bots/acme/stop
 
 ```ts
 import { createServer } from 'node:http'
-import { Bot } from '@bot-wa/core'
-import { BaileysProvider } from '@bot-wa/baileys'
-import { BotManager, createRestApi } from '@bot-wa/manager'
+import { Bot } from '@botmesh/core'
+import { BaileysProvider } from '@botmesh/baileys'
+import { BotManager, createRestApi } from '@botmesh/manager'
 
 const manager = new BotManager({
   // Construye un bot a partir de su config serializable (nunca guardes secretos crudos en provider.options).
@@ -195,6 +195,6 @@ defecto con `BOTWA_MANAGER_LOG_LEVEL=debug` (por defecto: `silent`).
 ## Desarrollo
 
 ```bash
-pnpm --filter @bot-wa/manager build   # tsc → lib/
-pnpm --filter @bot-wa/manager test    # vitest (herméticos: bots falsos, sin red)
+pnpm --filter @botmesh/manager build   # tsc → lib/
+pnpm --filter @botmesh/manager test    # vitest (herméticos: bots falsos, sin red)
 ```

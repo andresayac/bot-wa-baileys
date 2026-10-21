@@ -1,6 +1,6 @@
 /** Durable media refs: email attachments are located by Message-ID + index + digest, never by content. */
 import { describe, expect, it } from 'vitest'
-import type { MediaRef, SerializedMediaRef } from '@bot-wa/core'
+import type { MediaRef, SerializedMediaRef } from '@botmesh/core'
 import { EmailProvider } from '../src/index.js'
 
 const provider = new EmailProvider({ address: 'bot@acme.test' })

@@ -1,8 +1,8 @@
-# @bot-wa/gupshup
+# @botmesh/gupshup
 
 > **Experimental — aún no publicado en npm.** Implementación real y con tests, pero el paquete es `private`: su API puede cambiar. Úsalo desde este monorepo (`workspace:*`).
 
-Transporte **Gupshup WhatsApp API** para [`@bot-wa/core`](../core): envío por `POST /wa/api/v1/msg` (y `/wa/api/v1/template/msg`) y recepción por callbacks en **formato v2**. Sin SDK: todo sale por `secureFetch` de [`@bot-wa/http`](../http).
+Transporte **Gupshup WhatsApp API** para [`@botmesh/core`](../core): envío por `POST /wa/api/v1/msg` (y `/wa/api/v1/template/msg`) y recepción por callbacks en **formato v2**. Sin SDK: todo sale por `secureFetch` de [`@botmesh/http`](../http).
 
 ## Requisitos
 
@@ -15,8 +15,8 @@ Gupshup **no firma** sus callbacks: el provider los autentica con ese token (com
 
 ```ts
 import express from 'express'
-import { Bot } from '@bot-wa/core'
-import { GupshupProvider } from '@bot-wa/gupshup'
+import { Bot } from '@botmesh/core'
+import { GupshupProvider } from '@botmesh/gupshup'
 
 const provider = new GupshupProvider({
   apiKey: process.env.GUPSHUP_API_KEY!,

@@ -1,9 +1,9 @@
 # Public API coherence review
 
-Review of the 10 public packages (`@bot-wa/core` with its `testing` and `dev`
-subpaths, `@bot-wa/ai`, `@bot-wa/baileys`, `@bot-wa/meta`, `@bot-wa/telegram`,
-`@bot-wa/sqlite-store`, `@bot-wa/redis-store`, `@bot-wa/http`, `@bot-wa/graph-core`
-and `create-bot-wa`) before the first npm release (2026-10).
+Review of the 10 public packages (`@botmesh/core` with its `testing` and `dev`
+subpaths, `@botmesh/ai`, `@botmesh/baileys`, `@botmesh/meta`, `@botmesh/telegram`,
+`@botmesh/sqlite-store`, `@botmesh/redis-store`, `@botmesh/http`, `@botmesh/graph-core`
+and `create-botmesh`) before the first npm release (2026-10).
 
 **Rule for this pass:** only non-breaking changes. Types were added or widened.
 Names that lose a naming decision stay available with `@deprecated`. Nothing was
@@ -35,7 +35,7 @@ Results for this pass:
 | Check | Before | After |
 | --- | --- | --- |
 | `missing` | 39 types in 6 packages | 0 |
-| `any` | 6 sites in `@bot-wa/core` | 0 outside the reviewed exceptions (F13) |
+| `any` | 6 sites in `@botmesh/core` | 0 outside the reviewed exceptions (F13) |
 | `internal` | 0 | 0 |
 | `surface` | 769 exported names | 806: **37 added, 0 removed** |
 
@@ -56,19 +56,19 @@ Users could not name types that appear in public signatures. They had to write
 
 | Package | Types now exported |
 | --- | --- |
-| `@bot-wa/core` | `InboundListener` (new name for the `onEvent` listener), `WaitMediaType` (`c.waitMedia`), `UserDataStore` (`supportsUserData` guard), `PacerLogger` (`PacerOptions.logger`), `FormFieldBase`, `StopOptions`, `ConversationTarget`, `JsonValue` (used by `TranscriptOutbound`; it was exported only from `/testing`, which TypeDoc reported) |
-| `@bot-wa/core/testing` | `MockIncomingOptions` (`MockProvider.incoming/interaction`, previously the unexported `IncomingOpts`) |
-| `@bot-wa/ai` | `AIPluginConfig` (the parameter of `aiPlugin`), `AnthropicLike`, `OpenAILike`, `GeminiLike`, `GeminiModelLike` and the request/response/usage types they reference (needed to inject a fake client) |
-| `@bot-wa/baileys` | `WAMediaUpload` (`toMediaUpload`), `DisconnectAction` (`classifyDisconnect`). `ChatId`/`UserId` were redeclared in `jid.ts`; core's types are now re-exported there instead |
-| `@bot-wa/meta` | `GraphClientConfig` (`new GraphClient(cfg)`) |
-| `@bot-wa/telegram` | `TelegramMessageEntity`, `TelegramPhotoSize`, `TelegramLocation`, `TelegramContact`, `TelegramPoll` (fields of `TelegramMessage`) |
-| `@bot-wa/redis-store` | `RedisMulti` (`RedisLikeClient.multi()`) |
+| `@botmesh/core` | `InboundListener` (new name for the `onEvent` listener), `WaitMediaType` (`c.waitMedia`), `UserDataStore` (`supportsUserData` guard), `PacerLogger` (`PacerOptions.logger`), `FormFieldBase`, `StopOptions`, `ConversationTarget`, `JsonValue` (used by `TranscriptOutbound`; it was exported only from `/testing`, which TypeDoc reported) |
+| `@botmesh/core/testing` | `MockIncomingOptions` (`MockProvider.incoming/interaction`, previously the unexported `IncomingOpts`) |
+| `@botmesh/ai` | `AIPluginConfig` (the parameter of `aiPlugin`), `AnthropicLike`, `OpenAILike`, `GeminiLike`, `GeminiModelLike` and the request/response/usage types they reference (needed to inject a fake client) |
+| `@botmesh/baileys` | `WAMediaUpload` (`toMediaUpload`), `DisconnectAction` (`classifyDisconnect`). `ChatId`/`UserId` were redeclared in `jid.ts`; core's types are now re-exported there instead |
+| `@botmesh/meta` | `GraphClientConfig` (`new GraphClient(cfg)`) |
+| `@botmesh/telegram` | `TelegramMessageEntity`, `TelegramPhotoSize`, `TelegramLocation`, `TelegramContact`, `TelegramPoll` (fields of `TelegramMessage`) |
+| `@botmesh/redis-store` | `RedisMulti` (`RedisLikeClient.multi()`) |
 
 **Decision:** export all of them (done).
 
 ### F2. Two different duration grammars in core (high)
 
-`@bot-wa/core` had two `parseDuration` functions. The exported one (`utils/timers`,
+`@botmesh/core` had two `parseDuration` functions. The exported one (`utils/timers`,
 used by the scheduler) accepted `'1d'`, `'1w'`, `'5 minutes'` and `'500'`. The internal
 one (`utils/duration`, used by flows, `ctx.reply({ delay })`, `broadcast`, `dedupe.ttl`,
 conversation timeouts and forms) accepted only `ms|s|m|h`. So
@@ -129,7 +129,7 @@ is a thin wrapper over `trigger(name, { chatId, userId, isGroup, data, ifActive,
 `state` corresponds to `data`, it resolves to `boolean` instead of `TriggerResult`, and
 for an unknown flow it resolves `false` instead of rejecting.
 
-**Decision:** keep both. `triggerFlow` backs the `@bot-wa/manager` HTTP contract (a
+**Decision:** keep both. `triggerFlow` backs the `@botmesh/manager` HTTP contract (a
 `boolean` result and a 404 for an unknown flow), and both the JSDoc and the guides already
 call it a wrapper. Revisit `state` vs `data` before 2.0.0 stable. **Resolved (alpha):**
 `triggerFlow` takes `data`; `state` is a `@deprecated` alias (see
@@ -196,7 +196,7 @@ works (done).
 - `ProviderError` and `ConversationError` (and the subclasses without their own
   constructor) reported `name === 'Error'`, so logs read `Error: conversation timeout`.
   **Decision:** both bases now set `this.name = new.target.name` (done).
-- `AITimeoutError` (`@bot-wa/ai`) did not extend core's `TimeoutError`.
+- `AITimeoutError` (`@botmesh/ai`) did not extend core's `TimeoutError`.
   **Decision:** it now does, so one `instanceof TimeoutError` check covers both (done).
 - `ConversationTimeout`, `ConversationCancelled`, `RetriesExceeded` and
   `RateLimiterTimeout` lack the `Error` suffix. **Decision:** keep them. They are control
@@ -226,7 +226,7 @@ audited and enabled for every package (see [Alpha clean-ups](#alpha-clean-ups-de
 
 ### F17. `Config` alias of `BotConfig` (low)
 
-`@bot-wa/core` exported the same type under two names. Nothing in the repo used `Config`.
+`@botmesh/core` exported the same type under two names. Nothing in the repo used `Config`.
 
 **Decision:** `Config` is now a `@deprecated` type alias of `BotConfig` (done).
 
@@ -265,7 +265,7 @@ These would be breaking, or they need a wider audit:
    `createControls`, `createPacer`, `runBroadcast`, `runFormStep`, `newFormToken`,
    `resolveFormMode`, `resolveReplyTyping`, `normalizeTypingConfig`, `typingDuration`,
    `parseReplyDelay`, `ExternalSendClock`, `MetricsCollector`, `formatUptime` and
-   `TYPING_REFRESH_MS` now live in the `@bot-wa/core/internal` subpath (no semver
+   `TYPING_REFRESH_MS` now live in the `@botmesh/core/internal` subpath (no semver
    guarantee). The main entry still re-exports the same values, each marked `@deprecated`
    on its export specifier, until v3. `node scripts/api-check.cjs deprecated` lists them
    (plus `Config` and `DEFAULT_SCHEMA_MESSAGE`).
@@ -285,9 +285,9 @@ tests in `packages/core/tests/api-deferred.test.ts`, which pin them with
 `expectTypeOf` and `// @ts-expect-error`).
 
 Surface after this pass (`node scripts/api-check.cjs surface`): **11 added, 0 removed**
-(`@bot-wa/core`: `AnyHookHandler`, `HookBeforeContext`, `HookContextMap`, `HookContextOf`,
+(`@botmesh/core`: `AnyHookHandler`, `HookBeforeContext`, `HookContextMap`, `HookContextOf`,
 `HookErrorHandler`, `HookRegistration`, `SendHookContext`, `SyncInstallError`;
-`@bot-wa/baileys`: `BaileysLogger`, `isBaileysLogger`, `toBaileysLogger`), plus the
+`@botmesh/baileys`: `BaileysLogger`, `isBaileysLogger`, `toBaileysLogger`), plus the
 members `AIPluginConfig.instance` and `FlowTriggerOptions.data`. `pnpm api-check`
 reports 0 findings in every mode.
 
@@ -300,7 +300,7 @@ by building without it: `api-check internal` then lists `AIPluginConfig.__provid
 
 Audit of every `@internal` tag in `packages/*/src`: core's flow/describe/schema/media
 helpers, `DynamicFlowRegistry`, `FlowRouteLog` and the transcript recorder's internals are
-consumed only inside `@bot-wa/core` (compiled from `src`); the private packages' tags
+consumed only inside `@botmesh/core` (compiled from `src`); the private packages' tags
 (`events`, `manager`, `deployments`' `normalizeGateResult`, `mongo-store`'s
 `TRIM_DELETE_BATCH`, `rag`'s clock) are used inside their own package or by its tests
 (`tsconfig.test.json` compiles from `src`). The only published leak was
@@ -321,10 +321,10 @@ assignable to core's `LoggerLike` (and so is `console`), so existing callers com
 unchanged. Method audit: the providers call only `debug/info/warn/error`; none uses
 `child`, `level`, `trace` or `fatal`. The one exception is Baileys itself: `makeWASocket`,
 `makeCacheableSignalKeyStore` and `downloadMediaMessage` take its `ILogger` (`level`,
-`child`, `trace`), so `@bot-wa/baileys` adds `toBaileysLogger()` (a pino-shaped logger
+`child`, `trace`), so `@botmesh/baileys` adds `toBaileysLogger()` (a pino-shaped logger
 passes through untouched, anything else is wrapped: `trace` forwarded or no-op, `level`
 fallback `'info'`, `child()` when available) and the `BaileysLogger` type.
-`@bot-wa/email` already took a `LoggerLike`; its double cast is gone.
+`@botmesh/email` already took a `LoggerLike`; its double cast is gone.
 
 Closed later (same alpha): `core/src/core/bot/compose.ts` no longer casts `BotConfig.logger`
 to pino. `toBotLogger()` (`core/src/core/bot/logger.ts`) passes a pino-shaped logger
@@ -366,5 +366,5 @@ error too (none existed in the repo, docs or examples).
 
 **Decision:** `FlowTriggerOptions.data` (the same option as `bot.trigger()`); `state` is
 kept as a `@deprecated` alias for the alpha, and passing both (different objects) throws
-a `TypeError` before the started-bot check. The `@bot-wa/manager` HTTP contract keeps
+a `TypeError` before the started-bot check. The `@botmesh/manager` HTTP contract keeps
 `state` in the `trigger` body and maps it to `data`.

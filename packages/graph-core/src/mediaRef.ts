@@ -5,12 +5,12 @@
  * attachment URLs are signed by Meta and fetched without the access token).
  */
 
-import { ProviderError, type MediaRef, type SerializedMediaRef } from '@bot-wa/core'
+import { ProviderError, type MediaRef, type SerializedMediaRef } from '@botmesh/core'
 
 /** Hosts (and their subdomains) that serve Messenger / Instagram attachment URLs. */
 export const META_MEDIA_HOSTS: readonly string[] = Object.freeze(['fbcdn.net', 'fbsbx.com', 'cdninstagram.com'])
 
-/** The URL check a provider applies (e.g. `isAllowedHostUrl` of `@bot-wa/http`). */
+/** The URL check a provider applies (e.g. `isAllowedHostUrl` of `@botmesh/http`). */
 export type MediaUrlCheck = (url: string) => boolean
 
 /** `{ v: 1, data: { url } }` for an allowed URL token; `undefined` otherwise (not durable). */

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { Bot, flow } from '@bot-wa/core'
+import { Bot, flow } from '@botmesh/core'
 import { EmailProvider } from '../src/index.js'
 import { email, FakeImapServer, FakeSmtp, waitFor } from './support/fakes.js'
 

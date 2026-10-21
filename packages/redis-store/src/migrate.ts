@@ -8,7 +8,7 @@
  *
  * ```ts
  * import { createClient, createCluster } from 'redis'
- * import { migrateToClusterLayout } from '@bot-wa/redis-store'
+ * import { migrateToClusterLayout } from '@botmesh/redis-store'
  *
  * const source = createClient({ url: 'redis://old-single-node:6379' })
  * await source.connect()
@@ -32,7 +32,7 @@
  * The source is never modified unless `deleteSource` (a separate, explicit pass), except
  * the layout marker, which a complete rollback removes.
  */
-import { legacyMessageKey, messageKey, type StoredMessage } from '@bot-wa/core'
+import { legacyMessageKey, messageKey, type StoredMessage } from '@botmesh/core'
 import type { RedisLikeClient } from './RedisStore.js'
 import {
   CAS_INDEXED_SCRIPT, MAX_COUNTER_SCRIPT, READ_WITH_TTL_SCRIPT, ZRANGE_RAW_SCRIPT,

@@ -18,7 +18,7 @@
  * Type-only imports keep this file runtime-dependency-free.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import type { IStore, UserDataEntry } from '@bot-wa/core'
+import type { IStore, UserDataEntry } from '@botmesh/core'
 
 export interface UserDataConformanceHarness {
   /** Build a fresh, started store and a teardown that releases it. */

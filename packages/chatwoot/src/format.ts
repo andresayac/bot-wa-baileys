@@ -1,6 +1,6 @@
 /** Text renderings used when mirroring messages into Chatwoot (text only, no uploads). */
 
-import type { MessageContext, OutboundContent } from '@bot-wa/core'
+import type { MessageContext, OutboundContent } from '@botmesh/core'
 
 /** Render an inbound message as Chatwoot text: the body, or `[type]` for bodiless media. */
 export function inboundText(ctx: Pick<MessageContext, 'body' | 'type' | 'isGroup' | 'pushName' | 'senderInfo' | 'sender'>): string {

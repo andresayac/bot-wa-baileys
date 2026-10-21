@@ -1,12 +1,12 @@
 # Control plane
 
 ::: warning Experimental — not published yet
-`@bot-wa/manager` is **experimental**: a real, tested implementation that is
+`@botmesh/manager` is **experimental**: a real, tested implementation that is
 still private (not on npm, not part of the first alpha) and whose API may
 change. Use it from the monorepo (`workspace:*`).
 :::
 
-`@bot-wa/manager` runs many bots in one process and exposes them over HTTP. It
+`@botmesh/manager` runs many bots in one process and exposes them over HTTP. It
 has four pieces:
 
 - **`BotManager`**: a registry of bots (`add`, `start`, `stop`, `restart`,
@@ -26,9 +26,9 @@ All HTTP handlers are plain `node:http` handlers with no dependencies.
 
 ```ts
 import { createServer } from 'node:http'
-import { Bot } from '@bot-wa/core'
-import { BaileysProvider } from '@bot-wa/baileys'
-import { BotManager, createRestApi } from '@bot-wa/manager'
+import { Bot } from '@botmesh/core'
+import { BaileysProvider } from '@botmesh/baileys'
+import { BotManager, createRestApi } from '@botmesh/manager'
 
 const manager = new BotManager({
   // Builds a bot from its serializable config (never store raw secrets in provider.options).
@@ -149,7 +149,7 @@ for custom supervisors.
 
 ## Core dynamic flow registry
 
-The manager drives these `Bot` methods from `@bot-wa/core`; you can use them
+The manager drives these `Bot` methods from `@botmesh/core`; you can use them
 directly in any bot:
 
 | Method | Behavior |
@@ -174,7 +174,7 @@ subject is blocked by the access lists or the chat is handed off, and rejects
 when the bot is not started.
 
 ```ts
-import { flow } from '@bot-wa/core'
+import { flow } from '@botmesh/core'
 
 bot.registerFlow(flow('survey').ask('Your name?', 'name').say((_ctx, c) => `Thanks ${c.state.name}`))
 await bot.triggerFlow('survey', { chatId }, { data: { source: 'campaign' } })
@@ -377,13 +377,13 @@ curl localhost:3000/v1/openapi.json > openapi.json
 or build it in code, without a server:
 
 ```ts
-import { buildOpenApiDocument } from '@bot-wa/manager'
+import { buildOpenApiDocument } from '@botmesh/manager'
 
 const doc = buildOpenApiDocument({ title: 'Bots API', servers: ['https://bots.example.com'] })
 ```
 
 `buildOpenApiDocument({ prefix?, title?, version?, servers? })` defaults to
-`'/v1'`, `'bot-wa Manager API'`, `'1.0.0'` and a relative server. It declares
+`'/v1'`, `'botmesh Manager API'`, `'1.0.0'` and a relative server. It declares
 both security schemes (`bearerAuth` and `apiKey` through `X-API-Key`) and an
 `x-required-scope` per operation.
 
@@ -395,7 +395,7 @@ A minimal audited surface with tenant-bound API keys. It also defaults to the
 `/v1` prefix, so do not mount it next to `createRestApi` on the same prefix.
 
 ```ts
-import { BotManager, createControlPlaneApi } from '@bot-wa/manager'
+import { BotManager, createControlPlaneApi } from '@botmesh/manager'
 
 createServer(createControlPlaneApi(manager, {
   tenantId: 'acme',
@@ -443,6 +443,6 @@ Prefer `createRestApi` for new deployments.
 
 ## See also
 
-- [`@bot-wa/manager` README](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/manager)
+- [`@botmesh/manager` README](https://github.com/andresayac/botmesh/tree/main/packages/manager)
 - [Operations](/guide/operations)
 - [Golden transcripts](/guide/golden-transcripts): gate deployments on recorded conversations

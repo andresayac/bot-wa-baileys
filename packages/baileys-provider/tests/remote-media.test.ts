@@ -1,12 +1,12 @@
 /**
  * Outbound `{ url }` media: Baileys downloads it with plain `fetch`, which
  * follows redirects without checking where they land. The provider must fetch
- * remote media itself through `@bot-wa/http` (every hop vetted, size-capped)
+ * remote media itself through `@botmesh/http` (every hop vetted, size-capped)
  * and hand Baileys a Buffer, so a public URL that redirects to an internal
  * address (cloud metadata, admin panels) cannot turn a send into SSRF.
  */
 import { describe, it, expect, vi } from 'vitest'
-import { ProviderError, PayloadTooLargeError } from '@bot-wa/core'
+import { ProviderError, PayloadTooLargeError } from '@botmesh/core'
 import { BaileysProvider, type BaileysProviderConfig } from '../src/BaileysProvider.js'
 
 const CHAT = '573001112233@s.whatsapp.net'

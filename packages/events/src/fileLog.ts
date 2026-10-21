@@ -7,7 +7,7 @@
  * entries are skipped by their sequence) and a torn last line (a crash mid-append) is
  * ignored and cut off. It knows nothing about what an entry means.
  *
- * Sibling copy of `@bot-wa/core`'s `durability/fileLog.ts` (the core cannot export a new
+ * Sibling copy of `@botmesh/core`'s `durability/fileLog.ts` (the core cannot export a new
  * public helper for a private package): keep the on-disk format in sync.
  */
 

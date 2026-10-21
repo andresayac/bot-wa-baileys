@@ -1,6 +1,6 @@
 /**
  * whenDialogflowIntent — route a Dialogflow intent to a handler or a flow,
- * through a `bot.when` predicate (like `@bot-wa/nlu`'s `whenIntent`).
+ * through a `bot.when` predicate (like `@botmesh/nlu`'s `whenIntent`).
  *
  * The predicate reads the result the plugin's `before('message')` hook stored
  * for the message, so it is synchronous and does not call Dialogflow again.
@@ -15,7 +15,7 @@ import {
   type CompiledFlow,
   type CompiledStep,
   type MessageContext,
-} from '@bot-wa/core'
+} from '@botmesh/core'
 import type { DialogflowResult } from './client.js'
 import type { DialogflowContext } from './context.js'
 

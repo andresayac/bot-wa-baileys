@@ -1,5 +1,5 @@
 /**
- * Typed errors raised by `@bot-wa/voice`.
+ * Typed errors raised by `@botmesh/voice`.
  *
  * Every error is a {@link VoiceError} with a stable `code`, so callers can branch
  * without string-matching messages. Messages never include api keys, audio bytes
@@ -18,7 +18,7 @@ export type VoiceErrorCode =
   | 'NETWORK'         // transport failure / unsafe URL / oversized response
   | 'BAD_RESPONSE'    // the service answered 2xx with an unexpected body
 
-/** Base class of every error thrown by `@bot-wa/voice`. */
+/** Base class of every error thrown by `@botmesh/voice`. */
 export class VoiceError extends Error {
   constructor(message: string, readonly code: VoiceErrorCode, options?: { cause?: unknown }) {
     super(message, options)

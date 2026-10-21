@@ -1,5 +1,5 @@
 /**
- * The safe expression language now lives in `@bot-wa/flow-schema` (shared with the
+ * The safe expression language now lives in `@botmesh/flow-schema` (shared with the
  * flow store/compiler). This module keeps the manager's import path stable.
  */
 
@@ -12,5 +12,5 @@ export {
   parseExpression,
   renderTemplate,
   resolvePath,
-} from '@bot-wa/flow-schema'
-export type { ExpressionNode } from '@bot-wa/flow-schema'
+} from '@botmesh/flow-schema'
+export type { ExpressionNode } from '@botmesh/flow-schema'

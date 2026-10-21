@@ -34,7 +34,7 @@ function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
 
 function positive(name: string, value: number | undefined, fallback: number): number {
   if (value === undefined) return fallback
-  if (!Number.isFinite(value) || value <= 0) throw new TypeError(`@bot-wa/server: ${name} must be a positive number`)
+  if (!Number.isFinite(value) || value <= 0) throw new TypeError(`@botmesh/server: ${name} must be a positive number`)
   return value
 }
 
@@ -101,17 +101,17 @@ export function createIngress(options: IngressOptions): Ingress {
 
   const routes = new Map<string, IngressRoute>()
   const reserved = new Set([healthPath, readyPath].filter((p): p is string => !!p))
-  for (const p of reserved) if (!p.startsWith('/')) throw new TypeError(`@bot-wa/server: health path "${p}" must start with "/"`)
+  for (const p of reserved) if (!p.startsWith('/')) throw new TypeError(`@botmesh/server: health path "${p}" must start with "/"`)
   for (const route of options.routes) {
     if (typeof route.path !== 'string' || !route.path.startsWith('/')) {
-      throw new TypeError(`@bot-wa/server: route path "${String(route.path)}" must start with "/"`)
+      throw new TypeError(`@botmesh/server: route path "${String(route.path)}" must start with "/"`)
     }
     if (typeof route.provider?.ingest !== 'function') {
-      throw new TypeError(`@bot-wa/server: provider for "${route.path}" has no ingest() — socket providers (Baileys, Discord gateway) need no ingress`)
+      throw new TypeError(`@botmesh/server: provider for "${route.path}" has no ingest() — socket providers (Baileys, Discord gateway) need no ingress`)
     }
     if (route.maxBodyBytes !== undefined) positive(`maxBodyBytes of "${route.path}"`, route.maxBodyBytes, 0)
     const path = normalizePath(route.path)
-    if (routes.has(path) || reserved.has(path)) throw new TypeError(`@bot-wa/server: duplicate path "${path}"`)
+    if (routes.has(path) || reserved.has(path)) throw new TypeError(`@botmesh/server: duplicate path "${path}"`)
     routes.set(path, route)
   }
   const paths = Object.freeze([...routes.keys(), ...reserved])

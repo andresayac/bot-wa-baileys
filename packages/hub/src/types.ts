@@ -1,5 +1,5 @@
 /**
- * Records of `@bot-wa/hub`: plugin permissions and manifests, installed plugins, the
+ * Records of `@botmesh/hub`: plugin permissions and manifests, installed plugins, the
  * manifest error and the store inputs.
  */
 

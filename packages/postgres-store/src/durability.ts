@@ -21,7 +21,7 @@
  */
 
 import { Pool } from 'pg'
-import { KvDurability, type DurableKv, type DurableKvEntry, type DurableKvIndex, type DurableTable } from '@bot-wa/core'
+import { KvDurability, type DurableKv, type DurableKvEntry, type DurableKvIndex, type DurableTable } from '@botmesh/core'
 import type { NativePostgresPool, PostgresPoolLike } from './PostgresStore.js'
 
 export interface PostgresDurabilityOptions {

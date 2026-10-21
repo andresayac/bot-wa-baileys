@@ -1,6 +1,6 @@
 /**
  * MessengerProvider — Facebook Messenger (Meta Graph Send API) transport for
- * @bot-wa/core. Webhook-based (pushIngress): there is no socket. The host
+ * @botmesh/core. Webhook-based (pushIngress): there is no socket. The host
  * receives the webhook, verifies it with `verifyChallenge` (GET) and forwards
  * the POST body to `ingest()`. Outbound goes to `POST /{page-id}/messages`.
  *
@@ -19,7 +19,7 @@
  */
 
 import pino from 'pino'
-import type { LoggerLike } from '@bot-wa/core'
+import type { LoggerLike } from '@botmesh/core'
 import type {
   ChatId,
   IProvider,
@@ -33,8 +33,8 @@ import type {
   SendResult,
   SerializedMediaRef,
   UserId,
-} from '@bot-wa/core'
-import { ProviderError, UnsupportedContentError } from '@bot-wa/core'
+} from '@botmesh/core'
+import { ProviderError, UnsupportedContentError } from '@botmesh/core'
 import {
   toGraphError,
   readGraphResponse,
@@ -46,15 +46,15 @@ import {
   rehydrateUrlMediaRef,
   type GraphError,
   type ChallengeQuery,
-} from '@bot-wa/graph-core'
-import { isAllowedHostUrl, secureFetch } from '@bot-wa/http'
+} from '@botmesh/graph-core'
+import { isAllowedHostUrl, secureFetch } from '@botmesh/http'
 import type { MessengerProviderConfig, MessengerSendResponse } from './types.js'
 import { toOutboundMessages } from './toOutbound.js'
 import { parseInbound, type PageWebhookBody } from './parseInbound.js'
 
 /**
  * Translate a Graph error into a typed provider error. Thin wrapper over the
- * shared {@link toGraphError} of `@bot-wa/graph-core`, the single source of the
+ * shared {@link toGraphError} of `@botmesh/graph-core`, the single source of the
  * Messenger Platform window/recipient codes. `chatId` (the PSID the call
  * targeted) is carried on window/unreachable errors.
  */

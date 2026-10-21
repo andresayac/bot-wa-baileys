@@ -95,7 +95,7 @@ export interface EventRecord<TPayload = unknown> {
   owner?: string
   /**
    * Isolation channel. Records appended with a channel (e.g. the bot's durable inbox, see
-   * `@bot-wa/events/durability`) are only claimed or purged by callers naming that channel,
+   * `@botmesh/events/durability`) are only claimed or purged by callers naming that channel,
    * so an {@link EventWorker} never runs them. `list()` still shows every record.
    */
   channel?: string
@@ -241,7 +241,7 @@ export interface EventJournal {
 
 /**
  * An {@link EventJournal} with the atomic, fenced operations a durability backend needs
- * (`@bot-wa/events/durability`): channel isolation, owner-aware claims, single-record claims,
+ * (`@botmesh/events/durability`): channel isolation, owner-aware claims, single-record claims,
  * lease extension, purge and side state persisted with the records. Every operation is
  * atomic: two claimers can never get the same record, and a completion is accepted only
  * under the fencing token of the current claim.
@@ -485,7 +485,7 @@ export interface FileEventJournalOptions {
    * open the same journal while this one is alive (a lock left by a dead process is taken
    * over; nothing is ever killed). Within one process, a second locked `open()` of the same
    * file is refused until the first journal is closed. Required by
-   * `@bot-wa/events/durability`. Default `false`.
+   * `@botmesh/events/durability`. Default `false`.
    */
   lock?: boolean
 }
@@ -910,7 +910,7 @@ async function breakMutex(path: string, seen: string): Promise<void> {
  * the snapshot, applies the operation and atomically replaces the file (temp file + rename). So
  * claims are exclusive and fencing tokens hold across processes. Reads take the mutex too and
  * see the last committed snapshot. Named side state ({@link updateSidecar}) is part of the same snapshot: the bot's
- * outbox lives there with `@bot-wa/events/durability`.
+ * outbox lives there with `@botmesh/events/durability`.
  *
  * Every write rewrites the whole file: fine for modest volumes and a few processes; use a database
  * journal for heavy traffic. The file format is the {@link FileEventJournal} one, but never open

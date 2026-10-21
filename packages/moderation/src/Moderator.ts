@@ -5,7 +5,7 @@
  * detected in the message TEXT, and every provider capability is optional.
  */
 
-import type { ChatId, MessageContext, UserId } from '@bot-wa/core'
+import type { ChatId, MessageContext, UserId } from '@botmesh/core'
 import { allowedInviteCodes, findInviteLinks, findLinks, hostMatches, isAllowedInviteLink, linkHost } from './links.js'
 import { RateWindow } from './rateWindow.js'
 import { compileTerms, firstMatch, type CompiledTerm } from './words.js'

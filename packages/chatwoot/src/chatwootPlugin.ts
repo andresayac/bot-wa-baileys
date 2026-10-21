@@ -21,7 +21,7 @@
  * @example
  * ```ts
  * import { createServer } from 'node:http'
- * import { chatwootPlugin } from '@bot-wa/chatwoot'
+ * import { chatwootPlugin } from '@botmesh/chatwoot'
  *
  * const chatwoot = chatwootPlugin({
  *   baseUrl: 'https://app.chatwoot.com',
@@ -44,7 +44,7 @@ import type {
   OutboundContent,
   PluginSpec,
   ResumeEvent,
-} from '@bot-wa/core'
+} from '@botmesh/core'
 import { ChatwootApiError, ChatwootClient, normalizeBaseUrl, type ChatwootHttpOptions } from './client.js'
 import { inboundText, outboundText } from './format.js'
 import { ChatwootMapping, memoryKeyValue, storeKeyValue, type ChatwootChatLink, type ChatwootKeyValue } from './mapping.js'

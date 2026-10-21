@@ -1,12 +1,12 @@
-# @bot-wa/hub
+# @botmesh/hub
 
 > **Paquete privado** (`"private": true`, no se publica en npm). Implementación real y persistente; la API puede cambiar sin aviso mientras la alpha no salga.
 
 Registro de plugins por tenant. Valida manifiestos, compatibilidad con el runtime y permisos explícitos antes de habilitar un plugin.
 
 ```ts
-import { KvPluginStore, PluginRegistry } from '@bot-wa/hub'
-import { RedisDurableKv } from '@bot-wa/redis-store'
+import { KvPluginStore, PluginRegistry } from '@botmesh/hub'
+import { RedisDurableKv } from '@botmesh/redis-store'
 
 const registry = new PluginRegistry(new KvPluginStore(new RedisDurableKv({ client })))
 await registry.install('acme', manifest, '2.0.0')
@@ -24,7 +24,7 @@ El registro no ejecuta código ni descarga paquetes; la firma, sandbox y marketp
 ## Almacenamiento
 
 - `MemoryPluginStore` — implementación de referencia, en RAM. Se pierde al reiniciar; úsala en tests.
-- `KvPluginStore` — persiste sobre cualquier [`DurableKv`](../core/src/durability/kv.ts) del core (`MemoryKv`, `FileDurability`, `SQLiteDurableKv`, `PostgresDurableKv`, `RedisDurableKv`). La tabla lleva el tenant (`@bot-wa/tenant-kv`) y la habilitación es un compare-and-set, de modo que dos procesos no se pisan.
+- `KvPluginStore` — persiste sobre cualquier [`DurableKv`](../core/src/durability/kv.ts) del core (`MemoryKv`, `FileDurability`, `SQLiteDurableKv`, `PostgresDurableKv`, `RedisDurableKv`). La tabla lleva el tenant (`@botmesh/tenant-kv`) y la habilitación es un compare-and-set, de modo que dos procesos no se pisan.
 
 Ambas pasan la misma suite de conformidad (`test-utils/plugin-store-conformance.ts`). Las suites contra servidores reales (`tests/integration.test.ts`) se activan con `BOTWA_TEST_POSTGRES_URL`, `BOTWA_TEST_REDIS_URL` y `BOTWA_TEST_REDIS_CLUSTER_URL`; SQLite siempre corre con un archivo temporal.
 

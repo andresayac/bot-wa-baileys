@@ -9,7 +9,7 @@
  *  - `native` → payload params merged verbatim (e.g. `{ ContentSid, ShortenUrls }`).
  */
 
-import { UnsupportedContentError, type MediaSource, type OutboundContent } from '@bot-wa/core'
+import { UnsupportedContentError, type MediaSource, type OutboundContent } from '@botmesh/core'
 import { listRows, numberedText } from './http.js'
 
 export type TwilioOutboundParams = Record<string, string | string[]>

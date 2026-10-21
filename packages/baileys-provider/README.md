@@ -1,8 +1,8 @@
-# @bot-wa/baileys
+# @botmesh/baileys
 
-The **WhatsApp via [Baileys 7](https://github.com/WhiskeySockets/Baileys)** transport ([`IProvider` v2](https://github.com/andresayac/bot-wa-baileys/blob/main/packages/core/src/core/provider.ts)) for [`@bot-wa/core`](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/core). It links the bot as a WhatsApp Web device (QR or pairing code) and opens its own WebSocket: no public server and no webhook needed.
+The **WhatsApp via [Baileys 7](https://github.com/WhiskeySockets/Baileys)** transport ([`IProvider` v2](https://github.com/andresayac/botmesh/blob/main/packages/core/src/core/provider.ts)) for [`@botmesh/core`](https://github.com/andresayac/botmesh/tree/main/packages/core). It links the bot as a WhatsApp Web device (QR or pairing code) and opens its own WebSocket: no public server and no webhook needed.
 
-> **Unofficial client.** Baileys implements the WhatsApp Web protocol by reverse engineering; neither WhatsApp nor Meta endorses it. Automating an account may break the [WhatsApp Terms of Service](https://www.whatsapp.com/legal/terms-of-service) and end in **a banned number**. Use a dedicated number, write only to people who asked you to (opt-in), do not send bulk messages and keep the rate limiter on. If you need an official route with no ban risk, use [`@bot-wa/meta`](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/meta-provider) (WhatsApp Cloud API).
+> **Unofficial client.** Baileys implements the WhatsApp Web protocol by reverse engineering; neither WhatsApp nor Meta endorses it. Automating an account may break the [WhatsApp Terms of Service](https://www.whatsapp.com/legal/terms-of-service) and end in **a banned number**. Use a dedicated number, write only to people who asked you to (opt-in), do not send bulk messages and keep the rate limiter on. If you need an official route with no ban risk, use [`@botmesh/meta`](https://github.com/andresayac/botmesh/tree/main/packages/meta-provider) (WhatsApp Cloud API).
 
 - **Ingress:** own socket with reconnect and backoff; Baileys events are translated into neutral `InboundEvent`s: messages, reactions, poll votes (decrypted by the provider), group changes, calls and presence.
 - **Outbound:** text, image, video, audio, voice note (transcoded to Opus), document, sticker (converted with `sharp`), location, contact, **native polls** and reactions. Buttons, lists and cards degrade to numbered text.
@@ -20,7 +20,7 @@ The **WhatsApp via [Baileys 7](https://github.com/WhiskeySockets/Baileys)** tran
 In the monorepo the package is already available as a workspace. From an app:
 
 ```bash
-pnpm add @bot-wa/core @bot-wa/baileys
+pnpm add @botmesh/core @botmesh/baileys
 ```
 
 `ffmpeg` is bundled (`@ffmpeg-installer/ffmpeg`) for voice notes, and `sharp` for stickers.
@@ -28,8 +28,8 @@ pnpm add @bot-wa/core @bot-wa/baileys
 ## Quickstart
 
 ```ts
-import { Bot } from '@bot-wa/core'
-import { BaileysProvider } from '@bot-wa/baileys'
+import { Bot } from '@botmesh/core'
+import { BaileysProvider } from '@botmesh/baileys'
 
 const bot = new Bot({ provider: new BaileysProvider({ session: 'my-bot' }) })
 
@@ -39,7 +39,7 @@ bot.when('hola', (ctx) => ctx.reply('👋 Hello!'))
 await bot.start()   // the first time it prints the QR in the terminal: scan it from WhatsApp → Linked devices
 ```
 
-The session is stored in `./sessions/my-bot`; later starts reconnect without a QR. There is a full example (commands, flows, media, hooks, DI and scheduler) in [`examples/bot.ts`](https://github.com/andresayac/bot-wa-baileys/blob/main/packages/baileys-provider/examples/bot.ts) (`pnpm --filter @bot-wa/baileys example`).
+The session is stored in `./sessions/my-bot`; later starts reconnect without a QR. There is a full example (commands, flows, media, hooks, DI and scheduler) in [`examples/bot.ts`](https://github.com/andresayac/botmesh/blob/main/packages/baileys-provider/examples/bot.ts) (`pnpm --filter @botmesh/baileys example`).
 
 ## Configuration
 
@@ -123,7 +123,7 @@ new BaileysProvider({
 })
 ```
 
-More detail in the [Rate limiting](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/guide/rate-limiting.md) guide.
+More detail in the [Rate limiting](https://github.com/andresayac/botmesh/blob/main/docs/guide/rate-limiting.md) guide.
 
 ### Reconnect and backoff
 
@@ -203,7 +203,7 @@ Limitations:
 To decrypt votes that arrive **after a restart**, pass a `pollStore`: a minimal async interface, keyed by the poll message id, that you can back with Redis, SQL or a file.
 
 ```ts
-import type { PollStore, StoredPoll } from '@bot-wa/baileys'
+import type { PollStore, StoredPoll } from '@botmesh/baileys'
 
 const pollStore: PollStore = {
   get: async (id) => {
@@ -248,13 +248,13 @@ The session folder (`creds.json` and the Signal keys) **is** the account: whoeve
 | `presence` | ✅ | `presence` events |
 | `readReceipts` | ✅ | `markRead` |
 | `groups` | ✅ | group messages and participant events |
-| `templates` | ❌ | they require the Cloud API (`@bot-wa/meta`) |
+| `templates` | ❌ | they require the Cloud API (`@botmesh/meta`) |
 | `interactionsRequireAck` | ❌ | |
 | `pushIngress` | ❌ | the provider keeps its own socket |
 
 ## Error mapping
 
-`send()` only rejects with `ProviderError` subclasses from `@bot-wa/core`. Failures from `sock.sendMessage`, the rate limiter and content preparation are converted like this:
+`send()` only rejects with `ProviderError` subclasses from `@botmesh/core`. Failures from `sock.sendMessage`, the rate limiter and content preparation are converted like this:
 
 | Cause | Becomes |
 | --- | --- |

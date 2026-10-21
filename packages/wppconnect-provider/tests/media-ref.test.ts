@@ -1,6 +1,6 @@
 /** Durable media refs: WPPConnect's `messageId` is journaled and rebuilt on replay. */
 import { describe, expect, it } from 'vitest'
-import type { MediaRef, SerializedMediaRef } from '@bot-wa/core'
+import type { MediaRef, SerializedMediaRef } from '@botmesh/core'
 import { WPPConnectProvider } from '../src/index.js'
 
 const provider = new WPPConnectProvider({ session: 's', token: 't', webhookToken: 'w' })

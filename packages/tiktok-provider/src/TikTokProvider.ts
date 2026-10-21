@@ -1,5 +1,5 @@
 /**
- * TikTokProvider — TikTok transport for @bot-wa/core over the official
+ * TikTokProvider — TikTok transport for @botmesh/core over the official
  * TikTok API for Business (v1.3). Webhook-driven (pushIngress): no socket.
  *
  * Two surfaces, one provider:
@@ -12,7 +12,7 @@
  *
  * Every webhook POST is authenticated with `TikTok-Signature`
  * (HMAC-SHA256 over `${t}.${rawBody}` with the app secret, replay window);
- * every outbound request goes through `secureFetch` from `@bot-wa/http`.
+ * every outbound request goes through `secureFetch` from `@botmesh/http`.
  *
  * @example
  * ```ts
@@ -32,8 +32,8 @@
 import { readFile } from 'node:fs/promises'
 import { basename } from 'node:path'
 import pino from 'pino'
-import type { LoggerLike } from '@bot-wa/core'
-import { SecureHttpError, secureFetch } from '@bot-wa/http'
+import type { LoggerLike } from '@botmesh/core'
+import { SecureHttpError, secureFetch } from '@botmesh/http'
 import {
   ProviderError,
   RecipientUnreachableError,
@@ -50,7 +50,7 @@ import {
   type SendResult,
   type SerializedMediaRef,
   type UserId,
-} from '@bot-wa/core'
+} from '@botmesh/core'
 import { highIntentChatId, parseTikTokChatId, type TikTokChatTarget } from './chatId.js'
 import { TikTokApiError, toProviderError } from './errors.js'
 import { parseJsonLossless } from './json.js'

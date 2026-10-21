@@ -1,9 +1,9 @@
 /**
- * @bot-wa/otel — OpenTelemetry for @bot-wa/core.
+ * @botmesh/otel — OpenTelemetry for @botmesh/core.
  *
  * - {@link createOtelTracer} / {@link otelTracer} / {@link lazyOtelTracer}: a `BotTracer`
  *   for `new Bot({ telemetry: { tracer } })` that turns the bot's spans (inbound,
- *   dispatch, handlers, conversation turns, sends, `@bot-wa/ai` model and tool calls)
+ *   dispatch, handlers, conversation turns, sends, `@botmesh/ai` model and tool calls)
  *   into OpenTelemetry spans, plus latency/token histograms derived from them.
  * - {@link otelMetricsPlugin} / {@link registerOtelMetrics}: `bot.metrics()` as
  *   OpenTelemetry counters and gauges.

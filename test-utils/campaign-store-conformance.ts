@@ -1,5 +1,5 @@
 /**
- * Shared conformance suite for `@bot-wa/campaigns`'s `CampaignStore`: tenant/campaign
+ * Shared conformance suite for `@botmesh/campaigns`'s `CampaignStore`: tenant/campaign
  * isolation, per-recipient caps, reservation TTLs, settlement (sent counts, failed
  * releases), rejection of unknown/settled deliveries and concurrency.
  * `MemoryCampaignStore` is the reference; `KvCampaignStore` must behave identically on

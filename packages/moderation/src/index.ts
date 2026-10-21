@@ -1,5 +1,5 @@
 /**
- * @bot-wa/moderation — group moderation plugin for `@bot-wa/core`.
+ * @botmesh/moderation — group moderation plugin for `@botmesh/core`.
  *
  * - {@link moderationPlugin} — anti-spam windows, word/regex filters, foreign
  *   invite-link filtering and warn/mute/kick/delete actions, with per-group
@@ -36,10 +36,10 @@ export type {
 } from './types.js'
 
 /**
- * Augment `@bot-wa/core` so `ctx.tools.moderation` is typed once
+ * Augment `@botmesh/core` so `ctx.tools.moderation` is typed once
  * `moderationPlugin` is installed.
  */
-declare module '@bot-wa/core' {
+declare module '@botmesh/core' {
   interface DefaultTools {
     /** Present when `moderationPlugin` is plugged into the Bot. */
     moderation?: ModerationController

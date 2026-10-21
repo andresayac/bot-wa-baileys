@@ -1,9 +1,9 @@
-import { secureFetch, type SecureFetchOptions } from '@bot-wa/http'
+import { secureFetch, type SecureFetchOptions } from '@botmesh/http'
 import { RagError } from '../errors.js'
 
 /**
  * Transport knobs forwarded to `secureFetch` (anti-SSRF client of
- * `@bot-wa/http`): `allowHttp` / `allowPrivateHosts` for self-hosted
+ * `@botmesh/http`): `allowHttp` / `allowPrivateHosts` for self-hosted
  * endpoints, `timeoutMs`, `maxBytes`, and `fetch` / `resolver` for tests.
  */
 export type EmbeddingHttpOptions = Pick<

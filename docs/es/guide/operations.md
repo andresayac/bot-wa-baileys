@@ -1,7 +1,7 @@
 # Operación: métricas, eventos, inbox y entregas
 
 Esta página cubre dos cosas: las métricas de runtime que expone todo `Bot`
-(parte de `@bot-wa/core`) y los paquetes operativos opcionales (journal de
+(parte de `@botmesh/core`) y los paquetes operativos opcionales (journal de
 eventos, inbox, CRM, campañas...). Para enviar un mensaje a muchos chats o
 iniciar un flujo desde un job, ve [Difusiones](./mensajes#difusiones-broadcast)
 e [Iniciar un flujo desde código](./mensajes#iniciar-un-flujo-desde-codigo).
@@ -51,7 +51,7 @@ formato de texto de Prometheus (0.0.4), sin dependencias. Sírvela con
 
 ```ts
 import { createServer } from 'node:http'
-import { toPrometheus, PROMETHEUS_CONTENT_TYPE } from '@bot-wa/core'
+import { toPrometheus, PROMETHEUS_CONTENT_TYPE } from '@botmesh/core'
 
 createServer((_req, res) => {
   res.setHeader('Content-Type', PROMETHEUS_CONTENT_TYPE)
@@ -96,9 +96,9 @@ bot.on('conversation:ended', ({ id, name, chatId, outcome, completed, durationMs
 ## Paquetes operativos
 
 ::: warning Paquetes experimentales — ninguno está publicado
-`@bot-wa/events` es **experimental**: una implementación real y con tests,
-pero todavía privada (no está en npm). Los paquetes de producto (`@bot-wa/inbox`,
-`@bot-wa/crm`, `@bot-wa/hub`, `@bot-wa/campaigns` y `@bot-wa/deployments`)
+`@botmesh/events` es **experimental**: una implementación real y con tests,
+pero todavía privada (no está en npm). Los paquetes de producto (`@botmesh/inbox`,
+`@botmesh/crm`, `@botmesh/hub`, `@botmesh/campaigns` y `@botmesh/deployments`)
 son reales y **persistentes**: cada uno tiene un contrato de almacenamiento,
 una implementación de referencia en RAM y un adaptador `Kv*` sobre cualquier
 `DurableKv` del core (SQLite, PostgreSQL, Redis, Redis Cluster o archivo), con
@@ -116,24 +116,24 @@ Usa `MemoryEventJournal` en tests. `FileEventJournal.open('./data/events.json')`
 
 Cada claim entrega un **fencing token** (`record.fencingToken`, estrictamente creciente por evento y nunca reutilizado, ni siquiera tras un `replay`). El worker lo devuelve en `ack`/`fail` y el journal rechaza un token superado con `StaleLeaseError`: un worker cuyo lease expiró mientras su handler seguía corriendo no puede completar, reintentar ni mandar a la DLQ un evento que otro worker ya reclamó. `runBatch()` los cuenta como `stale` (`{ processed, failed, stale }`) y se salta un registro cuyo lease ya venció antes de empezar su handler; lo devuelve con `journal.release(eventId, { now, fencingToken })`, así que saltárselo no gasta un intento. Los handlers siguen ejecutándose al menos una vez, así que hazlos idempotentes (para eso está el `idempotencyKey` del envelope). `new EventWorker(journal, { leaseMs, clock })` fija la duración del lease y la fuente de tiempo. Un adaptador de `EventJournal` sobre PostgreSQL o Redis debe comprobar el token (en `ack`, `fail` y `release`) en la misma actualización atómica que cambia el estado.
 
-El mismo journal puede servir además como backend de durabilidad de un bot (`eventsDurability({ journal })` de `@bot-wa/events/durability`, ver [Procesamiento durable de mensajes](./durabilidad.md)). Los registros entrantes del bot se escriben en su propio **canal** (`'botwa:durable'`). `list()` y `replay()` los muestran, pero un `EventWorker` nunca los reclama: un claim sin `channel` solo toma registros que no tienen canal. El propio bot los procesa.
+El mismo journal puede servir además como backend de durabilidad de un bot (`eventsDurability({ journal })` de `@botmesh/events/durability`, ver [Procesamiento durable de mensajes](./durabilidad.md)). Los registros entrantes del bot se escriben en su propio **canal** (`'botwa:durable'`). `list()` y `replay()` los muestran, pero un `EventWorker` nunca los reclama: un claim sin `channel` solo toma registros que no tienen canal. El propio bot los procesa.
 
 ### Inbox y CRM
 
-`@bot-wa/inbox` incorpora asignación con concurrencia optimista (compare-and-set sobre `version`), handoff, notas y unread. Proyecta los `StoredMessage` del ledger con `inbox.projectMessage(message)` para reconstruir conversaciones entre canales; `attachInbox(bot, inbox)` lo hace para un bot en marcha. Persiste con `new Inbox(new KvInboxStore(kv))`.
+`@botmesh/inbox` incorpora asignación con concurrencia optimista (compare-and-set sobre `version`), handoff, notas y unread. Proyecta los `StoredMessage` del ledger con `inbox.projectMessage(message)` para reconstruir conversaciones entre canales; `attachInbox(bot, inbox)` lo hace para un bot en marcha. Persiste con `new Inbox(new KvInboxStore(kv))`.
 
-`@bot-wa/crm` guarda canales de contacto, tags, atributos y consentimiento de marketing, con segmentos por reglas (`tagsAll`, atributos comparados de forma estricta, consentimiento). `ContactDirectory` es async sobre `MemoryContactStore` o `KvContactStore`; `setConsent` reintenta a los escritores concurrentes en vez de pisarlos. Segmenta siempre las campañas con datos aislados por tenant y con consentimiento.
+`@botmesh/crm` guarda canales de contacto, tags, atributos y consentimiento de marketing, con segmentos por reglas (`tagsAll`, atributos comparados de forma estricta, consentimiento). `ContactDirectory` es async sobre `MemoryContactStore` o `KvContactStore`; `setConsent` reintenta a los escritores concurrentes en vez de pisarlos. Segmenta siempre las campañas con datos aislados por tenant y con consentimiento.
 
 ### Campañas, plugins y despliegues
 
-`@bot-wa/campaigns` descarta opt-outs, segmentos que no coinciden y destinatarios duplicados. El store reserva un hueco de envío por `(tenant, campaña, destinatario)` con TTL; `markSent` cuenta el envío y `markFailed` libera el hueco. `sendCampaign(bot, planner, …)` envía con `bot.broadcast()` y asienta cada delivery con el resultado real (aceptado, fallido, descartado por un hook o cancelado).
+`@botmesh/campaigns` descarta opt-outs, segmentos que no coinciden y destinatarios duplicados. El store reserva un hueco de envío por `(tenant, campaña, destinatario)` con TTL; `markSent` cuenta el envío y `markFailed` libera el hueco. `sendCampaign(bot, planner, …)` envía con `bot.broadcast()` y asienta cada delivery con el resultado real (aceptado, fallido, descartado por un hook o cancelado).
 
-`@bot-wa/hub` valida manifiestos de plugins, compatibilidad con el runtime y permisos concedidos antes de habilitar un plugin. Las instalaciones y el enable/disable se persisten por tenant; por sí solo no ejecuta ni aísla código no confiable.
+`@botmesh/hub` valida manifiestos de plugins, compatibilidad con el runtime y permisos concedidos antes de habilitar un plugin. Las instalaciones y el enable/disable se persisten por tenant; por sí solo no ejecuta ni aísla código no confiable.
 
-`@bot-wa/deployments` registra versiones inmutables y un despliegue activo por tenant/bot, con reservas para gates en ejecución y auditoría de gate runs. Conéctalo a tu sistema de despliegue para hacer rollouts graduales y rollback físico.
+`@botmesh/deployments` registra versiones inmutables y un despliegue activo por tenant/bot, con reservas para gates en ejecución y auditoría de gate runs. Conéctalo a tu sistema de despliegue para hacer rollouts graduales y rollback físico.
 
-Los cinco comparten el mismo modelo de almacenamiento: `Memory…Store` (referencia), `Kv…Store` sobre cualquier `DurableKv`, una suite de conformidad en `test-utils/` y aislamiento de tenant impuesto por el nombre de la tabla en el backend (`@bot-wa/tenant-kv`).
+Los cinco comparten el mismo modelo de almacenamiento: `Memory…Store` (referencia), `Kv…Store` sobre cualquier `DurableKv`, una suite de conformidad en `test-utils/` y aislamiento de tenant impuesto por el nombre de la tabla en el backend (`@botmesh/tenant-kv`).
 
 ## Trazas (OpenTelemetry)
 
-`bot.metrics()` cuenta; las trazas explican. Con `BotConfig.telemetry` el bot emite un árbol de spans por mensaje (entrada → dispatch → handler / turno de conversación → llamadas al modelo y herramientas de IA → envío), con los ids con hash por defecto y sin contenido de mensajes. `@bot-wa/otel` manda esos spans a OpenTelemetry (Jaeger, Grafana Tempo, cualquier backend OTLP) y publica `bot.metrics()` como métricas de OpenTelemetry (`bot.plug(otelMetricsPlugin())`). Configuración, catálogo de spans, política de datos personales y un ejemplo con Jaeger / Grafana Tempo: [Trazas](./trazas).
+`bot.metrics()` cuenta; las trazas explican. Con `BotConfig.telemetry` el bot emite un árbol de spans por mensaje (entrada → dispatch → handler / turno de conversación → llamadas al modelo y herramientas de IA → envío), con los ids con hash por defecto y sin contenido de mensajes. `@botmesh/otel` manda esos spans a OpenTelemetry (Jaeger, Grafana Tempo, cualquier backend OTLP) y publica `bot.metrics()` como métricas de OpenTelemetry (`bot.plug(otelMetricsPlugin())`). Configuración, catálogo de spans, política de datos personales y un ejemplo con Jaeger / Grafana Tempo: [Trazas](./trazas).

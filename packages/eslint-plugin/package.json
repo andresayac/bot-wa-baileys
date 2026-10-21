@@ -1,9 +1,9 @@
 {
-  "name": "eslint-plugin-bot-wa",
+  "name": "eslint-plugin-botmesh",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "ESLint rules for @bot-wa bots: v1 API leftovers, blocking runtime.enter, async plugin install, empty triggers, asks without timeout and global per-user state.",
+  "description": "ESLint rules for @botmesh bots: v1 API leftovers, blocking runtime.enter, async plugin install, empty triggers, asks without timeout and global per-user state.",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
   "exports": {
@@ -16,7 +16,7 @@
     "node": ">=22"
   },
   "keywords": [
-    "bot-wa",
+    "botmesh",
     "eslint",
     "eslintplugin",
     "eslint-plugin",
@@ -26,12 +26,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/andresayac/bot-wa-baileys.git",
+    "url": "git+https://github.com/andresayac/botmesh.git",
     "directory": "packages/eslint-plugin"
   },
-  "homepage": "https://github.com/andresayac/bot-wa-baileys/tree/main/packages/eslint-plugin#readme",
+  "homepage": "https://github.com/andresayac/botmesh/tree/main/packages/eslint-plugin#readme",
   "bugs": {
-    "url": "https://github.com/andresayac/bot-wa-baileys/issues"
+    "url": "https://github.com/andresayac/botmesh/issues"
   },
   "files": [
     "./lib/**/*"
@@ -48,7 +48,7 @@
   "devDependencies": {
     "@types/estree": "^1.0.8",
     "@types/node": "^26.1.1",
-    "create-bot-wa": "workspace:*",
+    "create-botmesh": "workspace:*",
     "eslint": "^10.13.0",
     "typescript": "^7.0.2",
     "vite": "^7.3.6",

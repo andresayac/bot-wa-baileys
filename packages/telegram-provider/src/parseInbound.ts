@@ -25,8 +25,8 @@ import type {
   MessageRef,
   MessageType,
   SenderInfo,
-} from '@bot-wa/core'
-import { toInboundLocation } from '@bot-wa/core'
+} from '@botmesh/core'
+import { toInboundLocation } from '@botmesh/core'
 import type {
   TelegramCallbackQuery,
   TelegramChat,

@@ -1,10 +1,10 @@
 /**
- * @bot-wa/gupshup — configuration and Gupshup WhatsApp API wire shapes
+ * @botmesh/gupshup — configuration and Gupshup WhatsApp API wire shapes
  * (subset used). Inbound callbacks are the Gupshup **v2** format.
  */
 
 import type { ProviderHttpOptions } from './http.js'
-import type { LoggerLike } from '@bot-wa/core'
+import type { LoggerLike } from '@botmesh/core'
 
 export interface GupshupProviderConfig {
   /** Account API key (`apikey` header). */

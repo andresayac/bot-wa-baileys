@@ -6,7 +6,7 @@
  * range → 22003) and ORDER BY tie-breaks.
  */
 import { describe, it, expect, beforeEach } from 'vitest'
-import type { StoredMessage } from '@bot-wa/core'
+import type { StoredMessage } from '@botmesh/core'
 import { PostgresStore } from '../src/PostgresStore.js'
 import { FakePool } from './fakePool.js'
 

@@ -7,7 +7,7 @@
  * {@link CampaignPlanner.markFailed}, or until its reservation TTL expires.
  */
 
-import { parseDuration } from '@bot-wa/core'
+import { parseDuration } from '@botmesh/core'
 import { DEFAULT_RESERVATION_TTL_MS, MemoryCampaignStore, makeDeliveryId } from './memory.js'
 import type { CampaignStore } from './store.js'
 import type { Campaign, CampaignRecipient, Delivery } from './types.js'

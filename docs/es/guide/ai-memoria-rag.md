@@ -125,13 +125,13 @@ await bot.deleteSubject(userId)                        // right to erasure: memo
 `rag` acepta cualquier **retriever**, un objeto con
 `retrieve(query, { topK?, minScore?, signal? })` que resuelve pasajes
 `{ text, source?, citation?, score? }`. El paquete
-[`@bot-wa/rag`](#bot-wa-rag) de más abajo trae uno con loaders, chunking,
+[`@botmesh/rag`](#botmesh-rag) de más abajo trae uno con loaders, chunking,
 embeddings e índice; una base de datos vectorial o una API de búsqueda sirven
 igual.
 
 ```ts
-import { aiPlugin } from '@bot-wa/ai'
-import { createRag } from '@bot-wa/rag'
+import { aiPlugin } from '@botmesh/ai'
+import { createRag } from '@botmesh/rag'
 
 bot.plug(aiPlugin({
   provider: 'openai',
@@ -172,7 +172,7 @@ construye al arrancar y no en la primera pregunta.
 `replyInChatDetailed()` devuelve lo que usó el turno:
 
 ```ts
-import { chatKeyOf } from '@bot-wa/ai'
+import { chatKeyOf } from '@botmesh/ai'
 
 bot.when('ayuda', async (ctx) => {
   const r = await ctx.tools.ai.replyInChatDetailed(chatKeyOf(ctx), ctx.body, {
@@ -191,14 +191,14 @@ bot.when('ayuda', async (ctx) => {
 `userId` para activar la memoria en el turno, e `isGroup` para que los hechos
 no lleguen a las respuestas en grupos.
 
-Con [streaming](/es/guide/streaming#con-bot-wa-ai), la memoria y el RAG
+Con [streaming](/es/guide/streaming#con-botmesh-ai), la memoria y el RAG
 funcionan igual; con `appendSources`, la línea de fuentes llega como último
 fragmento.
 
-### `@bot-wa/rag`
+### `@botmesh/rag`
 
 ::: warning Experimental — no está en npm
-`@bot-wa/rag` es un paquete real y probado, pero es **privado**: no forma
+`@botmesh/rag` es un paquete real y probado, pero es **privado**: no forma
 parte de la primera alpha y su API puede cambiar. Úsalo desde el monorepo
 (`workspace:*`).
 :::
@@ -216,7 +216,7 @@ parte de la primera alpha y su API puede cambiar. Úsalo desde el monorepo
   `OPENAI_API_KEY`), `'ollama'` (por defecto `nomic-embed-text` en
   `http://localhost:11434`), un objeto `{ provider, ... }` o tu propio
   `Embedder` (`{ id, embed(texts) }`). Las peticiones salen por `secureFetch`
-  de `@bot-wa/http`.
+  de `@botmesh/http`.
 - **Índice**: `topK`, `minScore` y filtros. Con `persistPath` se guarda en JSON
   tras cada cambio y, al reiniciar, solo se vuelven a embeber los fragmentos
   cuyo texto cambió.
@@ -239,7 +239,7 @@ parte de la primera alpha y su API puede cambiar. Úsalo desde el monorepo
 plugin. También puedes usarlo directamente:
 
 ```ts
-import { createRag, formatContext } from '@bot-wa/rag'
+import { createRag, formatContext } from '@botmesh/rag'
 
 const rag = createRag({ documents: ['./docs'], embeddings: 'ollama' })
 
@@ -258,7 +258,7 @@ Todo fallo es un `RagError` con un `code`: `INVALID_OPTIONS`,
 o `INVALID_INDEX`. El índice es de fuerza bruta, pensado para miles de
 fragmentos; para millones, escribe tu propio retriever sobre una base
 vectorial. Detalles en el
-[README de `@bot-wa/rag`](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/rag).
+[README de `@botmesh/rag`](https://github.com/andresayac/botmesh/tree/main/packages/rag).
 
 ## Testing
 
@@ -267,8 +267,8 @@ un `MemoryManager` sobre los perfiles del bot; para probar el RAG, sirve
 cualquier objeto con `retrieve()`:
 
 ```ts
-import { AIClient, ContextManager, MemoryManager, MockAIProvider } from '@bot-wa/ai'
-import { createTestBot } from '@bot-wa/core/testing'
+import { AIClient, ContextManager, MemoryManager, MockAIProvider } from '@botmesh/ai'
+import { createTestBot } from '@botmesh/core/testing'
 
 const { bot } = await createTestBot()
 const mock = new MockAIProvider({ reply: 'Tarda 3 días [1].' })

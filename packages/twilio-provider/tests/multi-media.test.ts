@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import type { InboundEvent, InboundMessage } from '@bot-wa/core'
-import { inboundDedupeKey } from '@bot-wa/core'
+import type { InboundEvent, InboundMessage } from '@botmesh/core'
+import { inboundDedupeKey } from '@botmesh/core'
 import { parseInbound } from '../src/parseInbound.js'
 import { WA_TEXT } from './fixtures.js'
 

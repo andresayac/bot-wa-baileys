@@ -11,7 +11,7 @@ import {
   RateLimitedError,
   RecipientUnreachableError,
   type ChatId,
-} from '@bot-wa/core'
+} from '@botmesh/core'
 
 /** Default back-off suggested for transient (4xx) SMTP failures. */
 export const DEFAULT_SMTP_RETRY_MS = 60_000

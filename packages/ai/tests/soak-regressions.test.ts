@@ -4,8 +4,8 @@
  * `/reset` must leave no live conversation, and `bot.stop()` no active timer.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { OutboundContent } from '@bot-wa/core'
-import { createTestBot } from '@bot-wa/core/testing'
+import type { OutboundContent } from '@botmesh/core'
+import { createTestBot } from '@botmesh/core/testing'
 import { MockAIProvider } from '../src/MockAIProvider.js'
 import { aiPlugin } from '../src/plugin.js'
 import type { GenerateInput } from '../src/types.js'

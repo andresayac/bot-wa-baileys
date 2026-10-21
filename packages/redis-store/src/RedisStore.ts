@@ -12,9 +12,9 @@
  *
  * @example
  * ```ts
- * import { Bot } from '@bot-wa/core'
- * import { BaileysProvider } from '@bot-wa/baileys'
- * import { RedisStore } from '@bot-wa/redis-store'
+ * import { Bot } from '@botmesh/core'
+ * import { BaileysProvider } from '@botmesh/baileys'
+ * import { RedisStore } from '@botmesh/redis-store'
  *
  * const store = new RedisStore({ url: 'redis://localhost:6379', prefix: 'mybot' })
  * const bot = new Bot({
@@ -37,8 +37,8 @@ import type {
   StoredMessage,
   UserDataEntry,
   UserId,
-} from '@bot-wa/core'
-import { legacyMessageKey, messageKey, parseDuration } from '@bot-wa/core'
+} from '@botmesh/core'
+import { legacyMessageKey, messageKey, parseDuration } from '@botmesh/core'
 import { RedisUserData } from './userData.js'
 import { escapeGlob } from './glob.js'
 import { matchKeys } from './keys.js'
@@ -191,7 +191,7 @@ export interface RedisStoreOptions {
    * Optional TTL applied to ephemeral session-state keys (AI conversation
    * history and flow checkpoints): a duration (`'24h'`, `'30m'`) or a number of
    * MILLISECONDS — the same convention as every duration option of
-   * `@bot-wa/core`. Messages, chats, contacts and cursors are never expired —
+   * `@botmesh/core`. Messages, chats, contacts and cursors are never expired —
    * delete them explicitly. Must be positive; an invalid duration or a
    * non-positive value throws from the constructor.
    */

@@ -14,7 +14,7 @@
  * and namespace/user deletes.
  */
 
-import type { UserDataEntry, UserId } from '@bot-wa/core'
+import type { UserDataEntry, UserId } from '@botmesh/core'
 import type { MongoLikeCollection } from './MongoStore.js'
 
 export interface UserDataDoc {

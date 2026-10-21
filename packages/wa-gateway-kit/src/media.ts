@@ -6,7 +6,7 @@
 
 import { readFile } from 'node:fs/promises'
 import { basename, extname } from 'node:path'
-import { UnsupportedContentError, type MediaSource, type OutboundContent } from '@bot-wa/core'
+import { UnsupportedContentError, type MediaSource, type OutboundContent } from '@botmesh/core'
 
 export type ResolvedMedia =
   | { url: string; filename?: string; mimetype?: string }

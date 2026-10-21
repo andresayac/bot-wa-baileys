@@ -121,13 +121,13 @@ await bot.deleteSubject(userId)                        // right to erasure: memo
 `rag` accepts any **retriever**, an object with
 `retrieve(query, { topK?, minScore?, signal? })` that resolves passages
 `{ text, source?, citation?, score? }`. The
-[`@bot-wa/rag`](#bot-wa-rag) package below provides one with loaders,
+[`@botmesh/rag`](#botmesh-rag) package below provides one with loaders,
 chunking, embeddings and an index; a vector database or a search API works
 just as well.
 
 ```ts
-import { aiPlugin } from '@bot-wa/ai'
-import { createRag } from '@bot-wa/rag'
+import { aiPlugin } from '@botmesh/ai'
+import { createRag } from '@botmesh/rag'
 
 bot.plug(aiPlugin({
   provider: 'openai',
@@ -168,7 +168,7 @@ on the first question.
 `replyInChatDetailed()` returns what the turn used:
 
 ```ts
-import { chatKeyOf } from '@bot-wa/ai'
+import { chatKeyOf } from '@botmesh/ai'
 
 bot.when('help', async (ctx) => {
   const r = await ctx.tools.ai.replyInChatDetailed(chatKeyOf(ctx), ctx.body, {
@@ -187,13 +187,13 @@ bot.when('help', async (ctx) => {
 `userId` to enable memory for the turn, and `isGroup` so facts stay out of
 group replies.
 
-With [streaming](/guide/streaming#with-bot-wa-ai), memory and RAG apply the
+With [streaming](/guide/streaming#with-botmesh-ai), memory and RAG apply the
 same way; with `appendSources` the sources line arrives as the last piece.
 
-### `@bot-wa/rag`
+### `@botmesh/rag`
 
 ::: warning Experimental — not on npm
-`@bot-wa/rag` is a working, tested package, but it is **private**: it is not
+`@botmesh/rag` is a working, tested package, but it is **private**: it is not
 part of the first alpha and its API may change. Use it from the monorepo
 (`workspace:*`).
 :::
@@ -211,7 +211,7 @@ in-memory cosine index with optional JSON persistence.
   default), `'ollama'` (`nomic-embed-text` on `http://localhost:11434` by
   default), a `{ provider, ... }` object, or your own `Embedder`
   (`{ id, embed(texts) }`). Requests go through `secureFetch` from
-  `@bot-wa/http`.
+  `@botmesh/http`.
 - **Index**: `topK`, `minScore` and filters. With `persistPath` it is saved as
   JSON after each change and, on restart, only the chunks whose text changed
   are embedded again.
@@ -234,7 +234,7 @@ in-memory cosine index with optional JSON persistence.
 install. You can also use it directly:
 
 ```ts
-import { createRag, formatContext } from '@bot-wa/rag'
+import { createRag, formatContext } from '@botmesh/rag'
 
 const rag = createRag({ documents: ['./docs'], embeddings: 'ollama' })
 
@@ -252,7 +252,7 @@ Every failure is a `RagError` with a `code`: `INVALID_OPTIONS`,
 `UNSUPPORTED_FORMAT`, `LOAD_FAILED`, `MISSING_DEPENDENCY`, `EMBEDDING_FAILED`
 or `INVALID_INDEX`. The index is brute force, meant for thousands of chunks;
 for millions, write your own retriever over a vector database. Details in the
-[`@bot-wa/rag` README](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/rag).
+[`@botmesh/rag` README](https://github.com/andresayac/botmesh/tree/main/packages/rag).
 
 ## Testing
 
@@ -261,8 +261,8 @@ for millions, write your own retriever over a vector database. Details in the
 `retrieve()` will do:
 
 ```ts
-import { AIClient, ContextManager, MemoryManager, MockAIProvider } from '@bot-wa/ai'
-import { createTestBot } from '@bot-wa/core/testing'
+import { AIClient, ContextManager, MemoryManager, MockAIProvider } from '@botmesh/ai'
+import { createTestBot } from '@botmesh/core/testing'
 
 const { bot } = await createTestBot()
 const mock = new MockAIProvider({ reply: 'It takes 3 days [1].' })

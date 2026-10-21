@@ -6,7 +6,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import { assertTenantId } from '@bot-wa/tenant-kv'
+import { assertTenantId } from '@botmesh/tenant-kv'
 import type { CampaignStore } from './store.js'
 import { UnknownDeliveryError, type Delivery, type ReserveInput, type ReservationOutcome, type SettleOutcome } from './types.js'
 

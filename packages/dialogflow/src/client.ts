@@ -4,7 +4,7 @@
  */
 
 import { createHash } from 'node:crypto'
-import { secureFetch } from '@bot-wa/http'
+import { secureFetch } from '@botmesh/http'
 import {
   DialogflowError,
   ServiceAccountTokenSource,

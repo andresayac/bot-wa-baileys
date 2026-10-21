@@ -9,7 +9,7 @@
  * Skipped unless BOTWA_TEST_REDIS_URL is set, so `pnpm test` stays hermetic:
  *
  *   docker run -d --name botwa-it-redis -p 56379:6379 redis:7-alpine
- *   BOTWA_TEST_REDIS_URL=redis://localhost:56379 pnpm --filter @bot-wa/redis-store test
+ *   BOTWA_TEST_REDIS_URL=redis://localhost:56379 pnpm --filter @botmesh/redis-store test
  *
  * Isolation: every store gets its own key prefix under a per-run namespace
  * (`botwa-it:<pid>-<uuid>:…`) and every key under that namespace is deleted
@@ -20,7 +20,7 @@ import { randomUUID } from 'node:crypto'
 import net from 'node:net'
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { createClient } from 'redis'
-import { legacyMessageKey, type FlowCheckpoint, type StoredMessage } from '@bot-wa/core'
+import { legacyMessageKey, type FlowCheckpoint, type StoredMessage } from '@botmesh/core'
 import { RedisStore, type NativeRedisClient, type RedisLikeClient, type RedisStoreOptions } from '../src/index.js'
 import { PROBES, meets, outcome } from './redis-probes.js'
 import { runStoreConformance } from '../../../test-utils/store-conformance.js'

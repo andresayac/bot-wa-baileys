@@ -1,6 +1,6 @@
 /** Durable media refs: the HighLevel attachment URL is journaled only when it is a safe http(s) URL. */
 import { describe, expect, it } from 'vitest'
-import type { MediaRef, SerializedMediaRef } from '@bot-wa/core'
+import type { MediaRef, SerializedMediaRef } from '@botmesh/core'
 import { GoHighLevelProvider } from '../src/index.js'
 
 const provider = new GoHighLevelProvider({ accessToken: 'pit', locationId: 'loc' })

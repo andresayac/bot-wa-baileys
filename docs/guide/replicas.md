@@ -22,9 +22,9 @@ bot behaves exactly as before.
 ## Setup
 
 ```ts
-import { Bot } from '@bot-wa/core'
-import { BaileysProvider } from '@bot-wa/baileys'
-import { RedisStore } from '@bot-wa/redis-store'
+import { Bot } from '@botmesh/core'
+import { BaileysProvider } from '@botmesh/baileys'
+import { RedisStore } from '@botmesh/redis-store'
 
 const store = new RedisStore({ url: process.env.REDIS_URL, prefix: 'shop' })
 
@@ -99,13 +99,13 @@ and one of them takes over when the leader stops or dies.
 
 | Provider | `exclusiveSession` | With N replicas |
 | --- | --- | --- |
-| `@bot-wa/baileys` | `true` | 1 connected + standbys |
-| `@bot-wa/telegram` (long polling) | `true` | 1 polling + standbys |
-| `@bot-wa/telegram` (webhook) | `false` | all receive |
-| `@bot-wa/discord` | `true` | 1 gateway + standbys |
-| `@bot-wa/email` (IMAP) | `true` | 1 IMAP session + standbys |
-| `@bot-wa/email` (`ingest()` only) | `false` | all receive |
-| `@bot-wa/meta`, Messenger, Instagram, other webhook providers | unset (`false`) | all receive |
+| `@botmesh/baileys` | `true` | 1 connected + standbys |
+| `@botmesh/telegram` (long polling) | `true` | 1 polling + standbys |
+| `@botmesh/telegram` (webhook) | `false` | all receive |
+| `@botmesh/discord` | `true` | 1 gateway + standbys |
+| `@botmesh/email` (IMAP) | `true` | 1 IMAP session + standbys |
+| `@botmesh/email` (`ingest()` only) | `false` | all receive |
+| `@botmesh/meta`, Messenger, Instagram, other webhook providers | unset (`false`) | all receive |
 
 If the leader's transport stays `'closed'` for `providerDownMs` (logged out,
 session taken over, reconnect given up), the replica steps down, waits a few
@@ -319,7 +319,7 @@ share one `MemoryCoordinationHub` coordinate like replicas sharing Redis, and
 `coordinator.crash()` simulates a replica dying:
 
 ```ts
-import { Bot, MemoryCoordinationHub, MemoryCoordinator, MemoryStore } from '@bot-wa/core'
+import { Bot, MemoryCoordinationHub, MemoryCoordinator, MemoryStore } from '@botmesh/core'
 
 const hub = new MemoryCoordinationHub()
 const store = new MemoryStore()

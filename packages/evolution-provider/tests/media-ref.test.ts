@@ -1,6 +1,6 @@
 /** Durable media refs: the Evolution message key is journaled (never the base64) and rebuilt on replay. */
 import { describe, expect, it } from 'vitest'
-import type { MediaRef, SerializedMediaRef } from '@bot-wa/core'
+import type { MediaRef, SerializedMediaRef } from '@botmesh/core'
 import { EvolutionProvider } from '../src/index.js'
 
 const provider = new EvolutionProvider({ baseUrl: 'http://evolution.local', apiKey: 'k', instance: 'i', webhookSecret: 's' })

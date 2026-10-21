@@ -2,7 +2,7 @@
 layout: home
 
 hero:
-  name: bot-wa-baileys
+  name: botmesh
   text: Transport-Agnostic Bot Framework
   tagline: Flows, hooks, plugins and conversations behind one IProvider — WhatsApp (Baileys / Cloud API) and Telegram, plus experimental Messenger, Instagram and Discord. Simple, declarative, TypeScript. Alpha, not on npm yet.
   actions:
@@ -19,9 +19,9 @@ hero:
 features:
   - title: Transport-agnostic
     details: |
-      One engine, many transports. @bot-wa/core runs any IProvider:
-      @bot-wa/baileys (WhatsApp Web), @bot-wa/meta (official WhatsApp
-      Cloud API), @bot-wa/telegram — plus experimental Messenger,
+      One engine, many transports. @botmesh/core runs any IProvider:
+      @botmesh/baileys (WhatsApp Web), @botmesh/meta (official WhatsApp
+      Cloud API), @botmesh/telegram — plus experimental Messenger,
       Instagram and Discord providers.
     icon: 🚆
   - title: Declarative
@@ -56,7 +56,7 @@ features:
     icon: ⏰
   - title: Pluggable stores
     details: |
-      MemoryStore by default; @bot-wa/sqlite-store and @bot-wa/redis-store
+      MemoryStore by default; @botmesh/sqlite-store and @botmesh/redis-store
       for persistence — or implement the generic IStore for anything else.
     icon: 📦
   - title: Full media support

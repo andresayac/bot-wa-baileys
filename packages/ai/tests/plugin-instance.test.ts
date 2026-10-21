@@ -3,7 +3,7 @@
  * `__provider` test hook, which stays honoured but is stripped from the published types).
  */
 import { describe, expect, it } from 'vitest'
-import { createTestBot } from '@bot-wa/core/testing'
+import { createTestBot } from '@botmesh/core/testing'
 import { MockAIProvider } from '../src/MockAIProvider.js'
 import { aiPlugin } from '../src/plugin.js'
 

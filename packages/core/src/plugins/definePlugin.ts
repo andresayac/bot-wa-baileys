@@ -6,7 +6,7 @@
  *
  * @example Static plugin
  * ```ts
- * import { definePlugin } from '@bot-wa/core'
+ * import { definePlugin } from '@botmesh/core'
  *
  * const loggingPlugin = definePlugin({
  *   name: 'logging',

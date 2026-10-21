@@ -150,7 +150,7 @@ export class VectorIndex {
   static fromJSON(data: unknown): VectorIndex {
     const d = data as Partial<SerializedIndex> | null
     if (!d || typeof d !== 'object' || d.version !== 1 || typeof d.embedder !== 'string' || !Array.isArray(d.entries)) {
-      throw new RagError('INVALID_INDEX', 'not a @bot-wa/rag index (version 1)')
+      throw new RagError('INVALID_INDEX', 'not a @botmesh/rag index (version 1)')
     }
     const index = new VectorIndex(d.embedder)
     for (const e of d.entries) {

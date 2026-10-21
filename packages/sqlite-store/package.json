@@ -1,8 +1,8 @@
 {
-  "name": "@bot-wa/sqlite-store",
+  "name": "@botmesh/sqlite-store",
   "version": "0.2.0-alpha.0",
   "type": "module",
-  "description": "Persistent SQLite IStore (better-sqlite3) for @bot-wa/core.",
+  "description": "Persistent SQLite IStore (better-sqlite3) for @botmesh/core.",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
   "exports": {
@@ -14,16 +14,16 @@
   "engines": {
     "node": ">=22"
   },
-  "keywords": ["bot-wa", "store", "sqlite", "better-sqlite3"],
+  "keywords": ["botmesh", "store", "sqlite", "better-sqlite3"],
   "author": "Andres Aya",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/andresayac/bot-wa-baileys.git",
+    "url": "git+https://github.com/andresayac/botmesh.git",
     "directory": "packages/sqlite-store"
   },
-  "homepage": "https://github.com/andresayac/bot-wa-baileys/tree/main/packages/sqlite-store#readme",
-  "bugs": { "url": "https://github.com/andresayac/bot-wa-baileys/issues" },
+  "homepage": "https://github.com/andresayac/botmesh/tree/main/packages/sqlite-store#readme",
+  "bugs": { "url": "https://github.com/andresayac/botmesh/issues" },
   "files": ["./lib/**/*"],
   "scripts": {
     "build": "tsc",
@@ -32,7 +32,7 @@
     "typecheck": "tsc -p tsconfig.test.json"
   },
   "dependencies": {
-    "@bot-wa/core": "workspace:^"
+    "@botmesh/core": "workspace:^"
   },
   "peerDependencies": {
     "better-sqlite3": "^11.7.0"

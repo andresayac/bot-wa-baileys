@@ -3,8 +3,8 @@
  * cross-slot scripts, and the legacy TURN_SCRIPT, which builds heartbeat keys in Lua).
  */
 import { describe, expect, it, vi } from 'vitest'
-import { Bot, CoordinationUnavailableError, MemoryStore } from '@bot-wa/core'
-import { MockProvider } from '@bot-wa/core/testing'
+import { Bot, CoordinationUnavailableError, MemoryStore } from '@botmesh/core'
+import { MockProvider } from '@botmesh/core/testing'
 import { RedisCoordinator, RedisStore } from '../src/index.js'
 import { PROBE_EXISTS_SCRIPT, TURN_CLUSTER_SCRIPT } from '../src/clusterScripts.js'
 import { coordKeys } from '../src/layout.js'

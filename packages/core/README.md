@@ -1,17 +1,17 @@
-# @bot-wa/core
+# @botmesh/core
 
-[![Docs](https://img.shields.io/badge/docs-guides-blue)](https://github.com/andresayac/bot-wa-baileys/tree/main/docs)
-[![npm](https://img.shields.io/npm/v/@bot-wa/core)](https://www.npmjs.com/package/@bot-wa/core)
-[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](https://github.com/andresayac/bot-wa-baileys/blob/main/LICENSE.md)
+[![Docs](https://img.shields.io/badge/docs-guides-blue)](https://github.com/andresayac/botmesh/tree/main/docs)
+[![npm](https://img.shields.io/npm/v/@botmesh/core)](https://www.npmjs.com/package/@botmesh/core)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](https://github.com/andresayac/botmesh/blob/main/LICENSE.md)
 
-A **transport-agnostic** bot engine: declarative flows to get going in 30 seconds, an async conversation runtime when you need full control, hooks/plugins/DI and a scheduler. You inject the transport (WhatsApp through [`@bot-wa/baileys`](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/baileys-provider); Telegram/Discord use the same `IProvider` contract).
+A **transport-agnostic** bot engine: declarative flows to get going in 30 seconds, an async conversation runtime when you need full control, hooks/plugins/DI and a scheduler. You inject the transport (WhatsApp through [`@botmesh/baileys`](https://github.com/andresayac/botmesh/tree/main/packages/baileys-provider); Telegram/Discord use the same `IProvider` contract).
 
-> **v2 is a transport-agnostic rewrite.** If you come from v1 (`BaileysClass`), read the [migration guide](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/MIGRATION-v1-to-v2.md).
+> **v2 is a transport-agnostic rewrite.** If you come from v1 (`BaileysClass`), read the [migration guide](https://github.com/andresayac/botmesh/blob/main/docs/MIGRATION-v1-to-v2.md).
 
 ## Installation
 
 ```
-npm i @bot-wa/core@alpha @bot-wa/baileys@alpha
+npm i @botmesh/core@alpha @botmesh/baileys@alpha
 ```
 
 Requires **Node >= 22** (ESM-only). The core carries no transport dependency — the transport package you pick brings its own.
@@ -19,8 +19,8 @@ Requires **Node >= 22** (ESM-only). The core carries no transport dependency —
 ## Quickstart (30 seconds)
 
 ```ts
-import { Bot, flow } from '@bot-wa/core'
-import { BaileysProvider } from '@bot-wa/baileys'
+import { Bot, flow } from '@botmesh/core'
+import { BaileysProvider } from '@botmesh/baileys'
 
 const bot = new Bot({
   provider: new BaileysProvider({
@@ -48,11 +48,11 @@ bot.conversation('support', async (c, ctx) => {
 await bot.start()   // scan the QR
 ```
 
-A full example (commands, media, hooks, DI, scheduler) lives in [`packages/baileys-provider/examples/bot.ts`](https://github.com/andresayac/bot-wa-baileys/blob/main/packages/baileys-provider/examples/bot.ts).
+A full example (commands, media, hooks, DI, scheduler) lives in [`packages/baileys-provider/examples/bot.ts`](https://github.com/andresayac/botmesh/blob/main/packages/baileys-provider/examples/bot.ts).
 
 No camera? Set `pairingCode: '+57300XXXXXXX'` on `BaileysProvider` (full international format) and listen for `bot.on('qr', ...)` — the pairing code arrives there too.
 
-> **Persistent flows:** `flow(...).persistent()` only survives a restart with a persistent store. The default `MemoryStore` lives in RAM; to keep checkpoints use a disk-backed store (e.g. [`@bot-wa/sqlite-store`](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/sqlite-store)).
+> **Persistent flows:** `flow(...).persistent()` only survives a restart with a persistent store. The default `MemoryStore` lives in RAM; to keep checkpoints use a disk-backed store (e.g. [`@botmesh/sqlite-store`](https://github.com/andresayac/botmesh/tree/main/packages/sqlite-store)).
 
 ## Features (v2)
 
@@ -64,7 +64,7 @@ No camera? Set `pairingCode: '+57300XXXXXXX'` on `BaileysProvider` (full interna
 - **Runtime config validation** — the constructor throws `ConfigValidationError` with a clear message.
 - **Group mode** — `config.groupMode: 'all' | 'mentions' | 'commands'`.
 - **Graceful shutdown with drain** — `bot.stop({ drain: true })` waits for in-flight sends.
-- **Testing kit without a real transport** — `createTestBot()` from `@bot-wa/core/testing`, with a v2 `MockProvider` and assertions over the outbox.
+- **Testing kit without a real transport** — `createTestBot()` from `@botmesh/core/testing`, with a v2 `MockProvider` and assertions over the outbox.
 - **Hooks and plugins with DI** — `before`/`after`/`onError`, `bot.plug()`/`unplug()`, `bot.provide()`.
 - **Built-in scheduler** — `bot.schedule()` (cron), `bot.every()`, `bot.delay()`.
 - **100% ESM + strict TypeScript.**
@@ -73,12 +73,12 @@ No camera? Set `pairingCode: '+57300XXXXXXX'` on `BaileysProvider` (full interna
 
 ## Persistent store (SQLite)
 
-The default `MemoryStore` is ideal for development. For production use the [`@bot-wa/sqlite-store`](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/sqlite-store) package:
+The default `MemoryStore` is ideal for development. For production use the [`@botmesh/sqlite-store`](https://github.com/andresayac/botmesh/tree/main/packages/sqlite-store) package:
 
 ```ts
-import { Bot } from '@bot-wa/core'
-import { BaileysProvider } from '@bot-wa/baileys'
-import { SQLiteStore } from '@bot-wa/sqlite-store'
+import { Bot } from '@botmesh/core'
+import { BaileysProvider } from '@botmesh/baileys'
+import { SQLiteStore } from '@botmesh/sqlite-store'
 
 const bot = new Bot({
   provider: new BaileysProvider({ session: 'my-bot' }),
@@ -99,7 +99,7 @@ const bot = new Bot({
 
 ## Documentation
 
-- [Migration guide v1 → v2](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/MIGRATION-v1-to-v2.md)
+- [Migration guide v1 → v2](https://github.com/andresayac/botmesh/blob/main/docs/MIGRATION-v1-to-v2.md)
 - API (TypeDoc): generate it locally with `pnpm docs:api` (output in `docs/api/`)
 
 ## Acknowledgements
@@ -108,4 +108,4 @@ Inspired by ideas and code from [bot-whatsapp](https://github.com/codigoencasa/b
 
 ## License
 
-[MIT](https://github.com/andresayac/bot-wa-baileys/blob/main/LICENSE.md) © Andres Aya
+[MIT](https://github.com/andresayac/botmesh/blob/main/LICENSE.md) © Andres Aya

@@ -8,7 +8,7 @@ import {
   UnsupportedContentError,
   type IProvider,
   type InboundEvent,
-} from '@bot-wa/core'
+} from '@botmesh/core'
 import { GupshupProvider } from '../src/GupshupProvider.js'
 import { GupshupApiError } from '../src/errors.js'
 import type { GupshupCallback } from '../src/types.js'

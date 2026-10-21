@@ -2,8 +2,8 @@ import { mkdtemp, readFile, rm, writeFile, mkdir, readdir } from 'node:fs/promis
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, it, expect, afterEach, vi } from 'vitest'
-import { Bot } from '@bot-wa/core'
-import { MockProvider } from '@bot-wa/core/testing'
+import { Bot } from '@botmesh/core'
+import { MockProvider } from '@botmesh/core/testing'
 import {
   BotManager,
   FileBotConfigStore,

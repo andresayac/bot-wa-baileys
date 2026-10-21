@@ -1,13 +1,13 @@
-# @bot-wa/ai
+# @botmesh/ai
 
 Multi-provider AI plugin (Anthropic / OpenAI / Ollama / Gemini + 9
 OpenAI-compatible presets) for
-[`@bot-wa/core`](https://github.com/andresayac/bot-wa-baileys). A single
+[`@botmesh/core`](https://github.com/andresayac/botmesh). A single
 `bot.plug(aiPlugin(...))` gives you a catch-all autoresponder with per-chat
 conversation memory; `ctx.tools.ai` gives you the full client to use wherever
 you want (flows, conversations, commands).
 
-> **Alpha — first npm publish pending.** `@bot-wa/ai` ships with the first
+> **Alpha — first npm publish pending.** `@botmesh/ai` ships with the first
 alpha but is **not on npm yet**: until then, use it from this monorepo
 >(`workspace:*`). The `pnpm add` commands below are the ones that will work
 >once it is published.
@@ -27,7 +27,7 @@ In practice, with `aiPlugin`:
   [Quickstart](#quickstart-beginner-mode).
 - Offer a way out to a human and do not present the bot as an assistant
   "for everything".
-- The rule comes from the official Cloud API terms (`@bot-wa/meta`). Baileys is an
+- The rule comes from the official Cloud API terms (`@botmesh/meta`). Baileys is an
   unofficial WhatsApp Web client and is also subject to WhatsApp's terms.
 
 This is practical guidance, not legal advice: review the
@@ -37,7 +37,7 @@ before going to production.
 ## Installation
 
 ```bash
-pnpm add @bot-wa/ai@alpha @anthropic-ai/sdk
+pnpm add @botmesh/ai@alpha @anthropic-ai/sdk
 ```
 
 The second package is the SDK of the provider you are going to use — install the
@@ -51,14 +51,14 @@ right one:
 | `gemini` | `@google/generative-ai` |
 | `deepseek` · `qwen` · `glm` · `kimi` · `groq` · `openrouter` · `mistral` · `grok` · `together` | `openai` (they are OpenAI-compatible; they use their own `baseURL`, **no extra SDK**) |
 
-Requires **Node >= 22** and `@bot-wa/core` already installed in your project.
+Requires **Node >= 22** and `@botmesh/core` already installed in your project.
 
 ## Quickstart (beginner mode)
 
 ```ts
-import { Bot } from '@bot-wa/core'
-import { BaileysProvider } from '@bot-wa/baileys'
-import { aiPlugin } from '@bot-wa/ai'
+import { Bot } from '@botmesh/core'
+import { BaileysProvider } from '@botmesh/baileys'
+import { aiPlugin } from '@botmesh/ai'
 
 const bot = new Bot({ provider: new BaileysProvider({ session: 'my-bot' }) })
 
@@ -129,8 +129,8 @@ bot.conversation('complaint', async (c, ctx) => {
 - `stream(input): AsyncIterable<string>` — like `generate` but
   yielding the text in chunks (`for await (const delta of ...)`).
 
-**Typing (TypeScript).** Importing `@bot-wa/ai` augments the `DefaultTools`
-interface of `@bot-wa/core` (*module augmentation*), so `ctx.tools.ai` is
+**Typing (TypeScript).** Importing `@botmesh/ai` augments the `DefaultTools`
+interface of `@botmesh/core` (*module augmentation*), so `ctx.tools.ai` is
 already an `AIClient` in the handlers of `when()`, `onMessage()` and
 `command()` (and in `bot.injectTools.ai`), with no casts:
 
@@ -270,7 +270,7 @@ The model can run bot functions through each provider's native
 Ollama). You declare each tool once:
 
 ```ts
-import { aiPlugin, defineTool } from '@bot-wa/ai'
+import { aiPlugin, defineTool } from '@botmesh/ai'
 import { z } from 'zod' // optional: any schema with safeParse()
 
 bot.plug(aiPlugin({
@@ -437,8 +437,8 @@ tools: {
 ```
 
 The full bakery example is in the
-[AI tools](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/guide/ai-tools.md#best-practices-for-tools-with-side-effects)
-guide and the `ai-full` template of `create-bot-wa` ships the same tools.
+[AI tools](https://github.com/andresayac/botmesh/blob/main/docs/guide/ai-tools.md#best-practices-for-tools-with-side-effects)
+guide and the `ai-full` template of `create-botmesh` ships the same tools.
 
 For tests, `MockAIProvider` accepts turns with tool calls:
 
@@ -470,7 +470,7 @@ and zero network — use it to test your own logic around `AIClient` without
 calling a real provider:
 
 ```ts
-import { AIClient, ContextManager, MockAIProvider, type ConvStore, type AIMessage } from '@bot-wa/ai'
+import { AIClient, ContextManager, MockAIProvider, type ConvStore, type AIMessage } from '@botmesh/ai'
 
 const memory = new Map<string, AIMessage[]>()
 const store: ConvStore = {
@@ -527,10 +527,10 @@ is in flight, its facts are discarded: they never show up again.
 ## RAG (answers from your documents)
 
 `rag` accepts any object with `retrieve(query)`; the
-[`@bot-wa/rag`](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/rag) package ships a ready one (loaders, chunking, embeddings and index):
+[`@botmesh/rag`](https://github.com/andresayac/botmesh/tree/main/packages/rag) package ships a ready one (loaders, chunking, embeddings and index):
 
 ```ts
-import { createRag } from '@bot-wa/rag'
+import { createRag } from '@botmesh/rag'
 
 bot.plug(aiPlugin({
   provider: 'openai',
@@ -551,7 +551,7 @@ answer continues without context, without blocking the chat queue.
 ## Streaming
 
 With `stream`, the autoresponder sends the answer while it is generated with
-`ctx.stream()` from `@bot-wa/core`: native drafts on Telegram, live edits on
+`ctx.stream()` from `@botmesh/core`: native drafts on Telegram, live edits on
 Discord and sentence chunks with "typing…" on WhatsApp.
 
 ```ts
@@ -590,7 +590,7 @@ Non-goals of this first version, already accounted for in the design of
 
 ## More documentation
 
-- [Site guide (EN)](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/guide/ai.md) ·
-  [Site guide (ES)](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/es/guide/ai.md)
-- [`@bot-wa/core`](https://github.com/andresayac/bot-wa-baileys/blob/main/packages/core/README.md) — the base framework (plugins,
+- [Site guide (EN)](https://github.com/andresayac/botmesh/blob/main/docs/guide/ai.md) ·
+  [Site guide (ES)](https://github.com/andresayac/botmesh/blob/main/docs/es/guide/ai.md)
+- [`@botmesh/core`](https://github.com/andresayac/botmesh/blob/main/packages/core/README.md) — the base framework (plugins,
   DI, conversations)

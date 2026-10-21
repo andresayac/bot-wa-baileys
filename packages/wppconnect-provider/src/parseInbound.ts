@@ -7,7 +7,7 @@
  * BEFORE calling this mapper (see `WPPConnectProvider.ingest`).
  */
 
-import { toInboundLocation } from '@bot-wa/core'
+import { toInboundLocation } from '@botmesh/core'
 import type {
   ChatInfo,
   DisconnectReason,
@@ -17,8 +17,8 @@ import type {
   MessageType,
   QuotedRef,
   SenderInfo,
-} from '@bot-wa/core'
-import { isGroupJid, isLidJid, isRecord, normalizeJid, type WaIdentityStore } from '@bot-wa/wa-gateway-kit'
+} from '@botmesh/core'
+import { isGroupJid, isLidJid, isRecord, normalizeJid, type WaIdentityStore } from '@botmesh/wa-gateway-kit'
 import type { WppId, WppMediaToken, WppMessage } from './types.js'
 
 export interface ParseContext {

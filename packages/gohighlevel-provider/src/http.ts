@@ -1,11 +1,11 @@
 /**
  * Small transport helpers shared by the provider: header lookup, the
  * numbered-text fallback for buttons / lists, and the REST call wrapper over
- * `secureFetch` (@bot-wa/http).
+ * `secureFetch` (@botmesh/http).
  */
 
-import { secureFetch, type SecureFetchOptions } from '@bot-wa/http'
-import type { ListSection } from '@bot-wa/core'
+import { secureFetch, type SecureFetchOptions } from '@botmesh/http'
+import type { ListSection } from '@botmesh/core'
 
 export type HeaderBag = Record<string, string | string[] | undefined>
 

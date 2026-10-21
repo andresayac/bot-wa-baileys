@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { flow } from '@bot-wa/core'
-import { createTestBot } from '@bot-wa/core/testing'
+import { flow } from '@botmesh/core'
+import { createTestBot } from '@botmesh/core/testing'
 import { DialogflowContext, dialogflowContext, dialogflowPlugin, toSessionId, whenDialogflowIntent, type DialogflowPluginConfig } from '../src/index.js'
 import { FakeGoogle, credentials, esResponse, type RecordedRequest } from './fakes.js'
 

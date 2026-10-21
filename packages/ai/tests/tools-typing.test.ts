@@ -1,13 +1,13 @@
 /**
- * Type-level contract: importing `@bot-wa/ai` augments `@bot-wa/core`'s
+ * Type-level contract: importing `@botmesh/ai` augments `@botmesh/core`'s
  * `DefaultTools`, so `ctx.tools.ai` is an {@link AIClient} in handlers without
  * casts. The `expectTypeOf` assertions (and the plain `ctx.tools.ai.ask(...)`
  * calls) are enforced by `pnpm typecheck`; the runtime half proves the typed
  * value really is the client the plugin injected.
  */
 import { describe, it, expect, expectTypeOf } from 'vitest'
-import type { DefaultTools, MessageContext, PluginContext } from '@bot-wa/core'
-import { createTestBot } from '@bot-wa/core/testing'
+import type { DefaultTools, MessageContext, PluginContext } from '@botmesh/core'
+import { createTestBot } from '@botmesh/core/testing'
 // The public entry is what carries the augmentation.
 import { AIClient, MockAIProvider, aiPlugin } from '../src/index.js'
 

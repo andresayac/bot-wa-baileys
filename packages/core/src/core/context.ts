@@ -3,7 +3,7 @@
  *
  * Transport-agnostic: it wraps an already-normalized {@link InboundMessage} and
  * a `send(OutboundContent)` provided by the transport. All proto parsing, JID /
- * LID-PN handling and media transcoding live in the provider (e.g. @bot-wa/baileys),
+ * LID-PN handling and media transcoding live in the provider (e.g. @botmesh/baileys),
  * NOT here. Reply helpers keep their familiar signatures; internally each builds
  * an {@link OutboundContent} descriptor and calls the provider.
  *

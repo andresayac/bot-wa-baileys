@@ -1,8 +1,8 @@
 {
-  "name": "@bot-wa/meta",
+  "name": "@botmesh/meta",
   "version": "0.2.0-alpha.0",
   "type": "module",
-  "description": "WhatsApp Cloud API (official Meta) transport for @bot-wa/core — webhook-based, no ban risk, native buttons/lists/templates.",
+  "description": "WhatsApp Cloud API (official Meta) transport for @botmesh/core — webhook-based, no ban risk, native buttons/lists/templates.",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
   "exports": {
@@ -14,16 +14,16 @@
   "engines": {
     "node": ">=22"
   },
-  "keywords": ["bot-wa", "whatsapp", "cloud-api", "meta", "provider", "transport", "webhook"],
+  "keywords": ["botmesh", "whatsapp", "cloud-api", "meta", "provider", "transport", "webhook"],
   "author": "Andres Aya",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/andresayac/bot-wa-baileys.git",
+    "url": "git+https://github.com/andresayac/botmesh.git",
     "directory": "packages/meta-provider"
   },
-  "homepage": "https://github.com/andresayac/bot-wa-baileys/tree/main/packages/meta-provider#readme",
-  "bugs": { "url": "https://github.com/andresayac/bot-wa-baileys/issues" },
+  "homepage": "https://github.com/andresayac/botmesh/tree/main/packages/meta-provider#readme",
+  "bugs": { "url": "https://github.com/andresayac/botmesh/issues" },
   "files": ["./lib/**/*"],
   "scripts": {
     "build": "tsc",
@@ -32,9 +32,9 @@
     "typecheck": "tsc -p tsconfig.test.json"
   },
   "dependencies": {
-    "@bot-wa/core": "workspace:^",
-    "@bot-wa/graph-core": "workspace:^",
-    "@bot-wa/http": "workspace:^",
+    "@botmesh/core": "workspace:^",
+    "@botmesh/graph-core": "workspace:^",
+    "@botmesh/http": "workspace:^",
     "pino": "^10.3.1"
   },
   "devDependencies": {

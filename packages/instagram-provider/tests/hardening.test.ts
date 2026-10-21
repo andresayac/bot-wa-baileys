@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { OutsideSessionWindowError, RecipientUnreachableError } from '@bot-wa/core'
+import { OutsideSessionWindowError, RecipientUnreachableError } from '@botmesh/core'
 import { InstagramProvider } from '../src/InstagramProvider.js'
 import { toProviderError } from '../src/graphClient.js'
 import { toOutbound } from '../src/toOutbound.js'

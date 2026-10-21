@@ -59,7 +59,7 @@ flowchart TD
    `ctx.user` preference → provider-reported language → `detect` →
    default), so hooks and handlers already see it (`ctx.langSource` says
    which one won). Then the hooks run and may `abort()` the message. If a
-   hook rewrote `ctx.body` (e.g. the `@bot-wa/voice` transcript) and
+   hook rewrote `ctx.body` (e.g. the `@botmesh/voice` transcript) and
    the language came from `detect` or the default, it is resolved again so
    `detect` sees the final text (a `ctx.lang` a hook set itself is kept).
 6. **Handoff gate**: while a chat is [handed off to a human](./handoff),
@@ -128,17 +128,17 @@ bot.onImage(async (ctx) => {
 ### 1. Bot + Provider — the center
 
 ```ts
-import { Bot } from '@bot-wa/core'
-import { BaileysProvider } from '@bot-wa/baileys'
+import { Bot } from '@botmesh/core'
+import { BaileysProvider } from '@botmesh/baileys'
 
 const bot = new Bot({ provider: new BaileysProvider({ session: 'my-bot' }) })
 await bot.start()
 ```
 
-The `Bot` (from `@bot-wa/core`) is the transport-agnostic engine: it runs
+The `Bot` (from `@botmesh/core`) is the transport-agnostic engine: it runs
 the Dispatcher, hooks, flows, conversations and the scheduler. The
-**provider** is the transport boundary — `@bot-wa/baileys` connects to
-WhatsApp; `@bot-wa/meta` (official Cloud API), `@bot-wa/telegram` and the
+**provider** is the transport boundary — `@botmesh/baileys` connects to
+WhatsApp; `@botmesh/meta` (official Cloud API), `@botmesh/telegram` and the
 experimental Messenger, Instagram and Discord transports plug into the same
 engine. All transports feed the bot
 the same normalized events.
@@ -276,7 +276,7 @@ event, stays the same when it is redelivered, and is `''` when the
 transport cannot guarantee that. This is the **inbound id contract**,
 documented on `IProvider`. Advanced: `InboundDeduper`,
 `createInboundDeduper`, `inboundDedupeKey` and `DEFAULT_DEDUPE_SIZE` are
-exported from `@bot-wa/core`.
+exported from `@botmesh/core`.
 
 ## `'message'` event vs `onMessage()`
 

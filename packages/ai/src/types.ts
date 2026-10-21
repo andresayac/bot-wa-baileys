@@ -1,5 +1,5 @@
-export type { AIMessage } from '@bot-wa/core'
-import type { StreamOptions, TextFormat } from '@bot-wa/core'
+export type { AIMessage } from '@botmesh/core'
+import type { StreamOptions, TextFormat } from '@botmesh/core'
 import type { PresetName } from './providers/presets.js'
 import type { AIMemoryConfig } from './memory/MemoryManager.js'
 import type { AIRagConfig, AIRetriever } from './rag.js'
@@ -125,7 +125,7 @@ export interface AIConfig {
   memory?: boolean | AIMemoryConfig
   /**
    * Retrieval Augmented Generation (FEATURES.md #29): a retriever such as
-   * `createRag({ documents })` from `@bot-wa/rag`, or `{ retriever, topK, appendSources }`.
+   * `createRag({ documents })` from `@botmesh/rag`, or `{ retriever, topK, appendSources }`.
    */
   rag?: AIRetriever | AIRagConfig
   /**

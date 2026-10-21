@@ -1,6 +1,6 @@
 /** Durable media references: the journaled Cloud API media id round-trips and downloads like a live one. */
 import { describe, expect, it, vi } from 'vitest'
-import { ProviderError, type SerializedMediaRef } from '@bot-wa/core'
+import { ProviderError, type SerializedMediaRef } from '@botmesh/core'
 import { CloudAPIProvider } from '../src/CloudAPIProvider.js'
 
 const baseCfg = { accessToken: 'TOK', phoneNumberId: 'PNID', verifyToken: 'vt', allowUnsignedWebhooks: true }

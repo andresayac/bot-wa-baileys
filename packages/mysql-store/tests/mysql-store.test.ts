@@ -7,7 +7,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { createPool } from 'mysql2/promise'
 import { MysqlStore } from '../src/MysqlStore.js'
 import { FakePool } from './fakePool.js'
-import type { FlowCheckpoint, StoredMessage } from '@bot-wa/core'
+import type { FlowCheckpoint, StoredMessage } from '@botmesh/core'
 
 // Mock 'mysql2/promise' so `new MysqlStore({ uri })` (no injected pool)
 // builds a fake pool instead of opening a real connection. Async factory

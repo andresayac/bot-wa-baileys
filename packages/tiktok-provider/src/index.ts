@@ -1,5 +1,5 @@
 /**
- * @bot-wa/tiktok — TikTok transport for @bot-wa/core over the official TikTok
+ * @botmesh/tiktok — TikTok transport for @botmesh/core over the official TikTok
  * API for Business: comment replies on owned videos (Accounts API) and direct
  * messages (Business Messaging API), webhook-driven with TikTok-Signature
  * verification.

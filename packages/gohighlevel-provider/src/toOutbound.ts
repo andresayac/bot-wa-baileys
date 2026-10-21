@@ -10,7 +10,7 @@
  *  - `native` → payload fields merged verbatim (e.g. `{ html, subject }`).
  */
 
-import { UnsupportedContentError, type MediaSource, type OutboundContent } from '@bot-wa/core'
+import { UnsupportedContentError, type MediaSource, type OutboundContent } from '@botmesh/core'
 import { listRows, numberedText } from './http.js'
 
 export type GhlOutboundFields = Record<string, unknown>

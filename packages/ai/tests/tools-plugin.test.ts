@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { createTestBot } from '@bot-wa/core/testing'
-import type { LoggerLike } from '@bot-wa/core'
+import { createTestBot } from '@botmesh/core/testing'
+import type { LoggerLike } from '@botmesh/core'
 import { MockAIProvider } from '../src/MockAIProvider.js'
 import { aiPlugin } from '../src/plugin.js'
 import type { AIPluginConfig } from '../src/plugin.js'

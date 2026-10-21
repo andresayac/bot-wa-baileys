@@ -1,6 +1,6 @@
 /**
  * Tracing contract of the core (`BotConfig.telemetry`): the minimal {@link BotTracer}
- * an integration implements (OpenTelemetry through `@bot-wa/otel`, a test recorder, …)
+ * an integration implements (OpenTelemetry through `@botmesh/otel`, a test recorder, …)
  * and the {@link BotTracing} facade the bot and its plugins use (`bot.tracing`).
  *
  * Nothing here records message bodies or personal data: the core only puts ids (hashed
@@ -78,7 +78,7 @@ export interface SpanOptions {
 
 /**
  * The ONLY thing a tracing integration implements. Minimal on purpose, so it can be
- * backed by OpenTelemetry (`@bot-wa/otel`), Datadog, Sentry or a test recorder.
+ * backed by OpenTelemetry (`@botmesh/otel`), Datadog, Sentry or a test recorder.
  */
 export interface BotTracer {
   startSpan(name: string, options?: SpanOptions): BotSpan
@@ -112,7 +112,7 @@ export interface TelemetryConfig {
 }
 
 /**
- * Tracing facade of a bot (`bot.tracing`), also used by plugins (`@bot-wa/ai`). Without
+ * Tracing facade of a bot (`bot.tracing`), also used by plugins (`@botmesh/ai`). Without
  * `BotConfig.telemetry` it is a no-op (`enabled === false`).
  */
 export interface BotTracing {

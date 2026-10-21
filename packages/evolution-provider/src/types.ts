@@ -1,12 +1,12 @@
 /**
- * @bot-wa/evolution — config + Evolution API v2 wire types (the subset used).
+ * @botmesh/evolution — config + Evolution API v2 wire types (the subset used).
  *
  * Wire shapes are deliberately loose: Evolution relays Baileys' protobuf JSON,
  * which is additive and version-dependent.
  */
 
-import type { IdentityPersistence, RestHttpOptions } from '@bot-wa/wa-gateway-kit'
-import type { LoggerLike } from '@bot-wa/core'
+import type { IdentityPersistence, RestHttpOptions } from '@botmesh/wa-gateway-kit'
+import type { LoggerLike } from '@botmesh/core'
 
 export interface EvolutionProviderConfig {
   /** Evolution API base URL, e.g. `http://localhost:8080`. */

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { Bot, flow } from '@bot-wa/core'
-import { MockProvider } from '@bot-wa/core/testing'
+import { Bot, flow } from '@botmesh/core'
+import { MockProvider } from '@botmesh/core/testing'
 
 import { bridgeMetrics, otelMetricsPlugin, otelTracer, registerOtelMetrics } from '../src/index.js'
 import { api, memoryMetrics, memoryTracing, tick } from './helpers.js'
@@ -101,7 +101,7 @@ describe('span metrics', () => {
     const m = memoryMetrics()
     const tracer = otelTracer({ api, tracerProvider: tracingEnv.provider, spanMetrics: { meterProvider: m.meterProvider } })
     const { bot } = await busyBot({ telemetry: { tracer, ids: 'raw' } })
-    // A model call span as @bot-wa/ai writes it.
+    // A model call span as @botmesh/ai writes it.
     bot.tracing.trace('chat acme-1', { kind: 'client', attributes: { 'gen_ai.operation.name': 'chat', 'gen_ai.provider.name': 'acme', 'gen_ai.request.model': 'acme-1' } }, (span) => {
       span.setAttributes({ 'gen_ai.usage.input_tokens': 12, 'gen_ai.usage.output_tokens': 7 })
     })

@@ -66,7 +66,7 @@ export type ManagerApiHandler = (req: IncomingMessage, res: ServerResponse) => v
  * @example
  * ```ts
  * import { createServer } from 'node:http'
- * import { BotManager, createManagerApi } from '@bot-wa/manager'
+ * import { BotManager, createManagerApi } from '@botmesh/manager'
  *
  * const manager = new BotManager()
  * const api = createManagerApi(manager, { prefix: '/api', auth: { token: process.env.MANAGER_TOKEN! } })
@@ -95,7 +95,7 @@ export function createManagerApi(manager: BotManager, opts: ManagerApiOptions = 
     warnedUnauthenticated = true
     // eslint-disable-next-line no-console
     console.warn(
-      '[bot-wa/manager] createManagerApi() has no `auth` token — the control plane is UNAUTHENTICATED. ' +
+      '[botmesh/manager] createManagerApi() has no `auth` token — the control plane is UNAUTHENTICATED. ' +
         'Anyone who can reach this socket can start/stop your bots. Pass { auth: { token } } or keep it off untrusted networks.',
     )
   }

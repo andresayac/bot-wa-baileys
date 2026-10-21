@@ -1,4 +1,4 @@
-import type { ChatId, MessageRef, UserId } from '@bot-wa/core'
+import type { ChatId, MessageRef, UserId } from '@botmesh/core'
 
 /** What the plugin can do to an offender. */
 export type ModerationAction = 'warn' | 'mute' | 'kick' | 'delete'

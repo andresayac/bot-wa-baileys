@@ -6,7 +6,7 @@ import {
   RateLimitedError,
   RecipientUnreachableError,
   UnsupportedContentError,
-} from '@bot-wa/core'
+} from '@botmesh/core'
 import { TelegramProvider } from '../src/TelegramProvider.js'
 
 interface Call { url: string; init?: RequestInit }

@@ -1,5 +1,5 @@
 /**
- * Shared conformance suite for `@bot-wa/tenant-kv`'s `TenantDocs` over a `DurableKv`
+ * Shared conformance suite for `@botmesh/tenant-kv`'s `TenantDocs` over a `DurableKv`
  * backend: tenant isolation, hostile tenant ids, insert-if-absent, compare-and-set
  * loss, the update loop under parallel writers, listing order/limit/index and corrupt
  * documents. Every backend a product store can run on (memory, file, SQLite,
@@ -8,9 +8,9 @@
  * Type-only imports keep this file runtime-dependency-free (vitest is injected by the runner).
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import type { DurableKv } from '@bot-wa/core'
+import type { DurableKv } from '@botmesh/core'
 
-/** Structural view of `@bot-wa/tenant-kv` (no runtime or type dependency on the package). */
+/** Structural view of `@botmesh/tenant-kv` (no runtime or type dependency on the package). */
 interface VersionedLike<T> { doc: T; version: string }
 interface DocTableLike<T> {
   table: string

@@ -1,13 +1,13 @@
 /**
- * @bot-wa/meta — types for the WhatsApp Cloud API (official Meta) transport.
+ * @botmesh/meta — types for the WhatsApp Cloud API (official Meta) transport.
  */
 
-import type { SecureFetchOptions } from '@bot-wa/http'
+import type { SecureFetchOptions } from '@botmesh/http'
 import type { IdentityMap } from './identity.js'
 import type { SessionWindowManager, SessionWindowOptions } from './sessionWindow.js'
 import type { UsageTracker, UsageTrackerOptions } from './pricing.js'
 import type { FlowRef } from './flows.js'
-import type { LoggerLike } from '@bot-wa/core'
+import type { LoggerLike } from '@botmesh/core'
 
 export interface CloudAPIProviderConfig {
   /** Permanent (system-user) access token with whatsapp_business_messaging. */
@@ -77,9 +77,9 @@ export interface CloudAPIProviderConfig {
  * Graph API error body.
  *
  * @deprecated No longer used by the provider: Graph responses are checked by
- * `readGraphResponse()` from `@bot-wa/graph-core`, which maps errors to the core
+ * `readGraphResponse()` from `@botmesh/graph-core`, which maps errors to the core
  * `ProviderError` subclasses. Will be removed in a future release; use
- * `GraphSendMessageResponse['error']` or `GraphError` from `@bot-wa/graph-core`.
+ * `GraphSendMessageResponse['error']` or `GraphError` from `@botmesh/graph-core`.
  */
 export interface GraphErrorBody {
   error?: {

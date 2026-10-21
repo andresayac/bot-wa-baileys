@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
-import { createTestBot } from '@bot-wa/core/testing'
-import { MemoryStore, UserDataService } from '@bot-wa/core'
+import { createTestBot } from '@botmesh/core/testing'
+import { MemoryStore, UserDataService } from '@botmesh/core'
 import { MockAIProvider } from '../src/MockAIProvider.js'
 import { AIClient } from '../src/AIClient.js'
 import { ContextManager } from '../src/ContextManager.js'

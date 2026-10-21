@@ -56,7 +56,7 @@ describe('defineBot / isMainModule', () => {
     expect(isMainModule({ url: pathToFileURL(lowerDrive).href })).toBe(true)
   })
 
-  it('is exported from @bot-wa/core and the full simulator API from @bot-wa/core/dev', () => {
+  it('is exported from @botmesh/core and the full simulator API from @botmesh/core/dev', () => {
     expect(publicApi.defineBot).toBe(defineBot)
     expect(publicApi.isMainModule).toBe(isMainModule)
     expect(typeof devApi.DevSession).toBe('function')

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { parseWebhook, normalizeEventName } from '../src/parseInbound.js'
-import { WaIdentityStore } from '@bot-wa/wa-gateway-kit'
+import { WaIdentityStore } from '@botmesh/wa-gateway-kit'
 import { fixture } from './support/fake.js'
 
 const PN = '573001112233@s.whatsapp.net'

@@ -1,5 +1,5 @@
 /**
- * @bot-wa/flow-schema — versioned, code-free JSON flows for BotWA.
+ * @botmesh/flow-schema — versioned, code-free JSON flows for BotWA.
  *
  * - **Validation**: {@link validateFlowDocument} / {@link isFlowDocument} and the
  *   JSON Schema itself ({@link FLOW_DOCUMENT_SCHEMA}, draft 2020-12), with precise
@@ -15,13 +15,13 @@
  * - **Migrations**: {@link migrateFlowDocument} chains version upgrades.
  * - **Deployments**: {@link flowDigest}, {@link diffFlowDocuments},
  *   {@link flowDocumentGate} and {@link publishFlow} (the optional integration with
- *   `@bot-wa/deployments`).
+ *   `@botmesh/deployments`).
  *
  * Private package: not published to npm.
  *
  * @example
  * ```ts
- * import { compileFlowDocument, validateFlowDocument } from '@bot-wa/flow-schema'
+ * import { compileFlowDocument, validateFlowDocument } from '@botmesh/flow-schema'
  *
  * const document = {
  *   version: 1 as const, id: 'encuesta', trigger: 'encuesta',

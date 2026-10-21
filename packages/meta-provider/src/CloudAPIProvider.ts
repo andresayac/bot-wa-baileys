@@ -1,6 +1,6 @@
 /**
  * CloudAPIProvider — WhatsApp Cloud API (official Meta) transport for
- * @bot-wa/core. Webhook-based (pushIngress): there is no socket. The host
+ * @botmesh/core. Webhook-based (pushIngress): there is no socket. The host
  * receives the webhook, verifies it with `verifyChallenge` (GET) and forwards
  * the POST body to `ingest()`. Outbound goes to the Graph `/messages` endpoint.
  *
@@ -21,7 +21,7 @@
 
 import { readFile } from 'node:fs/promises'
 import pino from 'pino'
-import type { LoggerLike } from '@bot-wa/core'
+import type { LoggerLike } from '@botmesh/core'
 import type {
   ChatId,
   IProvider,
@@ -35,8 +35,8 @@ import type {
   SendResult,
   SerializedMediaRef,
   UserId,
-} from '@bot-wa/core'
-import { ProviderError, UnsupportedContentError, assertFormDefinition, type FormDefinition } from '@bot-wa/core'
+} from '@botmesh/core'
+import { ProviderError, UnsupportedContentError, assertFormDefinition, type FormDefinition } from '@botmesh/core'
 import { flowRefOf, toFlowJson, toFlowMessage, type FlowJsonOptions, type FlowRef } from './flows.js'
 import type { CloudAPIProviderConfig } from './types.js'
 import { GraphClient } from './graphClient.js'
@@ -45,7 +45,7 @@ import { extractDrafts, resolveDrafts, type GraphWebhookBody, type InboundDraft 
 import { IdentityResolver, MemoryIdentityMap, isPromiseLike, type MaybePromise } from './identity.js'
 import { SessionWindowManager } from './sessionWindow.js'
 import { UsageTracker, pricingOf } from './pricing.js'
-import { verifyChallenge, checkGraphSignature, tryParseGraphBody, type ChallengeQuery } from '@bot-wa/graph-core'
+import { verifyChallenge, checkGraphSignature, tryParseGraphBody, type ChallengeQuery } from '@botmesh/graph-core'
 
 /** Content kinds that carry a `media` source. */
 /** A Cloud API media id (numeric in practice); anything else read back from a journal is rejected. */

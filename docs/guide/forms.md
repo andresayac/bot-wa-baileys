@@ -4,7 +4,7 @@
 to collect; the provider decides **how** to show it:
 
 - On providers with `capabilities.forms === 'native'` (today the WhatsApp Cloud
-  API, `@bot-wa/meta`) the form goes out as one native form, a **WhatsApp Flow**,
+  API, `@botmesh/meta`) the form goes out as one native form, a **WhatsApp Flow**,
   and the submission comes back as a single message.
 - Everywhere else (Baileys, Telegram, Discord, Messenger, Instagram, the
   simulator) the bot asks **field by field** with plain text questions.
@@ -12,7 +12,7 @@ to collect; the provider decides **how** to show it:
 Both paths validate with the same rules and store the same values in `c.state`.
 
 ```ts
-import { flow, type FormDefinition } from '@bot-wa/core'
+import { flow, type FormDefinition } from '@botmesh/core'
 
 const signup: FormDefinition = {
   id: 'signup',
@@ -103,7 +103,7 @@ by field too. `'native'` never falls back.
 
 ## WhatsApp Cloud API
 
-`@bot-wa/meta` compiles a form into a **static, single-screen WhatsApp Flow**
+`@botmesh/meta` compiles a form into a **static, single-screen WhatsApp Flow**
 (Flow JSON `6.2`, `navigate` action, no endpoint and no encryption) and sends it
 as an interactive `flow` message. The `nfm_reply` webhook is turned into a
 `'form'` message whose `flow_token` matches the pending step.
@@ -111,7 +111,7 @@ as an interactive `flow` message. The `nfm_reply` webhook is turned into a
 A Flow has to exist on Meta before it can be sent. Map your form ids to Flows:
 
 ```ts
-import { CloudAPIProvider, toFlowJson } from '@bot-wa/meta'
+import { CloudAPIProvider, toFlowJson } from '@botmesh/meta'
 
 const provider = new CloudAPIProvider({
   ...cfg,

@@ -1,21 +1,21 @@
-# @bot-wa/graph-core
+# @botmesh/graph-core
 
-Shared **Meta Graph** helpers for the Meta transports of [`@bot-wa/core`](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/core):
-[`@bot-wa/meta`](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/meta-provider) (WhatsApp Cloud API), [`@bot-wa/messenger`](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/messenger-provider) and
-[`@bot-wa/instagram`](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/instagram-provider). All three platforms verify the webhook the same way, sign the same way and
+Shared **Meta Graph** helpers for the Meta transports of [`@botmesh/core`](https://github.com/andresayac/botmesh/tree/main/packages/core):
+[`@botmesh/meta`](https://github.com/andresayac/botmesh/tree/main/packages/meta-provider) (WhatsApp Cloud API), [`@botmesh/messenger`](https://github.com/andresayac/botmesh/tree/main/packages/messenger-provider) and
+[`@botmesh/instagram`](https://github.com/andresayac/botmesh/tree/main/packages/instagram-provider). All three platforms verify the webhook the same way, sign the same way and
 return the same Graph error codes; this package gathers that logic in one place so it is not
 duplicated in every provider.
 
 > **Internal package.** The providers use it; you do not need to import it to build a bot. It ships with the
-> first alpha as a dependency of `@bot-wa/meta`, and it is not on npm yet.
+> first alpha as a dependency of `@botmesh/meta`, and it is not on npm yet.
 
 ## Installation
 
 ```bash
-pnpm add @bot-wa/graph-core
+pnpm add @botmesh/graph-core
 ```
 
-No extra dependencies: only `@bot-wa/core` and Node ≥ 22's native `crypto`.
+No extra dependencies: only `@botmesh/core` and Node ≥ 22's native `crypto`.
 
 ## What it includes
 
@@ -33,7 +33,7 @@ No extra dependencies: only `@bot-wa/core` and Node ≥ 22's native `crypto`.
 This is how a provider uses it in its `ingest()`:
 
 ```ts
-import { checkGraphSignature, tryParseGraphBody, verifyChallenge } from '@bot-wa/graph-core'
+import { checkGraphSignature, tryParseGraphBody, verifyChallenge } from '@botmesh/graph-core'
 
 // GET /webhook: subscription handshake
 const challenge = verifyChallenge(query, process.env.META_VERIFY_TOKEN!)
@@ -78,7 +78,7 @@ Without an `appSecret`, `checkGraphSignature` lets the request through. That is 
 `UnsupportedContentError.kind` says which content Graph rejected instead of each code's default.
 
 ```ts
-import { toGraphError } from '@bot-wa/graph-core'
+import { toGraphError } from '@botmesh/graph-core'
 
 const err = toGraphError({ code: 131047, message: 'Re-engagement message' }, { chatId })
 // err instanceof OutsideSessionWindowError

@@ -1,6 +1,6 @@
 {
   "type": "module",
-  "name": "@bot-wa/core",
+  "name": "@botmesh/core",
   "version": "2.0.0-alpha.2",
   "description": "Transport-agnostic WhatsApp/omnichannel bot engine — flows, hooks, plugins, conversations.",
   "main": "lib/index.js",
@@ -28,7 +28,7 @@
     }
   },
   "bin": {
-    "bot-wa": "lib/dev/bin.js"
+    "botmesh": "lib/dev/bin.js"
   },
   "engines": {
     "node": ">=22"
@@ -44,7 +44,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/andresayac/bot-wa-baileys.git",
+    "url": "git+https://github.com/andresayac/botmesh.git",
     "directory": "packages/core"
   },
   "keywords": [
@@ -72,9 +72,9 @@
   "author": "Andres Aya",
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/andresayac/bot-wa-baileys/issues"
+    "url": "https://github.com/andresayac/botmesh/issues"
   },
-  "homepage": "https://github.com/andresayac/bot-wa-baileys/tree/main/packages/core#readme",
+  "homepage": "https://github.com/andresayac/botmesh/tree/main/packages/core#readme",
   "devDependencies": {
     "@types/node": "^26.1.1",
     "typescript": "^7.0.2",

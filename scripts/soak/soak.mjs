@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Load + soak + leak harness for the @bot-wa/core runtime (and @bot-wa/ai with
+ * Load + soak + leak harness for the @botmesh/core runtime (and @botmesh/ai with
  * MockAIProvider). NOT part of `pnpm test`: run `pnpm build` first, then
  *
  *   pnpm bench:soak                                  # defaults (a few seconds)

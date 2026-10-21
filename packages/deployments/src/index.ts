@@ -1,12 +1,12 @@
 /**
- * @bot-wa/deployments — versioned bot deployments per tenant and bot: immutable
+ * @botmesh/deployments — versioned bot deployments per tenant and bot: immutable
  * versions, exactly one active version, publish gates (golden transcripts) whose every
  * run is persisted, and rollback.
  *
  * - {@link DeploymentRegistry} — publish / rollback / list over a {@link DeploymentStore}.
  * - {@link MemoryDeploymentStore} — the in-RAM reference store (default).
- * - {@link KvDeploymentStore} — persisted through any `DurableKv` of `@bot-wa/core`
- *   (SQLite, PostgreSQL, Redis, file) via `@bot-wa/tenant-kv`.
+ * - {@link KvDeploymentStore} — persisted through any `DurableKv` of `@botmesh/core`
+ *   (SQLite, PostgreSQL, Redis, file) via `@botmesh/tenant-kv`.
  *
  * The artifact is an opaque reference (e.g. a content hash); the real rollout and
  * gradual traffic shifting belong to an infrastructure adapter.

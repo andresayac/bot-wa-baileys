@@ -7,7 +7,7 @@ export type RagErrorCode =
   | 'EMBEDDING_FAILED'
   | 'INVALID_INDEX'
 
-/** Every failure raised by `@bot-wa/rag` (loading, embedding, persistence). */
+/** Every failure raised by `@botmesh/rag` (loading, embedding, persistence). */
 export class RagError extends Error {
   constructor(readonly code: RagErrorCode, message: string, options?: { cause?: unknown }) {
     super(message, options)

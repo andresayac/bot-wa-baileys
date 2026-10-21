@@ -40,7 +40,7 @@
  *
  * @example
  * ```ts
- * import { createTestBot } from '@bot-wa/core/testing'
+ * import { createTestBot } from '@botmesh/core/testing'
  *
  * const { bot, provider, chaos } = await createTestBot({}, {
  *   chaos: { seed: 7, duplicates: 0.3, reorder: 3, latency: { min: 0, max: 5 },

@@ -4,7 +4,7 @@
  *
  *   docker run -d --name botwa-it-redis-cluster -e IP=0.0.0.0 -e INITIAL_PORT=47100 \
  *     -e MASTERS=3 -e SLAVES_PER_MASTER=1 -p 127.0.0.1:47100-47105:47100-47105 grokzen/redis-cluster:7.0.10
- *   BOTWA_TEST_REDIS_CLUSTER_URL=redis://127.0.0.1:47100 pnpm --filter @bot-wa/redis-store test
+ *   BOTWA_TEST_REDIS_CLUSTER_URL=redis://127.0.0.1:47100 pnpm --filter @botmesh/redis-store test
  *
  * Every address the cluster announces is mapped to the seed's host (Docker port
  * mapping), keeping the announced port. Cleanup scans every master and deletes key by

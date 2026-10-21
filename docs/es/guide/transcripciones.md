@@ -17,11 +17,11 @@ El flujo de trabajo:
 
 | Función | Se importa de | Para qué |
 | --- | --- | --- |
-| `recordTranscript`, `RecordingProvider` | `@bot-wa/core` o `@bot-wa/core/testing` | Grabar tráfico real con un wrapper del provider |
-| `transcriptFromStore`, `transcriptFromMessages` | `@bot-wa/core` o `@bot-wa/core/testing` | Construir una transcripción desde el log de mensajes del store |
-| `redactTranscript`, `createRedactionMap` | `@bot-wa/core` o `@bot-wa/core/testing` | Sustituir datos personales por marcadores estables |
-| `parseTranscript`, `serializeTranscript`, `createTranscript` | `@bot-wa/core` o `@bot-wa/core/testing` | Leer, escribir y escribir a mano transcripciones |
-| `replayTranscript`, `assertTranscript`, `REPLAY_MASKS` | solo `@bot-wa/core/testing` | Reproducir y comparar |
+| `recordTranscript`, `RecordingProvider` | `@botmesh/core` o `@botmesh/core/testing` | Grabar tráfico real con un wrapper del provider |
+| `transcriptFromStore`, `transcriptFromMessages` | `@botmesh/core` o `@botmesh/core/testing` | Construir una transcripción desde el log de mensajes del store |
+| `redactTranscript`, `createRedactionMap` | `@botmesh/core` o `@botmesh/core/testing` | Sustituir datos personales por marcadores estables |
+| `parseTranscript`, `serializeTranscript`, `createTranscript` | `@botmesh/core` o `@botmesh/core/testing` | Leer, escribir y escribir a mano transcripciones |
+| `replayTranscript`, `assertTranscript`, `REPLAY_MASKS` | solo `@botmesh/core/testing` | Reproducir y comparar |
 
 ## Grabar una conversación
 
@@ -31,8 +31,8 @@ Pasa `recorder.provider` al bot; graba los mensajes e interacciones entrantes y
 cada envío correcto.
 
 ```ts
-import { Bot } from '@bot-wa/core'
-import { MockProvider, recordTranscript, redactTranscript, serializeTranscript } from '@bot-wa/core/testing'
+import { Bot } from '@botmesh/core'
+import { MockProvider, recordTranscript, redactTranscript, serializeTranscript } from '@botmesh/core/testing'
 import { writeFileSync } from 'node:fs'
 
 const recorder = recordTranscript(new MockProvider())
@@ -55,7 +55,7 @@ directamente desde el mock (ver [Snapshots de conversación](/es/guide/testing#s
 | `now` | `Date.now` | Reloj de los offsets `t`. |
 
 Los envíos fallidos u omitidos no se graban. La grabación también funciona en
-producción (por eso se exporta desde `@bot-wa/core`), pero el buffer guarda en
+producción (por eso se exporta desde `@botmesh/core`), pero el buffer guarda en
 RAM los cuerpos de los mensajes, los nombres visibles y los ids **sin
 redactar**: mantén `maxTurns` acotado y llama a `clear()` en cuanto hayas
 sacado una transcripción.
@@ -69,7 +69,7 @@ namespace del store que recibe, así que el store crudo no encuentra nada con
 los ids de chat sin más.
 
 ```ts
-import { transcriptFromStore } from '@bot-wa/core'
+import { transcriptFromStore } from '@botmesh/core'
 
 const transcript = await transcriptFromStore(bot, [chatId], { name: 'support-123', limit: 500 })
 ```
@@ -89,7 +89,7 @@ usan el push name por defecto del mock.
 
 ```json
 {
-  "format": "bot-wa/transcript",
+  "format": "botmesh/transcript",
   "version": 1,
   "name": "checkout",
   "source": "recorder",
@@ -165,8 +165,8 @@ y lo detiene.
 
 ```ts
 import { readFileSync } from 'node:fs'
-import { Bot, type IProvider } from '@bot-wa/core'
-import { assertTranscript, parseTranscript, REPLAY_MASKS } from '@bot-wa/core/testing'
+import { Bot, type IProvider } from '@botmesh/core'
+import { assertTranscript, parseTranscript, REPLAY_MASKS } from '@botmesh/core/testing'
 import { registerFlows } from '../src/flows.js'
 
 function buildBot(provider: IProvider) {
@@ -214,10 +214,10 @@ actividad, así detecta tanto las respuestas que faltan como las que sobran.
 
 `REPLAY_MASKS` trae máscaras listas: `isoDate`, `time`, `uuid` y `number`.
 
-## Gate de publicación (`@bot-wa/deployments`)
+## Gate de publicación (`@botmesh/deployments`)
 
 ::: warning Experimental — aún no publicado en npm
-`@bot-wa/deployments` es privado (no está en npm) y su API puede cambiar. Es
+`@botmesh/deployments` es privado (no está en npm) y su API puede cambiar. Es
 persistente: `MemoryDeploymentStore` es la referencia y `KvDeploymentStore`
 persiste sobre cualquier `DurableKv` (SQLite, PostgreSQL, Redis, archivo). Los
 gate runs se guardan en un log de auditoría.
@@ -246,9 +246,9 @@ bot nuevo.
 
 ```ts
 import { readFileSync } from 'node:fs'
-import { MemoryKv } from '@bot-wa/core'
-import { parseTranscript, REPLAY_MASKS } from '@bot-wa/core/testing'
-import { DeploymentGateError, DeploymentRegistry, KvDeploymentStore, goldenTranscriptGate } from '@bot-wa/deployments'
+import { MemoryKv } from '@botmesh/core'
+import { parseTranscript, REPLAY_MASKS } from '@botmesh/core/testing'
+import { DeploymentGateError, DeploymentRegistry, KvDeploymentStore, goldenTranscriptGate } from '@botmesh/deployments'
 
 const registry = new DeploymentRegistry(new KvDeploymentStore(new MemoryKv()))
 const gate = goldenTranscriptGate({
@@ -278,4 +278,4 @@ por transcripción.
 
 - [Testing](/es/guide/testing)
 - [Control plane](/es/guide/control-plane)
-- [README de `@bot-wa/deployments`](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/deployments)
+- [README de `@botmesh/deployments`](https://github.com/andresayac/botmesh/tree/main/packages/deployments)

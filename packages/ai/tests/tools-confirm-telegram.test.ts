@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { Bot } from '@bot-wa/core'
-import { TelegramProvider } from '@bot-wa/telegram'
+import { Bot } from '@botmesh/core'
+import { TelegramProvider } from '@botmesh/telegram'
 import { MockAIProvider } from '../src/MockAIProvider.js'
 import { aiPlugin } from '../src/plugin.js'
 import type { GenerateInput } from '../src/types.js'

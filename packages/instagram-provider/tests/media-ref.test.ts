@@ -4,8 +4,8 @@
  */
 import { createServer, type Server } from 'node:http'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { Bot, IMAGE, MemoryDurability, ProviderError, loadMediaOf, type SerializedMediaRef } from '@bot-wa/core'
-import { crashable } from '@bot-wa/core/testing'
+import { Bot, IMAGE, MemoryDurability, ProviderError, loadMediaOf, type SerializedMediaRef } from '@botmesh/core'
+import { crashable } from '@botmesh/core/testing'
 import { crashAndReplayMedia, type MediaReplayDeps } from '../../../test-utils/media-replay.js'
 import { InstagramProvider } from '../src/InstagramProvider.js'
 

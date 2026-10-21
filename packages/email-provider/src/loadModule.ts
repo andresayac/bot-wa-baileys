@@ -1,4 +1,4 @@
-import { ProviderError } from '@bot-wa/core'
+import { ProviderError } from '@botmesh/core'
 
 /**
  * Lazily import an optional peer dependency (`imapflow`, `nodemailer`) with an
@@ -10,7 +10,7 @@ export async function loadModule<T = unknown>(name: string, purpose: string): Pr
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err)
     throw new ProviderError(
-      `@bot-wa/email needs the optional peer dependency "${name}" for ${purpose}. ` +
+      `@botmesh/email needs the optional peer dependency "${name}" for ${purpose}. ` +
         `Install it with \`pnpm add ${name}\` (${detail})`,
     )
   }

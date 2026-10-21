@@ -1,6 +1,6 @@
 # Arquitectura
 
-Cómo está montado `@bot-wa/core`: las capas de paquetes, los módulos que hay detrás de
+Cómo está montado `@botmesh/core`: las capas de paquetes, los módulos que hay detrás de
 la clase `Bot`, el camino de un mensaje de entrada y de salida, y dónde se enchufan
 las funciones opcionales (durabilidad, coordinación entre réplicas, scheduler durable,
 trazas). No necesitas nada de esto para escribir un bot. Es para quien extiende el
@@ -12,11 +12,11 @@ El framework es un monorepo pnpm. Las dependencias solo van **hacia abajo**:
 
 | Capa | Paquetes |
 | --- | --- |
-| Motor | `@bot-wa/core` (su única dependencia runtime es `pino`) |
-| Infra compartida | `@bot-wa/http` (cliente anti-SSRF), `@bot-wa/graph-core` (helpers de Meta Graph) |
-| Canales | `@bot-wa/baileys`, `@bot-wa/meta`, `@bot-wa/telegram`, … (cada uno implementa `IProvider`) |
-| Stores | `@bot-wa/sqlite-store`, `@bot-wa/redis-store`, … (cada uno implementa `IStore`) |
-| Plugins / producto | `@bot-wa/ai`, `nlu`, `manager`, `inbox`, … |
+| Motor | `@botmesh/core` (su única dependencia runtime es `pino`) |
+| Infra compartida | `@botmesh/http` (cliente anti-SSRF), `@botmesh/graph-core` (helpers de Meta Graph) |
+| Canales | `@botmesh/baileys`, `@botmesh/meta`, `@botmesh/telegram`, … (cada uno implementa `IProvider`) |
+| Stores | `@botmesh/sqlite-store`, `@botmesh/redis-store`, … (cada uno implementa `IStore`) |
+| Plugins / producto | `@botmesh/ai`, `nlu`, `manager`, `inbox`, … |
 
 El core es **agnóstico de transporte**. No sabe nada de JIDs, códigos QR ni webhooks:
 los ids de chat, usuario y mensaje son strings opacos que nunca parsea, y el provider
@@ -149,7 +149,7 @@ descrito arriba sin las cajas punteadas.
 | Procesamiento durable | `durability` | Entrada: registra cada evento en un **inbox** antes de despacharlo y lo confirma cuando el trabajo que inició termina; lo reproduce tras una caída. Salida: consulta de idempotencia y un registro en el **outbox** por envío, con reintentos y cola de muertos. Ciclo de vida: un paso `durability` | [Procesamiento durable](/es/guide/durabilidad) |
 | Coordinación entre réplicas | `coordination` | Entrada: cada chat se procesa bajo un **turno** entre réplicas, en orden de llegada. Salida: un **fencing** rechaza envíos de una réplica que perdió su turno o la sesión del provider. Ciclo de vida: un paso `coordination` y elección de líder para transportes exclusivos. Con `coordination.handover`, los checkpoints de flow guardan la respuesta de un paso cortado y los flows no persistentes pueden pasar a otra réplica | [Varias réplicas](/es/guide/replicas) |
 | Scheduler durable | `scheduler` | Jobs: las tareas con `id` se guardan, sobreviven a reinicios con una política de ejecuciones perdidas y cada ocurrencia corre en una sola réplica (un **lease**) | [Scheduler](/es/guide/scheduler) |
-| Trazas | `telemetry` | Envuelve en spans las etapas que observa sin cambiar su orden ni sus tiempos: evento del provider (`bot.inbound`), persistencia, despacho, handler, cada turno de conversación entre esperas, el pacing y cada envío; `@bot-wa/ai` añade spans de modelo y herramientas. `@bot-wa/otel` (fuera del core, con `@opentelemetry/api` como peer opcional) los exporta. Cada ejecución de una tarea programada es un span raíz `bot.task`, y una conversación retomada en otra réplica (o tras un reinicio) enlaza su primer turno al turno que escribió el checkpoint (`FlowCheckpoint.trace`, W3C) | [Trazas](/es/guide/trazas) |
+| Trazas | `telemetry` | Envuelve en spans las etapas que observa sin cambiar su orden ni sus tiempos: evento del provider (`bot.inbound`), persistencia, despacho, handler, cada turno de conversación entre esperas, el pacing y cada envío; `@botmesh/ai` añade spans de modelo y herramientas. `@botmesh/otel` (fuera del core, con `@opentelemetry/api` como peer opcional) los exporta. Cada ejecución de una tarea programada es un span raíz `bot.task`, y una conversación retomada en otra réplica (o tras un reinicio) enlaza su primer turno al turno que escribió el checkpoint (`FlowCheckpoint.trace`, W3C) | [Trazas](/es/guide/trazas) |
 
 ## Ver también
 

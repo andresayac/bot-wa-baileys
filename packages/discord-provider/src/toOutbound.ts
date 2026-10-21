@@ -11,7 +11,7 @@
  * handled directly by DiscordProvider; `template` is unsupported on Discord.
  */
 
-import { UnsupportedContentError, type OutboundContent } from '@bot-wa/core'
+import { UnsupportedContentError, type OutboundContent } from '@botmesh/core'
 
 /** A resolved file ready to append as `files[n]` on the multipart request. */
 export interface DiscordFile {

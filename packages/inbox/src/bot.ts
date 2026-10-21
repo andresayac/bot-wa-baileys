@@ -6,7 +6,7 @@
  * listener.
  */
 
-import type { Bot, ChatId, MessageContext, PluginSpec } from '@bot-wa/core'
+import type { Bot, ChatId, MessageContext, PluginSpec } from '@botmesh/core'
 import type { Inbox } from './inbox.js'
 
 export interface AttachInboxOptions {

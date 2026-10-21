@@ -17,9 +17,9 @@
  *
  * @example
  * ```ts
- * import { Bot } from '@bot-wa/core'
- * import { BaileysProvider } from '@bot-wa/baileys'
- * import { PostgresStore } from '@bot-wa/postgres-store'
+ * import { Bot } from '@botmesh/core'
+ * import { BaileysProvider } from '@botmesh/baileys'
+ * import { PostgresStore } from '@botmesh/postgres-store'
  *
  * const store = new PostgresStore({
  *   connectionString: process.env.DATABASE_URL, // default: postgres://localhost:5432/botwa
@@ -45,8 +45,8 @@ import type {
   StoredMessage,
   UserDataEntry,
   UserId,
-} from '@bot-wa/core'
-import { legacyMessageKey, messageKey } from '@bot-wa/core'
+} from '@botmesh/core'
+import { legacyMessageKey, messageKey } from '@botmesh/core'
 import { PostgresUserData } from './userData.js'
 import { PostgresScheduleStore } from './schedules.js'
 import { jsonbSafeString, toJsonb } from './jsonb.js'

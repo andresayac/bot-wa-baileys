@@ -1,9 +1,9 @@
 {
-  "name": "@bot-wa/postgres-store",
+  "name": "@botmesh/postgres-store",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "PostgreSQL IStore for @bot-wa/core (node-postgres).",
+  "description": "PostgreSQL IStore for @botmesh/core (node-postgres).",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
   "exports": {
@@ -16,7 +16,7 @@
     "node": ">=22"
   },
   "keywords": [
-    "bot-wa",
+    "botmesh",
     "store",
     "postgres-store"
   ],
@@ -24,12 +24,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/andresayac/bot-wa-baileys.git",
+    "url": "git+https://github.com/andresayac/botmesh.git",
     "directory": "packages/postgres-store"
   },
-  "homepage": "https://github.com/andresayac/bot-wa-baileys/tree/main/packages/postgres-store#readme",
+  "homepage": "https://github.com/andresayac/botmesh/tree/main/packages/postgres-store#readme",
   "bugs": {
-    "url": "https://github.com/andresayac/bot-wa-baileys/issues"
+    "url": "https://github.com/andresayac/botmesh/issues"
   },
   "files": [
     "./lib/**/*"
@@ -41,7 +41,7 @@
     "typecheck": "tsc -p tsconfig.test.json"
   },
   "dependencies": {
-    "@bot-wa/core": "workspace:*",
+    "@botmesh/core": "workspace:*",
     "pg": "^8.13.0"
   },
   "devDependencies": {

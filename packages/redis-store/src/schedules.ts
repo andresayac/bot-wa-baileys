@@ -29,7 +29,7 @@ import {
   type CompletePatch,
   type ScheduleRecord,
   type ScheduleStore,
-} from '@bot-wa/core'
+} from '@botmesh/core'
 import type { RedisLikeClient } from './RedisStore.js'
 import { casJson, type CasIndex } from './cas.js'
 import { escapeGlob } from './glob.js'

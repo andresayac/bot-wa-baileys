@@ -1,9 +1,9 @@
 {
-  "name": "@bot-wa/gupshup",
+  "name": "@botmesh/gupshup",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Gupshup WhatsApp transport for @bot-wa/core — Gupshup WhatsApp API v1 + v2 callbacks.",
+  "description": "Gupshup WhatsApp transport for @botmesh/core — Gupshup WhatsApp API v1 + v2 callbacks.",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
   "exports": {
@@ -16,7 +16,7 @@
     "node": ">=22"
   },
   "keywords": [
-    "bot-wa",
+    "botmesh",
     "gupshup",
     "whatsapp",
     "provider",
@@ -26,12 +26,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/andresayac/bot-wa-baileys.git",
+    "url": "git+https://github.com/andresayac/botmesh.git",
     "directory": "packages/gupshup-provider"
   },
-  "homepage": "https://github.com/andresayac/bot-wa-baileys/tree/main/packages/gupshup-provider#readme",
+  "homepage": "https://github.com/andresayac/botmesh/tree/main/packages/gupshup-provider#readme",
   "bugs": {
-    "url": "https://github.com/andresayac/bot-wa-baileys/issues"
+    "url": "https://github.com/andresayac/botmesh/issues"
   },
   "files": [
     "./lib/**/*"
@@ -43,8 +43,8 @@
     "typecheck": "tsc -p tsconfig.test.json"
   },
   "dependencies": {
-    "@bot-wa/core": "workspace:*",
-    "@bot-wa/http": "workspace:*",
+    "@botmesh/core": "workspace:*",
+    "@botmesh/http": "workspace:*",
     "pino": "^10.3.1"
   },
   "devDependencies": {

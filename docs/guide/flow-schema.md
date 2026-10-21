@@ -1,11 +1,11 @@
 # JSON flow schema
 
-`@bot-wa/flow-schema` (private, monorepo only) defines **versioned, code-free flow documents**: JSON that the manager stores and hot-swaps, that the deployment gate validates, and that compiles to a core `CompiledFlow`.
+`@botmesh/flow-schema` (private, monorepo only) defines **versioned, code-free flow documents**: JSON that the manager stores and hot-swaps, that the deployment gate validates, and that compiles to a core `CompiledFlow`.
 
 A document is **data only**. It never carries functions, `eval`, module imports or arbitrary expressions: the only computation is a safe expression language and `{{ path }}` templates.
 
 ```ts
-import { compileFlowDocument, validateFlowDocument } from '@bot-wa/flow-schema'
+import { compileFlowDocument, validateFlowDocument } from '@botmesh/flow-schema'
 
 const document = {
   version: 1 as const,
@@ -48,7 +48,7 @@ if (validateFlowDocument(document).length === 0) bot.registerFlow(compileFlowDoc
 | `form` | Native form (or degraded question-by-question) with typed fields; see [Forms](./forms.md). |
 | `guard` | `if` expression; when false it sends `message` and ends, or `message` + `redirect` to another flow. |
 | `subflow` | Runs another document inline (same state), resolved by `resolveSubflow`. |
-| `http` | Declarative HTTP request through `@bot-wa/http` (anti-SSRF, redirects, timeout and size limits). Stores the JSON/text body in `stateKey`. |
+| `http` | Declarative HTTP request through `@botmesh/http` (anti-SSRF, redirects, timeout and size limits). Stores the JSON/text body in `stateKey`. |
 | `handoff` | Hands the chat to a human (`ctx.handoff`), with an optional message. |
 | `ai` | One AI turn through `ctx.tools.ai.replyInChat`, optionally restricted to tool ids (`tools: ['lookup']`); stores the answer in `stateKey`. |
 
@@ -89,7 +89,7 @@ A subflow's steps run inline (same `c.state`, no second trigger). A missing docu
 ## Migrations
 
 ```ts
-import { migrateFlowDocument } from '@bot-wa/flow-schema'
+import { migrateFlowDocument } from '@botmesh/flow-schema'
 
 const { document, from, applied } = migrateFlowDocument(storedDraft)
 ```
@@ -99,7 +99,7 @@ Version 0 (no `version`, the pre-versioned shape) becomes version 1. A version n
 ## Reverse export
 
 ```ts
-import { exportFlowDocument } from '@bot-wa/flow-schema'
+import { exportFlowDocument } from '@botmesh/flow-schema'
 
 const document = exportFlowDocument(compiledFlow)
 ```
@@ -109,14 +109,14 @@ Flows compiled from a document round-trip exactly (the original JSON is kept as 
 ## Drafts and deployments
 
 ```ts
-import { diffFlowDocuments, flowDigest, publishFlow } from '@bot-wa/flow-schema'
+import { diffFlowDocuments, flowDigest, publishFlow } from '@botmesh/flow-schema'
 
 const changes = diffFlowDocuments(draft, published)   // metadata, added/removed/changed steps with paths
 const digest = flowDigest(draft)                      // sha256 of canonical JSON, stable across key order
 await publishFlow(registry, 'acme', 'support', draft) // DeploymentRegistry gate + audited gate run
 ```
 
-`publishFlow()` uses the document JSON as the artifact and a `flowDocumentGate()` that parses, validates and compiles the candidate; `options.gate` can chain another gate (e.g. golden transcripts). `@bot-wa/deployments` owns the storage; this package only provides the pure helpers.
+`publishFlow()` uses the document JSON as the artifact and a `flowDocumentGate()` that parses, validates and compiles the candidate; `options.gate` can chain another gate (e.g. golden transcripts). `@botmesh/deployments` owns the storage; this package only provides the pure helpers.
 
 ## Manager REST
 

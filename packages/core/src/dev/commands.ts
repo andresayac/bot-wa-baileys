@@ -1,5 +1,5 @@
 /**
- * Pure parser for what the developer types into `bot-wa dev`.
+ * Pure parser for what the developer types into `botmesh dev`.
  *
  * A line that starts with `:` followed by a letter is a simulator command
  * (`:as alice`, `:media image ./cat.png`); anything else is a chat message sent

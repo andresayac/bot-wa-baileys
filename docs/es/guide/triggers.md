@@ -1,6 +1,6 @@
 # Triggers especiales: WELCOME, tipos de mensaje y CALL
 
-Además de los triggers de texto, regex y predicado, `@bot-wa/core` exporta
+Además de los triggers de texto, regex y predicado, `@botmesh/core` exporta
 constantes de trigger para el **primer contacto** de un usuario, para los
 **tipos de mensaje** (imágenes, notas de voz, ubicaciones...) y para las
 **llamadas entrantes**. Funcionan en cualquier sitio que acepte un trigger:
@@ -12,7 +12,7 @@ import {
   Bot, flow, addKeyword, typeTrigger,
   WELCOME, MEDIA, IMAGE, VIDEO, AUDIO, VOICE_NOTE, DOCUMENT, STICKER,
   LOCATION, CONTACT, POLL, CALL,
-} from '@bot-wa/core'
+} from '@botmesh/core'
 ```
 
 ## WELCOME
@@ -143,7 +143,7 @@ bot.when(CALL, (ctx) => { ctx.call?.status; ctx.call?.isVideo })      // CallEve
   `bot.when(CALL, fn)` sí corren a mitad de un flujo.
 - `bot.onType('call', handler)` equivale a `bot.when(CALL, handler)`.
 - Testing: `provider.call({ id: 'c1', from: 'user-1', status: 'offer' })` en
-  `MockProvider` (`@bot-wa/core/testing`).
+  `MockProvider` (`@botmesh/core/testing`).
 
 Los flujos creados con `flow(WELCOME)` o con un trigger de tipo reciben un
 id anónimo, así que `.persistent()` necesita un `.id('...')` explícito.

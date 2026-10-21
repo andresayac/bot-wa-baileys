@@ -1,5 +1,5 @@
 /**
- * `bot-wa/prefer-ctx-user-over-global-state` — per-user data belongs in
+ * `botmesh/prefer-ctx-user-over-global-state` — per-user data belongs in
  * `ctx.user` (persistent, keyed by the provider-resolved sender, shared by
  * every replica through the store), not in a v1 `globalState` nor in a
  * module-level `Map`/object keyed by `ctx.from` / `ctx.sender`, which is lost

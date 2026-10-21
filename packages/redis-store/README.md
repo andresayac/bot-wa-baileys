@@ -1,9 +1,9 @@
-# @bot-wa/redis-store
+# @botmesh/redis-store
 
 > [!WARNING]
 > **Experimental — not on npm yet.** It ships with the first alpha, but nothing is on npm: until then use it from this monorepo (`workspace:*`); the `pnpm add` below will work once it is published. The API may change without notice. It is tested against a real Redis (see [Integration tests](#integration-tests)).
 
-Redis [`IStore`](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/core) implementation for **@bot-wa/core** — distributed, shared bot state backed by Redis (node-redis v4). Point any number of bot replicas at the same Redis instance and they share message logs, chats, contacts, flow checkpoints, AI conversation history and delivery cursors.
+Redis [`IStore`](https://github.com/andresayac/botmesh/tree/main/packages/core) implementation for **@botmesh/core** — distributed, shared bot state backed by Redis (node-redis v4). Point any number of bot replicas at the same Redis instance and they share message logs, chats, contacts, flow checkpoints, AI conversation history and delivery cursors.
 
 - Per-chat message logs as Redis **sorted sets** (score = timestamp) → `getMessagesByChat(limit)` is an `O(log N + limit)` `ZRANGE`, not a scan.
 - Everything is JSON under one configurable **prefix**, so apps/bots can share a database.
@@ -16,7 +16,7 @@ Redis [`IStore`](https://github.com/andresayac/bot-wa-baileys/tree/main/packages
 ## Install
 
 ```bash
-pnpm add @bot-wa/redis-store redis
+pnpm add @botmesh/redis-store redis
 ```
 
 (Requires a Redis server reachable from the bot, e.g. `redis://localhost:6379`.)
@@ -24,9 +24,9 @@ pnpm add @bot-wa/redis-store redis
 ## Usage with Bot
 
 ```ts
-import { Bot } from '@bot-wa/core'
-import { BaileysProvider } from '@bot-wa/baileys'
-import { RedisStore } from '@bot-wa/redis-store'
+import { Bot } from '@botmesh/core'
+import { BaileysProvider } from '@botmesh/baileys'
+import { RedisStore } from '@botmesh/redis-store'
 
 const store = new RedisStore({
   url: process.env.REDIS_URL,      // default: redis://localhost:6379
@@ -74,7 +74,7 @@ const store = new RedisStore({ client: fake })
 | `cluster` | `{ rootNodes, nodeAddressMap?, defaults?, maxCommandRedirections? }` | — | Create (and own) a node-redis **cluster** client. Not combinable with `url`/`client`. |
 | `layout` | `'legacy' \| 'cluster'` | `'cluster'` on a cluster, else `'legacy'` | Key layout (see [Redis Cluster](#redis-cluster)). `'legacy'` on a cluster throws. |
 | `allowLegacyData` | `boolean` | `false` | Cluster layout on a single node: start even when legacy-layout keys exist under the prefix. |
-| `sessionTtl` | `string \| number` | —                   | TTL for AI conversations and flow checkpoints: a duration (`'24h'`, `'7d'`) or **milliseconds**, like every duration option of `@bot-wa/core`. Messages, chats, contacts and cursors never expire — delete them explicitly. An invalid duration or a non-positive value throws from the constructor. |
+| `sessionTtl` | `string \| number` | —                   | TTL for AI conversations and flow checkpoints: a duration (`'24h'`, `'7d'`) or **milliseconds**, like every duration option of `@botmesh/core`. Messages, chats, contacts and cursors never expire — delete them explicitly. An invalid duration or a non-positive value throws from the constructor. |
 | `ttl`    | `number`          | —                         | **Deprecated**, use `sessionTtl`. Same TTL in **seconds** (fractions allowed). Setting both throws a `RangeError`. |
 | `maxMessagesPerChat` | `number` | — (unbounded)       | Keep only the newest N messages per chat; `saveMessage` prunes older ZSET members **and** their item keys. Must be a non-negative integer (else `RangeError`). |
 | `logger` | `{ error? }`    | —                         | Receives the errors of a store-created client (connection drops, failed reconnects) and lifecycle errors (e.g. close failure). |
@@ -96,11 +96,11 @@ This is the default (`'legacy'`) layout. The `'cluster'` layout is described in 
 | `{prefix}:sched:{id}` | string (JSON) | durable scheduler task (`ScheduleRecord`, see `schedules()`); a deleted task leaves a small `{ deleted, fencingToken }` marker so its tokens never go backwards | — |
 | `{prefix}:lease:{key}` | string (JSON) | fenced lease (owner, deadline, token; see `leases()`) | — |
 
-`getMessagesByChat(chatId, limit)` reads the latest `limit` entries from the ZSET (`ZRANGE … BYSCORE REV LIMIT`) and fetches the JSON items, returning them oldest→newest — same windowing semantics as `@bot-wa/sqlite-store`.
+`getMessagesByChat(chatId, limit)` reads the latest `limit` entries from the ZSET (`ZRANGE … BYSCORE REV LIMIT`) and fetches the JSON items, returning them oldest→newest — same windowing semantics as `@botmesh/sqlite-store`.
 
 `deleteChat(chatId)` runs as **one Lua script** (the ZSET, every item it lists and the chat record), so a message saved at the same moment either lands before the delete (and goes with it) or after it (and survives intact) — never as an orphan item missing from the chat's log. `deleteMessage` removes an item only when it is a member of that chat's ZSET. In the legacy layout scripts touch keys they compute from the prefix, so it targets a single Redis node; use the cluster layout on Redis Cluster.
 
-- **Message keys.** `messageKey(ref)` (from `@bot-wa/core`) is `{chatId}:{id}` with `%` and `:` percent-escaped in each part (`%25`, `%3A`), so ids that contain `:` — Twilio's `whatsapp:+1…` chat ids — never collide (`('a:b', 'c')` and `('a', 'b:c')` used to share the key `a:b:c`). Ids without `:` or `%` keep exactly the key earlier versions wrote. Rows written by an earlier version under the old unescaped key are still read and deleted (a fallback that only runs for ids containing `:` or `%`, and only returns or deletes a row whose stored `ref` is that very message, since a legacy key can be another message's new key), and re-saving such a message moves it to the new key — no manual migration. One theoretical edge remains: an id that literally contains `%3A` and was stored by an earlier version can be overwritten by a new message whose id has `:` in the same place.
+- **Message keys.** `messageKey(ref)` (from `@botmesh/core`) is `{chatId}:{id}` with `%` and `:` percent-escaped in each part (`%25`, `%3A`), so ids that contain `:` — Twilio's `whatsapp:+1…` chat ids — never collide (`('a:b', 'c')` and `('a', 'b:c')` used to share the key `a:b:c`). Ids without `:` or `%` keep exactly the key earlier versions wrote. Rows written by an earlier version under the old unescaped key are still read and deleted (a fallback that only runs for ids containing `:` or `%`, and only returns or deletes a row whose stored `ref` is that very message, since a legacy key can be another message's new key), and re-saving such a message moves it to the new key — no manual migration. One theoretical edge remains: an id that literally contains `%3A` and was stored by an earlier version can be overwritten by a new message whose id has `:` in the same place.
 
 ## Running N replicas: `RedisCoordinator`
 
@@ -118,7 +118,7 @@ const bot = new Bot({
 - **Watchdog.** Heartbeat, turns and leaderships are renewed every `leaseMs / 3`. A lease found gone aborts its `signal` (`'expired'`); with no successful renewal for 90% of `leaseMs`, every lease is given up locally (`'coordinator-down'`) before Redis can hand it to another replica.
 - Keys live under `{prefix}:co:`; a chat's counters expire `idleTtlMs` (default 1 day) after its last turn.
 - Limits: a failover that loses the last writes can grant a lease twice (Sentinel or Cluster). On Redis Cluster the coordinator uses the cluster layout: each chat's turn keys share a hash tag, and a waiting turn probes another replica's heartbeat with a separate call before skipping its ticket.
-- Guide: [Running N replicas](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/guide/replicas.md).
+- Guide: [Running N replicas](https://github.com/andresayac/botmesh/blob/main/docs/guide/replicas.md).
 
 ## Distributed lock
 
@@ -198,7 +198,7 @@ const store = new RedisStore({ client: cluster, prefix: 'mybot' })            //
 - **Migration** of an existing keyspace, offline: `migrateToClusterLayout({ source, target?, prefix, dryRun?, deleteSource? })` (messages read from each chat's log, TTLs kept, fences, terms and schedule fencing tokens only grow, resumable). The layout marker is written only by a complete run (not one limited by `include`). `inspectKeyspace({ client, prefix })` counts keys per layout. A cluster-layout store on a single node refuses to start over legacy data unless `allowLegacyData: true`; a legacy-layout store on a prefix carrying the marker logs a warning (switch every replica at once).
 - **Rollback**: `direction: 'cluster-to-legacy'` into a single node, from a single node or a cluster client. It mirrors by default (`mirror: true`): the legacy target is made to match the cluster-layout source, so writes and deletions made after the forward pass are carried back (`report.pruned`), and a complete rollback removes the layout marker. `mirror: false` copies only (existing legacy keys win).
 - A client the store, `RedisCoordinator` or `RedisDurability` creates (`url` or `cluster`) always has an `'error'` listener (errors go to `logger`), so a dropped node connection never crashes the process.
-- Guide: [Redis Cluster](https://github.com/andresayac/bot-wa-baileys/blob/main/docs/guide/redis-cluster.md).
+- Guide: [Redis Cluster](https://github.com/andresayac/botmesh/blob/main/docs/guide/redis-cluster.md).
 
 ## Notes
 
@@ -231,13 +231,13 @@ It is opt-in: it turns on with the `BOTWA_TEST_REDIS_URL` environment variable a
 docker run -d --name botwa-it-redis -p 56379:6379 redis:7-alpine
 
 # 2. Run the suite against it
-BOTWA_TEST_REDIS_URL=redis://127.0.0.1:56379 pnpm --filter @bot-wa/redis-store test
+BOTWA_TEST_REDIS_URL=redis://127.0.0.1:56379 pnpm --filter @botmesh/redis-store test
 
 # 3. Cleanup
 docker rm -f botwa-it-redis
 ```
 
-On PowerShell: `$env:BOTWA_TEST_REDIS_URL = 'redis://127.0.0.1:56379'; pnpm --filter @bot-wa/redis-store test`.
+On PowerShell: `$env:BOTWA_TEST_REDIS_URL = 'redis://127.0.0.1:56379'; pnpm --filter @botmesh/redis-store test`.
 
 - **Isolation:** every key of a run lives under `botwa-it:<pid>-<uuid>:…`, with a different prefix per store, and an `afterAll` deletes whatever that run left behind. `FLUSHDB` is never used: you can point it at a shared Redis without stepping on data or clashing with another run in parallel. The URL accepts a user, a password and a database number (`redis://user:pass@host:6379/2`).
 - **Windows + Docker Desktop:** use `127.0.0.1` instead of `localhost`. `localhost` resolves to `::1` first, and Docker Desktop's IPv6 forwarding accepts the TCP connection but cuts it (`ECONNRESET`), so the hooks time out.
@@ -249,6 +249,6 @@ On PowerShell: `$env:BOTWA_TEST_REDIS_URL = 'redis://127.0.0.1:56379'; pnpm --fi
 
 ```bash
 docker run -d --name botwa-it-redis-cluster -e IP=0.0.0.0 -e INITIAL_PORT=47100 -e MASTERS=3 -e SLAVES_PER_MASTER=1 -p 127.0.0.1:47100-47105:47100-47105 grokzen/redis-cluster:7.0.10
-BOTWA_TEST_REDIS_CLUSTER_URL=redis://127.0.0.1:47100 pnpm --filter @bot-wa/redis-store test
+BOTWA_TEST_REDIS_CLUSTER_URL=redis://127.0.0.1:47100 pnpm --filter @botmesh/redis-store test
 docker rm -f botwa-it-redis-cluster
 ```

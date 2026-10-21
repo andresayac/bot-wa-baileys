@@ -1,9 +1,9 @@
 /**
- * @bot-wa/core — IProvider v2 and normalized transport-agnostic types.
+ * @botmesh/core — IProvider v2 and normalized transport-agnostic types.
  *
  * Design invariants:
  *  - Core carries NO transport-specific concept. No JID / LID / PN / @g.us /
- *    WAMessageKey / proto / QR. Those live in @bot-wa/baileys.
+ *    WAMessageKey / proto / QR. Those live in @botmesh/baileys.
  *  - Identity is OPAQUE strings the provider fully resolves before emitting an
  *    event. Any aliasing (LID/PN twin, Telegram sender_chat, Discord member vs
  *    user) is reconciled INSIDE the provider. The core never re-derives identity.
@@ -477,7 +477,7 @@ export interface ProviderCapabilities {
   streaming?: StreamingMode
   /**
    * Rich-text dialect the channel renders in plain text messages, so producers
-   * of Markdown (e.g. `@bot-wa/ai` replies) can convert it: `'whatsapp'` —
+   * of Markdown (e.g. `@botmesh/ai` replies) can convert it: `'whatsapp'` —
    * `*bold*`, `_italic_`, `~strike~`, `` `code` ``; `'markdown'` — Markdown is
    * rendered as is (Discord); `'html'` — a small HTML subset; `'plain'` — no
    * formatting at all (markers are shown literally, so strip them). Omitted →
@@ -843,7 +843,7 @@ export interface MessageContext<TTools extends object = DefaultTools, TRaw = unk
   /**
    * Rich-text dialect of THIS chat: the provider's `textFormatFor(chatId)`, else
    * `capabilities.textFormat`. Unset = unknown (send Markdown untouched). Use it,
-   * not `capabilities.textFormat`, to format text for the chat (`@bot-wa/ai` does).
+   * not `capabilities.textFormat`, to format text for the chat (`@botmesh/ai` does).
    */
   textFormat?: TextFormat
 
@@ -1035,7 +1035,7 @@ export interface StoredMessage {
   raw?: unknown
 }
 
-/** One turn of AI conversation history (consumed by @bot-wa/ai). Transport-neutral. */
+/** One turn of AI conversation history (consumed by @botmesh/ai). Transport-neutral. */
 export interface AIMessage {
   role: 'user' | 'assistant'
   content: string
@@ -1218,7 +1218,7 @@ export interface IStore {
   getCursor?(key: string): Promise<string | undefined>
   setCursor?(key: string, value: string): Promise<void>
 
-  /* AI conversation history (@bot-wa/ai) — transport-neutral. */
+  /* AI conversation history (@botmesh/ai) — transport-neutral. */
   getConversation(key: string): Promise<AIMessage[] | undefined>
   setConversation(key: string, messages: AIMessage[]): Promise<void>
   clearConversation(key: string): Promise<void>
@@ -1330,7 +1330,7 @@ export type StoreKind = 'memory' | 'sqlite' | 'redis' | 'postgres' | 'mongo' | '
 /**
  * ONLY transport-agnostic fields. All WhatsApp session/auth fields (qr,
  * pairingCode, sessionsDir, browser, markOnlineOnConnect, syncFullHistory,
- * ignoreNewsletters, ignoreBroadcasts) move into @bot-wa/baileys'
+ * ignoreNewsletters, ignoreBroadcasts) move into @botmesh/baileys'
  * `BaileysProviderConfig`, consumed when you construct the provider you inject
  * here. The provider is now the transport boundary — you build it, then pass it.
  */
@@ -1425,8 +1425,8 @@ export interface BotConfig {
   /* ---- observability: tracing (opt-in) ------------------------------------ */
   /**
    * Trace the bot's work as spans (inbound message → dispatch → handler / conversation
-   * turn → send; `@bot-wa/ai` adds model and tool spans) through a {@link BotTracer} —
-   * OpenTelemetry with `@bot-wa/otel`. No message bodies or personal data are recorded;
+   * turn → send; `@botmesh/ai` adds model and tool spans) through a {@link BotTracer} —
+   * OpenTelemetry with `@botmesh/otel`. No message bodies or personal data are recorded;
    * ids are hashed by default. Omitted: no tracing, the code path is unchanged. See the
    * "Tracing" guide.
    */

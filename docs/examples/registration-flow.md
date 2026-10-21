@@ -5,8 +5,8 @@ A complete registration flow with `.ask()`, validation and a dynamic summary.
 ## The flow
 
 ```ts
-import { Bot, flow } from '@bot-wa/core'
-import { BaileysProvider } from '@bot-wa/baileys'
+import { Bot, flow } from '@botmesh/core'
+import { BaileysProvider } from '@botmesh/baileys'
 
 const bot = new Bot({
   provider: new BaileysProvider({ session: 'demo-bot', qr: { terminal: true, small: true } }),
@@ -45,7 +45,7 @@ Combine `.do()` (run an action without sending a message) with `bot.provide()`
 to persist the captured data:
 
 ```ts
-import type { MessageContext } from '@bot-wa/core'
+import type { MessageContext } from '@botmesh/core'
 
 bot.provide('db', {
   users: new Map<string, { name: string; email: string }>(),

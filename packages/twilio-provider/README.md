@@ -1,17 +1,17 @@
-# @bot-wa/twilio
+# @botmesh/twilio
 
 > **Experimental — aún no publicado en npm.** Implementación real y con tests, pero el paquete es `private`: su API puede cambiar. Úsalo desde este monorepo (`workspace:*`).
 
-Transporte **Twilio Programmable Messaging** para [`@bot-wa/core`](../core): **WhatsApp y SMS/MMS** con la misma clase. Webhook entrante verificado con **`X-Twilio-Signature`** (HMAC-SHA1 sobre la URL exacta + los parámetros POST ordenados) y envío por la REST API (`POST /2010-04-01/Accounts/{sid}/Messages.json`). No abre socket.
+Transporte **Twilio Programmable Messaging** para [`@botmesh/core`](../core): **WhatsApp y SMS/MMS** con la misma clase. Webhook entrante verificado con **`X-Twilio-Signature`** (HMAC-SHA1 sobre la URL exacta + los parámetros POST ordenados) y envío por la REST API (`POST /2010-04-01/Accounts/{sid}/Messages.json`). No abre socket.
 
-Sin SDK de Twilio: todas las peticiones salen por `secureFetch` de [`@bot-wa/http`](../http) (timeouts, límites de tamaño, anti-SSRF).
+Sin SDK de Twilio: todas las peticiones salen por `secureFetch` de [`@botmesh/http`](../http) (timeouts, límites de tamaño, anti-SSRF).
 
 ## Uso
 
 ```ts
 import express from 'express'
-import { Bot } from '@bot-wa/core'
-import { TwilioProvider } from '@bot-wa/twilio'
+import { Bot } from '@botmesh/core'
+import { TwilioProvider } from '@botmesh/twilio'
 
 const provider = new TwilioProvider({
   accountSid: process.env.TWILIO_SID!,

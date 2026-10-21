@@ -19,7 +19,7 @@ const context = {
   chatId: 'chat-1',
 }
 
-describe('@bot-wa/events', () => {
+describe('@botmesh/events', () => {
   it('recovers durable records, leases and idempotency after reopening', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'botwa-events-'))
     try {

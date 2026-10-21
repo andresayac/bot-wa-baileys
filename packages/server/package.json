@@ -1,9 +1,9 @@
 {
-  "name": "@bot-wa/server",
+  "name": "@botmesh/server",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Webhook ingress for @bot-wa providers — raw-body capture, size limits, timeouts, concurrency limit and health endpoints for node:http, Express, Fastify and Hono (no framework dependencies).",
+  "description": "Webhook ingress for @botmesh providers — raw-body capture, size limits, timeouts, concurrency limit and health endpoints for node:http, Express, Fastify and Hono (no framework dependencies).",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
   "exports": {
@@ -28,7 +28,7 @@
     "node": ">=22"
   },
   "keywords": [
-    "bot-wa",
+    "botmesh",
     "webhook",
     "ingress",
     "express",
@@ -39,12 +39,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/andresayac/bot-wa-baileys.git",
+    "url": "git+https://github.com/andresayac/botmesh.git",
     "directory": "packages/server"
   },
-  "homepage": "https://github.com/andresayac/bot-wa-baileys/tree/main/packages/server#readme",
+  "homepage": "https://github.com/andresayac/botmesh/tree/main/packages/server#readme",
   "bugs": {
-    "url": "https://github.com/andresayac/bot-wa-baileys/issues"
+    "url": "https://github.com/andresayac/botmesh/issues"
   },
   "files": [
     "./lib/**/*"
@@ -56,9 +56,9 @@
     "typecheck": "tsc -p tsconfig.test.json"
   },
   "devDependencies": {
-    "@bot-wa/core": "workspace:*",
-    "@bot-wa/meta": "workspace:*",
-    "@bot-wa/telegram": "workspace:*",
+    "@botmesh/core": "workspace:*",
+    "@botmesh/meta": "workspace:*",
+    "@botmesh/telegram": "workspace:*",
     "@types/express": "^5.0.6",
     "@types/node": "^26.1.1",
     "express": "^5.2.1",

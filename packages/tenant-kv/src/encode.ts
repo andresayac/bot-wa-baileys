@@ -2,7 +2,7 @@
  * Table-name segments. A tenant id (or any caller-provided segment) is percent-encoded
  * before it becomes part of a `DurableKv` table name, so it can never contain the `/`
  * separator, a Redis hash-tag brace or a glob character: `a/b`, `}{` and `*` are all
- * harmless. The alphabet is the same as `@bot-wa/redis-store`'s `encodeSegment`.
+ * harmless. The alphabet is the same as `@botmesh/redis-store`'s `encodeSegment`.
  */
 
 /** Percent-encode one segment (`encodeURIComponent` plus `!'()*~`). */

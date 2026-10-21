@@ -1,7 +1,7 @@
 # Bakery AI assistant (WhatsApp via Baileys or Twilio)
 
 A complete, runnable example of an **AI ordering assistant** built with
-`@bot-wa/core` and `@bot-wa/ai`. Customers of *Demo Bakery* chat on WhatsApp
+`@botmesh/core` and `@botmesh/ai`. Customers of *Demo Bakery* chat on WhatsApp
 to see the menu, get exact quotes and place, change or cancel orders. The
 model calls **tools**. Every tool with side effects asks the customer to
 confirm first, and every price is computed by code, never by the model.
@@ -11,7 +11,7 @@ The same bot runs on two channels:
 - **Baileys**: WhatsApp Web protocol. Scan a QR with your phone; no business
   account needed.
 - **Twilio**: the official WhatsApp Business API, with the Twilio WhatsApp
-  sandbox for testing. Webhooks go through `@bot-wa/server`.
+  sandbox for testing. Webhooks go through `@botmesh/server`.
 
 The behaviour was validated live on both channels with real models before it
 became this example.
@@ -54,7 +54,7 @@ became this example.
  (QR session)          │ │  ├─ slashCommandsPlugin   /start /help /id ...     │
                        ├─┤  └─ aiPlugin (catch-all)                           │
  WhatsApp ── Twilio ───┘ │       persona + model (Ollama / any provider)      │
- (webhook → @bot-wa/     │       tools ──────────────┐                        │
+ (webhook → @botmesh/     │       tools ──────────────┐                        │
   server ingress,        └───────────────────────────┼────────────────────────┘
   signature check)                                   ▼
                          src/tools.ts   view_menu · quote_order · my_orders
@@ -80,7 +80,7 @@ became this example.
 
 - Node.js >= 22 and pnpm (this repo's workspace).
 - An AI model **with tool calling**. The default is a local
-  [Ollama](https://ollama.com) (`ollama pull llama3.1`). Any `@bot-wa/ai`
+  [Ollama](https://ollama.com) (`ollama pull llama3.1`). Any `@botmesh/ai`
   provider or preset works too (see [Using another AI provider](#using-another-ai-provider)).
 
 ## Run it
@@ -91,7 +91,7 @@ type stripping does not rewrite those specifiers. From the **repo root**:
 
 ```bash
 pnpm install
-pnpm --filter "@bot-wa/example-bakery-ai..." build      # the example + the packages it uses
+pnpm --filter "@botmesh/example-bakery-ai..." build      # the example + the packages it uses
 cp examples/bakery-ai/.env.example examples/bakery-ai/.env  # then edit it
 ```
 
@@ -101,7 +101,7 @@ Baileys `sessions/` folder are read from there. Both are git-ignored.
 ### Channel 1: Baileys (scan a QR)
 
 ```bash
-pnpm --filter @bot-wa/example-bakery-ai start:baileys
+pnpm --filter @botmesh/example-bakery-ai start:baileys
 ```
 
 1. A QR code appears in the terminal. On your phone, open WhatsApp →
@@ -141,7 +141,7 @@ pnpm --filter @bot-wa/example-bakery-ai start:baileys
 5. Start the bot:
 
    ```bash
-   pnpm --filter @bot-wa/example-bakery-ai start:twilio
+   pnpm --filter @botmesh/example-bakery-ai start:twilio
    ```
 
    `GET /healthz` returns 200 while the server runs. `GET /readyz` returns 200
@@ -211,7 +211,7 @@ These come from live tests with real models. The full guide is
 4. **`dedupe: 'args'` on create.**
 5. **Unknown ids return `{ error }`**, never a silent success.
 6. **`confirm: true` on every side effect.** Read-only tools need none.
-7. **The `@bot-wa/ai` system note stays on.** It tells the model the system asks
+7. **The `@botmesh/ai` system note stays on.** It tells the model the system asks
    for confirmation, so the model does not ask "shall I place it?" itself or
    claim actions no tool confirmed.
 
@@ -261,8 +261,8 @@ buttons (Telegram, WhatsApp Cloud API) and the confirmation comes with **Yes** /
 ## Tests
 
 ```bash
-pnpm --filter @bot-wa/example-bakery-ai test        # vitest, no network
-pnpm --filter @bot-wa/example-bakery-ai typecheck
+pnpm --filter @botmesh/example-bakery-ai test        # vitest, no network
+pnpm --filter @botmesh/example-bakery-ai typecheck
 ```
 
 [`tests/bot.e2e.test.ts`](tests/bot.e2e.test.ts) runs the real bot on a
@@ -276,11 +276,11 @@ rejection, the allow-list and group mode.
 Set `AI_PROVIDER`/`AI_MODEL` (and `AI_API_KEY` or the SDK's variable). The
 OpenAI-compatible presets and `openai` need the `openai` SDK, `anthropic` needs
 `@anthropic-ai/sdk` and `gemini` needs `@google/generative-ai`. They are optional
-peer dependencies of `@bot-wa/ai`, so add the one you use:
+peer dependencies of `@botmesh/ai`, so add the one you use:
 
 ```bash
-pnpm --filter @bot-wa/example-bakery-ai add openai            # openai + presets (deepseek, groq, ...)
-pnpm --filter @bot-wa/example-bakery-ai add @anthropic-ai/sdk
+pnpm --filter @botmesh/example-bakery-ai add openai            # openai + presets (deepseek, groq, ...)
+pnpm --filter @botmesh/example-bakery-ai add @anthropic-ai/sdk
 ```
 
 A missing SDK or a bad key is logged at startup, and the bot replies with its
@@ -318,7 +318,7 @@ See the [i18n guide](../../docs/guide/i18n.md) for details.
 ## Going to production
 
 - Replace `InMemoryOrderStore` with a database-backed `OrderStore`. Also give
-  the `Bot` a persistent store (`@bot-wa/sqlite-store`, `@bot-wa/redis-store`, ...)
+  the `Bot` a persistent store (`@botmesh/sqlite-store`, `@botmesh/redis-store`, ...)
   so AI history and per-user memory survive restarts.
 - On Twilio, use your own WhatsApp sender instead of the sandbox and a stable
   public URL (reverse proxy or named tunnel) instead of a quick tunnel.

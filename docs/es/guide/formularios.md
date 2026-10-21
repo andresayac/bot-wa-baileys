@@ -4,7 +4,7 @@
 recoger y el provider decide **cómo** mostrarlo:
 
 - En los providers con `capabilities.forms === 'native'` (hoy la Cloud API de
-  WhatsApp, `@bot-wa/meta`) el formulario se envía como un formulario nativo, un
+  WhatsApp, `@botmesh/meta`) el formulario se envía como un formulario nativo, un
   **WhatsApp Flow**, y la respuesta llega en un solo mensaje.
 - En el resto (Baileys, Telegram, Discord, Messenger, Instagram, el simulador)
   el bot pregunta **campo por campo** con mensajes de texto.
@@ -12,7 +12,7 @@ recoger y el provider decide **cómo** mostrarlo:
 Los dos caminos validan con las mismas reglas y guardan los mismos valores en `c.state`.
 
 ```ts
-import { flow, type FormDefinition } from '@bot-wa/core'
+import { flow, type FormDefinition } from '@botmesh/core'
 
 const registro: FormDefinition = {
   id: 'registro',
@@ -104,7 +104,7 @@ modo auto también pasa a campo por campo. `'native'` nunca hace ese cambio.
 
 ## Cloud API de WhatsApp
 
-`@bot-wa/meta` compila el formulario a un **WhatsApp Flow estático de una
+`@botmesh/meta` compila el formulario a un **WhatsApp Flow estático de una
 pantalla** (Flow JSON `6.2`, acción `navigate`, sin endpoint ni cifrado) y lo
 envía como mensaje interactivo `flow`. El webhook `nfm_reply` se convierte en un
 mensaje `'form'` cuyo `flow_token` corresponde al paso pendiente.
@@ -112,7 +112,7 @@ mensaje `'form'` cuyo `flow_token` corresponde al paso pendiente.
 El Flow tiene que existir en Meta antes de enviarse. Asocia tus formularios a Flows:
 
 ```ts
-import { CloudAPIProvider, toFlowJson } from '@bot-wa/meta'
+import { CloudAPIProvider, toFlowJson } from '@botmesh/meta'
 
 const provider = new CloudAPIProvider({
   ...cfg,

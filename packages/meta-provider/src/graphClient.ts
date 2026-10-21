@@ -4,9 +4,9 @@
  * core's typed provider errors.
  */
 
-import { PayloadTooLargeError, ProviderError, type ChatId, type OutboundContent } from '@bot-wa/core'
-import { toGraphError, readGraphResponse, type GraphError } from '@bot-wa/graph-core'
-import { SecureHttpError, secureFetch, type SecureFetchOptions, type SecureFetchResponse } from '@bot-wa/http'
+import { PayloadTooLargeError, ProviderError, type ChatId, type OutboundContent } from '@botmesh/core'
+import { toGraphError, readGraphResponse, type GraphError } from '@botmesh/graph-core'
+import { SecureHttpError, secureFetch, type SecureFetchOptions, type SecureFetchResponse } from '@botmesh/http'
 import { isBsuid } from './identity.js'
 
 export interface GraphClientConfig {

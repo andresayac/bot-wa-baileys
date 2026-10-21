@@ -4,7 +4,7 @@
  * answers `501 NOT_SUPPORTED` for the missing ones).
  */
 
-import type { CompiledFlow, ConversationSnapshot, FlowTriggerOptions, FlowTriggerTarget, OutboundContent, RegisteredFlowInfo, StoredMessage } from '@bot-wa/core'
+import type { CompiledFlow, ConversationSnapshot, FlowTriggerOptions, FlowTriggerTarget, OutboundContent, RegisteredFlowInfo, StoredMessage } from '@botmesh/core'
 import type { ManageableBot } from './BotManager.js'
 
 /** Everything the manager may call on a bot beyond `start`/`stop`. */

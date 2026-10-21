@@ -8,7 +8,7 @@
  */
 
 import { describe, it, expect, expectTypeOf, vi, afterEach } from 'vitest'
-import type { IProvider, MessageRef } from '@bot-wa/core'
+import type { IProvider, MessageRef } from '@botmesh/core'
 import { MessengerProvider } from '../src/MessengerProvider.js'
 
 type Equals<A, B> = (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2) ? true : false

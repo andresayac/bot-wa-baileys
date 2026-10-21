@@ -1,9 +1,9 @@
 /**
  * EvolutionProvider — Evolution API v2 (self-hosted WhatsApp REST gateway on
- * Baileys) transport for @bot-wa/core.
+ * Baileys) transport for @botmesh/core.
  *
  *  - Outbound: `POST {baseUrl}/message/<endpoint>/{instance}` with the `apikey`
- *    header, through `secureFetch` (@bot-wa/http).
+ *    header, through `secureFetch` (@botmesh/http).
  *  - Inbound: Evolution POSTs webhooks; the host hands each body (and headers)
  *    to {@link EvolutionProvider.ingest}, which authenticates it (static shared
  *    secret header or Evolution's `jwt_key` HS256 JWT) before normalizing.
@@ -25,7 +25,7 @@
  */
 
 import pino from 'pino'
-import type { LoggerLike } from '@bot-wa/core'
+import type { LoggerLike } from '@botmesh/core'
 import type {
   ChatId,
   ConnectionState,
@@ -41,14 +41,14 @@ import type {
   SendResult,
   SerializedMediaRef,
   UserId,
-} from '@bot-wa/core'
+} from '@botmesh/core'
 import {
   PayloadTooLargeError,
   ProviderError,
   RateLimitedError,
   RecipientUnreachableError,
   UnsupportedContentError,
-} from '@bot-wa/core'
+} from '@botmesh/core'
 import {
   WaIdentityStore,
   describeErrorBody,
@@ -57,7 +57,7 @@ import {
   resolveHttpPolicy,
   restCall,
   type RestHttpOptions,
-} from '@bot-wa/wa-gateway-kit'
+} from '@botmesh/wa-gateway-kit'
 import { normalizeEventName, parseWebhook } from './parseInbound.js'
 import { keyFromRef, toOutbound } from './toOutbound.js'
 import type { EvolutionMediaToken, EvolutionProviderConfig, EvolutionWebhook } from './types.js'

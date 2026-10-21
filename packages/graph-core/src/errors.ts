@@ -12,7 +12,7 @@ import {
   UnsupportedContentError,
   type ChatId,
   type OutboundContent,
-} from '@bot-wa/core'
+} from '@botmesh/core'
 
 export interface GraphError {
   code?: number

@@ -1,11 +1,11 @@
-# @bot-wa/flow-schema
+# @botmesh/flow-schema
 
 > **Paquete privado** (`"private": true`, no se publica en npm). Implementación real; la API puede cambiar sin aviso mientras la alpha no salga.
 
-Documentos de flujo **versionados y sin código**: validación con errores precisos, expresiones seguras, compilación a `CompiledFlow`, exportación inversa, migraciones y helpers de borrador/publicación para `@bot-wa/deployments`.
+Documentos de flujo **versionados y sin código**: validación con errores precisos, expresiones seguras, compilación a `CompiledFlow`, exportación inversa, migraciones y helpers de borrador/publicación para `@botmesh/deployments`.
 
 ```ts
-import { compileFlowDocument, validateFlowDocument } from '@bot-wa/flow-schema'
+import { compileFlowDocument, validateFlowDocument } from '@botmesh/flow-schema'
 
 const document = {
   version: 1 as const,
@@ -31,11 +31,11 @@ if (validateFlowDocument(document).length === 0) bot.registerFlow(compileFlowDoc
 
 ## Seguridad
 
-Un documento guardado no puede ejecutar código, leer archivos locales ni salirse de su alcance: las expresiones leen solo propiedades propias, las plantillas solo rutas, las URLs deben ser http(s), las peticiones `http` pasan por `@bot-wa/http` (anti-SSRF, redirecciones, timeout y tamaño) y el paso `ai` solo puede restringir herramientas ya configuradas, no añadir nuevas.
+Un documento guardado no puede ejecutar código, leer archivos locales ni salirse de su alcance: las expresiones leen solo propiedades propias, las plantillas solo rutas, las URLs deben ser http(s), las peticiones `http` pasan por `@botmesh/http` (anti-SSRF, redirecciones, timeout y tamaño) y el paso `ai` solo puede restringir herramientas ya configuradas, no añadir nuevas.
 
 ## Integración
 
-- `@bot-wa/manager` consume este paquete para `GET /v1/flows/schema` y para compilar los flujos de su API REST (el contrato no cambia).
-- `@bot-wa/deployments` es el dueño del almacenamiento; este paquete solo aporta `publishFlow`/`flowDocumentGate`.
+- `@botmesh/manager` consume este paquete para `GET /v1/flows/schema` y para compilar los flujos de su API REST (el contrato no cambia).
+- `@botmesh/deployments` es el dueño del almacenamiento; este paquete solo aporta `publishFlow`/`flowDocumentGate`.
 
 Guía: [`docs/guide/flow-schema.md`](../../docs/guide/flow-schema.md) (EN) y [`docs/es/guide/flow-schema.md`](../../docs/es/guide/flow-schema.md) (ES).

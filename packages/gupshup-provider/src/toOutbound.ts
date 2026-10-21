@@ -10,7 +10,7 @@
  *  - `native` → the payload is sent as the `message` object verbatim.
  */
 
-import { UnsupportedContentError, type Button, type ListSection, type MediaSource, type OutboundContent } from '@bot-wa/core'
+import { UnsupportedContentError, type Button, type ListSection, type MediaSource, type OutboundContent } from '@botmesh/core'
 import { numberedText } from './http.js'
 
 export type GupshupOutbound =

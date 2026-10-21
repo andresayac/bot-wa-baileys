@@ -15,11 +15,11 @@ The workflow:
 
 | Function | Import from | Purpose |
 | --- | --- | --- |
-| `recordTranscript`, `RecordingProvider` | `@bot-wa/core` or `@bot-wa/core/testing` | Record live traffic through a provider wrapper |
-| `transcriptFromStore`, `transcriptFromMessages` | `@bot-wa/core` or `@bot-wa/core/testing` | Build a transcript from the store message log |
-| `redactTranscript`, `createRedactionMap` | `@bot-wa/core` or `@bot-wa/core/testing` | Replace PII with stable placeholders |
-| `parseTranscript`, `serializeTranscript`, `createTranscript` | `@bot-wa/core` or `@bot-wa/core/testing` | Read, write and hand-write transcripts |
-| `replayTranscript`, `assertTranscript`, `REPLAY_MASKS` | `@bot-wa/core/testing` only | Replay and diff |
+| `recordTranscript`, `RecordingProvider` | `@botmesh/core` or `@botmesh/core/testing` | Record live traffic through a provider wrapper |
+| `transcriptFromStore`, `transcriptFromMessages` | `@botmesh/core` or `@botmesh/core/testing` | Build a transcript from the store message log |
+| `redactTranscript`, `createRedactionMap` | `@botmesh/core` or `@botmesh/core/testing` | Replace PII with stable placeholders |
+| `parseTranscript`, `serializeTranscript`, `createTranscript` | `@botmesh/core` or `@botmesh/core/testing` | Read, write and hand-write transcripts |
+| `replayTranscript`, `assertTranscript`, `REPLAY_MASKS` | `@botmesh/core/testing` only | Replay and diff |
 
 ## Record a conversation
 
@@ -29,8 +29,8 @@ or a `MockProvider`) in a transparent `RecordingProvider`. Give
 and every successful send.
 
 ```ts
-import { Bot } from '@bot-wa/core'
-import { MockProvider, recordTranscript, redactTranscript, serializeTranscript } from '@bot-wa/core/testing'
+import { Bot } from '@botmesh/core'
+import { MockProvider, recordTranscript, redactTranscript, serializeTranscript } from '@botmesh/core/testing'
 import { writeFileSync } from 'node:fs'
 
 const recorder = recordTranscript(new MockProvider())
@@ -53,7 +53,7 @@ straight from the mock (see [Conversation snapshots](/guide/testing#conversation
 | `now` | `Date.now` | Clock for the `t` offsets. |
 
 Failed or skipped sends are not recorded. Recording also works in production
-(that is why it is exported from `@bot-wa/core`), but the buffer keeps message
+(that is why it is exported from `@botmesh/core`), but the buffer keeps message
 bodies, display names and ids **unredacted** in RAM: keep `maxTurns` bounded
 and call `clear()` once you have taken a transcript.
 
@@ -66,7 +66,7 @@ the store you give it, so the raw store finds nothing under the plain chat
 ids.
 
 ```ts
-import { transcriptFromStore } from '@bot-wa/core'
+import { transcriptFromStore } from '@botmesh/core'
 
 const transcript = await transcriptFromStore(bot, [chatId], { name: 'support-123', limit: 500 })
 ```
@@ -85,7 +85,7 @@ push name.
 
 ```json
 {
-  "format": "bot-wa/transcript",
+  "format": "botmesh/transcript",
   "version": 1,
   "name": "checkout",
   "source": "recorder",
@@ -160,8 +160,8 @@ starts and stops it.
 
 ```ts
 import { readFileSync } from 'node:fs'
-import { Bot, type IProvider } from '@bot-wa/core'
-import { assertTranscript, parseTranscript, REPLAY_MASKS } from '@bot-wa/core/testing'
+import { Bot, type IProvider } from '@botmesh/core'
+import { assertTranscript, parseTranscript, REPLAY_MASKS } from '@botmesh/core/testing'
 import { registerFlows } from '../src/flows.js'
 
 function buildBot(provider: IProvider) {
@@ -209,10 +209,10 @@ and extra replies are detected.
 
 `REPLAY_MASKS` has ready-made masks: `isoDate`, `time`, `uuid` and `number`.
 
-## Publish gate (`@bot-wa/deployments`)
+## Publish gate (`@botmesh/deployments`)
 
 ::: warning Experimental — not published yet
-`@bot-wa/deployments` is private (not on npm) and its API may change. It is
+`@botmesh/deployments` is private (not on npm) and its API may change. It is
 persistent: `MemoryDeploymentStore` is the reference and `KvDeploymentStore`
 persists over any `DurableKv` (SQLite, PostgreSQL, Redis, file). Gate runs are
 recorded in an audit log.
@@ -240,9 +240,9 @@ fresh bot.
 
 ```ts
 import { readFileSync } from 'node:fs'
-import { MemoryKv } from '@bot-wa/core'
-import { parseTranscript, REPLAY_MASKS } from '@bot-wa/core/testing'
-import { DeploymentGateError, DeploymentRegistry, KvDeploymentStore, goldenTranscriptGate } from '@bot-wa/deployments'
+import { MemoryKv } from '@botmesh/core'
+import { parseTranscript, REPLAY_MASKS } from '@botmesh/core/testing'
+import { DeploymentGateError, DeploymentRegistry, KvDeploymentStore, goldenTranscriptGate } from '@botmesh/deployments'
 
 const registry = new DeploymentRegistry(new KvDeploymentStore(new MemoryKv()))
 const gate = goldenTranscriptGate({
@@ -272,4 +272,4 @@ On failure, `error.result.details.results` lists
 
 - [Testing](/guide/testing)
 - [Control plane](/guide/control-plane)
-- [`@bot-wa/deployments` README](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/deployments)
+- [`@botmesh/deployments` README](https://github.com/andresayac/botmesh/tree/main/packages/deployments)

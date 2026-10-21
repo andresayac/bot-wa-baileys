@@ -1,13 +1,13 @@
 # Channels (providers)
 
-The bot engine (`@bot-wa/core`) does not know about any transport. A
+The bot engine (`@botmesh/core`) does not know about any transport. A
 **provider** connects it to one channel: it receives the channel's events,
 turns them into neutral `InboundEvent`s and sends `OutboundContent` back. The
 same flows, triggers and plugins run on every channel; only the constructor
 changes.
 
 ```ts
-import { Bot } from '@bot-wa/core'
+import { Bot } from '@botmesh/core'
 
 const bot = new Bot({ provider }) // any provider below
 ```
@@ -19,19 +19,19 @@ events, and what it can and cannot do.
 
 | Package | Directory | Status | Transport |
 | --- | --- | --- | --- |
-| `@bot-wa/baileys` | `baileys-provider` | Public | WhatsApp Web (Baileys socket) |
-| `@bot-wa/meta` | `meta-provider` | Public | WhatsApp Cloud API (official) |
-| `@bot-wa/telegram` | `telegram-provider` | Public | Telegram Bot API |
-| `@bot-wa/messenger` | `messenger-provider` | Experimental | Facebook Messenger (Send API) |
-| `@bot-wa/instagram` | `instagram-provider` | Experimental | Instagram DMs (Messenger API for Instagram) |
-| `@bot-wa/discord` | `discord-provider` | Experimental | Discord (gateway + REST) |
-| `@bot-wa/evolution` | `evolution-provider` | Experimental | Evolution API v2 (self-hosted WhatsApp gateway) |
-| `@bot-wa/wppconnect` | `wppconnect-provider` | Experimental | WPPConnect Server (self-hosted WhatsApp gateway) |
-| `@bot-wa/twilio` | `twilio-provider` | Experimental | Twilio Programmable Messaging (WhatsApp + SMS/MMS) |
-| `@bot-wa/gohighlevel` | `gohighlevel-provider` | Experimental | HighLevel (LeadConnector) Conversations API |
-| `@bot-wa/gupshup` | `gupshup-provider` | Experimental | Gupshup WhatsApp API |
-| `@bot-wa/email` | `email-provider` | Experimental | Email (IMAP IDLE + SMTP) |
-| `@bot-wa/tiktok` | `tiktok-provider` | Experimental | TikTok API for Business (comments + Business Messaging) |
+| `@botmesh/baileys` | `baileys-provider` | Public | WhatsApp Web (Baileys socket) |
+| `@botmesh/meta` | `meta-provider` | Public | WhatsApp Cloud API (official) |
+| `@botmesh/telegram` | `telegram-provider` | Public | Telegram Bot API |
+| `@botmesh/messenger` | `messenger-provider` | Experimental | Facebook Messenger (Send API) |
+| `@botmesh/instagram` | `instagram-provider` | Experimental | Instagram DMs (Messenger API for Instagram) |
+| `@botmesh/discord` | `discord-provider` | Experimental | Discord (gateway + REST) |
+| `@botmesh/evolution` | `evolution-provider` | Experimental | Evolution API v2 (self-hosted WhatsApp gateway) |
+| `@botmesh/wppconnect` | `wppconnect-provider` | Experimental | WPPConnect Server (self-hosted WhatsApp gateway) |
+| `@botmesh/twilio` | `twilio-provider` | Experimental | Twilio Programmable Messaging (WhatsApp + SMS/MMS) |
+| `@botmesh/gohighlevel` | `gohighlevel-provider` | Experimental | HighLevel (LeadConnector) Conversations API |
+| `@botmesh/gupshup` | `gupshup-provider` | Experimental | Gupshup WhatsApp API |
+| `@botmesh/email` | `email-provider` | Experimental | Email (IMAP IDLE + SMTP) |
+| `@botmesh/tiktok` | `tiktok-provider` | Experimental | TikTok API for Business (comments + Business Messaging) |
 
 **Public** packages are installed with `pnpm add`. **Experimental** packages
 have `"private": true` in their `package.json`: they are implemented and
@@ -42,31 +42,31 @@ them from this monorepo (`"workspace:*"`).
 
 **WhatsApp** has several options:
 
-- **`@bot-wa/baileys`**: links the bot as a WhatsApp Web device (QR or
+- **`@botmesh/baileys`**: links the bot as a WhatsApp Web device (QR or
   pairing code) and opens its own socket. No public server or webhook,
   groups and polls work, no per-message cost. It is an **unofficial**
   client: automating an account can break WhatsApp's terms and get the
   number banned. Keep the [rate limiter](/guide/rate-limiting) on.
-- **`@bot-wa/meta`**: the official WhatsApp Cloud API. Native buttons,
+- **`@botmesh/meta`**: the official WhatsApp Cloud API. Native buttons,
   lists, templates and [WhatsApp Flows forms](/guide/forms), no ban risk.
   Needs a public HTTPS webhook, has no groups, and free-form messages only
   work inside the [24-hour customer-service window](/guide/session-window).
-- **`@bot-wa/evolution`** / **`@bot-wa/wppconnect`**: you already run an
+- **`@botmesh/evolution`** / **`@botmesh/wppconnect`**: you already run an
   Evolution API or WPPConnect Server. The bot talks to that gateway over
   REST and receives its webhooks. Both gateways drive WhatsApp Web, so the
   same caveats as Baileys apply (unofficial, no reliable native buttons).
   The shared pieces (REST client, media, LID/PN reconciliation) live in the
-  private `@bot-wa/wa-gateway-kit`; you install the channel, never the kit.
-- **`@bot-wa/twilio`** / **`@bot-wa/gupshup`**: you send WhatsApp through
+  private `@botmesh/wa-gateway-kit`; you install the channel, never the kit.
+- **`@botmesh/twilio`** / **`@botmesh/gupshup`**: you send WhatsApp through
   that provider's account. Templates are supported; Twilio also covers
   SMS/MMS with the same class.
-- **`@bot-wa/gohighlevel`**: the bot answers HighLevel CRM contacts on the
+- **`@botmesh/gohighlevel`**: the bot answers HighLevel CRM contacts on the
   channel they used (SMS, WhatsApp, Email, Facebook, Instagram, Live chat...).
 
-**Other channels:** `@bot-wa/telegram` (long polling by default, webhook
-optional), `@bot-wa/discord` (gateway socket), `@bot-wa/messenger` and
-`@bot-wa/instagram` (Meta webhooks), `@bot-wa/email` (each email thread is a
-chat) and `@bot-wa/tiktok` (comments on your own videos and DMs).
+**Other channels:** `@botmesh/telegram` (long polling by default, webhook
+optional), `@botmesh/discord` (gateway socket), `@botmesh/messenger` and
+`@botmesh/instagram` (Meta webhooks), `@botmesh/email` (each email thread is a
+chat) and `@botmesh/tiktok` (comments on your own videos and DMs).
 
 ### Socket, polling or webhook
 
@@ -78,7 +78,7 @@ chat) and `@bot-wa/tiktok` (comments on your own videos and DMs).
   HighLevel, Gupshup, TikTok. **Your** HTTP server receives the POST and
   hands the **raw body** plus the headers to `provider.ingest()`, which
   verifies the signature or token and returns the HTTP status to answer.
-  [`@bot-wa/server`](/guide/server) does that wiring (raw body, size limits,
+  [`@botmesh/server`](/guide/server) does that wiring (raw body, size limits,
   timeouts, health endpoints) for `node:http`, Express, Fastify and Hono.
 
 The constructor of every webhook provider (Telegram only in webhook mode)
@@ -121,7 +121,7 @@ text menu, `ctx.edit` sends a new message, `ctx.react` resolves
 - **Forms**: `native` sends `flow().form()` as a WhatsApp Flow;
   `field by field` asks each field with text messages.
 - **`textFormat`** (not a column): the text markup the channel renders, so
-  Markdown producers such as `@bot-wa/ai` can convert it. `'whatsapp'`
+  Markdown producers such as `@botmesh/ai` can convert it. `'whatsapp'`
   (`*bold*`, `_italic_`, `~strike~`): Baileys, Cloud API, Evolution,
   WPPConnect, Gupshup. `'plain'` (no markup): Telegram (sent without
   `parse_mode`), Messenger, Instagram, TikTok. `'markdown'`: Discord. Not
@@ -141,14 +141,14 @@ text menu, `ctx.edit` sends a new message, `ctx.react` resolves
 
 ## Providers
 
-### `@bot-wa/baileys`
+### `@botmesh/baileys`
 
 WhatsApp Web through [Baileys](https://github.com/WhiskeySockets/Baileys).
 Links with a QR code (or `pairingCode`) and keeps the session in
 `sessionsDir`.
 
 ```ts
-import { BaileysProvider } from '@bot-wa/baileys'
+import { BaileysProvider } from '@botmesh/baileys'
 
 const provider = new BaileysProvider({ session: 'my-bot' })
 ```
@@ -160,15 +160,15 @@ const provider = new BaileysProvider({ session: 'my-bot' })
   menus or `ctx.poll()`.
 - Anti-ban send rate limiting is on by default (`rateLimit`).
 
-[README](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/baileys-provider)
+[README](https://github.com/andresayac/botmesh/tree/main/packages/baileys-provider)
 
-### `@bot-wa/meta` (WhatsApp Cloud API)
+### `@botmesh/meta` (WhatsApp Cloud API)
 
 The official API. Webhook-based: GET handshake with `verifyChallenge()`,
 POST events with `ingest()`.
 
 ```ts
-import { CloudAPIProvider } from '@bot-wa/meta'
+import { CloudAPIProvider } from '@botmesh/meta'
 
 const provider = new CloudAPIProvider({
   accessToken: process.env.META_TOKEN!,        // system-user token
@@ -187,15 +187,15 @@ const provider = new CloudAPIProvider({
   [24-hour window and pricing](/guide/session-window).
 - No groups, typing or polls in the API; `deleteMessage` is a no-op.
 
-[README](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/meta-provider)
+[README](https://github.com/andresayac/botmesh/tree/main/packages/meta-provider)
 
-### `@bot-wa/telegram`
+### `@botmesh/telegram`
 
 Telegram Bot API. Long polling by default; `polling: false` switches to
 webhook mode, where `webhookSecret` is required.
 
 ```ts
-import { TelegramProvider } from '@bot-wa/telegram'
+import { TelegramProvider } from '@botmesh/telegram'
 
 const provider = new TelegramProvider({ token: process.env.TELEGRAM_TOKEN! })
 
@@ -210,7 +210,7 @@ const hooked = new TelegramProvider({
 - Inline keyboards, native polls, reactions, message edits.
 - `ctx.stream()` uses native drafts in private chats and edits elsewhere.
 - In webhook mode `ingest()` parses a JSON **string** (or an object): with
-  `@bot-wa/server` mount it with `body: 'text'`.
+  `@botmesh/server` mount it with `body: 'text'`.
 - **Edited messages** reach the bot as messages with the new text and the
   original `ref.id` (replies, reactions and edits target the edited message).
   `isEditedMessage(ctx)` tells them apart; the core deduper lets an edit
@@ -221,7 +221,7 @@ const hooked = new TelegramProvider({
   `--local`, whose file paths are not served over HTTP.
 
 ```ts
-import { TelegramProvider, isEditedMessage } from '@bot-wa/telegram'
+import { TelegramProvider, isEditedMessage } from '@botmesh/telegram'
 
 const selfHosted = new TelegramProvider({
   token: process.env.TELEGRAM_TOKEN!,
@@ -231,15 +231,15 @@ const selfHosted = new TelegramProvider({
 bot.before('message', async (ctx, next) => { if (!isEditedMessage(ctx)) await next() }) // skip edits
 ```
 
-[README](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/telegram-provider)
+[README](https://github.com/andresayac/botmesh/tree/main/packages/telegram-provider)
 
-### `@bot-wa/messenger` (experimental)
+### `@botmesh/messenger` (experimental)
 
 Facebook Messenger through the Graph Send API, with the same webhook
 verification as the Cloud API.
 
 ```ts
-import { MessengerProvider } from '@bot-wa/messenger'
+import { MessengerProvider } from '@botmesh/messenger'
 
 const provider = new MessengerProvider({
   accessToken: process.env.FB_PAGE_TOKEN!, // Page access token (pages_messaging)
@@ -250,15 +250,15 @@ const provider = new MessengerProvider({
 
 - Buttons and lists are native; reactions arrive but cannot be sent.
 
-[README](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/messenger-provider)
+[README](https://github.com/andresayac/botmesh/tree/main/packages/messenger-provider)
 
-### `@bot-wa/instagram` (experimental)
+### `@botmesh/instagram` (experimental)
 
 Instagram DMs of a professional account connected to a Facebook Page
 (Messenger API for Instagram).
 
 ```ts
-import { InstagramProvider } from '@bot-wa/instagram'
+import { InstagramProvider } from '@botmesh/instagram'
 
 const provider = new InstagramProvider({
   accessToken: process.env.FB_PAGE_TOKEN!, // token of the connected Page
@@ -270,14 +270,14 @@ const provider = new InstagramProvider({
 - Buttons go out as quick replies; lists degrade to numbered text.
 - DMs only (no groups); reactions arrive but cannot be sent.
 
-[README](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/instagram-provider)
+[README](https://github.com/andresayac/botmesh/tree/main/packages/instagram-provider)
 
-### `@bot-wa/discord` (experimental)
+### `@botmesh/discord` (experimental)
 
 Discord gateway (WebSocket) for events plus REST for sending.
 
 ```ts
-import { DiscordProvider, GatewayIntents } from '@bot-wa/discord'
+import { DiscordProvider, GatewayIntents } from '@botmesh/discord'
 
 const provider = new DiscordProvider({ token: process.env.DISCORD_TOKEN! })
 // Default intents: Guilds | GuildMessages | MessageContent.
@@ -294,9 +294,9 @@ const provider = new DiscordProvider({ token: process.env.DISCORD_TOKEN! })
 - Interactions have a hard acknowledgement deadline
   (`interactionsRequireAck`).
 
-[README](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/discord-provider)
+[README](https://github.com/andresayac/botmesh/tree/main/packages/discord-provider)
 
-### `@bot-wa/evolution` (experimental)
+### `@botmesh/evolution` (experimental)
 
 [Evolution API](https://github.com/EvolutionAPI/evolution-api) v2, a
 self-hosted WhatsApp REST gateway built on Baileys. Outbound: REST with the
@@ -304,7 +304,7 @@ self-hosted WhatsApp REST gateway built on Baileys. Outbound: REST with the
 secret header or Evolution's `jwt_key` (HS256 JWT).
 
 ```ts
-import { EvolutionProvider } from '@bot-wa/evolution'
+import { EvolutionProvider } from '@botmesh/evolution'
 
 const provider = new EvolutionProvider({
   baseUrl: 'http://localhost:8080',
@@ -322,16 +322,16 @@ const provider = new EvolutionProvider({
 - Polls, reactions, edits (text), typing and read receipts; buttons, lists
   and cards degrade to numbered text; `template` is rejected.
 
-[README](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/evolution-provider)
+[README](https://github.com/andresayac/botmesh/tree/main/packages/evolution-provider)
 
-### `@bot-wa/wppconnect` (experimental)
+### `@botmesh/wppconnect` (experimental)
 
 [WPPConnect Server](https://github.com/wppconnect-team/wppconnect-server),
 a self-hosted gateway on WhatsApp Web (WA-JS). REST with a Bearer token;
 webhooks authenticated with a token in the webhook URL.
 
 ```ts
-import { WPPConnectProvider } from '@bot-wa/wppconnect'
+import { WPPConnectProvider } from '@botmesh/wppconnect'
 
 const provider = new WPPConnectProvider({
   baseUrl: 'http://localhost:21465',
@@ -350,16 +350,16 @@ const provider = new WPPConnectProvider({
 - `markRead` marks the whole chat as seen; buttons and lists degrade to
   numbered text.
 
-[README](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/wppconnect-provider)
+[README](https://github.com/andresayac/botmesh/tree/main/packages/wppconnect-provider)
 
-### `@bot-wa/twilio` (experimental)
+### `@botmesh/twilio` (experimental)
 
 Twilio Programmable Messaging: **WhatsApp and SMS/MMS** with one class.
 Webhooks verified with `X-Twilio-Signature`, which covers the exact public
 URL.
 
 ```ts
-import { TwilioProvider } from '@bot-wa/twilio'
+import { TwilioProvider } from '@botmesh/twilio'
 
 const provider = new TwilioProvider({
   accountSid: process.env.TWILIO_SID!,
@@ -383,16 +383,16 @@ const provider = new TwilioProvider({
   and the text (`Body`); attachment `i` gets the id `MessageSid:i` and an
   empty body (unique ids, stable across webhook retries).
 
-[README](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/twilio-provider)
+[README](https://github.com/andresayac/botmesh/tree/main/packages/twilio-provider)
 
-### `@bot-wa/gohighlevel` (experimental)
+### `@botmesh/gohighlevel` (experimental)
 
 HighLevel (GoHighLevel / LeadConnector) Conversations API. Inbound through
 the `InboundMessage` webhook (Ed25519 `X-GHL-Signature`), outbound with
 `POST /conversations/messages` on the channel the contact last used.
 
 ```ts
-import { GoHighLevelProvider } from '@bot-wa/gohighlevel'
+import { GoHighLevelProvider } from '@botmesh/gohighlevel'
 
 const provider = new GoHighLevelProvider({
   accessToken: process.env.GHL_TOKEN!,         // Private Integration Token
@@ -407,16 +407,16 @@ const provider = new GoHighLevelProvider({
   webhook secret is needed. `ingest()` needs the **raw** body.
 - Media only from public URLs; `template` maps to `templateId`.
 
-[README](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/gohighlevel-provider)
+[README](https://github.com/andresayac/botmesh/tree/main/packages/gohighlevel-provider)
 
-### `@bot-wa/gupshup` (experimental)
+### `@botmesh/gupshup` (experimental)
 
 Gupshup WhatsApp API: v1 send endpoints, v2 callbacks. Gupshup does not sign
 callbacks, so they are authenticated with a shared token in the callback URL
 (or a header).
 
 ```ts
-import { GupshupProvider } from '@bot-wa/gupshup'
+import { GupshupProvider } from '@botmesh/gupshup'
 
 const provider = new GupshupProvider({
   apiKey: process.env.GUPSHUP_API_KEY!,
@@ -434,16 +434,16 @@ const provider = new GupshupProvider({
 - Media only from public URLs. Gupshup also documents IP allow-listing: do
   both in production.
 
-[README](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/gupshup-provider)
+[README](https://github.com/andresayac/botmesh/tree/main/packages/gupshup-provider)
 
-### `@bot-wa/email` (experimental)
+### `@botmesh/email` (experimental)
 
 Email: **IMAP IDLE** to receive and **SMTP** to reply. Each email thread is
 a chat, so `ask()` flows continue when the customer replies to the email.
 `imapflow` and `nodemailer` are optional peer dependencies loaded lazily.
 
 ```ts
-import { EmailProvider } from '@bot-wa/email'
+import { EmailProvider } from '@botmesh/email'
 
 const provider = new EmailProvider({
   address: 'support@acme.com',
@@ -465,16 +465,16 @@ const provider = new EmailProvider({
 - Without IMAP, `ingest(rawMime)` accepts raw MIME from an inbound-mail
   webhook and resolves `{ status, accepted, reason? }`.
 
-[README](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/email-provider)
+[README](https://github.com/andresayac/botmesh/tree/main/packages/email-provider)
 
-### `@bot-wa/tiktok` (experimental)
+### `@botmesh/tiktok` (experimental)
 
 TikTok API for Business (v1.3): **comments** on the account's own videos and
 **direct messages** (Business Messaging API, approval required). Webhooks
 verified with `TikTok-Signature`.
 
 ```ts
-import { TikTokProvider } from '@bot-wa/tiktok'
+import { TikTokProvider } from '@botmesh/tiktok'
 
 const provider = new TikTokProvider({
   accessToken: process.env.TIKTOK_TOKEN!,             // or an async refresh function
@@ -495,12 +495,12 @@ const provider = new TikTokProvider({
 - The bot cannot start a conversation, and TikTok limits messages per 48 h
   window (`OutsideSessionWindowError`).
 
-[README](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/tiktok-provider)
+[README](https://github.com/andresayac/botmesh/tree/main/packages/tiktok-provider)
 
 ## Next steps
 
 - [Webhook server](/guide/server): mount webhook providers with
-  `@bot-wa/server`.
+  `@botmesh/server`.
 - [24-hour window and pricing](/guide/session-window): Cloud API session
   window and usage tracking.
 - [Messages & media](/guide/messages): what each helper does on each

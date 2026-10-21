@@ -6,7 +6,7 @@
  * collapse into a shared constant (`ig_0`) that drops later events as duplicates.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { Bot } from '@bot-wa/core'
+import { Bot } from '@botmesh/core'
 import { InstagramProvider } from '../src/InstagramProvider.js'
 import { parseInbound, type IgMessagingEvent, type IgWebhookBody } from '../src/parseInbound.js'
 

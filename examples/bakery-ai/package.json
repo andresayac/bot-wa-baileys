@@ -1,9 +1,9 @@
 {
-  "name": "@bot-wa/example-bakery-ai",
+  "name": "@botmesh/example-bakery-ai",
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Example: an AI ordering assistant for a bakery on WhatsApp (Baileys or Twilio) with @bot-wa/ai tools — quote, place, change and cancel orders with human confirmation.",
+  "description": "Example: an AI ordering assistant for a bakery on WhatsApp (Baileys or Twilio) with @botmesh/ai tools — quote, place, change and cancel orders with human confirmation.",
   "engines": { "node": ">=22" },
   "license": "MIT",
   "scripts": {
@@ -14,11 +14,11 @@
     "start:twilio": "node lib/main-twilio.js"
   },
   "dependencies": {
-    "@bot-wa/ai": "workspace:*",
-    "@bot-wa/baileys": "workspace:*",
-    "@bot-wa/core": "workspace:*",
-    "@bot-wa/server": "workspace:*",
-    "@bot-wa/twilio": "workspace:*",
+    "@botmesh/ai": "workspace:*",
+    "@botmesh/baileys": "workspace:*",
+    "@botmesh/core": "workspace:*",
+    "@botmesh/server": "workspace:*",
+    "@botmesh/twilio": "workspace:*",
     "pino": "^10.3.1"
   },
   "devDependencies": {

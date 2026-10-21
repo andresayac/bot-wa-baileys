@@ -6,7 +6,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { PostgresStore } from '../src/PostgresStore.js'
 import { FakePool } from './fakePool.js'
-import type { FlowCheckpoint, StoredMessage } from '@bot-wa/core'
+import type { FlowCheckpoint, StoredMessage } from '@botmesh/core'
 
 // Mock the 'pg' module so `new PostgresStore({ connectionString })` (no
 // injected pool) builds a FakePool instead of opening a real socket.

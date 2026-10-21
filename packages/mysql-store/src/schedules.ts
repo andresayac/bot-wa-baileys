@@ -29,7 +29,7 @@ import {
   type ScheduleKind,
   type ScheduleRecord,
   type ScheduleStore,
-} from '@bot-wa/core'
+} from '@botmesh/core'
 import type { ConnectionLike, MysqlQueryResult, NativeMysqlPool } from './MysqlStore.js'
 
 /** What {@link MysqlScheduleStore} needs from a pool. */

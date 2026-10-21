@@ -16,7 +16,7 @@ import type {
   SentMessage,
 } from '../src/index.js'
 
-// A plugin-style augmentation (what `@bot-wa/nlu` does for `ctx.tools.nlu`).
+// A plugin-style augmentation (what `@botmesh/nlu` does for `ctx.tools.nlu`).
 declare module '../src/core/provider.js' {
   interface DefaultTools {
     /** Test-only tool used to prove the augmentation reaches conversation contexts. */

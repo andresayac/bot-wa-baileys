@@ -1,12 +1,12 @@
 /**
- * @bot-wa/telegram — config + Telegram Bot API wire types (subset used).
+ * @botmesh/telegram — config + Telegram Bot API wire types (subset used).
  *
  * Shapes are deliberately loose (optional fields everywhere): the Bot API is
  * additive and we only read what the normalizer needs.
  */
 
-import type { SecureFetchOptions } from '@bot-wa/http'
-import type { LoggerLike } from '@bot-wa/core'
+import type { SecureFetchOptions } from '@botmesh/http'
+import type { LoggerLike } from '@botmesh/core'
 
 export interface TelegramProviderConfig {
   /** Bot token from @BotFather. */
@@ -20,7 +20,7 @@ export interface TelegramProviderConfig {
    */
   baseUrl?: string
   /**
-   * Safe-download policy for Telegram file URLs (`@bot-wa/http` `secureFetch`
+   * Safe-download policy for Telegram file URLs (`@botmesh/http` `secureFetch`
    * options: `maxBytes`, `timeoutMs`, `allowPrivateHosts`, ...). Downloads are
    * refused for private/loopback hosts unless `allowPrivateHosts: true`, which a
    * self-hosted Bot API server on a private network needs.

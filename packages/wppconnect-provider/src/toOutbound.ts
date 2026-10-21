@@ -7,8 +7,8 @@
  * `native` with `provider: 'wppconnect'` posts `{ endpoint, body }` verbatim.
  */
 
-import { UnsupportedContentError, type OutboundContent, type SendOptions } from '@bot-wa/core'
-import { isGroupJid, isLidJid, isRecord, resolveMedia, toDataUri } from '@bot-wa/wa-gateway-kit'
+import { UnsupportedContentError, type OutboundContent, type SendOptions } from '@botmesh/core'
+import { isGroupJid, isLidJid, isRecord, resolveMedia, toDataUri } from '@botmesh/wa-gateway-kit'
 
 export interface WppOutbound {
   /** Endpoint under `/api/{session}/` (e.g. `send-message`). */

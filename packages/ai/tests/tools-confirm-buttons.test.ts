@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import type { OutboundContent } from '@bot-wa/core'
-import { createTestBot, type MockProviderOptions } from '@bot-wa/core/testing'
+import type { OutboundContent } from '@botmesh/core'
+import { createTestBot, type MockProviderOptions } from '@botmesh/core/testing'
 import { MockAIProvider } from '../src/MockAIProvider.js'
 import { aiPlugin, type AIPluginConfig } from '../src/plugin.js'
 import type { AIToolSet } from '../src/tools/types.js'

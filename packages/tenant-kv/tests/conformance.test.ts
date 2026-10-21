@@ -2,7 +2,7 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { FileDurability, MemoryKv } from '@bot-wa/core'
+import { FileDurability, MemoryKv } from '@botmesh/core'
 import { CorruptDocumentError, TenantDocs } from '../src/index.js'
 import { runTenantDocsConformance } from '../../../test-utils/tenant-docs-conformance.js'
 

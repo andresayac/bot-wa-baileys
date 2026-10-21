@@ -7,7 +7,7 @@
  * {@link fakeMakeWASocket}; see `poll-votes.test.ts` for the pattern.
  */
 import { vi } from 'vitest'
-import type { InboundEvent } from '@bot-wa/core'
+import type { InboundEvent } from '@botmesh/core'
 import type { BaileysProvider, BaileysProviderConfig } from '../../src/BaileysProvider.js'
 
 /** The bot's own identity (device-qualified, as Baileys stores it in creds.me). */

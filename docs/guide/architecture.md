@@ -1,6 +1,6 @@
 # Architecture
 
-How `@bot-wa/core` is put together: the package layers, the modules behind the `Bot`
+How `@botmesh/core` is put together: the package layers, the modules behind the `Bot`
 class, the path a message takes in and out, and where the opt-in features
 (durability, multi-replica coordination, the durable scheduler, tracing) plug in.
 You don't need any of this to write a bot. It is for people who extend the core,
@@ -12,11 +12,11 @@ The framework is a pnpm monorepo. Dependencies only point **down**:
 
 | Layer | Packages |
 | --- | --- |
-| Engine | `@bot-wa/core` (its only runtime dependency is `pino`) |
-| Shared infrastructure | `@bot-wa/http` (anti-SSRF client), `@bot-wa/graph-core` (Meta Graph helpers) |
-| Channels | `@bot-wa/baileys`, `@bot-wa/meta`, `@bot-wa/telegram`, … (each implements `IProvider`) |
-| Stores | `@bot-wa/sqlite-store`, `@bot-wa/redis-store`, … (each implements `IStore`) |
-| Plugins / product | `@bot-wa/ai`, `nlu`, `manager`, `inbox`, … |
+| Engine | `@botmesh/core` (its only runtime dependency is `pino`) |
+| Shared infrastructure | `@botmesh/http` (anti-SSRF client), `@botmesh/graph-core` (Meta Graph helpers) |
+| Channels | `@botmesh/baileys`, `@botmesh/meta`, `@botmesh/telegram`, … (each implements `IProvider`) |
+| Stores | `@botmesh/sqlite-store`, `@botmesh/redis-store`, … (each implements `IStore`) |
+| Plugins / product | `@botmesh/ai`, `nlu`, `manager`, `inbox`, … |
 
 The core is **transport-agnostic**. It knows nothing about JIDs, QR codes or
 webhooks: chat, user and message ids are opaque strings it never parses, and the
@@ -147,7 +147,7 @@ code path described above without the dashed boxes.
 | Durable processing | `durability` | Inbound: journals each event in an **inbox** before dispatch and acknowledges it once the work it started settled; replays it after a crash. Outbound: idempotency lookup and an **outbox** journal per send, with retries and a dead-letter queue. Lifecycle: a `durability` step | [Durable processing](/guide/durability) |
 | Multi-replica coordination | `coordination` | Inbound: each chat is processed under a cross-replica **turn**, in ingress order. Outbound: a **fence** refuses sends from a replica that lost its turn or the provider session. Lifecycle: a `coordination` step and leader election for exclusive transports. With `coordination.handover`, flow checkpoints carry the cut-short answer and non-persistent flows can be forwarded | [Running N replicas](/guide/replicas) |
 | Durable scheduler | `scheduler` | Jobs: tasks with an `id` are stored, survive restarts with a missed-run policy and run on one replica per occurrence (a **lease**) | [Scheduler](/guide/scheduler) |
-| Tracing | `telemetry` | Wraps the stages it observes in spans without changing their order or timing: provider event (`bot.inbound`), persistence, dispatch, handler, each conversation turn between waits, pacing and every send; `@bot-wa/ai` adds model and tool spans. `@bot-wa/otel` (outside the core, `@opentelemetry/api` as an optional peer) exports them. Each scheduled task run is a root `bot.task` span, and a conversation resumed on another replica (or after a restart) links its first turn to the turn that wrote the checkpoint (`FlowCheckpoint.trace`, W3C) | [Tracing](/guide/tracing) |
+| Tracing | `telemetry` | Wraps the stages it observes in spans without changing their order or timing: provider event (`bot.inbound`), persistence, dispatch, handler, each conversation turn between waits, pacing and every send; `@botmesh/ai` adds model and tool spans. `@botmesh/otel` (outside the core, `@opentelemetry/api` as an optional peer) exports them. Each scheduled task run is a root `bot.task` span, and a conversation resumed on another replica (or after a restart) links its first turn to the turn that wrote the checkpoint (`FlowCheckpoint.trace`, W3C) | [Tracing](/guide/tracing) |
 
 ## See also
 

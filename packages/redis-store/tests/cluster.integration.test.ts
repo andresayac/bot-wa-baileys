@@ -11,8 +11,8 @@ import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { createClient } from 'redis'
-import { Bot, MemoryStore, flow, legacyMessageKey, type Coordinator, type StoredMessage, type Ticket } from '@bot-wa/core'
-import { CrashableProvider, MockProvider, crashable } from '@bot-wa/core/testing'
+import { Bot, MemoryStore, flow, legacyMessageKey, type Coordinator, type StoredMessage, type Ticket } from '@botmesh/core'
+import { CrashableProvider, MockProvider, crashable } from '@botmesh/core/testing'
 import {
   RedisCoordinator, RedisDurability, RedisDurableKv, RedisStore, hashSlot,
 } from '../src/index.js'

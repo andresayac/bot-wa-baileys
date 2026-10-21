@@ -1,6 +1,6 @@
 /**
- * @bot-wa/gohighlevel — HighLevel (LeadConnector) Conversations API transport
- * for @bot-wa/core: SMS, WhatsApp, Email, FB, IG and Live chat through one
+ * @botmesh/gohighlevel — HighLevel (LeadConnector) Conversations API transport
+ * for @botmesh/core: SMS, WhatsApp, Email, FB, IG and Live chat through one
  * CRM contact, with Ed25519-signed (`X-GHL-Signature`) webhooks.
  */
 

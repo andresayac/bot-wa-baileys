@@ -1,6 +1,6 @@
 # Herramientas de IA (tool calling)
 
-Con `tools`, el modelo de [`@bot-wa/ai`](/es/guide/ai) puede llamar a funciones
+Con `tools`, el modelo de [`@botmesh/ai`](/es/guide/ai) puede llamar a funciones
 de tu bot (buscar en el catálogo, consultar un pedido, crear una reserva)
 mediante el *tool / function calling* nativo de cada proveedor. Declaras cada
 herramienta una vez; el plugin la traduce para Anthropic, OpenAI, Gemini u
@@ -8,14 +8,14 @@ Ollama, ejecuta un bucle de varios pasos y le devuelve los resultados al modelo
 hasta que escribe la respuesta final.
 
 ::: warning Alpha — primera publicación en npm pendiente
-`@bot-wa/ai` forma parte de la primera alpha, que **todavía no está en npm**.
+`@botmesh/ai` forma parte de la primera alpha, que **todavía no está en npm**.
 Úsalo desde el monorepo (`workspace:*`) hasta que se publique.
 :::
 
 ## Declarar herramientas
 
 ```ts
-import { aiPlugin, defineTool } from '@bot-wa/ai'
+import { aiPlugin, defineTool } from '@botmesh/ai'
 import { z } from 'zod' // optional: any schema with safeParse()
 
 bot.plug(aiPlugin({
@@ -127,7 +127,7 @@ ejecuta cada handler con su timeout y le devuelve los resultados.
 ::: tip Herramientas y streaming
 Un turno con herramientas nunca se transmite en vivo: con `tools`
 configuradas, el autoresponder ignora la opción
-[`stream`](/es/guide/streaming#con-bot-wa-ai) y responde en un solo mensaje, y
+[`stream`](/es/guide/streaming#con-botmesh-ai) y responde en un solo mensaje, y
 `streamReplyInChat()` no ejecuta herramientas.
 :::
 
@@ -293,7 +293,7 @@ sí/no escrito con `c.ask()`. Los botones van al chat del `ctx` que pasas a
 `replyInChat` (o de la opción `ctx`).
 
 ```ts
-import { chatKeyOf, confirmWith } from '@bot-wa/ai'
+import { chatKeyOf, confirmWith } from '@botmesh/ai'
 
 bot.conversation('soporte', async (c, ctx) => {
   const texto = await c.ask('¿En qué te ayudo?')
@@ -395,8 +395,8 @@ ninguna herramienta para hacerlo.
 Una panadería completa con todo lo anterior:
 
 ```ts
-import { Bot } from '@bot-wa/core'
-import { aiPlugin } from '@bot-wa/ai'
+import { Bot } from '@botmesh/core'
+import { aiPlugin } from '@botmesh/ai'
 
 const MENU = {
   pan_de_bono: { name: 'Pan de bono', price: 2500 },
@@ -501,12 +501,12 @@ bot.plug(aiPlugin({
 }))
 ```
 
-La plantilla `ai-full` de [`create-bot-wa`](/es/guide/inicio) trae las mismas
+La plantilla `ai-full` de [`create-botmesh`](/es/guide/inicio) trae las mismas
 herramientas, con los pedidos guardados en `ctx.user`.
 
 Hay una versión completa y ejecutable (en inglés) en el
-[ejemplo del asistente de panadería](https://github.com/andresayac/bot-wa-baileys/tree/main/examples/bakery-ai) (`examples/bakery-ai`). Corre el
-mismo bot en WhatsApp con Baileys (QR) o con Twilio (webhook + `@bot-wa/server`)
+[ejemplo del asistente de panadería](https://github.com/andresayac/botmesh/tree/main/examples/bakery-ai) (`examples/bakery-ai`). Corre el
+mismo bot en WhatsApp con Baileys (QR) o con Twilio (webhook + `@botmesh/server`)
 e incluye configuración tipada por variables de entorno y tests con `MockAIProvider`.
 
 ## Eventos de auditoría
@@ -515,7 +515,7 @@ Cada paso del bucle emite un `AIToolEvent`, tanto a `onToolEvent` como en el
 bot como `'ai.tool'`:
 
 ```ts
-import type { AIToolEvent } from '@bot-wa/ai'
+import type { AIToolEvent } from '@botmesh/ai'
 
 bot.on('ai.tool', (e: AIToolEvent) => {
   audit.write({ type: e.type, tool: e.tool, step: e.step, chat: e.chatKey, ms: e.durationMs })
@@ -580,7 +580,7 @@ r.truncatedToolCalls // calls not run because the reply was cut off by the token
 una función `generate` y los mensajes.
 
 ```ts
-import { resolveProvider, runToolLoop } from '@bot-wa/ai'
+import { resolveProvider, runToolLoop } from '@botmesh/ai'
 
 const provider = await resolveProvider({ provider: 'anthropic' })
 const r = await runToolLoop({
@@ -601,8 +601,8 @@ texto plano para terminar. Construye un `AIClient` con tus herramientas y
 comprueba el resultado:
 
 ```ts
-import { AIClient, ContextManager, MockAIProvider } from '@bot-wa/ai'
-import { MemoryStore } from '@bot-wa/core'
+import { AIClient, ContextManager, MockAIProvider } from '@botmesh/ai'
+import { MemoryStore } from '@botmesh/core'
 
 const mock = new MockAIProvider({
   reply: (input) => input.messages.at(-1)?.role === 'tool'
@@ -633,4 +633,4 @@ expect(buscados).toEqual(['centeno'])
 - [Plugin de IA](/es/guide/ai) — proveedores y la referencia completa de `aiPlugin`
 - [Memoria y RAG](/es/guide/ai-memoria-rag) — hechos por usuario y respuestas con tus documentos
 - [Flujos conversacionales](/es/guide/flujos) — el runtime que aloja las confirmaciones
-- [Ejemplo: asistente de panadería](https://github.com/andresayac/bot-wa-baileys/tree/main/examples/bakery-ai) — estas prácticas en un bot de WhatsApp ejecutable (Baileys o Twilio)
+- [Ejemplo: asistente de panadería](https://github.com/andresayac/botmesh/tree/main/examples/bakery-ai) — estas prácticas en un bot de WhatsApp ejecutable (Baileys o Twilio)

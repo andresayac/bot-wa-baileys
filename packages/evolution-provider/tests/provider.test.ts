@@ -6,7 +6,7 @@ import {
   RecipientUnreachableError,
   UnsupportedContentError,
   type InboundEvent,
-} from '@bot-wa/core'
+} from '@botmesh/core'
 import pino from 'pino'
 import { EvolutionProvider } from '../src/EvolutionProvider.js'
 import type { EvolutionProviderConfig } from '../src/types.js'

@@ -11,7 +11,7 @@
  * `conversation` object. Both shapes are accepted.
  */
 
-import type { ChatId } from '@bot-wa/core'
+import type { ChatId } from '@botmesh/core'
 
 /* --- Raw webhook shapes --------------------------------------------------- */
 

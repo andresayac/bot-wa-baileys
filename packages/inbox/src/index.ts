@@ -1,12 +1,12 @@
 /**
- * @bot-wa/inbox — tenant-isolated omnichannel inbox: conversations with optimistic
+ * @botmesh/inbox — tenant-isolated omnichannel inbox: conversations with optimistic
  * concurrency (CAS on `version`), assignment, bot/human handoff, unread counters, SLA,
  * internal notes and the projection of core `StoredMessage`s from the message ledger.
  *
  * - {@link Inbox} — the agent-facing facade over an {@link InboxStore}.
  * - {@link MemoryInboxStore} — the in-RAM reference store (default).
- * - {@link KvInboxStore} — persisted through any `DurableKv` of `@bot-wa/core`
- *   (SQLite, PostgreSQL, Redis, file) via `@bot-wa/tenant-kv`.
+ * - {@link KvInboxStore} — persisted through any `DurableKv` of `@botmesh/core`
+ *   (SQLite, PostgreSQL, Redis, file) via `@botmesh/tenant-kv`.
  * - {@link attachInbox} — projects a running bot's traffic into the inbox.
  *
  * Private package: not published to npm.

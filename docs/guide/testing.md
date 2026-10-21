@@ -1,17 +1,17 @@
 # Testing
 
-`@bot-wa/core/testing` lets you test a bot without WhatsApp, a phone or the
+`@botmesh/core/testing` lets you test a bot without WhatsApp, a phone or the
 network. It works with any test runner (the repo uses Vitest).
 
 ```ts
-import { createTestBot, MockProvider } from '@bot-wa/core/testing'
+import { createTestBot, MockProvider } from '@botmesh/core/testing'
 ```
 
 ## `createTestBot` and `MockProvider`
 
 ```ts
-import { flow } from '@bot-wa/core'
-import { createTestBot } from '@bot-wa/core/testing'
+import { flow } from '@botmesh/core'
+import { createTestBot } from '@botmesh/core/testing'
 
 const { bot, provider, chat } = await createTestBot()
 bot.use(flow('hola').ask('Your name?', 'name').say((_ctx, c) => `Hi ${c.state.name}`))
@@ -105,7 +105,7 @@ snapshots stay stable; `scope: 'all'` interleaves every chat the mock saw and
 ```ts
 // vitest.setup.ts (a `setupFiles` entry) or at the top of a test file
 import { expect } from 'vitest'
-import { botMatchers } from '@bot-wa/core/testing/vitest'
+import { botMatchers } from '@botmesh/core/testing/vitest'
 expect.extend(botMatchers)
 
 expect(chat).toHaveReplied('Your name?')               // string includes / RegExp
@@ -113,7 +113,7 @@ expect(chat).toHaveRepliedMatching((text, content) => content.kind === 'image')
 expect(provider).toHaveRepliedTimes(2)                 // also provider.outbox or a string[]
 ```
 
-`@bot-wa/core/testing/vitest` exports the matchers and augments vitest's
+`@botmesh/core/testing/vitest` exports the matchers and augments vitest's
 `Matchers` type (`.not` works). `vitest` is an optional peer dependency: nothing
 is imported from it at runtime. The matchers are synchronous: wait with
 `expectReply`, then assert.
@@ -128,7 +128,7 @@ its traffic adversarially: duplicates, reordering, latency, failed sends,
 disconnects and identity aliases. It is deterministic for a given `seed`.
 
 ```ts
-import { createTestBot } from '@bot-wa/core/testing'
+import { createTestBot } from '@botmesh/core/testing'
 
 const { bot, provider, chaos } = await createTestBot({}, {
   chaos: {
@@ -175,7 +175,7 @@ alias the transport uses (see the identity contract on `IProvider`). These
 helpers check a list of emitted events:
 
 ```ts
-import { assertStableIdentity, checkIdentityContract, recordEvents } from '@bot-wa/core/testing'
+import { assertStableIdentity, checkIdentityContract, recordEvents } from '@botmesh/core/testing'
 
 const events = [toInbound(a, identity), toInbound(b, identity), toInbound(c, identity)]
 assertStableIdentity(events, { andres: { events: [0, 1, 2], senderId: PN, chatId: PN, kind: 'dm' } })
@@ -212,14 +212,14 @@ reply fails with an expected-vs-actual diff. The same replay can gate a
 deployment. See [Golden transcripts](/guide/golden-transcripts).
 
 ```ts
-import { assertTranscript, parseTranscript } from '@bot-wa/core/testing'
+import { assertTranscript, parseTranscript } from '@botmesh/core/testing'
 
 await assertTranscript(parseTranscript(readFileSync('tests/golden/checkout.json', 'utf8')), buildBot)
 ```
 
 ## Static checks
 
-[`eslint-plugin-bot-wa`](/guide/eslint) (experimental) catches v1 API
+[`eslint-plugin-botmesh`](/guide/eslint) (experimental) catches v1 API
 leftovers, a blocking `runtime.enter()`, async plugin `install()`, empty
 triggers, waits without a timeout and per-user state in module variables
 before the code runs.

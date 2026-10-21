@@ -1,16 +1,16 @@
 /**
- * Bot — public entry point of `@bot-wa/core`.
+ * Bot — public entry point of `@botmesh/core`.
  *
  * A transport-agnostic bot engine: declarative API (`when`, `flow`, `conversation`,
  * `plug`), hooks (`before`/`after`/`onError`), dependency injection (`provide`) and a
  * scheduler (`schedule`/`every`/`delay`). You inject a transport {@link IProvider}
- * (e.g. `BaileysProvider` from `@bot-wa/baileys`); the Bot drives it through the
+ * (e.g. `BaileysProvider` from `@botmesh/baileys`); the Bot drives it through the
  * normalized {@link InboundEvent} / {@link OutboundContent} contract.
  *
  * @example
  * ```ts
- * import { Bot, flow } from '@bot-wa/core'
- * import { BaileysProvider } from '@bot-wa/baileys'
+ * import { Bot, flow } from '@botmesh/core'
+ * import { BaileysProvider } from '@botmesh/baileys'
  *
  * const bot = new Bot({ provider: new BaileysProvider({ session: 'demo' }) })
  * bot.on('ready', () => bot.logger.info('connected'))
@@ -448,7 +448,7 @@ export class Bot extends EventEmitter {
 
   /**
    * The bot's tracing (`BotConfig.telemetry`): start your own spans under the bot's, or
-   * check `enabled`. Plugins (`@bot-wa/ai`) use it to add their spans to the same trace.
+   * check `enabled`. Plugins (`@botmesh/ai`) use it to add their spans to the same trace.
    * Without `telemetry` it is a disabled no-op ({@link BotTracing.enabled} `false`).
    *
    * @example
@@ -720,7 +720,7 @@ export class Bot extends EventEmitter {
   /**
    * Read-only snapshot of the live conversation for a chat (and participant, in
    * groups): captured `c.state`, whether it waits for a reply. `undefined` when
-   * none is active. Diagnostics only — e.g. `bot-wa dev`'s `:state` command.
+   * none is active. Diagnostics only — e.g. `botmesh dev`'s `:state` command.
    */
   inspectConversation(target: ConversationTarget): ConversationSnapshot | undefined {
     return this.runtime.inspect(this.ops.conversationKey(target))
@@ -731,7 +731,7 @@ export class Bot extends EventEmitter {
    * is being stored or dispatched to its handlers (e.g. one awaiting an AI
    * call), or a conversation is running a step instead of waiting for the
    * user's reply. Work a handler starts without awaiting it is not tracked.
-   * Diagnostics only — `bot-wa dev` uses it to wait for slow replies when its
+   * Diagnostics only — `botmesh dev` uses it to wait for slow replies when its
    * input is piped.
    */
   isBusy(): boolean {

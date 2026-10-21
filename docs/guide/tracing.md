@@ -4,9 +4,9 @@ A bot does a lot of work for each message: access lists, persistence, the chat's
 
 Tracing is **opt-in**. Without `BotConfig.telemetry` the bot runs exactly the code it ran before: no spans, no extra awaits.
 
-- `@bot-wa/core` has the tracing hooks: a minimal `BotTracer` interface, a no-op default and `bot.tracing`. No new dependency.
-- `@bot-wa/otel` (private for now) adapts them to OpenTelemetry and also turns `bot.metrics()` into OpenTelemetry metrics.
-- `@bot-wa/ai` adds model, tool and retrieval spans to the same trace.
+- `@botmesh/core` has the tracing hooks: a minimal `BotTracer` interface, a no-op default and `bot.tracing`. No new dependency.
+- `@botmesh/otel` (private for now) adapts them to OpenTelemetry and also turns `bot.metrics()` into OpenTelemetry metrics.
+- `@botmesh/ai` adds model, tool and retrieval spans to the same trace.
 
 ::: tip No message content
 Spans carry **kinds, stages, outcomes and ids**, never message bodies, captions, prompts, completions, tool arguments or results, `c.state` or error messages. Chat, user and message ids are hashed by default. See [Personal data](#personal-data).
@@ -38,8 +38,8 @@ sdk.start()
 
 ```ts
 // bot.ts
-import { Bot } from '@bot-wa/core'
-import { createOtelTracer, otelMetricsPlugin } from '@bot-wa/otel'
+import { Bot } from '@botmesh/core'
+import { createOtelTracer, otelMetricsPlugin } from '@botmesh/otel'
 
 const bot = new Bot({
   provider,
@@ -153,7 +153,7 @@ The user's answer arrives as another message: its own `bot.inbound` → `bot.dis
 | `bot.pace` | internal | A paced reply: delay + typing indicator + its send (`spans.pace`). |
 | `bot.send` | client | Every send and edit through the outbound pipeline. The provider call runs inside it. |
 | `bot.stream.update` | client | A `ctx.stream()` draft/edit — only with `spans.streamUpdates`; otherwise an event on the active span. |
-| `chat {model}` | client | A model call from `@bot-wa/ai` (OpenTelemetry GenAI conventions). |
+| `chat {model}` | client | A model call from `@botmesh/ai` (OpenTelemetry GenAI conventions). |
 | `execute_tool {name}` | internal | A tool call of the AI tool loop. |
 | `bot.ai.retrieve` | internal | RAG retrieval (`bot.ai.rag.chunks`). |
 | `bot.task` | internal | One run of a scheduled task (`bot.schedule`/`every`/`delay`, plain or durable). Always a **root** span; the task's sends nest under it. See [Scheduled tasks](#scheduled-tasks). |
@@ -180,7 +180,7 @@ The user's answer arrives as another message: its own `bot.inbound` → `bot.dis
 | `bot.lifecycle.step`, `bot.lifecycle.phase` | lifecycle | The step's name and what it was doing: `start`, `stop` (after the drain) or `rollback` (a failed `start()` undoing what it started). |
 | `error.type` | any failed span | The error class name (`RateLimitedError`, `timeout`…). |
 
-Every name is exported as `TRACE_ATTR` / `SPAN_NAMES` from `@bot-wa/core`.
+Every name is exported as `TRACE_ATTR` / `SPAN_NAMES` from `@botmesh/core`.
 
 ### Conversation turns
 
@@ -207,7 +207,7 @@ Notes:
 - Only W3C-shaped ids are carried (32/16 lowercase hex, which OpenTelemetry produces). A tracer with other ids stores nothing and the turn simply has no link. A malformed stored value is ignored.
 - The stored context is always the **latest** turn that wrote or parked: a hand-over stub is rewritten when a later turn parks (only with telemetry on; otherwise it is refreshed only before it expires), and the parked marker of a forwarded step refreshes it too. A turn whose context cannot be carried keeps the one already stored instead of erasing it.
 - A custom `handover.fallback` function receives the context in `info.trace`, to link spans of its own.
-- `formatTraceparent(spanContext)` and `parseTraceparent(traceparent, tracestate?)` are exported from `@bot-wa/core` for your own propagation.
+- `formatTraceparent(spanContext)` and `parseTraceparent(traceparent, tracestate?)` are exported from `@botmesh/core` for your own propagation.
 
 ### Scheduled tasks
 
@@ -234,7 +234,7 @@ bot.when('order', async (ctx) => {
 })
 ```
 
-With `@bot-wa/otel`, bot spans are also the active OpenTelemetry context, so `tracer.startActiveSpan()` and the SDK's auto-instrumentations (http, undici, pg…) nest under them too. Plugins use `ctx.bot.tracing` the same way; `bot.tracing.idAttribute(id)` applies the ids policy to an id of your own.
+With `@botmesh/otel`, bot spans are also the active OpenTelemetry context, so `tracer.startActiveSpan()` and the SDK's auto-instrumentations (http, undici, pg…) nest under them too. Plugins use `ctx.bot.tracing` the same way; `bot.tracing.idAttribute(id)` applies the ids policy to an id of your own.
 
 ## Metrics
 
@@ -278,10 +278,10 @@ new Bot({
 })
 ```
 
-| `@bot-wa/otel` option | Default | |
+| `@botmesh/otel` option | Default | |
 | --- | --- | --- |
 | `tracerProvider` | global (`trace.getTracerProvider()`) | |
-| `tracerName` | `'@bot-wa/otel'` | Instrumentation scope. |
+| `tracerName` | `'@botmesh/otel'` | Instrumentation scope. |
 | `spanMetrics` | `true` | `false`, or `{ meterProvider, prefix }`. |
 | `otelMetricsPlugin({ meterProvider, prefix, attributes, perFlow, conversationDuration })` | global, `'botwa'`, `{}`, `true`, `true` | |
 
@@ -293,10 +293,10 @@ Sample at the root with a parent-based sampler (`new ParentBasedSampler({ root: 
 
 `BotTracer` is deliberately small: `startSpan(name, options)` returning a span with `setAttribute(s)`, `addEvent`, `recordException`, `setStatus`, `end`, `isRecording` and `spanContext`, plus an optional `withSpan(span, fn)` to make a span the backend's active context. Any tracing library can implement it. A tracer that throws never breaks the bot: the call falls back to a no-op span and a warning is logged at most once a minute.
 
-In tests, `createRecordingTracer()` from `@bot-wa/core/testing` records every span in memory:
+In tests, `createRecordingTracer()` from `@botmesh/core/testing` records every span in memory:
 
 ```ts
-import { createRecordingTracer, createTestBot } from '@bot-wa/core/testing'
+import { createRecordingTracer, createTestBot } from '@botmesh/core/testing'
 
 const rec = createRecordingTracer()
 const { bot, chat } = await createTestBot({ telemetry: { tracer: rec.tracer, ids: 'raw' } })

@@ -6,7 +6,7 @@
  */
 
 import { createPrivateKey, createSign, type KeyObject } from 'node:crypto'
-import { secureFetch, type SecureFetchOptions } from '@bot-wa/http'
+import { secureFetch, type SecureFetchOptions } from '@botmesh/http'
 
 /** The fields of a Google service-account JSON key that are used here. */
 export interface ServiceAccountCredentials {

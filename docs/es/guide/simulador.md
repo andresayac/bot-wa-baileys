@@ -1,15 +1,15 @@
-# Simulador en la terminal (`bot-wa dev`)
+# Simulador en la terminal (`botmesh dev`)
 
-`bot-wa dev` te deja chatear con tu bot en la terminal: sin número de
+`botmesh dev` te deja chatear con tu bot en la terminal: sin número de
 WhatsApp, sin teléfono y sin riesgo de baneo. Inyecta un provider en
 memoria, así que nada sale del proceso, y recarga tu código al guardar.
 
 ```bash
-npx bot-wa dev src/bot.js
+npx botmesh dev src/bot.js
 ```
 
-El comando `bot-wa` viene con `@bot-wa/core`. Los proyectos generados con
-`create-bot-wa` ya lo tienen como `npm run dev`.
+El comando `botmesh` viene con `@botmesh/core`. Los proyectos generados con
+`create-botmesh` ya lo tienen como `npm run dev`.
 
 ## 1. El patrón factory (`defineBot`)
 
@@ -19,8 +19,8 @@ provider inyectar:
 
 ```js
 // src/bot.js
-import { Bot, defineBot, flow, isMainModule } from '@bot-wa/core'
-import { BaileysProvider } from '@bot-wa/baileys'
+import { Bot, defineBot, flow, isMainModule } from '@botmesh/core'
+import { BaileysProvider } from '@botmesh/baileys'
 
 const createBot = defineBot((provider) => {
   const bot = new Bot({ provider })           // usa SIEMPRE el provider que recibes
@@ -30,7 +30,7 @@ const createBot = defineBot((provider) => {
 })
 export default createBot
 
-// npm start (node src/bot.js) → provider real. bot-wa dev solo importa la factory.
+// npm start (node src/bot.js) → provider real. botmesh dev solo importa la factory.
 if (isMainModule(import.meta)) {
   const bot = await createBot(new BaileysProvider({ session: 'my-bot' }))
   bot.on('qr', (qr) => bot.logger.info(qr))
@@ -44,16 +44,16 @@ if (isMainModule(import.meta)) {
   `false` si un gestor de procesos importa tu archivo desde su propio
   wrapper (pm2 en modo ESM); en ese caso usa un archivo de arranque aparte
   que importe la factory.
-- `bot-wa dev` define la variable de entorno `BOT_WA_DEV=1` por si tu
+- `botmesh dev` define la variable de entorno `BOT_WA_DEV=1` por si tu
   código necesita detectar el simulador.
 
 ## 2. Uso
 
 ```bash
-npx bot-wa dev src/bot.js                       # o "npm run dev" en proyectos de create-bot-wa
-npx bot-wa dev src/bot.js --env-file .env       # carga variables (p. ej. ANTHROPIC_API_KEY para @bot-wa/ai)
-npx bot-wa dev src/bot.ts                       # TypeScript con el type stripping nativo de Node
-npx bot-wa dev src/bot.js --user ana --name "Ana" --group equipo --no-watch
+npx botmesh dev src/bot.js                       # o "npm run dev" en proyectos de create-botmesh
+npx botmesh dev src/bot.js --env-file .env       # carga variables (p. ej. ANTHROPIC_API_KEY para @botmesh/ai)
+npx botmesh dev src/bot.ts                       # TypeScript con el type stripping nativo de Node
+npx botmesh dev src/bot.js --user ana --name "Ana" --group equipo --no-watch
 ```
 
 | Opción | Significado |
@@ -94,7 +94,7 @@ Los botones, listas, cards y polls salen numerados (`[1] Info`); la media
 sale como `[image: url]` con el caption en la línea siguiente. Los mensajes
 del bot a otros chats salen como `bot → <chatId> › ...`.
 
-Con la entrada por pipe (`printf 'hola\n' | npx bot-wa dev src/bot.js --no-watch`),
+Con la entrada por pipe (`printf 'hola\n' | npx botmesh dev src/bot.js --no-watch`),
 cada línea espera a que el bot termine de reaccionar (hasta 30 s, para
 cubrir llamadas a IA), así que el transcript sale en orden.
 
@@ -103,7 +103,7 @@ cubrir llamadas a IA), así que el transcript sale en orden.
 - Al guardar un `.js/.mjs/.cjs/.ts/.mts/.cts/.jsx/.tsx` en la carpeta
   vigilada se para el bot actual (`bot.stop()`), se reimporta la entry y se
   crea un bot nuevo. Los imports relativos (`./flows/menu.js`) también se
-  recargan; los paquetes (`@bot-wa/core`, `node_modules`) no.
+  recargan; los paquetes (`@botmesh/core`, `node_modules`) no.
 - Se ignoran `node_modules`, las carpetas que empiezan por punto,
   `sessions/`, `*_sessions`, `.json`, `.env` y los logs, para que escribir
   un store o credenciales nunca provoque un bucle.
@@ -117,7 +117,7 @@ cubrir llamadas a IA), así que el transcript sale en orden.
 
 - Necesita el type stripping nativo de Node: viene activado en Node ≥ 22.18
   / 23.6. En Node 22.6–22.17 usa
-  `NODE_OPTIONS=--experimental-strip-types npx bot-wa dev src/bot.ts`.
+  `NODE_OPTIONS=--experimental-strip-types npx botmesh dev src/bot.ts`.
 - Los imports relativos deben llevar la extensión `.ts` real y los imports
   de solo tipos deben usar `import type`. Sin TSX, enums ni namespaces
   (salvo con transform-types).
@@ -133,13 +133,13 @@ cubrir llamadas a IA), así que el transcript sale en orden.
 - Un export por defecto que no se creó con `defineBot()` recibe un aviso
   (una sola vez).
 - Si la entry se ejecuta pero no exporta una factory (un `bot.js` antiguo
-  que arranca solo al importarse), `bot-wa dev` termina el proceso, aunque
+  que arranca solo al importarse), `botmesh dev` termina el proceso, aunque
   esté en modo watch, para cerrar cualquier conexión real que haya abierto.
 
-## 7. API programática (`@bot-wa/core/dev`)
+## 7. API programática (`@botmesh/core/dev`)
 
 ```ts
-import { DevSession } from '@bot-wa/core/dev'
+import { DevSession } from '@botmesh/core/dev'
 
 const session = new DevSession({ load: () => import('./bot.js'), write: (t) => process.stdout.write(t) })
 await session.start()

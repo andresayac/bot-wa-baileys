@@ -1,5 +1,5 @@
 /**
- * @bot-wa/twilio — Twilio Programmable Messaging transport for @bot-wa/core:
+ * @botmesh/twilio — Twilio Programmable Messaging transport for @botmesh/core:
  * WhatsApp + SMS/MMS over the REST API, webhooks verified with X-Twilio-Signature.
  */
 

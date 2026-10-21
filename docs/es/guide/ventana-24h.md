@@ -1,13 +1,13 @@
 # Ventana de 24 h y costos (Cloud API)
 
-En la WhatsApp Cloud API (`@bot-wa/meta`) un negocio solo puede enviar
+En la WhatsApp Cloud API (`@botmesh/meta`) un negocio solo puede enviar
 mensajes **libres** (texto, media, botones...) dentro de las **24 horas**
 siguientes al último mensaje del usuario: la ventana de atención al cliente.
 Fuera de ella solo pasan las **plantillas** aprobadas; Meta rechaza todo lo
 demás con el error de Graph `131047`, que el provider traduce a
 `OutsideSessionWindowError`.
 
-`@bot-wa/meta` incluye dos ayudas opcionales para esto:
+`@botmesh/meta` incluye dos ayudas opcionales para esto:
 
 - **`sessionWindow`**: sigue la ventana de cada chat, reabre los chats
   cerrados con una plantilla y reintenta el mensaje original cuando el
@@ -15,7 +15,7 @@ demás con el error de Graph `131047`, que el provider traduce a
 - **`usage`**: cuenta la información de facturación que Meta adjunta a los
   webhooks de estado, por chat y por categoría de precio.
 
-Ambas existen solo en `@bot-wa/meta`. Otros providers con una ventana
+Ambas existen solo en `@botmesh/meta`. Otros providers con una ventana
 parecida (error `63016` de Twilio, Gupshup, TikTok) rechazan con
 `OutsideSessionWindowError`, pero no tienen gestor.
 
@@ -25,7 +25,7 @@ Por defecto no se sigue nada. Un envío libre fuera de la ventana rechaza y tú
 decides qué hacer:
 
 ```ts
-import { OutsideSessionWindowError } from '@bot-wa/core'
+import { OutsideSessionWindowError } from '@botmesh/core'
 
 try {
   await bot.sendTo(chatId, 'Your order shipped')
@@ -46,7 +46,7 @@ ventana.
 ## Activar el gestor
 
 ```ts
-import { CloudAPIProvider } from '@bot-wa/meta'
+import { CloudAPIProvider } from '@botmesh/meta'
 
 const provider = new CloudAPIProvider({
   accessToken: process.env.META_TOKEN!,
@@ -102,7 +102,7 @@ directamente.
   handlers).
 
 ```ts
-import { SessionWindowReopenedError } from '@bot-wa/meta'
+import { SessionWindowReopenedError } from '@botmesh/meta'
 
 try {
   await bot.sendTo(chatId, 'Your invoice is attached')
@@ -186,7 +186,7 @@ conservarlo entre reinicios y procesos; los métodos pueden ser síncronos o
 asíncronos:
 
 ```ts
-import type { SessionWindowStore } from '@bot-wa/meta'
+import type { SessionWindowStore } from '@botmesh/meta'
 
 const store: SessionWindowStore = {
   async get(key) {
@@ -218,7 +218,7 @@ instancia; cada provider obtiene su propia vista con
 envíos seguidos:
 
 ```ts
-import { SessionWindowManager } from '@bot-wa/meta'
+import { SessionWindowManager } from '@botmesh/meta'
 
 const windows = new SessionWindowManager({ store, reopenTemplate })
 
@@ -258,7 +258,7 @@ Meta normalizada en `DeliveryStatus.platformData`:
   `{ id?, originType?, expiresAt? }` (`expiresAt` en epoch ms).
 
 ```ts
-import { pricingOf } from '@bot-wa/meta'
+import { pricingOf } from '@botmesh/meta'
 
 bot.on('status', (status) => {
   const pricing = pricingOf(status.platformData)
@@ -296,4 +296,4 @@ de las tarifas que configuraste: la factura de Meta es la fuente de verdad.
 ## Ver también
 
 - [Canales](/es/guide/canales): todos los providers y sus capacidades.
-- [README de `@bot-wa/meta`](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/meta-provider)
+- [README de `@botmesh/meta`](https://github.com/andresayac/botmesh/tree/main/packages/meta-provider)

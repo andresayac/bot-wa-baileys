@@ -7,7 +7,7 @@
  * `ignoreUndefined`, Dates kept, `toJSON` NOT used).
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import type { StoredMessage } from '@bot-wa/core'
+import type { StoredMessage } from '@botmesh/core'
 import { MongoStore, TRIM_DELETE_BATCH } from '../src/MongoStore.js'
 import { FakeBinary, FakeMongoClient, FakeMongoCollection } from './fakeMongo.js'
 

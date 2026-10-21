@@ -9,7 +9,7 @@
  * send, location or contact cards — those degrade or throw per capability.
  */
 
-import { UnsupportedContentError, type MediaSource, type OutboundContent } from '@bot-wa/core'
+import { UnsupportedContentError, type MediaSource, type OutboundContent } from '@botmesh/core'
 
 const URL_RE = /^https?:\/\//i
 

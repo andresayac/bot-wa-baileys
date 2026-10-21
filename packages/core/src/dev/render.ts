@@ -1,5 +1,5 @@
 /**
- * Pure rendering helpers for `bot-wa dev`: turn an {@link OutboundContent}
+ * Pure rendering helpers for `botmesh dev`: turn an {@link OutboundContent}
  * into terminal text. Media becomes a `[kind: source]` placeholder; buttons,
  * lists, cards and polls become numbered choices the user can pick with
  * `:click <n>`. No I/O, no colours — the session decides how to print.

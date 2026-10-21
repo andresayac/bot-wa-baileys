@@ -1,12 +1,12 @@
-# Voice (`@bot-wa/voice`)
+# Voice (`@botmesh/voice`)
 
-`@bot-wa/voice` adds **speech-to-text** (STT) for inbound voice notes and
+`@botmesh/voice` adds **speech-to-text** (STT) for inbound voice notes and
 **text-to-speech** (TTS) to answer with audio. It is a plugin, not a channel:
 it works the same on WhatsApp (Baileys or Cloud API), Telegram or any
 provider that delivers `voice` / `audio` messages.
 
 ::: warning Experimental — not on npm
-`@bot-wa/voice` is a working, tested package, but it is **private**: it is not
+`@botmesh/voice` is a working, tested package, but it is **private**: it is not
 part of the first alpha and its API may change. Use it from the monorepo
 (`workspace:*`).
 :::
@@ -14,7 +14,7 @@ part of the first alpha and its API may change. Use it from the monorepo
 - STT: OpenAI (`whisper-1`, `gpt-4o-transcribe`, `gpt-4o-mini-transcribe`, and
   compatible servers) and Deepgram (`nova-3`).
 - TTS: OpenAI (`gpt-4o-mini-tts`, `tts-1`, `tts-1-hd`) and ElevenLabs.
-- No SDKs: plain HTTPS through `secureFetch` from `@bot-wa/http` (SSRF guard,
+- No SDKs: plain HTTPS through `secureFetch` from `@botmesh/http` (SSRF guard,
   timeouts, size caps).
 - `install()` is synchronous and never touches the network: adapters are
   resolved on first use, and a non-fatal warmup logs a bad config (missing API
@@ -23,8 +23,8 @@ part of the first alpha and its API may change. Use it from the monorepo
 ## Quickstart
 
 ```ts
-import { VOICE_NOTE } from '@bot-wa/core'
-import { voicePlugin } from '@bot-wa/voice'
+import { VOICE_NOTE } from '@botmesh/core'
+import { voicePlugin } from '@botmesh/voice'
 
 bot.plug(voicePlugin({
   stt: { provider: 'openai', model: 'whisper-1', apiKey: process.env.OPENAI_API_KEY },
@@ -90,7 +90,7 @@ is still available on demand.
 
 ### With the AI autoresponder
 
-The [`@bot-wa/ai`](/guide/ai) autoresponder only answers **text** messages.
+The [`@botmesh/ai`](/guide/ai) autoresponder only answers **text** messages.
 With the default `asText: 'auto'`, a voice note sent outside a conversation
 stays `'voice'`, so the AI does not answer it. To let the AI answer voice
 notes, set `asText: true`:
@@ -199,7 +199,7 @@ Whisper-compatible server on `http://127.0.0.1:8000/v1`).
 You can also pass your own adapter (a local model, another service):
 
 ```ts
-import type { SttAdapter } from '@bot-wa/voice'
+import type { SttAdapter } from '@botmesh/voice'
 
 const local: SttAdapter = {
   name: 'local-whisper',
@@ -216,7 +216,7 @@ bot.plug(voicePlugin({ stt: local }))
   Whisper, `gpt-4o-*-transcribe` and Deepgram accept directly. When the channel
   reports no mimetype, it is sniffed from the first bytes (OGG, WAV, MP3,
   MP4/M4A, WebM, FLAC, AMR), else OGG is assumed.
-- **Output on WhatsApp**: a voice note must be OGG/Opus. `@bot-wa/baileys`
+- **Output on WhatsApp**: a voice note must be OGG/Opus. `@botmesh/baileys`
   transcodes `kind: 'voice'` to OGG/Opus itself (with the `ffmpeg` binary it
   bundles through `@ffmpeg-installer/ffmpeg`), so any format works. For the Cloud API and Telegram, ask the TTS for OGG/Opus: it is
   the OpenAI default (`format: 'opus'`); on ElevenLabs use
@@ -262,8 +262,8 @@ Error messages and logs never include API keys, audio or transcripts.
 ## Testing
 
 ```ts
-import { createTestBot } from '@bot-wa/core/testing'
-import { voicePlugin } from '@bot-wa/voice'
+import { createTestBot } from '@botmesh/core/testing'
+import { voicePlugin } from '@botmesh/voice'
 
 const { bot, chat, provider } = await createTestBot()
 provider.downloadMedia = async () => Buffer.from('OggS...')
@@ -278,7 +278,7 @@ await chat.expectReply('Hi!')
 
 The HTTP adapters accept injected `fetch` and `resolver` to test them without
 network. More in the
-[`@bot-wa/voice` README](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/voice).
+[`@botmesh/voice` README](https://github.com/andresayac/botmesh/tree/main/packages/voice).
 
 ## Next steps
 

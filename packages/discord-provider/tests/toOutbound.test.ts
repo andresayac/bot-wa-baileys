@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { UnsupportedContentError } from '@bot-wa/core'
+import { UnsupportedContentError } from '@botmesh/core'
 import { toOutbound, type DiscordFile } from '../src/toOutbound.js'
 
 const file: DiscordFile = { name: 'p.png', buffer: Buffer.from('x'), contentType: 'image/png' }

@@ -1,5 +1,5 @@
 /**
- * EmailProvider — email transport for @bot-wa/core.
+ * EmailProvider — email transport for @botmesh/core.
  *
  * Inbound: IMAP IDLE (imapflow, optional peer, loaded lazily) or `ingest(raw)`
  * for RFC 822 bytes pushed by an inbound-mail webhook. Outbound: SMTP
@@ -33,7 +33,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { basename } from 'node:path'
 import pino from 'pino'
-import { secureFetch, SecureHttpError, type SecureFetchOptions } from '@bot-wa/http'
+import { secureFetch, SecureHttpError, type SecureFetchOptions } from '@botmesh/http'
 import {
   PayloadTooLargeError,
   ProviderError,
@@ -56,7 +56,7 @@ import {
   type SendResult,
   type SerializedMediaRef,
   type UserId,
-} from '@bot-wa/core'
+} from '@botmesh/core'
 import { domainOf, looksLikeAddress, normalizeAddress, type EmailAddress } from './address.js'
 import { isAuthenticated } from './auth.js'
 import { detectBounce } from './bounce.js'
@@ -651,7 +651,7 @@ export class EmailProvider implements IProvider<EmailRaw> {
     const subject = singleLine((typeof pd.subject === 'string' && pd.subject)
       || composed.overrides.subject
       || (thread?.subject ? `Re: ${thread.subject}` : this.config.defaultSubject ?? '(no subject)'))
-    const id = `${randomUUID()}@${domainOf(this.address) ?? 'bot-wa.local'}`
+    const id = `${randomUUID()}@${domainOf(this.address) ?? 'botmesh.local'}`
     const inReplyTo = options?.quoted?.id ?? thread?.lastMessageId
     const refs = [...(thread?.references ?? [])]
     if (inReplyTo && !refs.includes(inReplyTo)) refs.push(inReplyTo)

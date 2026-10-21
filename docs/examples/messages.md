@@ -5,8 +5,8 @@ Practical recipes for responding to text messages.
 ## Setup
 
 ```ts
-import { Bot } from '@bot-wa/core'
-import { BaileysProvider } from '@bot-wa/baileys'
+import { Bot } from '@botmesh/core'
+import { BaileysProvider } from '@botmesh/baileys'
 
 const bot = new Bot({
   provider: new BaileysProvider({ session: 'demo-bot', qr: { terminal: true, small: true } }),
@@ -106,7 +106,7 @@ bot.when('who', async (ctx) => {
 
 WhatsApp Web killed native buttons, so on Baileys a quick yes/no is best
 done with a real poll (see [Send media](./media) for more poll options). On
-the official Cloud API (`@bot-wa/meta`) it's the other way round: native
+the official Cloud API (`@botmesh/meta`) it's the other way round: native
 buttons work and polls don't, so use `ctx.buttons()` there.
 
 ```ts

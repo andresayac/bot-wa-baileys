@@ -1,9 +1,9 @@
 {
-  "name": "@bot-wa/tenant-kv",
+  "name": "@botmesh/tenant-kv",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Tenant-scoped JSON documents with compare-and-set over any @bot-wa/core DurableKv backend.",
+  "description": "Tenant-scoped JSON documents with compare-and-set over any @botmesh/core DurableKv backend.",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
   "exports": {
@@ -27,7 +27,7 @@
   "author": "Andres Aya",
   "license": "MIT",
   "dependencies": {
-    "@bot-wa/core": "workspace:*"
+    "@botmesh/core": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^26.1.1",

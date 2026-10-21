@@ -1,6 +1,6 @@
 /** TenantDocs unit tests: table naming, option validation, contention and disjointness from core's journal tables. */
 import { describe, expect, it } from 'vitest'
-import { KvDurability, MemoryKv, type DurableKv, type DurableKvIndex } from '@bot-wa/core'
+import { KvDurability, MemoryKv, type DurableKv, type DurableKvIndex } from '@botmesh/core'
 import { CorruptDocumentError, KvContentionError, PRODUCT_TABLE_PREFIX, TenantDocs, assertTenantId, encodeSegment } from '../src/index.js'
 
 interface Doc { v: number }
@@ -69,7 +69,7 @@ describe('table names', () => {
 })
 
 describe('encodeSegment', () => {
-  it('matches the alphabet of @bot-wa/redis-store', () => {
+  it('matches the alphabet of @botmesh/redis-store', () => {
     expect(encodeSegment("a:b{c}*!'()~ /")).toBe('a%3Ab%7Bc%7D%2A%21%27%28%29%7E%20%2F')
     expect(decodeURIComponent(encodeSegment('ñandú 🦜'))).toBe('ñandú 🦜')
   })

@@ -79,7 +79,7 @@ export async function runStdio(options: StdioOptions = {}): Promise<void> {
   const docsDir = options.docsDir ?? docsDirFromArgv(options.argv ?? process.argv.slice(2)) ?? process.env.BOTWA_DOCS_DIR
   const server = createMcpServer(docsDir !== undefined && docsDir !== '' ? { docsDir } : {})
   const tools: readonly McpToolInfo[] = server.tools
-  process.stderr.write(`bot-wa-mcp: ${tools.length} tool(s)${docsDir ? `, docs ${docsDir}` : ' (docs tools off: pass --docs <dir>)'}\n`)
+  process.stderr.write(`botmesh-mcp: ${tools.length} tool(s)${docsDir ? `, docs ${docsDir}` : ' (docs tools off: pass --docs <dir>)'}\n`)
 
   process.stdin.setEncoding('utf8')
   await serveStream(process.stdin, {
@@ -90,7 +90,7 @@ export async function runStdio(options: StdioOptions = {}): Promise<void> {
       return new Promise<void>((resolve) => { process.stdout.once('drain', resolve) })
     },
     reportError(error) {
-      process.stderr.write(`bot-wa-mcp: write failed: ${error instanceof Error ? error.message : String(error)}\n`)
+      process.stderr.write(`botmesh-mcp: write failed: ${error instanceof Error ? error.message : String(error)}\n`)
     },
   })
 }

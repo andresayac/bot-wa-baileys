@@ -3,7 +3,7 @@
 How to run your bot in production, always connected.
 
 ::: tip ESM-only, Node >= 22
-`@bot-wa/core` and the transport packages are pure ESM — no CommonJS build.
+`@botmesh/core` and the transport packages are pure ESM — no CommonJS build.
 Make sure your production `package.json` has `"type": "module"` (or your
 entrypoint uses `.mjs`), and that the runtime is **Node >= 22**.
 :::
@@ -111,9 +111,9 @@ const bot = new Bot({
 The default `MemoryStore` lives in memory only. For production, use **`SQLiteStore`** — a real database that persists messages, chats, contacts, flow state, checkpoints and AI conversations:
 
 ```ts
-import { Bot } from '@bot-wa/core'
-import { BaileysProvider } from '@bot-wa/baileys'
-import { SQLiteStore } from '@bot-wa/sqlite-store'
+import { Bot } from '@botmesh/core'
+import { BaileysProvider } from '@botmesh/baileys'
+import { SQLiteStore } from '@botmesh/sqlite-store'
 
 const bot = new Bot({
   provider: new BaileysProvider({ session: 'my-bot' }),

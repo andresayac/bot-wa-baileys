@@ -1,5 +1,5 @@
 /**
- * @bot-wa/discord — Discord transport for @bot-wa/core. Gateway websocket for
+ * @botmesh/discord — Discord transport for @botmesh/core. Gateway websocket for
  * events, REST for sending; buttons/selects/slash commands as interactions.
  */
 

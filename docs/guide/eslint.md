@@ -1,12 +1,12 @@
 # ESLint plugin
 
 ::: warning Experimental — not published yet
-`eslint-plugin-bot-wa` is private: it is not on npm and its rules may change.
-Use it from the monorepo (`"eslint-plugin-bot-wa": "workspace:*"` in your
+`eslint-plugin-botmesh` is private: it is not on npm and its rules may change.
+Use it from the monorepo (`"eslint-plugin-botmesh": "workspace:*"` in your
 `devDependencies`).
 :::
 
-`eslint-plugin-bot-wa` catches in source code the mistakes no generic linter
+`eslint-plugin-botmesh` catches in source code the mistakes no generic linter
 knows about: v1 API that no longer exists, a blocking `runtime.enter()`, an
 async plugin `install()`, empty triggers, waits without a timeout and per-user
 state in module variables. It complements the runtime
@@ -14,7 +14,7 @@ state in module variables. It complements the runtime
 registered flows (broken gotos, unreachable steps, duplicate triggers).
 
 It needs **ESLint 9 or later** (flat config) and Node >= 22. The `src/bot.js`
-of every [`create-bot-wa`](/guide/getting-started#scaffold-a-project-with-create-bot-wa)
+of every [`create-botmesh`](/guide/getting-started#scaffold-a-project-with-create-botmesh)
 template passes the `strict` preset with no findings (the plugin's tests
 check it).
 
@@ -22,7 +22,7 @@ check it).
 
 ```js
 // eslint.config.js
-import botWa from 'eslint-plugin-bot-wa'
+import botWa from 'eslint-plugin-botmesh'
 
 export default [
   botWa.configs.recommended,
@@ -32,14 +32,14 @@ export default [
 Or rule by rule:
 
 ```js
-import botWa from 'eslint-plugin-bot-wa'
+import botWa from 'eslint-plugin-botmesh'
 
 export default [
   {
-    plugins: { 'bot-wa': botWa },
+    plugins: { 'botmesh': botWa },
     rules: {
-      'bot-wa/no-v1-api': 'error',
-      'bot-wa/require-timeout-on-ask': ['error', { methods: ['ask', 'choose'], allowFlowTimeout: true }],
+      'botmesh/no-v1-api': 'error',
+      'botmesh/require-timeout-on-ask': ['error', { methods: ['ask', 'choose'], allowFlowTimeout: true }],
     },
   },
 ]
@@ -57,7 +57,7 @@ combine the plugin with `typescript-eslint` (its parser).
 
 ## Rules
 
-### `bot-wa/no-v1-api`
+### `botmesh/no-v1-api`
 
 Flags the v1 / builderbot API that does not exist in v2, and names the
 replacement in the message:
@@ -78,7 +78,7 @@ flow('hola').ask('Your name?', 'name', { timeout: '5m' })        // ok
 
 No options.
 
-### `bot-wa/no-await-runtime-enter`
+### `botmesh/no-await-runtime-enter`
 
 `ConversationRuntime.enter()` resolves when the conversation **ends**.
 Awaiting it in a handler blocks the chat's FIFO queue, so the message the
@@ -95,7 +95,7 @@ void runtime.enter(handle, msg).catch((err) => log.error({ err }))   // ok
 Option: `{ receiverPattern: string }`, a regex source the receiver name must
 match (default `runtime$`, case-insensitive).
 
-### `bot-wa/no-async-plugin-install`
+### `botmesh/no-async-plugin-install`
 
 `Plugin.install()` must be synchronous: `bot.plug()` does not await it, so
 the bot runs before an async `install` has finished, and its rejection only
@@ -106,11 +106,11 @@ JavaScript and `as any` escapes. It checks the object passed to `definePlugin(..
 literal with both `name` and `install`, and classes with an `install` method
 that declare a `name` field or `implements Plugin`. For async setup use the
 lazy pattern (resolve on first use, report configuration errors from a
-non-fatal warmup), like `LazyProvider` in `@bot-wa/ai`.
+non-fatal warmup), like `LazyProvider` in `@botmesh/ai`.
 
 No options.
 
-### `bot-wa/no-empty-trigger`
+### `botmesh/no-empty-trigger`
 
 An empty trigger (`''`, `'   '`, an empty template literal, `[]`, `['']`,
 `{ pattern: '' }`) never matches a real message, or, with `contains`, matches
@@ -119,7 +119,7 @@ the `trigger` option of `bot.conversation(name, fn, { trigger })`.
 
 No options.
 
-### `bot-wa/require-timeout-on-ask`
+### `botmesh/require-timeout-on-ask`
 
 Every wait for user input should have a timeout, so an abandoned conversation
 does not stay open (capturing that user's messages) forever.
@@ -136,7 +136,7 @@ does not stay open (capturing that user's messages) forever.
 Options: `{ methods?: ('ask' | 'waitText' | 'waitMedia' | 'choose' | 'waitAny')[], allowFlowTimeout?: boolean }`
 (defaults `['ask']` and `true`).
 
-### `bot-wa/prefer-ctx-user-over-global-state`
+### `botmesh/prefer-ctx-user-over-global-state`
 
 Flags the v1 `globalState` and module-level `Map`s or objects keyed by
 `ctx.from`, `ctx.sender` or `ctx.senderId` (`users.get/set/has/delete(ctx.from)`,
@@ -151,10 +151,10 @@ parameter (default `['ctx']`).
 ## API
 
 ```ts
-import botWa, { rules, configs, PLUGIN_NAMESPACE } from 'eslint-plugin-bot-wa'
+import botWa, { rules, configs, PLUGIN_NAMESPACE } from 'eslint-plugin-botmesh'
 
-botWa.meta      // { name: 'eslint-plugin-bot-wa', version, namespace: 'bot-wa' }
-botWa.rules     // the six rules, by name without the 'bot-wa/' prefix
+botWa.meta      // { name: 'eslint-plugin-botmesh', version, namespace: 'botmesh' }
+botWa.rules     // the six rules, by name without the 'botmesh/' prefix
 botWa.configs   // { recommended, strict } (flat configs)
 ```
 
@@ -166,4 +166,4 @@ The rule modules are also named exports: `noV1Api`, `noAwaitRuntimeEnter`,
 
 - [Inspect & lint flows](/guide/flow-tools)
 - [Testing](/guide/testing)
-- [`eslint-plugin-bot-wa` README](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/eslint-plugin)
+- [`eslint-plugin-botmesh` README](https://github.com/andresayac/botmesh/tree/main/packages/eslint-plugin)

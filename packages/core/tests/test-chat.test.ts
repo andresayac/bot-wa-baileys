@@ -290,7 +290,7 @@ describe('chat.transcript', () => {
 
     const t = chat.transcript({ name: 'saludo' })
     expect(t).toEqual({
-      format: 'bot-wa/transcript',
+      format: 'botmesh/transcript',
       version: 1,
       name: 'saludo',
       source: 'recorder',

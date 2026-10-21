@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 /**
- * create-bot-wa — scaffold a new @bot-wa bot project.
+ * create-botmesh — scaffold a new @botmesh bot project.
  *
  * Thin bin: parses argv, prompts for anything missing when interactive,
  * then delegates to `scaffold()` (the testable core in scaffold.ts).
  *
- * Usage: create-bot-wa <dir> [--template <name>] [--name <n>] [--yes] [--overwrite] [--force]
+ * Usage: create-botmesh <dir> [--template <name>] [--name <n>] [--yes] [--overwrite] [--force]
  * Templates: baileys, meta, telegram, ai, games, support, store, restaurant, clinic, ai-full.
  */
 
@@ -52,9 +52,9 @@ export function parseArgs(argv) {
 }
 
 function printUsage(log = console.log) {
-  log('Usage: create-bot-wa <dir> [options]')
+  log('Usage: create-botmesh <dir> [options]')
   log('')
-  log('Scaffold a new @bot-wa bot (npm create bot-wa@alpha).')
+  log('Scaffold a new @botmesh bot (npm create botmesh@alpha).')
   log('')
   log('Arguments:')
   log('  dir                 target directory; the package name is derived from it')
@@ -64,13 +64,13 @@ function printUsage(log = console.log) {
   log('  --name <name>       package name (default: directory name)')
   log('  -y, --yes           skip prompts; use defaults for anything missing')
   log('  --overwrite         allow scaffolding into a non-empty directory')
-  log('  --force             allow a directory inside the bot-wa monorepo itself')
+  log('  --force             allow a directory inside the botmesh monorepo itself')
   log('  -h, --help          show this help')
   log('')
   log('Examples:')
-  log('  npm create bot-wa@alpha my-bot')
-  log('  npm create bot-wa@alpha my-bot -- --template telegram')
-  log('  npm create bot-wa@alpha my-shop -- --template store')
+  log('  npm create botmesh@alpha my-bot')
+  log('  npm create botmesh@alpha my-bot -- --template telegram')
+  log('  npm create botmesh@alpha my-shop -- --template store')
 }
 
 /**
@@ -91,7 +91,7 @@ async function completeInteractively(args) {
   const interactive = Boolean(process.stdin.isTTY && process.stdout.isTTY) && !args.yes
   if (!interactive) {
     if (!args.template) args.template = DEFAULT_TEMPLATE
-    if (!args.targetDir) throw new Error('Missing target directory. Usage: create-bot-wa <dir> [--template ' + TEMPLATE_NAMES.join('|') + '] (or run in a TTY to be prompted)')
+    if (!args.targetDir) throw new Error('Missing target directory. Usage: create-botmesh <dir> [--template ' + TEMPLATE_NAMES.join('|') + '] (or run in a TTY to be prompted)')
     return
   }
 

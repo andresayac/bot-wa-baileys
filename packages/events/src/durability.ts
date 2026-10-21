@@ -1,5 +1,5 @@
 /**
- * `@bot-wa/events/durability` — use an `@bot-wa/events` journal as the durability backend of a
+ * `@botmesh/events/durability` — use an `@botmesh/events` journal as the durability backend of a
  * bot (`BotConfig.durability.journal`), so an app that already keeps an {@link EventJournal}
  * gets durable message processing without another store.
  *
@@ -11,12 +11,12 @@
  *   the same journal (same file, same atomic snapshot), or over a `DurableKv` you pass.
  *
  * The bot (the core engine) processes its records itself: per-chat FIFO, causation and
- * ack-on-settle stay in the core. Requires `@bot-wa/core` (optional peer dependency).
+ * ack-on-settle stay in the core. Requires `@botmesh/core` (optional peer dependency).
  *
  * @example
  * ```ts
- * import { FileEventJournal } from '@bot-wa/events'
- * import { eventsDurability } from '@bot-wa/events/durability'
+ * import { FileEventJournal } from '@botmesh/events'
+ * import { eventsDurability } from '@botmesh/events/durability'
  *
  * const journal = await FileEventJournal.open('./data/events.json', { lock: true })
  * const bot = new Bot({ provider, durability: { journal: eventsDurability({ journal }) } })
@@ -27,7 +27,7 @@ import {
   KvOutbox, MemoryKv, StaleLeaseError,
   type ClaimOptions, type DurabilityBackend, type DurableKv, type DurableKvEntry, type DurableKvIndex, type DurableTable, type InboxAppend, type InboxJournal, type InboxRecord,
   type InboxState, type JsonValue, type LeaseOptions, type MemoryKvSnapshot, type OutboxJournal,
-} from '@bot-wa/core'
+} from '@botmesh/core'
 import {
   EventNotFoundError, FileEventJournal, StaleLeaseError as EventStaleLeaseError,
   type EventContext, type EventEnvelope, type EventRecord, type LeasedEventJournal, type SidecarHandle,
@@ -287,7 +287,7 @@ interface ResolvedOptions {
   ownsKv: boolean
 }
 
-/** A {@link DurabilityBackend} over an `@bot-wa/events` journal. Build it with {@link eventsDurability}. */
+/** A {@link DurabilityBackend} over an `@botmesh/events` journal. Build it with {@link eventsDurability}. */
 export class EventsDurability implements DurabilityBackend {
   readonly inbox: InboxJournal
   readonly outbox: OutboxJournal
@@ -319,7 +319,7 @@ export class EventsDurability implements DurabilityBackend {
 }
 
 /**
- * Build a durability backend over an `@bot-wa/events` journal (see the module docs).
+ * Build a durability backend over an `@botmesh/events` journal (see the module docs).
  * @throws {TypeError} when the journal lacks the leased operations, has no sidecar and no
  *   `outbox` was given, or is a `FileEventJournal` opened without `{ lock: true }`.
  */

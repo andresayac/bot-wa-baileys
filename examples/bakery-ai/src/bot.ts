@@ -2,8 +2,8 @@
  * createBakeryBot — the channel-agnostic bot. The entry points build a
  * provider (Baileys or Twilio) and hand it here; tests hand a MockProvider.
  */
-import { Bot, slashCommandsPlugin, type IProvider, type LoggerLike } from '@bot-wa/core'
-import { aiPlugin, type AIProvider, type AIProviderName, type AIThinking, type AIToolEvent, type Effort } from '@bot-wa/ai'
+import { Bot, slashCommandsPlugin, type IProvider, type LoggerLike } from '@botmesh/core'
+import { aiPlugin, type AIProvider, type AIProviderName, type AIThinking, type AIToolEvent, type Effort } from '@botmesh/ai'
 import { createBakeryTools } from './tools.js'
 import { InMemoryOrderStore, type Order, type OrderStore } from './shop.js'
 
@@ -28,7 +28,7 @@ export const PERSONA = [
 export const GREETING = `Hi! I'm the ${BAKERY_NAME} assistant 🥐 Ask me about the menu or tell me what you'd like to order.`
 
 export interface BakeryAIOptions {
-  /** `@bot-wa/ai` provider name or preset (`ollama`, `anthropic`, `openai`, `gemini`, `deepseek`, `groq`...). Default `'ollama'`. */
+  /** `@botmesh/ai` provider name or preset (`ollama`, `anthropic`, `openai`, `gemini`, `deepseek`, `groq`...). Default `'ollama'`. */
   provider?: AIProviderName
   model?: string
   apiKey?: string

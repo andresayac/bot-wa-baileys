@@ -12,7 +12,7 @@
  * varies by backend, so it isn't asserted here.
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import type { FlowCheckpoint, IStore, StoredMessage } from '@bot-wa/core'
+import type { FlowCheckpoint, IStore, StoredMessage } from '@botmesh/core'
 
 /** An IStore whose optional delivery-cursor methods are known to be present. */
 type CursorStore = IStore & Required<Pick<IStore, 'getCursor' | 'setCursor'>>

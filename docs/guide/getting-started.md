@@ -14,7 +14,7 @@ npm install -g pnpm
 :::
 
 ::: warning ESM-only packages
-`@bot-wa/core` and the transport packages ship as **pure ESM** — there is
+`@botmesh/core` and the transport packages ship as **pure ESM** — there is
 no CommonJS build. Your project needs `"type": "module"` in its
 `package.json` (or a `.mjs` file extension). On Node **>= 22.12** you can
 also `require()` them via Node's experimental `require(esm)` support, but
@@ -22,26 +22,26 @@ the examples below use plain `import`.
 :::
 
 ::: warning Alpha — first npm publish pending
-bot-wa is in **alpha** and **no `@bot-wa/*` package is on npm yet**: the
+botmesh is in **alpha** and **no `@botmesh/*` package is on npm yet**: the
 first publish is being prepared. The `pnpm add` commands on this site are the
 ones that will work once it ships, with the **`@alpha` tag** (`changeset
 publish` creates the `alpha` dist-tag, not `latest`, so an install without a
 tag will not resolve). Until then, clone
-[the repository](https://github.com/andresayac/bot-wa-baileys) and use the
+[the repository](https://github.com/andresayac/botmesh) and use the
 packages from the pnpm workspace (`workspace:*`).
 :::
 
-## Scaffold a project with create-bot-wa
+## Scaffold a project with create-botmesh
 
-The fastest start is the `create-bot-wa` CLI, which generates a runnable
+The fastest start is the `create-botmesh` CLI, which generates a runnable
 project (it is part of the same alpha, so until the first publish run it from
 the monorepo, pointing it **outside** the repo:
-`pnpm --filter create-bot-wa build && node packages/create-bot-wa/lib/cli.js ../my-bot`;
-a target inside the bot-wa monorepo is refused unless you pass `--force`):
+`pnpm --filter create-botmesh build && node packages/create-botmesh/lib/cli.js ../my-bot`;
+a target inside the botmesh monorepo is refused unless you pass `--force`):
 
 ```bash
-npm create bot-wa@alpha my-bot
-npm create bot-wa@alpha my-bot -- --template telegram --yes
+npm create botmesh@alpha my-bot
+npm create botmesh@alpha my-bot -- --template telegram --yes
 ```
 
 | Template | What you get |
@@ -49,7 +49,7 @@ npm create bot-wa@alpha my-bot -- --template telegram --yes
 | `baileys` (default) | WhatsApp via Baileys: scan a QR to link |
 | `meta` | WhatsApp Cloud API (webhook; needs Meta credentials and a public URL) |
 | `telegram` | Telegram Bot API (long-polling; needs a @BotFather token) |
-| `ai` | Baileys + `@bot-wa/ai` business-scoped support autoresponder (`ANTHROPIC_API_KEY`) |
+| `ai` | Baileys + `@botmesh/ai` business-scoped support autoresponder (`ANTHROPIC_API_KEY`) |
 | `games` | Guess the number, hangman, trivia, tic-tac-toe, rock-paper-scissors; scores in `ctx.user` |
 | `support` | Tickets per user, FAQ menu and human handoff |
 | `store` | Catalog, per-user cart with a 7-day TTL and a checkout flow |
@@ -65,7 +65,7 @@ The use-case templates (`games` to `ai-full`) run on Baileys.
 | `--name <name>` | Package name (default: derived from the directory) |
 | `-y, --yes` | Skip prompts and use defaults |
 | `--overwrite` | Allow scaffolding into a non-empty directory |
-| `--force` | Allow a directory inside the bot-wa monorepo itself (refused by default) |
+| `--force` | Allow a directory inside the botmesh monorepo itself (refused by default) |
 | `-h, --help` | Show help |
 
 Every project gets `package.json` (with `npm start` and `npm run dev`, the
@@ -74,7 +74,7 @@ Every project gets `package.json` (with `npm start` and `npm run dev`, the
 coding agents: the current v2 API, what does not exist (`addAnswer`,
 `capture`...) and the commands to run.
 
-The generated `package.json` depends on the npm versions of the `@bot-wa/*`
+The generated `package.json` depends on the npm versions of the `@botmesh/*`
 packages (`^2.0.0-alpha.1` for the core, `^0.1.0` for the rest), so its
 `npm install` only works after the first publish. Until then, point those
 dependencies at your local checkout of the monorepo.
@@ -83,26 +83,26 @@ To set everything up by hand instead, follow the steps below.
 
 ## Step 1 — Install the framework
 
-The engine (`@bot-wa/core`) is transport-agnostic: you pair it with a
+The engine (`@botmesh/core`) is transport-agnostic: you pair it with a
 **provider** package. For WhatsApp over Baileys 7 (unofficial, QR login):
 
 ```bash
 mkdir my-bot
 cd my-bot
 pnpm init
-pnpm add @bot-wa/core@alpha @bot-wa/baileys@alpha
+pnpm add @botmesh/core@alpha @botmesh/baileys@alpha
 ```
 
 Other transports behind the same `IProvider` contract:
 
 | Transport | Package | Status | Notes |
 |---|---|---|---|
-| WhatsApp (Baileys 7) | `@bot-wa/baileys` | Alpha | Unofficial, QR login — what this guide uses |
-| WhatsApp Cloud API | `@bot-wa/meta` | Alpha | Official Meta API, webhook-based, no ban risk |
-| Telegram | `@bot-wa/telegram` | Alpha | Bot API, long-poll or webhook |
-| Facebook Messenger | `@bot-wa/messenger` | Experimental | Meta Graph Send API, webhook-based |
-| Instagram DM | `@bot-wa/instagram` | Experimental | Meta Graph, webhook-based |
-| Discord | `@bot-wa/discord` | Experimental | Gateway websocket + REST |
+| WhatsApp (Baileys 7) | `@botmesh/baileys` | Alpha | Unofficial, QR login — what this guide uses |
+| WhatsApp Cloud API | `@botmesh/meta` | Alpha | Official Meta API, webhook-based, no ban risk |
+| Telegram | `@botmesh/telegram` | Alpha | Bot API, long-poll or webhook |
+| Facebook Messenger | `@botmesh/messenger` | Experimental | Meta Graph Send API, webhook-based |
+| Instagram DM | `@botmesh/instagram` | Experimental | Meta Graph, webhook-based |
+| Discord | `@botmesh/discord` | Experimental | Gateway websocket + REST |
 
 **Alpha** packages are part of the first publishable alpha. **Experimental**
 ones are real, tested implementations that stay private (unpublished) for now
@@ -125,8 +125,8 @@ Create a `bot.js` file. In v2, constructing a bot **requires a provider** —
 WhatsApp session/auth options live on the provider, not on the bot:
 
 ```ts
-import { Bot } from '@bot-wa/core'
-import { BaileysProvider } from '@bot-wa/baileys'
+import { Bot } from '@botmesh/core'
+import { BaileysProvider } from '@botmesh/baileys'
 
 const bot = new Bot({
   provider: new BaileysProvider({
@@ -170,8 +170,8 @@ Only the provider changes — `when`/`flow`/hooks/plugins are identical on
 every transport. For the official WhatsApp Cloud API:
 
 ```ts
-import { Bot } from '@bot-wa/core'
-import { CloudAPIProvider } from '@bot-wa/meta'
+import { Bot } from '@botmesh/core'
+import { CloudAPIProvider } from '@botmesh/meta'
 
 const bot = new Bot({
   provider: new CloudAPIProvider({
@@ -195,5 +195,5 @@ providers.
 
 - [Your first bot](./first-bot) — a complete bot with commands, media and flows
 - [Core concepts](./concepts) — understand how everything works
-- [Terminal simulator](./dev-simulator) — chat with your bot with no phone (`npx bot-wa dev src/bot.js`)
+- [Terminal simulator](./dev-simulator) — chat with your bot with no phone (`npx botmesh dev src/bot.js`)
 - [Examples](/examples/messages) — ready-to-copy recipes

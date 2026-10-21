@@ -1,17 +1,17 @@
 # Testing
 
-`@bot-wa/core/testing` te deja probar un bot sin WhatsApp, sin teléfono y
+`@botmesh/core/testing` te deja probar un bot sin WhatsApp, sin teléfono y
 sin red. Funciona con cualquier test runner (el repo usa Vitest).
 
 ```ts
-import { createTestBot, MockProvider } from '@bot-wa/core/testing'
+import { createTestBot, MockProvider } from '@botmesh/core/testing'
 ```
 
 ## `createTestBot` y `MockProvider`
 
 ```ts
-import { flow } from '@bot-wa/core'
-import { createTestBot } from '@bot-wa/core/testing'
+import { flow } from '@botmesh/core'
+import { createTestBot } from '@botmesh/core/testing'
 
 const { bot, provider, chat } = await createTestBot()
 bot.use(flow('hola').ask('¿Tu nombre?', 'name').say((_ctx, c) => `Hola ${c.state.name}`))
@@ -107,7 +107,7 @@ de la transcripción.
 ```ts
 // vitest.setup.ts (una entrada de `setupFiles`) o al principio de un test
 import { expect } from 'vitest'
-import { botMatchers } from '@bot-wa/core/testing/vitest'
+import { botMatchers } from '@botmesh/core/testing/vitest'
 expect.extend(botMatchers)
 
 expect(chat).toHaveReplied('¿Tu nombre?')              // includes de string / RegExp
@@ -115,7 +115,7 @@ expect(chat).toHaveRepliedMatching((text, content) => content.kind === 'image')
 expect(provider).toHaveRepliedTimes(2)                 // también provider.outbox o un string[]
 ```
 
-`@bot-wa/core/testing/vitest` exporta los matchers y amplía el tipo `Matchers`
+`@botmesh/core/testing/vitest` exporta los matchers y amplía el tipo `Matchers`
 de vitest (`.not` funciona). `vitest` es una peer dependency opcional: en tiempo
 de ejecución no importa nada de ella. Los matchers son síncronos: espera con
 `expectReply` y después comprueba.
@@ -131,7 +131,7 @@ latencia, envíos fallidos, desconexiones y alias de identidad. Es
 determinista para una `seed` dada.
 
 ```ts
-import { createTestBot } from '@bot-wa/core/testing'
+import { createTestBot } from '@botmesh/core/testing'
 
 const { bot, provider, chaos } = await createTestBot({}, {
   chaos: {
@@ -179,7 +179,7 @@ alias que use el transporte (ver el contrato de identidad en `IProvider`).
 Estas funciones revisan una lista de eventos emitidos:
 
 ```ts
-import { assertStableIdentity, checkIdentityContract, recordEvents } from '@bot-wa/core/testing'
+import { assertStableIdentity, checkIdentityContract, recordEvents } from '@botmesh/core/testing'
 
 const events = [toInbound(a, identity), toInbound(b, identity), toInbound(c, identity)]
 assertStableIdentity(events, { andres: { events: [0, 1, 2], senderId: PN, chatId: PN, kind: 'dm' } })
@@ -218,14 +218,14 @@ reproducción puede condicionar un despliegue. Consulta
 [Transcripciones doradas](/es/guide/transcripciones).
 
 ```ts
-import { assertTranscript, parseTranscript } from '@bot-wa/core/testing'
+import { assertTranscript, parseTranscript } from '@botmesh/core/testing'
 
 await assertTranscript(parseTranscript(readFileSync('tests/golden/checkout.json', 'utf8')), buildBot)
 ```
 
 ## Comprobaciones estáticas
 
-[`eslint-plugin-bot-wa`](/es/guide/eslint) (experimental) detecta restos de la
+[`eslint-plugin-botmesh`](/es/guide/eslint) (experimental) detecta restos de la
 API v1, un `runtime.enter()` bloqueante, `install()` async en plugins,
 triggers vacíos, esperas sin timeout y estado por usuario en variables de
 módulo antes de ejecutar el código.

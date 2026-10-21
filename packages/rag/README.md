@@ -1,8 +1,8 @@
-# @bot-wa/rag
+# @botmesh/rag
 
 > **Experimental — aún no publicado en npm.** Implementación real y probada, pero el paquete es `private`: no forma parte de la primera alpha y su API puede cambiar. Úsalo desde este monorepo (`workspace:*`).
 
-Retrieval Augmented Generation para [`@bot-wa/ai`](../ai): carga tus documentos, los trocea, calcula embeddings y responde con los pasajes más relevantes **con citas**. Sin base de datos vectorial: índice en memoria con similitud coseno y persistencia opcional en un archivo JSON.
+Retrieval Augmented Generation para [`@botmesh/ai`](../ai): carga tus documentos, los trocea, calcula embeddings y responde con los pasajes más relevantes **con citas**. Sin base de datos vectorial: índice en memoria con similitud coseno y persistencia opcional en un archivo JSON.
 
 - **Loaders:** Markdown (por secciones de encabezados), texto, JSON (un documento por elemento de un array) y PDF (con el peer opcional `pdf-parse`, cargado bajo demanda). Directorios recursivos.
 - **Chunking:** párrafos → frases → palabras, con solapamiento (`chunkSize`, `chunkOverlap`).
@@ -12,8 +12,8 @@ Retrieval Augmented Generation para [`@bot-wa/ai`](../ai): carga tus documentos,
 ## Uso con `aiPlugin`
 
 ```ts
-import { aiPlugin } from '@bot-wa/ai'
-import { createRag } from '@bot-wa/rag'
+import { aiPlugin } from '@botmesh/ai'
+import { createRag } from '@botmesh/rag'
 
 const rag = createRag({
   documents: ['./docs/faq.md', './docs/productos.pdf', './docs/catalogo.json'],
@@ -40,7 +40,7 @@ bot.plug(aiPlugin({
 const hits = await rag.retrieve('medios de pago', { topK: 2 })
 // [{ text, score, source: 'docs/faq.md', section: 'Pagos', citation: 'docs/faq.md › Pagos', id, docId, index }]
 
-import { formatContext } from '@bot-wa/rag'
+import { formatContext } from '@botmesh/rag'
 const answer = await ctx.tools.ai.ask(`Contexto:\n${formatContext(hits)}\n\nPregunta: ${ctx.body}`)
 
 await rag.addText('Abrimos los domingos de 10 a 14.', { source: 'horario' })
@@ -58,7 +58,7 @@ await rag.save()
 | `'ollama'` / `{ provider: 'ollama', model, baseUrl }` | `POST {baseUrl}/api/embed`, por defecto `nomic-embed-text` en `http://localhost:11434`. |
 | `Embedder` propio | `{ id, embed(texts) }`. |
 
-Las peticiones salen por `secureFetch` de `@bot-wa/http` (anti-SSRF): HTTPS y hosts públicos por defecto. Ollama permite `http` y hosts privados por defecto; para otros endpoints internos usa `http: { allowHttp: true, allowPrivateHosts: true }`.
+Las peticiones salen por `secureFetch` de `@botmesh/http` (anti-SSRF): HTTPS y hosts públicos por defecto. Ollama permite `http` y hosts privados por defecto; para otros endpoints internos usa `http: { allowHttp: true, allowPrivateHosts: true }`.
 
 ## Persistencia
 

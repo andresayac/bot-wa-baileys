@@ -1,6 +1,6 @@
 # Inspeccionar y validar flujos
 
-`@bot-wa/core` puede describir los flujos que tiene registrados un bot, como
+`@botmesh/core` puede describir los flujos que tiene registrados un bot, como
 diagrama Mermaid o como grafo JSON, y revisarlos de forma estática en busca
 de errores habituales. No se envía nada y no hace falta arrancar el bot.
 
@@ -8,7 +8,7 @@ de errores habituales. No se envía nada y no hace falta arrancar el bot.
 
 ```ts
 import { writeFileSync } from 'node:fs'
-import { Bot, flow, describeFlows } from '@bot-wa/core'
+import { Bot, flow, describeFlows } from '@botmesh/core'
 
 bot.use(
   flow('registrar')

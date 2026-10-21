@@ -1,5 +1,5 @@
 /**
- * Use-case templates for `create-bot-wa` (FEATURES.md #39): games, support,
+ * Use-case templates for `create-botmesh` (FEATURES.md #39): games, support,
  * store, restaurant, clinic and ai-full. All of them run on WhatsApp via
  * Baileys (QR login) and follow the same `defineBot` factory pattern as the
  * transport templates, so `npm run dev` works out of the box.
@@ -15,7 +15,7 @@ import {
   BETTER_SQLITE3_VERSION,
   CORE_VERSION,
   GITIGNORE,
-  botWaRange,
+  botMeshRange,
   baileysMain,
   aiBotConfig,
   botModule,
@@ -30,8 +30,8 @@ function code(strings: TemplateStringsArray, ...values: string[]): string[] {
   return String.raw({ raw: strings.raw }, ...values).replace(/^\n/, '').replace(/\n$/, '').split('\n')
 }
 
-const BAILEYS_IMPORT = "import { BaileysProvider } from '@bot-wa/baileys'"
-const BAILEYS_DEPS = { '@bot-wa/core': CORE_VERSION, '@bot-wa/baileys': botWaRange('@bot-wa/baileys') }
+const BAILEYS_IMPORT = "import { BaileysProvider } from '@botmesh/baileys'"
+const BAILEYS_DEPS = { '@botmesh/core': CORE_VERSION, '@botmesh/baileys': botMeshRange('@botmesh/baileys') }
 const BAILEYS_README = [
   'On first start a **QR code** is printed — scan it with WhatsApp → Linked devices.',
   'Auth is cached under `sessions/` so later starts connect automatically.',
@@ -257,7 +257,7 @@ bot.conversation('triqui', async (c, ctx) => {
   notes: [
     'Send **hola** for the list of games. Every game is a `bot.conversation()` started by its keyword',
     '(`adivina`, `ahorcado`, `trivia`, `triqui`); scores live in `ctx.user.ns(\'games\')`, so they survive',
-    'restarts once you plug a persistent store (`@bot-wa/sqlite-store`, `@bot-wa/redis-store`).',
+    'restarts once you plug a persistent store (`@botmesh/sqlite-store`, `@botmesh/redis-store`).',
   ],
 })
 
@@ -683,7 +683,7 @@ bot.conversation('cancelar-cita', async (c, ctx) => {
 /* ai-full ---------------------------------------------------------------- */
 
 const aiFullDescription =
-  'Full-stack bot: business-scoped AI (@bot-wa/ai) with order tools + keyword intents + SQLite store + scheduler + slash commands + human handoff.'
+  'Full-stack bot: business-scoped AI (@botmesh/ai) with order tools + keyword intents + SQLite store + scheduler + slash commands + human handoff.'
 
 const aiFull: ProjectTemplate = {
   name: 'ai-full',
@@ -693,10 +693,10 @@ const aiFull: ProjectTemplate = {
     {
       path: 'package.json',
       contents: packageJson(name, {
-        '@bot-wa/core': CORE_VERSION,
-        '@bot-wa/baileys': botWaRange('@bot-wa/baileys'),
-        '@bot-wa/ai': botWaRange('@bot-wa/ai'),
-        '@bot-wa/sqlite-store': botWaRange('@bot-wa/sqlite-store'),
+        '@botmesh/core': CORE_VERSION,
+        '@botmesh/baileys': botMeshRange('@botmesh/baileys'),
+        '@botmesh/ai': botMeshRange('@botmesh/ai'),
+        '@botmesh/sqlite-store': botMeshRange('@botmesh/sqlite-store'),
         '@anthropic-ai/sdk': ANTHROPIC_SDK_VERSION,
         'better-sqlite3': BETTER_SQLITE3_VERSION,
       }),
@@ -706,8 +706,8 @@ const aiFull: ProjectTemplate = {
       contents: botModule({
         imports: [
           BAILEYS_IMPORT,
-          "import { aiPlugin } from '@bot-wa/ai'",
-          "import { SQLiteStore } from '@bot-wa/sqlite-store'",
+          "import { aiPlugin } from '@botmesh/ai'",
+          "import { SQLiteStore } from '@botmesh/sqlite-store'",
         ],
         coreImports: ['slashCommandsPlugin'],
         prelude: code`
@@ -957,13 +957,13 @@ bot.use(
         'What is wired in `src/bot.js`:',
         '',
         '- **Intents** (`INTENTS`): regex triggers for hours, prices, "talk to a human" and "me llamo …", answered before the AI.',
-        '- **AI** (`@bot-wa/ai`, Anthropic): answers any other text, scoped to `BUSINESS_NAME`; `/reset` clears the chat context.',
+        '- **AI** (`@botmesh/ai`, Anthropic): answers any other text, scoped to `BUSINESS_NAME`; `/reset` clears the chat context.',
         '- **AI tools** (`TOOLS`): `ver_menu`, `cotizar_pedido`, `mis_pedidos`, `crear_pedido`, `actualizar_pedido` and `cancelar_pedido`.',
         '  Products are an `enum` of the `MENU` keys (the model cannot order what does not exist); prices and totals are',
         '  computed in code (`cotizar_pedido`, `quote()`), never by the model; the order tools use `confirm: true`, so the',
         '  customer approves a summary with product names and the computed total (`confirmLines`) first; `crear_pedido`',
         '  has `dedupe`, and an unknown order id returns `{ error }`.',
-        '- **Store** (`@bot-wa/sqlite-store` + `better-sqlite3`): everything persists in `bot.db` on `npm start`;',
+        '- **Store** (`@botmesh/sqlite-store` + `better-sqlite3`): everything persists in `bot.db` on `npm start`;',
         '  `npm run dev` uses the in-memory store.',
         '- **Scheduler**: `bot.every(\'1h\')` purges expired user data, `bot.schedule(\'0 9 * * 1-5\')` logs a daily summary.',
         '- **Slash commands** (`/help`, `/reset`, `/id`, `/ping`…) and **human handoff** (`/bot` to resume).',
@@ -1010,6 +1010,6 @@ export const DOMAIN_AGENT_NOTES: Record<DomainTemplateName, string[]> = {
     '- Intents are plain `bot.when(RegExp, …)` handlers; they run before the AI catch-all.',
     '- AI tools (`TOOLS`): keep product keys as a JSON Schema `enum` (validated before any confirmation); side-effecting',
     "  tools use `confirm: true` (and `dedupe` when a repeat would duplicate data). Orders live in `ctx.user.ns('pedidos')`.",
-    '- The factory takes `(provider, store)`; `bot-wa dev` passes only the provider (in-memory store).',
+    '- The factory takes `(provider, store)`; `botmesh dev` passes only the provider (in-memory store).',
   ],
 }

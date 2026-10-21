@@ -8,7 +8,7 @@
  * `poll` throws {@link UnsupportedContentError}.
  */
 
-import { UnsupportedContentError, type OutboundContent } from '@bot-wa/core'
+import { UnsupportedContentError, type OutboundContent } from '@botmesh/core'
 import { toFlowMessage } from './flows.js'
 
 /** How the provider resolved a MediaSource for Cloud API. */

@@ -1,8 +1,8 @@
 /**
- * bot-wa-baileys v2 — ejemplo de referencia
+ * botmesh v2 — ejemplo de referencia
  * ==========================================
  *
- * Cubre la API pública real de @bot-wa/core@2:
+ * Cubre la API pública real de @botmesh/core@2:
  *   - new Bot(config) + eventos de conexión (qr/ready/connection/error)
  *   - bot.plug(slashCommandsPlugin)
  *   - bot.when(trigger, handler) — texto / lista / regex
@@ -23,7 +23,7 @@ import {
   flow,
   slashCommandsPlugin,
   type MessageContext,
-} from '@bot-wa/core'
+} from '@botmesh/core'
 import { BaileysProvider } from '../lib/index.js'
 
 // =============================================================================
@@ -74,7 +74,7 @@ bot.on('error', ({ error, ctx }) => {
 
 bot.plug(slashCommandsPlugin, {
   greeting: [
-    '🤖 *Demo Bot* — hecho con @bot-wa/core v2',
+    '🤖 *Demo Bot* — hecho con @botmesh/core v2',
     '',
     'Comandos:',
     '  /help  — este mensaje',
@@ -213,7 +213,7 @@ bot.onMessage(async (ctx: MessageContext) => {
 // 12. ARRANCAR EL BOT
 // =============================================================================
 
-console.log('🚀 Iniciando bot-wa-baileys v2 demo...')
+console.log('🚀 Iniciando botmesh v2 demo...')
 console.log('   Sesión:', SESSION)
 console.log('   Esperando QR...\n')
 

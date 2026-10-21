@@ -1,13 +1,13 @@
-# @bot-wa/instagram
+# @botmesh/instagram
 
 > **Experimental — aún no publicado en npm.** Implementación real y con tests, pero el paquete es `private`: no forma parte de la primera alpha y su API puede cambiar. Úsalo desde este monorepo (`workspace:*`); el `pnpm add` de abajo funcionará cuando se publique.
 
-Transporte **Instagram DM (Messenger API for Instagram, oficial de Meta)** para [`@bot-wa/core`](../core). Es webhook-based (no abre socket): los mensajes llegan al webhook de objeto `page` de la Página de Facebook conectada y el envío usa el Send API de Graph (`me/messages`).
+Transporte **Instagram DM (Messenger API for Instagram, oficial de Meta)** para [`@botmesh/core`](../core). Es webhook-based (no abre socket): los mensajes llegan al webhook de objeto `page` de la Página de Facebook conectada y el envío usa el Send API de Graph (`me/messages`).
 
 ## Instalación
 
 ```bash
-pnpm add @bot-wa/core @bot-wa/instagram
+pnpm add @botmesh/core @botmesh/instagram
 ```
 
 **Cero dependencias extra** — usa `fetch` y `crypto` nativos de Node ≥ 22.
@@ -22,8 +22,8 @@ pnpm add @bot-wa/core @bot-wa/instagram
 ## Uso
 
 ```ts
-import { Bot } from '@bot-wa/core'
-import { InstagramProvider } from '@bot-wa/instagram'
+import { Bot } from '@botmesh/core'
+import { InstagramProvider } from '@botmesh/instagram'
 import express from 'express'
 
 const provider = new InstagramProvider({
@@ -77,5 +77,5 @@ app.listen(3000)
 
 - **Media solo por URL:** adjuntá archivos subidos a un hosting público y pasá la URL (`ctx.photo('https://…/foto.jpg')`). Un `Buffer`, path o stream lanza `UnsupportedContentError`.
 - `ctx.buttons` se envía como quick replies: chips táctiles bajo el mensaje; el tap llega como interacción con `data` = el `id` del botón.
-- Fuera de la ventana de mensajes, Meta puede requerir que el usuario haya interactuado primero (política de la plataforma IG); los errores de Graph se traducen a los errores tipados de `@bot-wa/core` (`RateLimitedError` en códigos 4/613; `OutsideSessionWindowError` fuera de la ventana, subcódigo 2534022; `RecipientUnreachableError` si el usuario no existe o no está disponible, código 551 o subcódigos 2018001/2534014).
+- Fuera de la ventana de mensajes, Meta puede requerir que el usuario haya interactuado primero (política de la plataforma IG); los errores de Graph se traducen a los errores tipados de `@botmesh/core` (`RateLimitedError` en códigos 4/613; `OutsideSessionWindowError` fuera de la ventana, subcódigo 2534022; `RecipientUnreachableError` si el usuario no existe o no está disponible, código 551 o subcódigos 2018001/2534014).
 - Un mensaje que el usuario anula (`is_deleted`) no se emite como mensaje nuevo.

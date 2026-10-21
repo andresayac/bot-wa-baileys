@@ -10,7 +10,7 @@ import {
   RateLimitedError,
   RecipientUnreachableError,
   type ChatId,
-} from '@bot-wa/core'
+} from '@botmesh/core'
 
 /** A TikTok API failure that maps to no more specific {@link ProviderError} subclass. */
 export class TikTokApiError extends ProviderError {

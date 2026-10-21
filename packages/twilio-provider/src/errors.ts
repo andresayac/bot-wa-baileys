@@ -9,7 +9,7 @@ import {
   ProviderError,
   RateLimitedError,
   RecipientUnreachableError,
-} from '@bot-wa/core'
+} from '@botmesh/core'
 import type { TwilioErrorBody } from './types.js'
 
 /** Any Twilio REST failure the provider could not map to a more specific class. */

@@ -1,10 +1,10 @@
 /**
- * @bot-wa/voice — speech-to-text and text-to-speech for @bot-wa/core bots.
+ * @botmesh/voice — speech-to-text and text-to-speech for @botmesh/core bots.
  *
  * @example
  * ```ts
- * import { VOICE_NOTE } from '@bot-wa/core'
- * import { voicePlugin } from '@bot-wa/voice'
+ * import { VOICE_NOTE } from '@botmesh/core'
+ * import { voicePlugin } from '@botmesh/voice'
  *
  * bot.plug(voicePlugin({
  *   stt: { provider: 'openai', model: 'gpt-4o-mini-transcribe' },
@@ -61,11 +61,11 @@ export type {
 } from './types.js'
 
 /**
- * Augment `@bot-wa/core`: `ctx.tools.voice` is typed as {@link VoiceClient}
+ * Augment `@botmesh/core`: `ctx.tools.voice` is typed as {@link VoiceClient}
  * (present once `voicePlugin` is plugged), and message contexts gain the
  * transcript fields written by the `autoTranscribe` hook.
  */
-declare module '@bot-wa/core' {
+declare module '@botmesh/core' {
   interface DefaultTools {
     /** Injected by `voicePlugin` via `bot.provide('voice', client)`. */
     voice: VoiceClient

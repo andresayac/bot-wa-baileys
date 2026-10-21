@@ -1,5 +1,5 @@
 /**
- * Guard: inside the monorepo, engine internals are imported from `@bot-wa/core/internal`,
+ * Guard: inside the monorepo, engine internals are imported from `@botmesh/core/internal`,
  * never through the deprecated main-entry re-exports (kept only for users until v3).
  * The names come from `internal.ts` itself, and the whole repo is scanned (packages,
  * examples, scripts, test utilities, READMEs and guides; see `isSkipped`) for named,
@@ -70,8 +70,8 @@ function walk(dir: string, out: string[] = []): string[] {
   return out
 }
 
-/** Exactly the main entry, quoted (not a subpath such as `@bot-wa/core/internal`). */
-const MAIN = String.raw`['"]@bot-wa/core['"]`
+/** Exactly the main entry, quoted (not a subpath such as `@botmesh/core/internal`). */
+const MAIN = String.raw`['"]@botmesh/core['"]`
 
 function namesIn(list: string): string[] {
   const names: string[] = []
@@ -84,8 +84,8 @@ function namesIn(list: string): string[] {
 }
 
 /**
- * Stands for a star re-export of the main entry (`export * from '@bot-wa/core'` or
- * `export * as ns from '@bot-wa/core'`): it re-exports every deprecated internal too.
+ * Stands for a star re-export of the main entry (`export * from '@botmesh/core'` or
+ * `export * as ns from '@botmesh/core'`): it re-exports every deprecated internal too.
  */
 export const STAR = '*'
 
@@ -95,10 +95,10 @@ export function isOffending(name: string): boolean {
 }
 
 /**
- * Names taken from exactly `'@bot-wa/core'` (not a subpath) in `source`: named imports
+ * Names taken from exactly `'@botmesh/core'` (not a subpath) in `source`: named imports
  * and re-exports (also next to a default import), star re-exports ({@link STAR}),
  * namespace imports (`ns.X`), dynamic imports and `require` (destructured, bound to a
- * name, or `import('@bot-wa/core').X` in a type position).
+ * name, or `import('@botmesh/core').X` in a type position).
  */
 export function mainEntryNames(source: string): string[] {
   const names: string[] = []
@@ -121,15 +121,15 @@ export function mainEntryNames(source: string): string[] {
   return names
 }
 
-/** The subpaths `@bot-wa/core` publishes (`exports` of its package.json). */
+/** The subpaths `@botmesh/core` publishes (`exports` of its package.json). */
 const CORE_SUBPATHS = new Set(
   Object.keys((JSON.parse(readFileSync(resolve(coreSrc, '../package.json'), 'utf8')) as { exports: Record<string, unknown> }).exports)
-    .map((key) => (key === '.' ? '@bot-wa/core' : `@bot-wa/core/${key.slice(2)}`)),
+    .map((key) => (key === '.' ? '@botmesh/core' : `@botmesh/core/${key.slice(2)}`)),
 )
 
 /**
  * Module specifiers in `source` (a file in `dir`) that bypass the published entries of
- * `@bot-wa/core`: an unexported `@bot-wa/core/...` subpath, or a relative path into
+ * `@botmesh/core`: an unexported `@botmesh/core/...` subpath, or a relative path into
  * `packages/core`.
  */
 export function deepCoreImports(source: string, dir: string): string[] {
@@ -138,7 +138,7 @@ export function deepCoreImports(source: string, dir: string): string[] {
   const specifiers = /(?:\bfrom\s*|\bimport\s*\(\s*|\brequire\s*\(\s*|^\s*import\s+)['"]([^'"]+)['"]/gm
   for (const m of source.matchAll(specifiers)) {
     const spec = m[1]
-    if (spec.startsWith('@bot-wa/core/') && !CORE_SUBPATHS.has(spec)) out.push(spec)
+    if (spec.startsWith('@botmesh/core/') && !CORE_SUBPATHS.has(spec)) out.push(spec)
     else if (spec.startsWith('.')) {
       const target = resolve(dir, spec)
       if (target === core || target.startsWith(core + sep)) out.push(spec)
@@ -154,27 +154,27 @@ function scannedFiles(): string[] {
 describe('deprecated main-entry re-exports', () => {
   it('the matcher sees named, aliased, type and multi-line imports from the main entry only', () => {
     const src = [
-      "import { Bot, MetricsCollector as M } from '@bot-wa/core'",
-      "import {\n  type ExternalSendClock,\n  flow,\n} from \"@bot-wa/core\"",
-      "import { createPacer } from '@bot-wa/core/internal'",
-      "export { runBroadcast } from '@bot-wa/core'",
+      "import { Bot, MetricsCollector as M } from '@botmesh/core'",
+      "import {\n  type ExternalSendClock,\n  flow,\n} from \"@botmesh/core\"",
+      "import { createPacer } from '@botmesh/core/internal'",
+      "export { runBroadcast } from '@botmesh/core'",
     ].join('\n')
     expect(mainEntryNames(src)).toEqual(['Bot', 'MetricsCollector', 'ExternalSendClock', 'flow', 'runBroadcast'])
   })
 
   it('the matcher also sees namespace, dynamic and require imports of the main entry', () => {
     const src = [
-      "import * as core from '@bot-wa/core'",
+      "import * as core from '@botmesh/core'",
       'const pacer = core.createPacer()',
-      "const { MemoryStore, typingDuration: td } = await import('@bot-wa/core')",
-      "let clock: import('@bot-wa/core').ExternalSendClock",
-      "const { runFormStep } = require('@bot-wa/core')",
-      "const bw = await import('@bot-wa/core')",
+      "const { MemoryStore, typingDuration: td } = await import('@botmesh/core')",
+      "let clock: import('@botmesh/core').ExternalSendClock",
+      "const { runFormStep } = require('@botmesh/core')",
+      "const bw = await import('@botmesh/core')",
       'bw.formatUptime(1)',
-      "import * as internal from '@bot-wa/core/internal'",
+      "import * as internal from '@botmesh/core/internal'",
       'internal.newFormToken()',
-      "const { resolveFormMode } = await import('@bot-wa/core/internal')",
-      "import Default, { buildMessageContext } from '@bot-wa/core'",
+      "const { resolveFormMode } = await import('@botmesh/core/internal')",
+      "import Default, { buildMessageContext } from '@botmesh/core'",
     ].join('\n')
     expect(mainEntryNames(src).sort()).toEqual([
       'ExternalSendClock', 'MemoryStore', 'buildMessageContext', 'createPacer', 'formatUptime', 'runFormStep', 'typingDuration',
@@ -183,12 +183,12 @@ describe('deprecated main-entry re-exports', () => {
 
   it('the matcher flags star re-exports of the main entry (they re-export every internal)', () => {
     const src = [
-      "export * from '@bot-wa/core'",
-      'export type * from "@bot-wa/core"',
-      "export * as core from '@bot-wa/core'",
-      "export * from '@bot-wa/core/internal'",
-      "export * as internal from '@bot-wa/core/internal'",
-      "export * from '@bot-wa/core/testing'",
+      "export * from '@botmesh/core'",
+      'export type * from "@botmesh/core"',
+      "export * as core from '@botmesh/core'",
+      "export * from '@botmesh/core/internal'",
+      "export * as internal from '@botmesh/core/internal'",
+      "export * from '@botmesh/core/testing'",
     ].join('\n')
     expect(mainEntryNames(src)).toEqual([STAR, STAR, STAR])
     expect(isOffending(STAR)).toBe(true)
@@ -226,7 +226,7 @@ describe('deprecated main-entry re-exports', () => {
     expect(files.some((f) => /(^|\/)(node_modules|lib|terceros)\//.test(f))).toBe(false)
   })
 
-  it('are not imported from @bot-wa/core anywhere in the monorepo (use @bot-wa/core/internal)', () => {
+  it('are not imported from @botmesh/core anywhere in the monorepo (use @botmesh/core/internal)', () => {
     const offenders: string[] = []
     const files = scannedFiles()
     expect(files.length).toBeGreaterThan(100)
@@ -239,17 +239,17 @@ describe('deprecated main-entry re-exports', () => {
 
   it('the deep-import matcher flags unexported subpaths and paths into packages/core', () => {
     const src = [
-      "import { createPacer } from '@bot-wa/core/lib/core/messaging.js'",
+      "import { createPacer } from '@botmesh/core/lib/core/messaging.js'",
       "import { x } from '../../core/src/core/context.js'",
-      "const m = await import('@bot-wa/core/src/ops/metrics.js')",
-      "import { Bot } from '@bot-wa/core'",
-      "import { createPacer as p } from '@bot-wa/core/internal'",
-      "import { createTestBot } from '@bot-wa/core/testing'",
-      "import { defineBot } from '@bot-wa/core/dev'",
+      "const m = await import('@botmesh/core/src/ops/metrics.js')",
+      "import { Bot } from '@botmesh/core'",
+      "import { createPacer as p } from '@botmesh/core/internal'",
+      "import { createTestBot } from '@botmesh/core/testing'",
+      "import { defineBot } from '@botmesh/core/dev'",
       "import { y } from './core/helpers.js'",
     ].join('\n')
     expect(deepCoreImports(src, join(repo, 'packages', 'ai', 'src'))).toEqual([
-      '@bot-wa/core/lib/core/messaging.js', '../../core/src/core/context.js', '@bot-wa/core/src/ops/metrics.js',
+      '@botmesh/core/lib/core/messaging.js', '../../core/src/core/context.js', '@botmesh/core/src/ops/metrics.js',
     ])
   })
 

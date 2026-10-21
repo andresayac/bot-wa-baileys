@@ -1,5 +1,5 @@
 /**
- * `bot-wa/no-async-plugin-install` — `Plugin.install()` must be synchronous.
+ * `botmesh/no-async-plugin-install` — `Plugin.install()` must be synchronous.
  * `Bot.plug()` does not await it: the bot runs before an async `install` has
  * finished and its rejection only reaches the `'error'` event (nothing is
  * rolled back). TypeScript rejects an async `install` at compile time
@@ -37,7 +37,7 @@ export const noAsyncPluginInstall: Rule.RuleModule = {
       async:
         'Plugin `install()` must be synchronous and return nothing: `bot.plug()` does not await it, so the bot runs ' +
         'before an async install has finished and its rejection only reaches the error event. ' +
-        'Do async setup lazily on first use (see LazyProvider in @bot-wa/ai).',
+        'Do async setup lazily on first use (see LazyProvider in @botmesh/ai).',
     },
   },
   create(context) {

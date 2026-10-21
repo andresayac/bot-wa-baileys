@@ -1,15 +1,15 @@
 /**
  * Retrieval Augmented Generation hook for the AI plugin (FEATURES.md #29).
  *
- * `@bot-wa/ai` only knows this small structural contract; the batteries
- * (loaders, chunking, embeddings, vector index) live in `@bot-wa/rag`, whose
+ * `@botmesh/ai` only knows this small structural contract; the batteries
+ * (loaders, chunking, embeddings, vector index) live in `@botmesh/rag`, whose
  * `createRag()` result satisfies {@link AIRetriever} as-is. Any other
  * retriever (a vector DB, a search API...) works too.
  */
 
 import { AI_MESSAGES, aiText, type AITranslatable } from './i18n.js'
 
-/** A retrieved passage. `@bot-wa/rag`'s `RetrievedChunk` is assignable to it. */
+/** A retrieved passage. `@botmesh/rag`'s `RetrievedChunk` is assignable to it. */
 export interface AIRetrievedChunk {
   text: string
   /** Where it comes from (file, URL...). */
@@ -71,7 +71,7 @@ export function toRagConfig(rag: AIRetriever | AIRagConfig | undefined): AIRagCo
   if (typeof (rag as AIRetriever).retrieve === 'function') return { retriever: rag as AIRetriever }
   const cfg = rag as AIRagConfig
   if (!cfg.retriever || typeof cfg.retriever.retrieve !== 'function') {
-    throw new TypeError('aiPlugin({ rag }) expects a retriever (e.g. createRag() from @bot-wa/rag) or { retriever }')
+    throw new TypeError('aiPlugin({ rag }) expects a retriever (e.g. createRag() from @botmesh/rag) or { retriever }')
   }
   return cfg
 }

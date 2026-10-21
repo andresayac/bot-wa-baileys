@@ -1,5 +1,5 @@
 /**
- * `@bot-wa/core/testing` — test kit for bots: `MockProvider`, `createTestBot`, the chaos kit
+ * `@botmesh/core/testing` — test kit for bots: `MockProvider`, `createTestBot`, the chaos kit
  * (`ChaosProvider`, `withChaos`), identity-contract checks, crash simulation and golden
  * transcripts. Never imported by the engine itself.
  *

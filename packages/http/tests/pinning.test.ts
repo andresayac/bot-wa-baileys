@@ -21,7 +21,7 @@ function listen(handler: Parameters<typeof createServer>[1]): Promise<number> {
   }))
 }
 
-describe('@bot-wa/http connection pinning', () => {
+describe('@botmesh/http connection pinning', () => {
   it('connects to the pinned IP, not a re-resolution of the hostname', async () => {
     // Server is on 127.0.0.1; the hostname `pinned.test` only "resolves" via the
     // stub resolver → 127.0.0.1. If undici re-resolved `pinned.test` itself it

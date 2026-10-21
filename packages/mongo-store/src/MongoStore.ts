@@ -22,9 +22,9 @@
  *
  * @example
  * ```ts
- * import { Bot } from '@bot-wa/core'
- * import { BaileysProvider } from '@bot-wa/baileys'
- * import { MongoStore } from '@bot-wa/mongo-store'
+ * import { Bot } from '@botmesh/core'
+ * import { BaileysProvider } from '@botmesh/baileys'
+ * import { MongoStore } from '@botmesh/mongo-store'
  *
  * const store = new MongoStore({ url: 'mongodb://localhost:27017', dbName: 'mybot' })
  * const bot = new Bot({
@@ -46,8 +46,8 @@ import type {
   StoredMessage,
   UserDataEntry,
   UserId,
-} from '@bot-wa/core'
-import { legacyMessageKey, messageKey } from '@bot-wa/core'
+} from '@botmesh/core'
+import { legacyMessageKey, messageKey } from '@botmesh/core'
 import { MongoScheduleStore } from './schedules.js'
 import { MongoUserData, type UserDataDoc } from './userData.js'
 

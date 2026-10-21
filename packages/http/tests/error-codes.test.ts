@@ -3,7 +3,7 @@ import { SecureHttpError, fetchBuffer, secureFetch } from '../src/index.js'
 
 const publicResolver = async () => ['93.184.216.34']
 
-describe('@bot-wa/http error codes', () => {
+describe('@botmesh/http error codes', () => {
   it('reports invalid options as INVALID_OPTIONS, not INVALID_URL', async () => {
     const fetch = vi.fn<typeof globalThis.fetch>()
     for (const options of [{ timeoutMs: 0 }, { timeoutMs: Number.NaN }, { maxBytes: -1 }, { maxBytes: 1.5 }, { maxRedirects: -1 }]) {

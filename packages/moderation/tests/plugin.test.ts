@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import type { InboundEvent } from '@bot-wa/core'
-import { MockProvider } from '@bot-wa/core/testing'
+import type { InboundEvent } from '@botmesh/core'
+import { MockProvider } from '@botmesh/core/testing'
 import { moderationPlugin, type ModerationReport } from '../src/index.js'
 import { AdminMockProvider, flush, groupMsg, startBot, textsTo } from './helpers.js'
 

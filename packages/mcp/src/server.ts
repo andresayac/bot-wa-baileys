@@ -49,7 +49,7 @@ export interface McpToolInfo {
 }
 
 export interface McpServerOptions extends ToolContext {
-  /** Defaults to `@bot-wa/mcp`. */
+  /** Defaults to `@botmesh/mcp`. */
   name?: string
   /** Defaults to the package version. */
   version?: string

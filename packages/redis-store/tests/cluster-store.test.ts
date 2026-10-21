@@ -3,7 +3,7 @@
  * (hermetic: the cluster fake enforces Redis Cluster's CROSSSLOT rules).
  */
 import { describe, expect, it } from 'vitest'
-import type { StoredMessage } from '@bot-wa/core'
+import type { StoredMessage } from '@botmesh/core'
 import { RedisCoordinator, RedisDurability, RedisLeaseProvider, RedisScheduleStore, RedisStore, withClusterRetry } from '../src/index.js'
 import { bucketOf, storeKeys } from '../src/layout.js'
 import { hashSlot } from '../src/slot.js'

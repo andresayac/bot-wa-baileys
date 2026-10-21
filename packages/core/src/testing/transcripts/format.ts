@@ -13,7 +13,7 @@ import { createHash } from 'node:crypto'
 import type { ChatId, InboundEvent, OutboundContent, StoredMessage } from '../../core/provider.js'
 
 /** Magic string in every transcript file. */
-export const TRANSCRIPT_FORMAT = 'bot-wa/transcript'
+export const TRANSCRIPT_FORMAT = 'botmesh/transcript'
 /** Current transcript schema version. Bump on breaking changes and migrate in {@link parseTranscript}. */
 export const TRANSCRIPT_VERSION = 1
 

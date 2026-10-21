@@ -1,12 +1,12 @@
 # Plugin de IA
 
-`@bot-wa/ai` es un **paquete separado** que añade un autoresponder de IA
+`@botmesh/ai` es un **paquete separado** que añade un autoresponder de IA
 multi-proveedor (Anthropic / OpenAI / Ollama / Gemini más nueve presets
 compatibles con OpenAI), y un cliente `ctx.tools.ai` que puedes usar desde
 tus propios handlers, flows y conversaciones.
 
 ::: tip Paquete separado
-A diferencia de `slashCommandsPlugin` (incluido en el core), `@bot-wa/ai` se
+A diferencia de `slashCommandsPlugin` (incluido en el core), `@botmesh/ai` se
 distribuye como un paquete propio para que el core se mantenga libre de
 dependencias de IA.
 :::
@@ -28,7 +28,7 @@ Qué significa para `aiPlugin`:
   el [quickstart](#quickstart-autoresponder) de abajo.
 - Ofrece una salida hacia una persona y no presentes el bot como un asistente
   "para todo".
-- La regla viene de los términos de la Cloud API oficial (`@bot-wa/meta`).
+- La regla viene de los términos de la Cloud API oficial (`@botmesh/meta`).
   Baileys es un cliente no oficial de WhatsApp Web y también está sujeto a los
   términos de WhatsApp.
 
@@ -39,13 +39,13 @@ antes de salir a producción.
 ## Instalación
 
 ::: warning Alpha — primera publicación en npm pendiente
-`@bot-wa/ai` forma parte de la primera alpha, que **todavía no está en npm**.
+`@botmesh/ai` forma parte de la primera alpha, que **todavía no está en npm**.
 Hasta que se publique, úsalo desde el monorepo (`workspace:*`); los comandos
 de abajo son los que funcionarán cuando se publique.
 :::
 
 ```bash
-pnpm add @bot-wa/ai@alpha @anthropic-ai/sdk
+pnpm add @botmesh/ai@alpha @anthropic-ai/sdk
 ```
 
 El segundo paquete es el SDK del proveedor que vayas a usar:
@@ -61,9 +61,9 @@ El segundo paquete es el SDK del proveedor que vayas a usar:
 ## Quickstart (autoresponder)
 
 ```ts
-import { Bot } from '@bot-wa/core'
-import { BaileysProvider } from '@bot-wa/baileys'
-import { aiPlugin } from '@bot-wa/ai'
+import { Bot } from '@botmesh/core'
+import { BaileysProvider } from '@botmesh/baileys'
+import { aiPlugin } from '@botmesh/ai'
 
 const bot = new Bot({ provider: new BaileysProvider({ session: 'mi-bot' }) })
 
@@ -140,7 +140,7 @@ bot.conversation('reclamo', async (c, ctx) => {
 - `stream(input): AsyncIterable<string>` — igual que `generate` pero entrega
   el texto en fragmentos (`for await (const delta of ...)`).
 
-**Tipado (TypeScript).** Importar `@bot-wa/ai` amplía la interfaz
+**Tipado (TypeScript).** Importar `@botmesh/ai` amplía la interfaz
 `DefaultTools` del core, así que `ctx.tools.ai` ya es un `AIClient` en los
 handlers de `when()`, `onMessage()` y `command()` (y en
 `bot.injectTools.ai`), sin casts. El tipo no comprueba que el plugin esté
@@ -275,7 +275,7 @@ el `errorMessage` configurado en vez de tumbar el bot.
 
 ## Pensamiento (Anthropic)
 
-Los modelos Claude piensan antes de responder. `@bot-wa/ai` elige la petición
+Los modelos Claude piensan antes de responder. `@botmesh/ai` elige la petición
 adecuada para el modelo que configures (`thinking: 'auto'`, el valor por defecto):
 
 | Modelo | Qué se envía |
@@ -333,7 +333,7 @@ Guía completa: [Herramientas de IA](/es/guide/ai-herramientas).
 `ctx.user`, se inyectan en el autoresponder y, opcionalmente, el modelo los
 extrae en segundo plano). `rag` responde a partir de tus documentos con citas
 numeradas, usando cualquier retriever, como `createRag()` del paquete
-experimental `@bot-wa/rag`.
+experimental `@botmesh/rag`.
 
 ```ts
 bot.plug(aiPlugin({
@@ -352,7 +352,7 @@ Guía completa: [Memoria y RAG](/es/guide/ai-memoria-rag).
 borradores nativos en Telegram, ediciones en vivo en Discord y trozos por
 frases con "escribiendo…" en WhatsApp. Los turnos con herramientas no se
 transmiten. Guía completa:
-[Respuestas en streaming](/es/guide/streaming#con-bot-wa-ai).
+[Respuestas en streaming](/es/guide/streaming#con-botmesh-ai).
 
 ## Formato por canal
 
@@ -378,7 +378,7 @@ texto tal cual. `formatMarkdown(text, format)` y
 ## Notas de voz
 
 El autoresponder solo contesta mensajes de texto. Con el plugin experimental
-[`@bot-wa/voice`](/es/guide/voz), las notas de voz se transcriben antes de
+[`@botmesh/voice`](/es/guide/voz), las notas de voz se transcriben antes de
 enrutarse (usa `autoTranscribe: { asText: true }` para que la IA las
 conteste) y `autoReplyWithVoice` puede devolver la respuesta como audio.
 
@@ -403,7 +403,7 @@ y cero red — úsalo para testear tu propia lógica alrededor de `AIClient` sin
 llamar a un proveedor real:
 
 ```ts
-import { AIClient, ContextManager, MockAIProvider, type ConvStore, type AIMessage } from '@bot-wa/ai'
+import { AIClient, ContextManager, MockAIProvider, type ConvStore, type AIMessage } from '@botmesh/ai'
 
 const memory = new Map<string, AIMessage[]>()
 const store: ConvStore = {

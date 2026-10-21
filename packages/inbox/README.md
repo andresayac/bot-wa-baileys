@@ -1,12 +1,12 @@
-# @bot-wa/inbox
+# @botmesh/inbox
 
 > **Paquete privado** (`"private": true`, no se publica en npm). Implementación real y persistente; la API puede cambiar sin aviso mientras la alpha no salga.
 
 Bandeja de entrada aislada por tenant para conversaciones omnicanal: asignación con compare-and-set (CAS), handoff bot/humano, contadores de no leídos, SLA, notas internas y proyección de los mensajes del ledger del core.
 
 ```ts
-import { Inbox, KvInboxStore } from '@bot-wa/inbox'
-import { PostgresDurableKv } from '@bot-wa/postgres-store'
+import { Inbox, KvInboxStore } from '@botmesh/inbox'
+import { PostgresDurableKv } from '@botmesh/postgres-store'
 
 const inbox = new Inbox(new KvInboxStore(new PostgresDurableKv({ pool })))
 const conversation = await inbox.projectMessage(storedMessage)
@@ -17,7 +17,7 @@ await inbox.handoff('acme', assigned.id, true, assigned.version)
 ## Almacenamiento
 
 - `MemoryInboxStore` — implementación de referencia, en RAM. Se pierde al reiniciar; úsala en tests.
-- `KvInboxStore` — persiste sobre cualquier [`DurableKv`](../core/src/durability/kv.ts) del core (`MemoryKv`, `FileDurability`, `SQLiteDurableKv`, `PostgresDurableKv`, `RedisDurableKv`). Las claves/tablas llevan el tenant (`@bot-wa/tenant-kv`), así que dos tenants con el mismo id de conversación nunca se mezclan.
+- `KvInboxStore` — persiste sobre cualquier [`DurableKv`](../core/src/durability/kv.ts) del core (`MemoryKv`, `FileDurability`, `SQLiteDurableKv`, `PostgresDurableKv`, `RedisDurableKv`). Las claves/tablas llevan el tenant (`@botmesh/tenant-kv`), así que dos tenants con el mismo id de conversación nunca se mezclan.
 
 Ambas pasan la misma suite de conformidad compartida (`test-utils/inbox-store-conformance.ts`). Las suites contra servidores reales (`tests/integration.test.ts`) se activan con `BOTWA_TEST_POSTGRES_URL`, `BOTWA_TEST_REDIS_URL` y `BOTWA_TEST_REDIS_CLUSTER_URL`; SQLite siempre corre con un archivo temporal.
 
@@ -37,7 +37,7 @@ Toda mutación de una conversación existente exige `expectedVersion` y es un CA
 ## Proyección automática desde un bot
 
 ```ts
-import { attachInbox } from '@bot-wa/inbox'
+import { attachInbox } from '@botmesh/inbox'
 
 const detach = attachInbox(bot, inbox, { tenantId: 'acme' })
 // ...

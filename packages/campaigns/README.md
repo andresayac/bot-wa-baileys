@@ -1,12 +1,12 @@
-# @bot-wa/campaigns
+# @botmesh/campaigns
 
 > **Paquete privado** (`"private": true`, no se publica en npm). Implementación real y persistente; la API puede cambiar sin aviso mientras la alpha no salga.
 
 Planificador de campañas con consentimiento, segmentación por tags y reservas durables por tenant/campaña/destinatario.
 
 ```ts
-import { CampaignPlanner, KvCampaignStore, sendCampaign } from '@bot-wa/campaigns'
-import { PostgresDurableKv } from '@bot-wa/postgres-store'
+import { CampaignPlanner, KvCampaignStore, sendCampaign } from '@botmesh/campaigns'
+import { PostgresDurableKv } from '@botmesh/postgres-store'
 
 const planner = new CampaignPlanner(new KvCampaignStore(new PostgresDurableKv({ pool })))
 const run = await sendCampaign(

@@ -21,7 +21,7 @@
  * ```
  */
 
-import { KvDurability, type DurableKv, type DurableKvEntry, type DurableKvIndex, type DurableTable } from '@bot-wa/core'
+import { KvDurability, type DurableKv, type DurableKvEntry, type DurableKvIndex, type DurableTable } from '@botmesh/core'
 import type { RedisLikeClient } from './RedisStore.js'
 import { DURABLE_WRITE_SCRIPT } from './durabilityScripts.js'
 import { asRedisLike, createOwnRedisClient, type AnyRedisClient, type RedisClusterConnectOptions } from './client.js'

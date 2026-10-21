@@ -3,8 +3,8 @@
 // question and then sits in a validator that never returns. It prints "answered" once the
 // answer is recorded in the checkpoint; the parent then kills it (no cleanup runs).
 // Usage: node handover-child.mjs <redisUrl> <prefix> <chatId>
-import { Bot, flow } from '@bot-wa/core'
-import { MockProvider } from '@bot-wa/core/testing'
+import { Bot, flow } from '@botmesh/core'
+import { MockProvider } from '@botmesh/core/testing'
 import { RedisCoordinator, RedisDurability, RedisStore } from '../../lib/index.js'
 
 const [url, prefix, chatId] = process.argv.slice(2)

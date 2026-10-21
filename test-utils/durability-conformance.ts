@@ -11,7 +11,7 @@
  * Type-only imports keep this file runtime-dependency-free (vitest is injected by the runner).
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import type { DurabilityBackend, DurableKv, InboxAppend } from '@bot-wa/core'
+import type { DurabilityBackend, DurableKv, InboxAppend } from '@botmesh/core'
 
 export interface DurableKvHarness {
   make(): Promise<{ kv: DurableKv; teardown: () => Promise<void> }>

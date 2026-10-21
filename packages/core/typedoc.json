@@ -3,7 +3,7 @@
   "entryPoints": ["src/index.ts"],
   "tsconfig": "tsconfig.json",
   "out": "../../docs/api",
-  "name": "@bot-wa/core",
+  "name": "@botmesh/core",
   "includeVersion": true,
   "readme": "README.md",
   "theme": "default",

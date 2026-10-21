@@ -1,19 +1,19 @@
 # 24-hour window and pricing (Cloud API)
 
-On the WhatsApp Cloud API (`@bot-wa/meta`) a business can send **free-form**
+On the WhatsApp Cloud API (`@botmesh/meta`) a business can send **free-form**
 messages (text, media, buttons...) only within **24 hours** of the user's
 last message: the customer-service window. Outside it only approved
 **templates** go through; Meta rejects anything else with Graph error
 `131047`, which the provider maps to `OutsideSessionWindowError`.
 
-`@bot-wa/meta` ships two optional helpers for this:
+`@botmesh/meta` ships two optional helpers for this:
 
 - **`sessionWindow`**: tracks each chat's window, reopens closed chats with a
   template and retries the original message when the user replies.
 - **`usage`**: counts the billing info Meta attaches to status webhooks, per
   chat and per pricing category.
 
-Both live only in `@bot-wa/meta`. Other providers with a similar window
+Both live only in `@botmesh/meta`. Other providers with a similar window
 (Twilio error `63016`, Gupshup, TikTok) reject with
 `OutsideSessionWindowError` but have no manager.
 
@@ -23,7 +23,7 @@ By default nothing is tracked. A free-form send outside the window rejects,
 and you decide what to do:
 
 ```ts
-import { OutsideSessionWindowError } from '@bot-wa/core'
+import { OutsideSessionWindowError } from '@botmesh/core'
 
 try {
   await bot.sendTo(chatId, 'Your order shipped')
@@ -43,7 +43,7 @@ Templates are always allowed: they are the way back into the window.
 ## Enabling the manager
 
 ```ts
-import { CloudAPIProvider } from '@bot-wa/meta'
+import { CloudAPIProvider } from '@botmesh/meta'
 
 const provider = new CloudAPIProvider({
   accessToken: process.env.META_TOKEN!,
@@ -96,7 +96,7 @@ directly.
   should not see an error (for example, `ctx.reply` inside handlers).
 
 ```ts
-import { SessionWindowReopenedError } from '@bot-wa/meta'
+import { SessionWindowReopenedError } from '@botmesh/meta'
 
 try {
   await bot.sendTo(chatId, 'Your invoice is attached')
@@ -179,7 +179,7 @@ lost on restart. Implement `SessionWindowStore` over Redis or SQL to keep it
 across restarts and processes; methods may be sync or async:
 
 ```ts
-import type { SessionWindowStore } from '@bot-wa/meta'
+import type { SessionWindowStore } from '@botmesh/meta'
 
 const store: SessionWindowStore = {
   async get(key) {
@@ -210,7 +210,7 @@ instance; each provider gets its own view with `forScope(phoneNumberId)`,
 with its own window keys, queue and tracked sends:
 
 ```ts
-import { SessionWindowManager } from '@bot-wa/meta'
+import { SessionWindowManager } from '@botmesh/meta'
 
 const windows = new SessionWindowManager({ store, reopenTemplate })
 
@@ -250,7 +250,7 @@ Every Cloud API `status` event carries Meta's billing info normalized in
   `{ id?, originType?, expiresAt? }` (`expiresAt` in epoch ms).
 
 ```ts
-import { pricingOf } from '@bot-wa/meta'
+import { pricingOf } from '@botmesh/meta'
 
 bot.on('status', (status) => {
   const pricing = pricingOf(status.platformData)
@@ -288,4 +288,4 @@ rates: Meta's invoice is the source of truth.
 ## See also
 
 - [Channels](/guide/channels): all providers and their capabilities.
-- [`@bot-wa/meta` README](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/meta-provider)
+- [`@botmesh/meta` README](https://github.com/andresayac/botmesh/tree/main/packages/meta-provider)

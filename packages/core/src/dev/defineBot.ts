@@ -1,19 +1,19 @@
 /**
  * `defineBot` — the factory pattern that lets ONE bot module run both on a real
- * transport (`npm start`) and inside the `bot-wa dev` terminal simulator.
+ * transport (`npm start`) and inside the `botmesh dev` terminal simulator.
  *
  * A bot module default-exports a factory that receives the transport provider
  * and returns the configured {@link Bot}. Whoever runs the module decides which
  * provider to inject:
  *  - `npm start` (`node src/bot.js`) builds the real provider in an
  *    {@link isMainModule} block at the bottom of the file;
- *  - `bot-wa dev src/bot.js` imports the module, ignores that block, and calls
+ *  - `botmesh dev src/bot.js` imports the module, ignores that block, and calls
  *    the factory with a simulated in-memory provider (no phone, no ban risk).
  *
  * @example
  * ```js
- * import { Bot, defineBot, isMainModule } from '@bot-wa/core'
- * import { BaileysProvider } from '@bot-wa/baileys'
+ * import { Bot, defineBot, isMainModule } from '@botmesh/core'
+ * import { BaileysProvider } from '@botmesh/baileys'
  *
  * const createBot = defineBot((provider) => {
  *   const bot = new Bot({ provider })
@@ -40,21 +40,21 @@ import type { IProvider } from '../core/provider.js'
  * A bot factory: receives the transport provider to use and returns the
  * configured (not yet started) {@link Bot}. It may be async (e.g. to load data
  * before registering handlers). It must pass `provider` to `new Bot({ provider })`
- * and must NOT call `bot.start()` — the caller (your main block, or `bot-wa dev`)
+ * and must NOT call `bot.start()` — the caller (your main block, or `botmesh dev`)
  * starts it.
  */
 export type BotFactory = (provider: IProvider) => Bot | Promise<Bot>
 
 /**
  * Brand stored on factories created by {@link defineBot}. A global-registry
- * symbol, so it is recognised even when the bot module and the `bot-wa` CLI
- * resolve two different copies of `@bot-wa/core`.
+ * symbol, so it is recognised even when the bot module and the `botmesh` CLI
+ * resolve two different copies of `@botmesh/core`.
  */
-const BOT_FACTORY = Symbol.for('@bot-wa/core.botFactory')
+const BOT_FACTORY = Symbol.for('@botmesh/core.botFactory')
 
 /**
  * Declare a bot factory. Returns the SAME function (typed and branded), so it
- * can be default-exported for `bot-wa dev` and called directly with a real
+ * can be default-exported for `botmesh dev` and called directly with a real
  * provider for production.
  *
  * @param factory `(provider) => Bot` — build your bot around the given provider.
@@ -80,7 +80,7 @@ export function isBotFactory(value: unknown): value is BotFactory {
 /**
  * Is the module that owns `meta` (pass `import.meta`) the process entry point,
  * i.e. was it started with `node <file>` rather than imported? Use it to guard
- * the "connect the real provider" block so `bot-wa dev` (and your tests) can
+ * the "connect the real provider" block so `botmesh dev` (and your tests) can
  * import the factory without connecting to a real transport.
  *
  * Uses `import.meta.main` when the runtime provides it (Node >= 22.18 / 24.2)

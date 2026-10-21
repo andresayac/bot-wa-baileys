@@ -5,8 +5,8 @@ Let's build a complete bot with commands, media and a conversation flow.
 ## The complete bot
 
 ```ts
-import { Bot, flow, slashCommandsPlugin } from '@bot-wa/core'
-import { BaileysProvider } from '@bot-wa/baileys'
+import { Bot, flow, slashCommandsPlugin } from '@botmesh/core'
+import { BaileysProvider } from '@botmesh/baileys'
 
 // 1. Create the bot — transport options live on the provider
 const bot = new Bot({
@@ -35,7 +35,7 @@ bot.when('hola', async (ctx) => {
 })
 
 bot.when('info', async (ctx) => {
-  await ctx.reply('ℹ️ I am a bot built with @bot-wa/core v2')
+  await ctx.reply('ℹ️ I am a bot built with @botmesh/core v2')
 })
 
 // 5. Media

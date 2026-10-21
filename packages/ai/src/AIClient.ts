@@ -1,5 +1,5 @@
-import type { AIMessage, MessageContext } from '@bot-wa/core'
-import { TimeoutError } from '@bot-wa/core'
+import type { AIMessage, MessageContext } from '@botmesh/core'
+import { TimeoutError } from '@botmesh/core'
 import type { AIChatMessage, AIProvider, GenerateInput, GenerateResult, Effort } from './types.js'
 import type { ContextManager } from './ContextManager.js'
 import type { MemoryFact, MemoryManager, RememberOptions } from './memory/MemoryManager.js'
@@ -26,8 +26,8 @@ import { runToolLoop, type ToolLoopResult } from './tools/runner.js'
 import { DEFAULT_DEDUPE_WINDOW_MS, DEFAULT_LEDGER_RETENTION_MS, ToolLedger, type ChatToolLedger } from './tools/ledger.js'
 import { argLines, summarizeValue, toolTitle } from './tools/present.js'
 import { AI_MESSAGES, aiText } from './i18n.js'
-import type { BotTracing } from '@bot-wa/core'
-import { TRACE_ATTR } from '@bot-wa/core'
+import type { BotTracing } from '@botmesh/core'
+import { TRACE_ATTR } from '@botmesh/core'
 import { activeTracing, traceModelCall, traceStream, setResponseAttributes, recordModelError, startModelSpan, type ModelPurpose } from './tracing.js'
 
 /** Most recent side-effecting runs listed in the system prompt (`ai.tools.doneNote`). */
@@ -355,7 +355,7 @@ export class AIClient {
     let iterator: AsyncIterator<string> | undefined
     let citations: AIRetrievedChunk[] = []
     let epoch: string | undefined
-    let streamSpan: import('@bot-wa/core').BotSpan | undefined
+    let streamSpan: import('@botmesh/core').BotSpan | undefined
     try {
       const userId = opts?.userId
       const [history, facts, retrieved, turnEpoch] = await Promise.all([

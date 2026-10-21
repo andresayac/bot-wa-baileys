@@ -1,5 +1,5 @@
 /**
- * Key layouts of `@bot-wa/redis-store`.
+ * Key layouts of `@botmesh/redis-store`.
  *
  * - `'legacy'` (default on a single node): exactly the historical key names. Several
  *   multi-key scripts and transactions touch keys of different hash slots, so it does

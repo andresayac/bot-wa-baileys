@@ -1,5 +1,5 @@
 /**
- * Loading the developer's bot module for `bot-wa dev`: cache-busting
+ * Loading the developer's bot module for `botmesh dev`: cache-busting
  * re-imports, the reload hooks, TypeScript support checks and turning a module
  * namespace into a {@link BotFactory} with actionable errors.
  */
@@ -50,7 +50,7 @@ export function resolveBotFactory(loaded: unknown): BotFactory {
   if (typeof exported === 'function') return exported as BotFactory
   if (looksLikeBot(exported)) {
     throw new DevEntryError(
-      'The entry exports a Bot instance, but bot-wa dev needs a factory so it can inject the simulator provider.\n' + FACTORY_HINT,
+      'The entry exports a Bot instance, but botmesh dev needs a factory so it can inject the simulator provider.\n' + FACTORY_HINT,
     )
   }
   throw new DevEntryError(`The entry has no default-exported bot factory.\n${FACTORY_HINT}`)
@@ -128,19 +128,19 @@ function parseVersion(version: string): [number, number] {
 export function checkTypeScriptSupport(entry: string, runtime: { typescript?: unknown; nodeVersion: string }): string | undefined {
   const ext = extname(entry).toLowerCase()
   if (ext === '.tsx' || ext === '.jsx') {
-    return `bot-wa dev: "${entry}" is a ${ext === '.tsx' ? 'TSX' : 'JSX'} file; Node cannot run JSX/TSX directly. ` +
-      'Compile it to JavaScript first and point bot-wa dev at the .js output.'
+    return `botmesh dev: "${entry}" is a ${ext === '.tsx' ? 'TSX' : 'JSX'} file; Node cannot run JSX/TSX directly. ` +
+      'Compile it to JavaScript first and point botmesh dev at the .js output.'
   }
   if (!TS_EXTENSIONS.has(ext) || runtime.typescript) return undefined
   const [major, minor] = parseVersion(runtime.nodeVersion)
   const hasFlag = major > 22 || (major === 22 && minor >= 6)
   const lines = [
-    `bot-wa dev: "${entry}" is a TypeScript entry, but this Node.js (v${runtime.nodeVersion.replace(/^v/, '')}) is not stripping types.`,
+    `botmesh dev: "${entry}" is a TypeScript entry, but this Node.js (v${runtime.nodeVersion.replace(/^v/, '')}) is not stripping types.`,
     '  • Upgrade to Node.js >= 22.18 (or >= 23.6): built-in type stripping is on by default.',
   ]
-  if (hasFlag) lines.push(`  • Or enable it for this run: NODE_OPTIONS=--experimental-strip-types bot-wa dev ${entry}`)
+  if (hasFlag) lines.push(`  • Or enable it for this run: NODE_OPTIONS=--experimental-strip-types botmesh dev ${entry}`)
   lines.push(
-    '  • Or compile to JavaScript first and run bot-wa dev on the .js output.',
+    '  • Or compile to JavaScript first and run botmesh dev on the .js output.',
     'Note: type stripping needs explicit .ts extensions in relative imports and `import type` for type-only imports.',
   )
   return lines.join('\n')

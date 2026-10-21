@@ -1,5 +1,5 @@
 /**
- * `bot-wa/no-await-runtime-enter` — `ConversationRuntime.enter()` resolves when
+ * `botmesh/no-await-runtime-enter` — `ConversationRuntime.enter()` resolves when
  * the conversation ENDS, so awaiting it inside a handler blocks that chat's
  * FIFO queue (the user's next message, the one the conversation waits for,
  * never gets dispatched). Launch it fire-and-forget instead:

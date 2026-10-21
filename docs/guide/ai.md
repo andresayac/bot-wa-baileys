@@ -1,12 +1,12 @@
 # AI plugin
 
-`@bot-wa/ai` is a **separate package** that adds a multi-provider AI
+`@botmesh/ai` is a **separate package** that adds a multi-provider AI
 autoresponder (Anthropic / OpenAI / Ollama / Gemini plus nine
 OpenAI-compatible presets) and a `ctx.tools.ai` client you can call from
 your own handlers, flows and conversations.
 
 ::: tip Separate package
-Unlike `slashCommandsPlugin` (bundled with the core), `@bot-wa/ai` ships as
+Unlike `slashCommandsPlugin` (bundled with the core), `@botmesh/ai` ships as
 its own package so the core stays free of AI dependencies.
 :::
 
@@ -27,7 +27,7 @@ What that means for `aiPlugin`:
   [quickstart](#quickstart-autoresponder) below.
 - Offer a way to reach a human and don't market the bot as an
   "ask me anything" assistant.
-- The rule comes from the official Cloud API terms (`@bot-wa/meta`). Baileys
+- The rule comes from the official Cloud API terms (`@botmesh/meta`). Baileys
   is an unofficial WhatsApp Web client and is also subject to WhatsApp's
   terms.
 
@@ -38,13 +38,13 @@ before going live.
 ## Install
 
 ::: warning Alpha — first npm publish pending
-`@bot-wa/ai` is part of the first alpha, which is **not on npm yet**. Until
+`@botmesh/ai` is part of the first alpha, which is **not on npm yet**. Until
 it is published, use it from the monorepo (`workspace:*`); the commands
 below are the ones that will work once it is.
 :::
 
 ```bash
-pnpm add @bot-wa/ai@alpha @anthropic-ai/sdk
+pnpm add @botmesh/ai@alpha @anthropic-ai/sdk
 ```
 
 The second package is the SDK of whichever provider you use:
@@ -60,9 +60,9 @@ The second package is the SDK of whichever provider you use:
 ## Quickstart (autoresponder)
 
 ```ts
-import { Bot } from '@bot-wa/core'
-import { BaileysProvider } from '@bot-wa/baileys'
-import { aiPlugin } from '@bot-wa/ai'
+import { Bot } from '@botmesh/core'
+import { BaileysProvider } from '@botmesh/baileys'
+import { aiPlugin } from '@botmesh/ai'
 
 const bot = new Bot({ provider: new BaileysProvider({ session: 'my-bot' }) })
 
@@ -138,7 +138,7 @@ bot.conversation('complaint', async (c, ctx) => {
 - `stream(input): AsyncIterable<string>` — same as `generate` but yields the
   text incrementally (`for await (const delta of ...)`).
 
-**Typing (TypeScript).** Importing `@bot-wa/ai` augments the core's
+**Typing (TypeScript).** Importing `@botmesh/ai` augments the core's
 `DefaultTools` interface, so `ctx.tools.ai` is already an `AIClient` in
 `when()`, `onMessage()` and `command()` handlers (and in
 `bot.injectTools.ai`), with no casts. The type does not check that the plugin
@@ -272,7 +272,7 @@ down.
 
 ## Thinking (Anthropic)
 
-Claude models think before answering. `@bot-wa/ai` picks the right request
+Claude models think before answering. `@botmesh/ai` picks the right request
 for the model you configure (`thinking: 'auto'`, the default):
 
 | Model | What is sent |
@@ -328,7 +328,7 @@ Full guide: [AI tool calling](/guide/ai-tools).
 `ctx.user`, injected into the autoreply, optionally extracted by the model in
 the background). `rag` answers from your documents with numbered citations,
 using any retriever, such as `createRag()` from the experimental
-`@bot-wa/rag` package.
+`@botmesh/rag` package.
 
 ```ts
 bot.plug(aiPlugin({
@@ -346,7 +346,7 @@ Full guide: [AI memory & RAG](/guide/ai-memory-rag).
 `stream: true` sends the autoreply while it is generated: native drafts on
 Telegram, live edits on Discord, sentence chunks with typing on WhatsApp.
 Turns with tools are not streamed. Full guide:
-[Streaming replies](/guide/streaming#with-bot-wa-ai).
+[Streaming replies](/guide/streaming#with-botmesh-ai).
 
 ## Formatting per channel
 
@@ -372,7 +372,7 @@ are exported for your own handlers.
 ## Voice notes
 
 The autoresponder answers text messages only. With the experimental
-[`@bot-wa/voice`](/guide/voice) plugin, voice notes are transcribed before
+[`@botmesh/voice`](/guide/voice) plugin, voice notes are transcribed before
 routing (use `autoTranscribe: { asText: true }` so the AI answers them) and
 `autoReplyWithVoice` can send the answer back as audio.
 
@@ -396,7 +396,7 @@ no network calls — use it to test your own logic around `AIClient` without
 hitting a real provider:
 
 ```ts
-import { AIClient, ContextManager, MockAIProvider, type ConvStore, type AIMessage } from '@bot-wa/ai'
+import { AIClient, ContextManager, MockAIProvider, type ConvStore, type AIMessage } from '@botmesh/ai'
 
 const memory = new Map<string, AIMessage[]>()
 const store: ConvStore = {

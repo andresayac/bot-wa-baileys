@@ -32,7 +32,7 @@ import {
   type OutboundContent,
   type SendOptions,
   type SendResult,
-} from '@bot-wa/core'
+} from '@botmesh/core'
 import type { MaybePromise } from './identity.js'
 
 /** Graph error code for "re-engagement message" (outside the 24 h window). */

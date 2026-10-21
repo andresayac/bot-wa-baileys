@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { Bot, VOICE_NOTE, flow, type MessageContext } from '@bot-wa/core'
-import { createTestBot, MockProvider } from '@bot-wa/core/testing'
+import { Bot, VOICE_NOTE, flow, type MessageContext } from '@botmesh/core'
+import { createTestBot, MockProvider } from '@botmesh/core/testing'
 import { voicePlugin, VoiceClient, VoiceConfigError, type SttAdapter, type TtsAdapter } from '../src/index.js'
 import { makeOgg, recordingLogger, waitFor } from './helpers.js'
 

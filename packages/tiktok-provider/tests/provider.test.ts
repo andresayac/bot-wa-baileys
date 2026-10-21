@@ -8,7 +8,7 @@ import {
   RecipientUnreachableError,
   UnsupportedContentError,
   type InboundEvent,
-} from '@bot-wa/core'
+} from '@botmesh/core'
 import pino from 'pino'
 import { TikTokProvider } from '../src/TikTokProvider.js'
 import { TikTokApiError } from '../src/errors.js'

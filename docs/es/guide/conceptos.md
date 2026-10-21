@@ -137,17 +137,17 @@ bot.onImage(async (ctx) => {
 ### 1. Bot + Provider — el centro
 
 ```ts
-import { Bot } from '@bot-wa/core'
-import { BaileysProvider } from '@bot-wa/baileys'
+import { Bot } from '@botmesh/core'
+import { BaileysProvider } from '@botmesh/baileys'
 
 const bot = new Bot({ provider: new BaileysProvider({ session: 'my-bot' }) })
 await bot.start()
 ```
 
-El `Bot` (de `@bot-wa/core`) es el motor agnóstico de transporte: ejecuta
+El `Bot` (de `@botmesh/core`) es el motor agnóstico de transporte: ejecuta
 el Dispatcher, los hooks, los flujos, las conversaciones y el scheduler.
-El **provider** es la frontera del transporte — `@bot-wa/baileys` se
-conecta a WhatsApp; `@bot-wa/meta` (Cloud API oficial), `@bot-wa/telegram`
+El **provider** es la frontera del transporte — `@botmesh/baileys` se
+conecta a WhatsApp; `@botmesh/meta` (Cloud API oficial), `@botmesh/telegram`
 y los transportes experimentales de Messenger, Instagram y Discord se
 enchufan al mismo motor. Todos los transportes
 alimentan al bot con los mismos eventos normalizados.
@@ -286,7 +286,7 @@ re-entrega posterior es cosa del dedupe.
 Los providers deben dar a cada evento entrante un id que nombre exactamente
 un evento lógico, que no cambie cuando se re-entrega y que sea `''` cuando
 el transporte no pueda garantizarlo. Es el **contrato de ids de entrada**,
-documentado en `IProvider`. Avanzado: `@bot-wa/core` exporta
+documentado en `IProvider`. Avanzado: `@botmesh/core` exporta
 `InboundDeduper`, `createInboundDeduper`, `inboundDedupeKey` y
 `DEFAULT_DEDUPE_SIZE`.
 

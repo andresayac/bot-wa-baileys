@@ -1,5 +1,5 @@
 /**
- * Shared conformance suite for `@bot-wa/crm`'s `ContactStore`: tenant isolation, full
+ * Shared conformance suite for `@botmesh/crm`'s `ContactStore`: tenant isolation, full
  * replacement and tag normalization, strict segment matching, bounded listings, copies
  * and consent updates that never lose a concurrent writer.
  * `MemoryContactStore` is the reference; `KvContactStore` must behave identically on

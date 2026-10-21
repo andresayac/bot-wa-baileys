@@ -1,11 +1,11 @@
 # Esquema JSON de flujos
 
-`@bot-wa/flow-schema` (privado, solo en el monorepo) define **documentos de flujo versionados y sin código**: JSON que el manager guarda y reemplaza en caliente, que el gate de despliegues valida y que compila a un `CompiledFlow` del core.
+`@botmesh/flow-schema` (privado, solo en el monorepo) define **documentos de flujo versionados y sin código**: JSON que el manager guarda y reemplaza en caliente, que el gate de despliegues valida y que compila a un `CompiledFlow` del core.
 
 Un documento es **solo datos**. Nunca lleva funciones, `eval`, imports ni expresiones arbitrarias: el único cálculo es un lenguaje de expresiones seguro y plantillas `{{ path }}`.
 
 ```ts
-import { compileFlowDocument, validateFlowDocument } from '@bot-wa/flow-schema'
+import { compileFlowDocument, validateFlowDocument } from '@botmesh/flow-schema'
 
 const document = {
   version: 1 as const,
@@ -48,7 +48,7 @@ if (validateFlowDocument(document).length === 0) bot.registerFlow(compileFlowDoc
 | `form` | Formulario nativo (o pregunta a pregunta) con campos tipados; ver [Formularios](./formularios.md). |
 | `guard` | Expresión `if`; si es falsa envía `message` y termina, o `message` + `redirect` a otro flujo. |
 | `subflow` | Ejecuta otro documento en línea (mismo estado), resuelto con `resolveSubflow`. |
-| `http` | Petición HTTP declarativa a través de `@bot-wa/http` (anti-SSRF, redirecciones, timeout y límites de tamaño). Guarda el cuerpo JSON/texto en `stateKey`. |
+| `http` | Petición HTTP declarativa a través de `@botmesh/http` (anti-SSRF, redirecciones, timeout y límites de tamaño). Guarda el cuerpo JSON/texto en `stateKey`. |
 | `handoff` | Pasa el chat a una persona (`ctx.handoff`), con mensaje opcional. |
 | `ai` | Un turno de IA con `ctx.tools.ai.replyInChat`, opcionalmente restringido a ids de herramientas (`tools: ['lookup']`); guarda la respuesta en `stateKey`. |
 
@@ -89,7 +89,7 @@ Los pasos del subflujo corren en línea (mismo `c.state`, sin un segundo trigger
 ## Migraciones
 
 ```ts
-import { migrateFlowDocument } from '@bot-wa/flow-schema'
+import { migrateFlowDocument } from '@botmesh/flow-schema'
 
 const { document, from, applied } = migrateFlowDocument(storedDraft)
 ```
@@ -99,7 +99,7 @@ La versión 0 (sin `version`, la forma anterior a la versionada) pasa a la 1. Un
 ## Exportación inversa
 
 ```ts
-import { exportFlowDocument } from '@bot-wa/flow-schema'
+import { exportFlowDocument } from '@botmesh/flow-schema'
 
 const document = exportFlowDocument(compiledFlow)
 ```
@@ -109,14 +109,14 @@ Los flujos compilados desde un documento hacen round-trip exacto (el JSON origin
 ## Borradores y despliegues
 
 ```ts
-import { diffFlowDocuments, flowDigest, publishFlow } from '@bot-wa/flow-schema'
+import { diffFlowDocuments, flowDigest, publishFlow } from '@botmesh/flow-schema'
 
 const changes = diffFlowDocuments(draft, published)   // metadatos, pasos añadidos/quitados/cambiados con rutas
 const digest = flowDigest(draft)                      // sha256 del JSON canónico, estable ante el orden de claves
 await publishFlow(registry, 'acme', 'support', draft) // gate de DeploymentRegistry + gate run auditado
 ```
 
-`publishFlow()` usa el JSON del documento como artefacto y un `flowDocumentGate()` que parsea, valida y compila el candidato; `options.gate` puede encadenar otro gate (p. ej. transcripciones doradas). El almacenamiento es de `@bot-wa/deployments`; este paquete solo aporta los helpers puros.
+`publishFlow()` usa el JSON del documento como artefacto y un `flowDocumentGate()` que parsea, valida y compila el candidato; `options.gate` puede encadenar otro gate (p. ej. transcripciones doradas). El almacenamiento es de `@botmesh/deployments`; este paquete solo aporta los helpers puros.
 
 ## REST del manager
 

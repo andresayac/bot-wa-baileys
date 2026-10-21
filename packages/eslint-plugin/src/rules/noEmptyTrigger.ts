@@ -1,5 +1,5 @@
 /**
- * `bot-wa/no-empty-trigger` — an empty trigger (`''`, `'   '`, `[]`, `['']`,
+ * `botmesh/no-empty-trigger` — an empty trigger (`''`, `'   '`, `[]`, `['']`,
  * `{ pattern: '' }`) never matches what you expect: the default match is
  * normalized equality, and an empty `contains` pattern captures every message.
  * Checked in `flow(...)` / `addKeyword(...)`, `bot.when(...)` and the

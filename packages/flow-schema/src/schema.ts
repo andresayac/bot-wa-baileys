@@ -15,7 +15,7 @@ import { parseExpression, ExpressionError } from './expression.js'
 export const FLOW_DOCUMENT_VERSION = 1 as const
 
 /** Stable `$id` of the v1 schema. */
-export const FLOW_DOCUMENT_SCHEMA_ID = 'https://bot-wa.dev/schemas/flow-document/v1.json'
+export const FLOW_DOCUMENT_SCHEMA_ID = 'https://botmesh.dev/schemas/flow-document/v1.json'
 
 /** Structural limits of a flow document (also enforced by the validator). */
 export const FLOW_DOCUMENT_LIMITS = Object.freeze({
@@ -153,8 +153,8 @@ const options = {
 export const FLOW_DOCUMENT_SCHEMA = Object.freeze({
   $schema: 'https://json-schema.org/draft/2020-12/schema',
   $id: FLOW_DOCUMENT_SCHEMA_ID,
-  title: 'bot-wa flow document',
-  description: 'Declarative conversation flow compiled to a @bot-wa/core CompiledFlow. Data only: no code.',
+  title: 'botmesh flow document',
+  description: 'Declarative conversation flow compiled to a @botmesh/core CompiledFlow. Data only: no code.',
   type: 'object',
   required: ['version', 'id', 'trigger', 'steps'],
   additionalProperties: false,

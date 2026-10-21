@@ -1,13 +1,13 @@
 /**
- * @bot-wa/wppconnect — config + wppconnect-server wire types (the subset used).
+ * @botmesh/wppconnect — config + wppconnect-server wire types (the subset used).
  *
  * WPPConnect relays WA-JS objects, whose ids are either serialized strings
  * (`false_573001112233@c.us_3EB0…`) or `{ _serialized, … }` objects depending
  * on the event, so every id field is typed loosely.
  */
 
-import type { IdentityPersistence, RestHttpOptions } from '@bot-wa/wa-gateway-kit'
-import type { LoggerLike } from '@bot-wa/core'
+import type { IdentityPersistence, RestHttpOptions } from '@botmesh/wa-gateway-kit'
+import type { LoggerLike } from '@botmesh/core'
 
 export interface WPPConnectProviderConfig {
   /** wppconnect-server base URL. Default `http://localhost:21465`. */

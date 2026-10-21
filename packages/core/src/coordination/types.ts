@@ -15,7 +15,7 @@
  *
  * Keys are opaque strings (the conversation runtime's `keyFor`): the coordinator never
  * parses them. Backends live outside the core: {@link MemoryCoordinator} (one process,
- * reference implementation) here, `RedisCoordinator` in `@bot-wa/redis-store`.
+ * reference implementation) here, `RedisCoordinator` in `@botmesh/redis-store`.
  */
 import type { CheckpointTrace } from '../telemetry/w3c.js'
 

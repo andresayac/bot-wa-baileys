@@ -9,7 +9,7 @@
  * interpreter.
  *
  * Nothing here executes document code: expressions are parsed by the safe evaluator,
- * templates only read own properties, HTTP goes through `@bot-wa/http` (anti-SSRF,
+ * templates only read own properties, HTTP goes through `@botmesh/http` (anti-SSRF,
  * redirects, timeouts and size limits) and forms go through the core's form runner.
  */
 
@@ -30,9 +30,9 @@ import {
   type RuntimeMessage,
   type Trigger,
   type WaitOptions,
-} from '@bot-wa/core'
-import { runFormStep } from '@bot-wa/core/internal'
-import { secureFetch, type SecureFetchOptions, type SecureFetchResponse } from '@bot-wa/http'
+} from '@botmesh/core'
+import { runFormStep } from '@botmesh/core/internal'
+import { secureFetch, type SecureFetchOptions, type SecureFetchResponse } from '@botmesh/http'
 import { evaluateCondition, hasTemplate, parseExpression, renderTemplate, type ExpressionNode } from './expression.js'
 import {
   FLOW_DOCUMENT_LIMITS,
@@ -47,15 +47,15 @@ import {
 } from './schema.js'
 
 /** A ready-built compiled flow, and where it came from (the JSON step is kept as metadata). */
-export const FLOW_STEP_SOURCE = Symbol.for('bot-wa.flow.step-source')
+export const FLOW_STEP_SOURCE = Symbol.for('botmesh.flow.step-source')
 /** The whole JSON document a compiled flow came from (top-level metadata included). */
-export const FLOW_DOCUMENT_SOURCE = Symbol.for('bot-wa.flow.document-source')
+export const FLOW_DOCUMENT_SOURCE = Symbol.for('botmesh.flow.document-source')
 
 /** Options of {@link compileFlowDocument}. */
 export interface CompileFlowOptions {
   /** Resolve a `subflow` step's document by id (required only when one is used). */
   resolveSubflow?: (flowId: string) => FlowDocument | undefined
-  /** HTTP implementation of `http` steps (tests). Default `secureFetch` from `@bot-wa/http`. */
+  /** HTTP implementation of `http` steps (tests). Default `secureFetch` from `@botmesh/http`. */
   fetch?: (url: string, options: SecureFetchOptions) => Promise<SecureFetchResponse>
   /** Bounds of `http` steps: default 10 s and 64 KiB of response. */
   http?: { timeoutMs?: number; maxBytes?: number; allowHttp?: boolean }

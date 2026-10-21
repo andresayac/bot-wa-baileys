@@ -19,8 +19,8 @@ import {
   UnsupportedContentError,
   type OutboundContent,
   type StoredMessage,
-} from '@bot-wa/core'
-import { assertSafeTarget, type HostResolver } from '@bot-wa/http'
+} from '@botmesh/core'
+import { assertSafeTarget, type HostResolver } from '@botmesh/http'
 import type { BotManager, BotStatus } from '../BotManager.js'
 import { CapabilityError, capability, requireCapability } from '../capabilities.js'
 import { ManagerError } from '../errors.js'
@@ -69,7 +69,7 @@ export interface RestApiOptions {
    * (Baileys) download `{ url }` media themselves, so an internal URL would let
    * an API client make the bot fetch from your private network (SSRF). This
    * check only sees the first host: redirects are vetted by the transport
-   * (`@bot-wa/baileys` downloads through `@bot-wa/http`).
+   * (`@botmesh/baileys` downloads through `@botmesh/http`).
    */
   allowPrivateMediaHosts?: boolean
   /** DNS resolver used to vet media hosts (tests, egress gateways). Default: the system resolver. */
@@ -108,7 +108,7 @@ const MESSAGE_PAGE_MAX = 200
  * @example
  * ```ts
  * import { createServer } from 'node:http'
- * import { BotManager, createRestApi } from '@bot-wa/manager'
+ * import { BotManager, createRestApi } from '@botmesh/manager'
  *
  * const manager = new BotManager({ factory, persistence: { dir: './data/bots' }, autoReconnect: true })
  * await manager.restore()

@@ -3,7 +3,7 @@
  *  (a) the cluster fake (CROSSSLOT rules, no KEYS/SCAN), layout picked automatically;
  *  (b) the single-node fake with `layout: 'cluster'` (the in-place migration setting).
  */
-import { legacyMessageKey, type StoredMessage } from '@bot-wa/core'
+import { legacyMessageKey, type StoredMessage } from '@botmesh/core'
 import { RedisDurability, RedisDurableKv, RedisStore, type RedisLikeClient } from '../src/index.js'
 import { storeKeys } from '../src/layout.js'
 import { ClusterFakeRedisClient, ScanningLayoutFakeRedisClient } from './fakeClusterRedis.js'
@@ -13,8 +13,8 @@ import { runScheduleStoreConformance } from '../../../test-utils/schedule-store-
 import { runLeaseConformance } from '../../../test-utils/lease-conformance.js'
 import { runDurabilityConformance, runDurableKvConformance } from '../../../test-utils/durability-conformance.js'
 import { runCrashRecoveryMatrix, type CrashMatrixDeps } from '../../../test-utils/durability-crash.js'
-import { Bot, MemoryStore, flow } from '@bot-wa/core'
-import { CrashableProvider, MockProvider, crashable } from '@bot-wa/core/testing'
+import { Bot, MemoryStore, flow } from '@botmesh/core'
+import { CrashableProvider, MockProvider, crashable } from '@botmesh/core/testing'
 
 /** A message row as an older version wrote it, after a migration into the cluster layout. */
 function clusterLegacySeeder(client: RedisLikeClient, prefix = 'botwa') {

@@ -10,7 +10,7 @@
  * throw {@link UnsupportedContentError}.
  */
 
-import { UnsupportedContentError, type Button, type OutboundContent } from '@bot-wa/core'
+import { UnsupportedContentError, type Button, type OutboundContent } from '@botmesh/core'
 
 /**
  * Send API limits: button titles 20 chars, generic-template titles/subtitles 80,

@@ -7,7 +7,7 @@
  * referral/opt-in of the same user as a "duplicate".
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { Bot } from '@bot-wa/core'
+import { Bot } from '@botmesh/core'
 import { MessengerProvider } from '../src/MessengerProvider.js'
 import { parseInbound, type MessagingEvent, type PageWebhookBody } from '../src/parseInbound.js'
 

@@ -1,6 +1,6 @@
 /**
- * `bot-wa/no-v1-api` — flags the v1 / builderbot idioms that do not exist in
- * the @bot-wa v2 API: `.addAnswer()`, `.addAction()`, `{ capture: true }`,
+ * `botmesh/no-v1-api` — flags the v1 / builderbot idioms that do not exist in
+ * the @botmesh v2 API: `.addAnswer()`, `.addAction()`, `{ capture: true }`,
  * `flowDynamic()`, `gotoFlow()` and `endFlow()`.
  */
 
@@ -22,12 +22,12 @@ export const noV1Api: Rule.RuleModule = {
   meta: {
     type: 'problem',
     docs: {
-      description: 'Disallow v1 / builderbot API calls that do not exist in the @bot-wa v2 API',
+      description: 'Disallow v1 / builderbot API calls that do not exist in the @botmesh v2 API',
       recommended: true,
     },
     schema: [],
     messages: {
-      call: '`{{name}}` is v1 API and does not exist in @bot-wa v2. Use {{replacement}}.',
+      call: '`{{name}}` is v1 API and does not exist in @botmesh v2. Use {{replacement}}.',
       capture: '`capture: true` is v1 API. Use `.ask(text, \'stateKey\')` in a flow or `await c.ask(text)` in a conversation.',
     },
   },

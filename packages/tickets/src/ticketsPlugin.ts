@@ -3,7 +3,7 @@
  *
  * @example
  * ```ts
- * import { ticketsPlugin } from '@bot-wa/tickets'
+ * import { ticketsPlugin } from '@botmesh/tickets'
  *
  * bot.plug(ticketsPlugin({
  *   workingHours: { days: [1, 2, 3, 4, 5], start: '09:00', end: '18:00' },
@@ -22,7 +22,7 @@
  * ```
  */
 
-import type { ChatId, PluginSpec } from '@bot-wa/core'
+import type { ChatId, PluginSpec } from '@botmesh/core'
 import { TicketDesk, type TicketDeskOptions } from './TicketDesk.js'
 import { memoryTicketStorage, storeTicketStorage } from './storage.js'
 import type { CreatedTicket, Ticket, TicketKeyValue } from './types.js'

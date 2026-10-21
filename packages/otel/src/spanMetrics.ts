@@ -6,7 +6,7 @@
  * Only low-cardinality attributes are copied (kinds, stages, outcomes, provider and
  * model names). Chat, user and message ids never reach a metric.
  */
-import { SPAN_NAMES, TRACE_ATTR, type TraceAttributeValue } from '@bot-wa/core'
+import { SPAN_NAMES, TRACE_ATTR, type TraceAttributeValue } from '@botmesh/core'
 import type { Attributes, Histogram, MeterProvider } from '@opentelemetry/api'
 
 /** Span attributes {@link SpanMetrics} reads (everything else is ignored). */

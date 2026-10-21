@@ -148,7 +148,7 @@ describe('dev simulator · reload hooks (propagateVersion)', () => {
   })
 
   it('leaves packages, node_modules, non-file URLs and unversioned parents alone', () => {
-    expect(propagateVersion('@bot-wa/core', 'file:///proj/packages/core/lib/index.js', parent)).toBe('file:///proj/packages/core/lib/index.js')
+    expect(propagateVersion('@botmesh/core', 'file:///proj/packages/core/lib/index.js', parent)).toBe('file:///proj/packages/core/lib/index.js')
     expect(propagateVersion('./x.js', 'file:///proj/node_modules/x/x.js', parent)).toBe('file:///proj/node_modules/x/x.js')
     expect(propagateVersion('node:fs', 'node:fs', parent)).toBe('node:fs')
     expect(propagateVersion('./x.js', 'file:///proj/src/x.js', 'file:///proj/src/bot.js')).toBe('file:///proj/src/x.js')

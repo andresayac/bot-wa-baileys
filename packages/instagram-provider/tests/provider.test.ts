@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { createHmac } from 'node:crypto'
 import { createServer } from 'node:http'
-import { RateLimitedError, UnsupportedContentError } from '@bot-wa/core'
+import { RateLimitedError, UnsupportedContentError } from '@botmesh/core'
 import { InstagramProvider } from '../src/InstagramProvider.js'
 
 interface Call { url: string; init?: RequestInit }

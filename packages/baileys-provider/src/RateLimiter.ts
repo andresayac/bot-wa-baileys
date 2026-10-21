@@ -25,7 +25,7 @@
  * ```
  */
 
-import { parseDuration, ProviderError, RateLimitedError } from '@bot-wa/core'
+import { parseDuration, ProviderError, RateLimitedError } from '@botmesh/core'
 
 export interface RateLimitBucketConfig {
   /** Maximum tokens (messages) allowed in the window. */

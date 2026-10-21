@@ -1,8 +1,8 @@
-# @bot-wa/tiktok
+# @botmesh/tiktok
 
 > **Experimental, aún no publicado en npm.** El paquete es `private`: no forma parte de la primera alpha y su API puede cambiar. Úsalo desde este monorepo (`workspace:*`).
 
-Transporte **TikTok** para [`@bot-wa/core`](../core) sobre la **TikTok API for Business oficial (v1.3)**. Funciona por webhooks (`pushIngress`) y no abre ningún socket. Cubre dos superficies:
+Transporte **TikTok** para [`@botmesh/core`](../core) sobre la **TikTok API for Business oficial (v1.3)**. Funciona por webhooks (`pushIngress`) y no abre ningún socket. Cubre dos superficies:
 
 | Superficie | Entrada (webhook) | Respuesta | Requisitos |
 |---|---|---|---|
@@ -10,13 +10,13 @@ Transporte **TikTok** para [`@bot-wa/core`](../core) sobre la **TikTok API for B
 | **Mensajes directos** (Business Messaging API) | `im_receive_msg` (suscripción `event_type: DIRECT_MESSAGE`) | `POST /business/message/send/` | Acceso aprobado a Business Messaging, cuenta con Advanced Access o Verified Business, dueño de la cuenta mayor de 18 años |
 | **Comentarios de alta intención** (Comment-to-Message) | `im_receive_high_intent_comment` | `/business/message/send/` con `direct_reply` | Solo cuentas registradas en Vietnam, Indonesia o Tailandia |
 
-Cada POST del webhook se valida con **`TikTok-Signature`** (HMAC-SHA256 de `${t}.${bodyCrudo}` con el app secret y una ventana anti-replay). Toda petición saliente pasa por `secureFetch` de [`@bot-wa/http`](../http), que exige HTTPS, bloquea hosts privados y aplica timeouts y límites de tamaño.
+Cada POST del webhook se valida con **`TikTok-Signature`** (HMAC-SHA256 de `${t}.${bodyCrudo}` con el app secret y una ventana anti-replay). Toda petición saliente pasa por `secureFetch` de [`@botmesh/http`](../http), que exige HTTPS, bloquea hosts privados y aplica timeouts y límites de tamaño.
 
 ## Uso
 
 ```ts
-import { Bot } from '@bot-wa/core'
-import { TikTokProvider } from '@bot-wa/tiktok'
+import { Bot } from '@botmesh/core'
+import { TikTokProvider } from '@botmesh/tiktok'
 import express from 'express'
 
 const provider = new TikTokProvider({

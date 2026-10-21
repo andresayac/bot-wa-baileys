@@ -1,13 +1,13 @@
-# @bot-wa/tickets
+# @botmesh/tickets
 
 > **Experimental — aún no publicado en npm.** Paquete `private` del monorepo: úsalo con `workspace:*`; su API puede cambiar.
 
-Tickets de soporte y colas para [`@bot-wa/core`](../core): `ctx.tools.tickets` con estados, prioridades, posición en cola, horario de atención, callbacks (`onAssign`, …) y persistencia en el store del bot.
+Tickets de soporte y colas para [`@botmesh/core`](../core): `ctx.tools.tickets` con estados, prioridades, posición en cola, horario de atención, callbacks (`onAssign`, …) y persistencia en el store del bot.
 
 ## Uso
 
 ```ts
-import { ticketsPlugin } from '@bot-wa/tickets'
+import { ticketsPlugin } from '@botmesh/tickets'
 
 bot.plug(ticketsPlugin({
   workingHours: { days: [1, 2, 3, 4, 5], start: '09:00', end: '18:00' },

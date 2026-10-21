@@ -1,5 +1,5 @@
 /**
- * User-facing default texts of `@bot-wa/ai`, resolved through the core i18n
+ * User-facing default texts of `@botmesh/ai`, resolved through the core i18n
  * catalog (`ctx.t`) so they follow `ctx.lang`. The plugin does not register
  * them with `bot.locale()` (that would switch language resolution on for every
  * bot); instead a key the bot's catalog does not translate falls back to the
@@ -13,7 +13,7 @@
  * ```
  */
 
-import type { LocaleMessages, TranslateParams } from '@bot-wa/core'
+import type { LocaleMessages, TranslateParams } from '@botmesh/core'
 
 /** Keys of the built-in AI messages (override them under `ai.` in `bot.locale()`). */
 export const AI_MESSAGES = {

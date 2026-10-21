@@ -14,9 +14,9 @@
  *
  * @example
  * ```ts
- * import { Bot } from '@bot-wa/core'
- * import { BaileysProvider } from '@bot-wa/baileys'
- * import { MysqlStore } from '@bot-wa/mysql-store'
+ * import { Bot } from '@botmesh/core'
+ * import { BaileysProvider } from '@botmesh/baileys'
+ * import { MysqlStore } from '@botmesh/mysql-store'
  *
  * const store = new MysqlStore({ uri: 'mysql://user:pass@localhost:3306/botwa' })
  * const bot = new Bot({
@@ -39,8 +39,8 @@ import type {
   StoredMessage,
   UserDataEntry,
   UserId,
-} from '@bot-wa/core'
-import { legacyMessageKey, messageKey } from '@bot-wa/core'
+} from '@botmesh/core'
+import { legacyMessageKey, messageKey } from '@botmesh/core'
 import { MysqlUserData } from './userData.js'
 import { toJson } from './json.js'
 import { MysqlScheduleStore } from './schedules.js'
@@ -648,7 +648,7 @@ export class MysqlStore implements IStore {
       { columns: legacy.map((r) => `${r.table}.${r.column}`) },
       `MysqlStore: tables created by an earlier version use non-binary key columns: ${columns}. ` +
         'Ids then compare case- and accent-insensitively and are capped at 255 characters, and the messages index is missing. ' +
-        'Upgrade them with the ALTER TABLE statements in the @bot-wa/mysql-store README ("Upgrading tables created by an earlier version").',
+        'Upgrade them with the ALTER TABLE statements in the @botmesh/mysql-store README ("Upgrading tables created by an earlier version").',
     )
   }
 }

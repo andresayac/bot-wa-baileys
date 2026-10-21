@@ -1,19 +1,19 @@
 /**
- * DevSession — the I/O-free engine behind `bot-wa dev`.
+ * DevSession — the I/O-free engine behind `botmesh dev`.
  *
  * It owns the simulated identity (who is typing, in which chat), builds your bot
  * from its factory around a {@link DevProvider}, prints what the bot sends, runs
  * the `:commands`, and hot-swaps the bot on reload. Everything it prints goes
  * through the injected `write`, and your module is obtained through the injected
  * `load`, so it runs (and is tested) without a TTY, a filesystem watcher or
- * real module loading. The `bot-wa` CLI wires it to readline + `fs.watch`.
+ * real module loading. The `botmesh` CLI wires it to readline + `fs.watch`.
  *
  * All operations (lines, reloads, resets) are serialised in one queue, so a
  * reload never interleaves with a half-processed command.
  *
  * @example
  * ```ts
- * import { DevSession } from '@bot-wa/core/dev'
+ * import { DevSession } from '@botmesh/core/dev'
  *
  * const session = new DevSession({
  *   load: () => import('./bot.js'),
@@ -89,7 +89,7 @@ export interface DevSessionOptions {
   /**
    * Called once when the session stops itself for safety (see
    * {@link DevHaltReason}). After that it never calls the factory again; the
-   * caller should shut down (the `bot-wa` CLI exits with code 1).
+   * caller should shut down (the `botmesh` CLI exits with code 1).
    */
   onHalt?: (reason: DevHaltReason) => void
 }
@@ -342,7 +342,7 @@ export class DevSession {
     if (!isBotFactory(factory) && !this.warnedUnbranded) {
       this.warnedUnbranded = true
       this.warn(
-        'the default export is not wrapped in defineBot(), so bot-wa dev cannot tell it is a bot factory; ' +
+        'the default export is not wrapped in defineBot(), so botmesh dev cannot tell it is a bot factory; ' +
           'it calls it with the simulator provider anyway. Wrap it: export default defineBot((provider) => { ... })',
       )
     }
@@ -397,7 +397,7 @@ export class DevSession {
       // open another live connection on the same session.
       await closeForeignBot(bot, own)
       this.printError('refusing to start your bot', new DevEntryError(
-        'It was built with its own provider instead of the one bot-wa dev passed to the factory, so it could ' +
+        'It was built with its own provider instead of the one botmesh dev passed to the factory, so it could ' +
           'connect to a real transport; it has been stopped. Build it with the given provider: ' +
           'defineBot((provider) => new Bot({ provider })), and start the real one only in your isMainModule(import.meta) block.',
       ))
@@ -601,7 +601,7 @@ export class DevSession {
     }
   }
 
-  /** `Bot.isBusy()` of the running bot; `false` when absent (e.g. a bot built by an older `@bot-wa/core`). */
+  /** `Bot.isBusy()` of the running bot; `false` when absent (e.g. a bot built by an older `@botmesh/core`). */
   private botBusy(): boolean {
     const bot = this.live?.bot
     return typeof bot?.isBusy === 'function' ? bot.isBusy() : false
@@ -617,7 +617,7 @@ export class DevSession {
   /** True (after explaining why) when a halted session is asked to build the bot again. */
   private refuseWhenHalted(): boolean {
     if (!this.haltReason) return false
-    this.problem('the simulator stopped because your bot factory builds its own provider — fix it and run bot-wa dev again')
+    this.problem('the simulator stopped because your bot factory builds its own provider — fix it and run botmesh dev again')
     return true
   }
 

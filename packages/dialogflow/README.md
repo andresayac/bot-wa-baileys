@@ -1,16 +1,16 @@
-# @bot-wa/dialogflow
+# @botmesh/dialogflow
 
 > **Experimental — aún no publicado en npm.** Implementación real y probada, pero el paquete es `private`: no forma parte de la primera alpha y su API puede cambiar. Úsalo desde este monorepo (`workspace:*`).
 
-Contexto de NLU con **Dialogflow ES y CX** para [`@bot-wa/core`](../core). Cada mensaje de texto pasa por `detectIntent` (API REST) y la intención detectada rutea a un handler o a un flow; los parámetros de Dialogflow llegan a `c.state`.
+Contexto de NLU con **Dialogflow ES y CX** para [`@botmesh/core`](../core). Cada mensaje de texto pasa por `detectIntent` (API REST) y la intención detectada rutea a un handler o a un flow; los parámetros de Dialogflow llegan a `c.state`.
 
-Sin SDK de Google: la autenticación es un JWT de cuenta de servicio firmado con `node:crypto` (RS256) que se canjea por un access token, y todas las peticiones salen por `secureFetch` de [`@bot-wa/http`](../http).
+Sin SDK de Google: la autenticación es un JWT de cuenta de servicio firmado con `node:crypto` (RS256) que se canjea por un access token, y todas las peticiones salen por `secureFetch` de [`@botmesh/http`](../http).
 
 ## Uso
 
 ```ts
-import { Bot, flow } from '@bot-wa/core'
-import { dialogflowContext, whenDialogflowIntent } from '@bot-wa/dialogflow'
+import { Bot, flow } from '@botmesh/core'
+import { dialogflowContext, whenDialogflowIntent } from '@botmesh/dialogflow'
 
 const bot = new Bot({ provider })
 

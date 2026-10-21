@@ -1,7 +1,7 @@
-# Roadmap de Features — bot-wa-baileys
+# Roadmap de Features — botmesh
 
 > Generado: 2026-07-23
-> Análisis exhaustivo de: `packages/*` (nuestro), `terceros/bot-wa-games` (proyecto real), `terceros/builderbot` (librería competidora completa)
+> Análisis exhaustivo de: `packages/*` (nuestro), `terceros/botmesh-games` (proyecto real), `terceros/builderbot` (librería competidora completa)
 > Meta: ser la mejor librería del mundo para construir bots
 
 ---
@@ -10,7 +10,7 @@
 
 Cada feature tiene:
 - **Por qué pertenece a la librería** (no se hace con un `fetch()` en un handler)
-- **Evidencia** (de nuestro código, de bot-wa-games, o de builderbot)
+- **Evidencia** (de nuestro código, de botmesh-games, o de builderbot)
 - **API propuesta**
 - **Requiere** (qué tocar internamente)
 
@@ -22,14 +22,14 @@ Cada feature tiene:
 
 ### 1. `ctx.user` — Perfiles persistentes con namespaces + TTL
 
-> **Estado: implementado** (`@bot-wa/core`, 2026-10). `ctx.user.get/set/update/delete/all/clear` con paths con puntos, `ctx.user.ns(name)` y `{ ttl }`; `bot.user(id)`, `userOf(ctx)`, `bot.purgeExpiredUserData()`; soportado por los 6 stores (métodos opcionales de `IStore` + `test-utils/user-data-conformance.ts`). Guía: `docs/guide/user-data.md`.
+> **Estado: implementado** (`@botmesh/core`, 2026-10). `ctx.user.get/set/update/delete/all/clear` con paths con puntos, `ctx.user.ns(name)` y `{ ttl }`; `bot.user(id)`, `userOf(ctx)`, `bot.purgeExpiredUserData()`; soportado por los 6 stores (métodos opcionales de `IStore` + `test-utils/user-data-conformance.ts`). Guía: `docs/guide/user-data.md`.
 
 Estado persistente por usuario que sobrevive entre conversaciones. Con namespaces para evitar colisiones entre plugins y TTL para auto-cleanup.
 
 **Por qué pertenece:** Requiere extensión del `IStore` (5 implementaciones) + inyección en `MessageContext`. Un usuario no puede hacerlo limpio sin tocar internals.
 
 **Evidencia:**
-- `bot-wa-games`: `globalState.update(ctx.from, { AkinatorLanguage: 'es', HangmanDifficulty: 'facil' })` — singleton con `fs.writeFileSync` en cada update, sin concurrencia, sin cleanup, prefijos manuales (`AkinatorLanguage`, `HangmanDifficulty`).
+- `botmesh-games`: `globalState.update(ctx.from, { AkinatorLanguage: 'es', HangmanDifficulty: 'facil' })` — singleton con `fs.writeFileSync` en cada update, sin concurrencia, sin cleanup, prefijos manuales (`AkinatorLanguage`, `HangmanDifficulty`).
 - `builderbot`: `SingleState` (Map por `from`), `GlobalState` (singleton), `state.get('prop.nested')` con dot-notation.
 
 ```ts
@@ -65,14 +65,14 @@ bot.when('hola', async (ctx) => {
 
 ### 2. `c.retry()` / `c.fallBack()` en conversaciones async
 
-> **Estado: implementado** (`@bot-wa/core`, 2026-10) como `c.retry(message?)`: repite la última espera en conversaciones async y rebobina el flujo en `.do()`; cuenta para `retries`. No hay alias `fallBack`. Guía: `docs/guide/flows.md`.
+> **Estado: implementado** (`@botmesh/core`, 2026-10) como `c.retry(message?)`: repite la última espera en conversaciones async y rebobina el flujo en `.do()`; cuenta para `retries`. No hay alias `fallBack`. Guía: `docs/guide/flows.md`.
 
 Reintentar la misma espera sin armar un loop manual.
 
 **Por qué pertenece:** Es parte del runtime de conversaciones. `loopWait` ya tiene `retries` pero no hay forma de reintentar manualmente mid-conversation.
 
 **Evidencia:**
-- `bot-wa-games`: `await fallBack()` aparece **15+ veces** en todos los juegos (akinator, hangman, tic-tac-toe).
+- `botmesh-games`: `await fallBack()` aparece **15+ veces** en todos los juegos (akinator, hangman, tic-tac-toe).
 - `builderbot`: `fallBack(message?)` es API pública central.
 
 ```ts
@@ -107,19 +107,19 @@ bot.conversation('juego', async (c, ctx) => {
 
 ### 3. Trigger `WELCOME` — primera interacción
 
-> **Estado: implementado** (`@bot-wa/core`, 2026-10): `WELCOME`, `MEDIA`, `IMAGE`, `VIDEO`, `AUDIO`, `VOICE_NOTE`, `DOCUMENT`, `STICKER`, `LOCATION`, `CONTACT`, `POLL`, `CALL`, `typeTrigger()` y `bot.resetWelcome()`. Guía: `docs/guide/triggers.md`.
+> **Estado: implementado** (`@botmesh/core`, 2026-10): `WELCOME`, `MEDIA`, `IMAGE`, `VIDEO`, `AUDIO`, `VOICE_NOTE`, `DOCUMENT`, `STICKER`, `LOCATION`, `CONTACT`, `POLL`, `CALL`, `typeTrigger()` y `bot.resetWelcome()`. Guía: `docs/guide/triggers.md`.
 
 Trigger especial que dispara solo la primera vez que un usuario escribe al bot (o después de un `/reset`).
 
 **Por qué pertenece:** Requiere consultar el store antes de matchear. No se puede hacer con un flag manual sin race conditions.
 
 **Evidencia:**
-- `bot-wa-games`: `addKeyword(EVENTS.WELCOME)` es el entry point de TODO el bot.
+- `botmesh-games`: `addKeyword(EVENTS.WELCOME)` es el entry point de TODO el bot.
 - `builderbot`: `EVENTS.WELCOME` — evento nativo, genera un ref único, el core lo detecta.
 
 ```ts
 // API propuesta
-import { WELCOME } from '@bot-wa/core'
+import { WELCOME } from '@botmesh/core'
 
 bot.when(WELCOME, async (ctx) => {
   await ctx.reply('🙌 Bienvenido! Escribe "juegos" para ver el menú')
@@ -142,14 +142,14 @@ bot.when(CALL, (ctx) => ctx.reply('Te llamaron!'))
 
 ### 4. Composición de flows — `.use(subFlow)` + flows hijos
 
-> **Estado: implementado** (`@bot-wa/core`, 2026-10): `.use(subFlow)` ejecuta un flujo en línea y vuelve al padre con el estado mezclado; las opciones de `choose()` aceptan `then: subFlow | fn` y `goto` para salir a otra conversación (p. ej. el menú principal). `c.retry()` tras un `.use()` vuelve a ejecutar el sub-flujo. Guía: `docs/guide/flows.md`.
+> **Estado: implementado** (`@botmesh/core`, 2026-10): `.use(subFlow)` ejecuta un flujo en línea y vuelve al padre con el estado mezclado; las opciones de `choose()` aceptan `then: subFlow | fn` y `goto` para salir a otra conversación (p. ej. el menú principal). `c.retry()` tras un `.use()` vuelve a ejecutar el sub-flujo. Guía: `docs/guide/flows.md`.
 
 Incluir un flow dentro de otro y volver al padre al terminar. Reemplaza el patrón de hijos + `gotoFlow(padre)`.
 
 **Por qué pertenece:** Requiere modificar el intérprete de flows. No se puede hacer desde afuera sin strings mágicos.
 
 **Evidencia:**
-- `bot-wa-games`: `addKeyword(...).addAnswer(..., handler, [flowGames, flowHelp, flowContact])` — hijos declarados como array, `gotoFlow(flowMain)` para volver.
+- `botmesh-games`: `addKeyword(...).addAnswer(..., handler, [flowGames, flowHelp, flowContact])` — hijos declarados como array, `gotoFlow(flowMain)` para volver.
 - `builderbot`: `options.nested` en `TCTXoptions`, `getFlowsChild()` en `FlowClass`, `gotoFlow(flow, step?)`.
 
 ```ts
@@ -181,7 +181,7 @@ flow('menu-juegos')
 
 ### 5. Human handoff — pausar bot, atiende humano
 
-> **Estado: implementado** (`@bot-wa/core`, 2026-10): `ctx.handoff()`, `bot.handoff/resume/isHandedOff/getHandoff/listHandoffs`, `bot.sendTo()`, eventos `'handoff'`/`'resume'`, `BotConfig.handoff.allowCommands`, persistido en el store. Guía: `docs/guide/handoff.md`.
+> **Estado: implementado** (`@botmesh/core`, 2026-10): `ctx.handoff()`, `bot.handoff/resume/isHandedOff/getHandoff/listHandoffs`, `bot.sendTo()`, eventos `'handoff'`/`'resume'`, `BotConfig.handoff.allowCommands`, persistido en el store. Guía: `docs/guide/handoff.md`.
 
 El dispatcher ignora un chat hasta que se retoma. El agente humano envía mensajes vía API.
 
@@ -221,7 +221,7 @@ bot.on('resume', ({ chatId }) => {
 
 ### 6. Broadcast con rate limiting integrado
 
-> **Estado: implementado** (`@bot-wa/core`, 2026-10): `bot.broadcast(chatIds, content, { batchSize, delayBetween, concurrency, maxRetries, onProgress, onFail, signal })` envía por lotes a través del `send()` del provider (y por tanto de su rate limiter), respeta `RateLimitedError.retryAfterMs` pausando a todos los workers y se cancela con `signal` o `bot.stop()`. Devuelve `{ total, sent, failed, skipped, errors, messages, cancelled, pending }` (`sent`/`failed` son contadores). Guía: `docs/guide/messages.md`.
+> **Estado: implementado** (`@botmesh/core`, 2026-10): `bot.broadcast(chatIds, content, { batchSize, delayBetween, concurrency, maxRetries, onProgress, onFail, signal })` envía por lotes a través del `send()` del provider (y por tanto de su rate limiter), respeta `RateLimitedError.retryAfterMs` pausando a todos los workers y se cancela con `signal` o `bot.stop()`. Devuelve `{ total, sent, failed, skipped, errors, messages, cancelled, pending }` (`sent`/`failed` son contadores). Guía: `docs/guide/messages.md`.
 
 Enviar un mensaje a N chats respetando el rate limiter existente.
 
@@ -244,7 +244,7 @@ const results = await bot.broadcast(chatIds, { text: '🎉 Nueva promo!' }, {
 
 ### 7. Blacklist / Whitelist dinámica
 
-> **Estado: implementado** (`@bot-wa/core`, 2026-10): `bot.blacklist` / `bot.whitelist` (`AccessList`, `Whitelist`, `checkAccess`), `bot.exportAccessLists()` / `loadAccessLists()`. Ids exactos (sin normalizar números). Guía: `docs/guide/handoff.md`.
+> **Estado: implementado** (`@botmesh/core`, 2026-10): `bot.blacklist` / `bot.whitelist` (`AccessList`, `Whitelist`, `checkAccess`), `bot.exportAccessLists()` / `loadAccessLists()`. Ids exactos (sin normalizar números). Guía: `docs/guide/handoff.md`.
 
 Bloquear o permitir números específicos en runtime.
 
@@ -279,7 +279,7 @@ flow('bloquear')
 
 ### 8. Idle / Timeout por inactividad
 
-> **Estado: implementado** (`@bot-wa/core`, 2026-10): `c.idle(duration, cb)` / `c.idleClear()` dentro de una conversación y `bot.onIdle(duration, handler)` / `bot.clearIdle()` por chat (suspendido durante un handoff). Guía: `docs/guide/flows.md`.
+> **Estado: implementado** (`@botmesh/core`, 2026-10): `c.idle(duration, cb)` / `c.idleClear()` dentro de una conversación y `bot.onIdle(duration, handler)` / `bot.clearIdle()` por chat (suspendido durante un handoff). Guía: `docs/guide/flows.md`.
 
 Si el usuario no responde en X tiempo, ejecutar un callback (recordatorio, cancelar flow, etc.).
 
@@ -287,7 +287,7 @@ Si el usuario no responde en X tiempo, ejecutar un callback (recordatorio, cance
 
 **Evidencia:**
 - `builderbot`: `IdleState` class con `setIdleTime({ from, timeInSeconds, cb })` — interval que dispara callback tras X segundos, `stop(ctxInComing)` para cancelar.
-- `bot-wa-games`: el patrón de "si no responde en 2 minutos, cancelar el juego" se implementa a mano en cada flow.
+- `botmesh-games`: el patrón de "si no responde en 2 minutos, cancelar el juego" se implementa a mano en cada flow.
 
 ```ts
 // API propuesta — en conversación
@@ -316,13 +316,13 @@ bot.onIdle('10m', async (chatId) => {
 
 ### 9. Guards en flows
 
-> **Estado: implementado** (`@bot-wa/core`, 2026-10): `.guard(check, message | { redirect, message })`; si el predicado falla, se despide (termina la conversación) o redirige a otro flujo. `bot.lint()` comprueba los `redirect` como un `goto`. Guía: `docs/guide/flows.md`.
+> **Estado: implementado** (`@botmesh/core`, 2026-10): `.guard(check, message | { redirect, message })`; si el predicado falla, se despide (termina la conversación) o redirige a otro flujo. `bot.lint()` comprueba los `redirect` como un `goto`. Guía: `docs/guide/flows.md`.
 
 Condición que debe cumplirse para que el flow continúe. Si falla, responde un mensaje y aborta o redirige.
 
 **Por qué pertenece:** Requiere nuevo step en el intérprete de flows.
 
-**Evidencia:** En `bot-wa-games` cada handler valida manualmente: `if (!esHorarioLaboral()) { await flowDynamic(['Fuera de horario']); await gotoFlow(flowMain); return }`.
+**Evidencia:** En `botmesh-games` cada handler valida manualmente: `if (!esHorarioLaboral()) { await flowDynamic(['Fuera de horario']); await gotoFlow(flowMain); return }`.
 
 ```ts
 // API propuesta
@@ -343,11 +343,11 @@ flow('admin')
 
 ### 10. Validación con schemas (zod) en `ask`/`waitText`
 
-> **Estado: implementado** (`@bot-wa/core`, 2026-10) sin depender de zod: `schema` acepta cualquier objeto con `safeParse()` (zod u otra librería compatible) en `.ask()`, `c.ask()` y `c.waitText()`, que resuelven con el valor parseado. El rechazo sin mensaje propio usa `core.wait.invalid` (i18n). Guía: `docs/guide/flows.md`.
+> **Estado: implementado** (`@botmesh/core`, 2026-10) sin depender de zod: `schema` acepta cualquier objeto con `safeParse()` (zod u otra librería compatible) en `.ask()`, `c.ask()` y `c.waitText()`, que resuelven con el valor parseado. El rechazo sin mensaje propio usa `core.wait.invalid` (i18n). Guía: `docs/guide/flows.md`.
 
 **Por qué pertenece:** Requiere integración en `controls.ts` → `loopWait`.
 
-**Evidencia:** En `bot-wa-games` cada `ask` valida a mano: `if (!option || option < 1 || option > 5) { await flowDynamic(['Opcion no valida']); await fallBack(); return }`.
+**Evidencia:** En `botmesh-games` cada `ask` valida a mano: `if (!option || option < 1 || option > 5) { await flowDynamic(['Opcion no valida']); await fallBack(); return }`.
 
 ```ts
 import { z } from 'zod'
@@ -368,11 +368,11 @@ flow('registro')
 
 ### 11. `.media()` completo en flows
 
-> **Estado: implementado** (`@bot-wa/core`, 2026-10): `.media(kind, source, caption?, opts?)` para `image`, `video`, `audio`, `voice`, `document`, `sticker` y `location` (opciones `delay`, `filename`, `ptv`, `gifPlayback`, `pack`, `author`); la forma antigua `.media(source, caption?)` sigue enviando una imagen. Guía: `docs/guide/flows.md`.
+> **Estado: implementado** (`@botmesh/core`, 2026-10): `.media(kind, source, caption?, opts?)` para `image`, `video`, `audio`, `voice`, `document`, `sticker` y `location` (opciones `delay`, `filename`, `ptv`, `gifPlayback`, `pack`, `author`); la forma antigua `.media(source, caption?)` sigue enviando una imagen. Guía: `docs/guide/flows.md`.
 
 **Por qué pertenece:** Requiere extender el step `media` en `FlowBuilder`.
 
-**Evidencia:** En v2 `.media()` solo hace `photo()`. En `bot-wa-games` se envían imágenes, audio (akinator), y se usa `flowDynamic([{ media: url, body: text }])`.
+**Evidencia:** En v2 `.media()` solo hace `photo()`. En `botmesh-games` se envían imágenes, audio (akinator), y se usa `flowDynamic([{ media: url, body: text }])`.
 
 ```ts
 // API propuesta
@@ -392,11 +392,11 @@ flow('demo')
 
 ### 12. Typing indicator automático
 
-> **Estado: implementado** (`@bot-wa/core`, 2026-10): `BotConfig.typing` (`true` o `{ enabled, minMs, maxMs, charsPerSecond }`, desactivado por defecto) muestra "escribiendo…" antes de las respuestas de texto; por respuesta, `ctx.reply(text, { typing })`. Un indicador que falla nunca hace fallar el envío y no hay espera donde `capabilities.typing` es `false`. Guía: `docs/guide/messages.md`.
+> **Estado: implementado** (`@botmesh/core`, 2026-10): `BotConfig.typing` (`true` o `{ enabled, minMs, maxMs, charsPerSecond }`, desactivado por defecto) muestra "escribiendo…" antes de las respuestas de texto; por respuesta, `ctx.reply(text, { typing })`. Un indicador que falla nunca hace fallar el envío y no hay espera donde `capabilities.typing` es `false`. Guía: `docs/guide/messages.md`.
 
 **Por qué pertenece:** Requiere integración en `sendThrough()` o `ctx.reply()`.
 
-**Evidencia:** En `bot-wa-games` cada `flowDynamic` es instantáneo. Un bot real debe mostrar "escribiendo...".
+**Evidencia:** En `botmesh-games` cada `flowDynamic` es instantáneo. Un bot real debe mostrar "escribiendo...".
 
 ```ts
 // Config global
@@ -415,11 +415,11 @@ await ctx.reply('Hola, déjame pensar...', { typing: { charsPerSecond: 20 } })
 
 ### 13. i18n nativo del bot
 
-> **Estado: implementado** (`@bot-wa/core`, 2026-10): `bot.locale(code, messages)` con claves anidadas, `{param}` y plurales; `ctx.t()`, `ctx.lang`, `ctx.langSource`, `ctx.setLang()` (persistido en `ctx.user`), `c.t()`/`c.lang`, `bot.t()`/`bot.langOf()`. Resolución: preferencia del usuario → idioma del provider → `detect` → por defecto. Los textos del core (timeouts, reintentos, validaciones, comandos slash, formularios) están en el catálogo `core.*` con `es` y `en`. Guía: `docs/guide/i18n.md`.
+> **Estado: implementado** (`@botmesh/core`, 2026-10): `bot.locale(code, messages)` con claves anidadas, `{param}` y plurales; `ctx.t()`, `ctx.lang`, `ctx.langSource`, `ctx.setLang()` (persistido en `ctx.user`), `c.t()`/`c.lang`, `bot.t()`/`bot.langOf()`. Resolución: preferencia del usuario → idioma del provider → `detect` → por defecto. Los textos del core (timeouts, reintentos, validaciones, comandos slash, formularios) están en el catálogo `core.*` con `es` y `en`. Guía: `docs/guide/i18n.md`.
 
 **Por qué pertenece:** Requiere registry de locales + `ctx.t()` en `MessageContext` + detección de idioma.
 
-**Evidencia:** En `bot-wa-games`: `const regionName = { es: 'Español', en: 'Ingles' }` — manual, hardcoded.
+**Evidencia:** En `botmesh-games`: `const regionName = { es: 'Español', en: 'Ingles' }` — manual, hardcoded.
 
 ```ts
 // API propuesta
@@ -444,7 +444,7 @@ bot.locale({ default: 'es', detect: true })
 
 ### 14. `ctx.reply` con delay entre mensajes
 
-> **Estado: implementado** (`@bot-wa/core`, 2026-10): `ctx.reply(text, { delay, typing, cancelIf })` (también en `say`/`answer`/`text`/`quote`), `{ delay }` en `say`/`ask`/`choose`/`media` y un paso `.delay()` en el DSL. Una respuesta pausada se descarta (`skipped`) si el bot se para, el chat pasa a handoff o el flujo se aborta durante la espera. Guías: `docs/guide/messages.md` y `docs/guide/flows.md`.
+> **Estado: implementado** (`@botmesh/core`, 2026-10): `ctx.reply(text, { delay, typing, cancelIf })` (también en `say`/`answer`/`text`/`quote`), `{ delay }` en `say`/`ask`/`choose`/`media` y un paso `.delay()` en el DSL. Una respuesta pausada se descarta (`skipped`) si el bot se para, el chat pasa a handoff o el flujo se aborta durante la espera. Guías: `docs/guide/messages.md` y `docs/guide/flows.md`.
 
 **Por qué pertenece:** Requiere integración en el pipeline de envío.
 
@@ -506,7 +506,7 @@ bot.conversation('juego', async (c, ctx) => {
 
 ### 16. Provider de voz (STT/TTS integrado al pipeline)
 
-> **Estado: implementado** como plugin, no como provider: `@bot-wa/voice` (privado) con `voicePlugin({ stt, tts, limits, autoTranscribe, autoReplyWithVoice })`. STT: OpenAI-compatible (Whisper) y Deepgram; TTS: OpenAI y ElevenLabs, todo por `secureFetch`. Transcribe las notas de voz en un hook `before('message')` (`ctx.transcript` y `ctx.body`), puede responder con voz a quien escribe con voz y expone `ctx.tools.voice`. Las llamadas de voz en tiempo real (LiveKit/SIP) quedan fuera. Guía: `docs/guide/voice.md`.
+> **Estado: implementado** como plugin, no como provider: `@botmesh/voice` (privado) con `voicePlugin({ stt, tts, limits, autoTranscribe, autoReplyWithVoice })`. STT: OpenAI-compatible (Whisper) y Deepgram; TTS: OpenAI y ElevenLabs, todo por `secureFetch`. Transcribe las notas de voz en un hook `before('message')` (`ctx.transcript` y `ctx.body`), puede responder con voz a quien escribe con voz y expone `ctx.tools.voice`. Las llamadas de voz en tiempo real (LiveKit/SIP) quedan fuera. Guía: `docs/guide/voice.md`.
 
 **Por qué pertenece:** Los audios son el 40%+ de mensajes en WhatsApp. Sin STT, el bot es sordo a audios.
 
@@ -515,7 +515,7 @@ bot.conversation('juego', async (c, ctx) => {
 
 ```ts
 // API propuesta — como plugin (no provider nuevo)
-import { voicePlugin } from '@bot-wa/voice'
+import { voicePlugin } from '@botmesh/voice'
 
 bot.plug(voicePlugin({
   stt: { provider: 'openai', model: 'whisper-1', apiKey: process.env.OPENAI_API_KEY },
@@ -532,13 +532,13 @@ bot.when(VOICE_NOTE, async (ctx) => {
 })
 ```
 
-**Requiere:** nuevo paquete `@bot-wa/voice` con adapters STT/TTS + plugin que hook en `before('message')` para transcribir audios automáticamente.
+**Requiere:** nuevo paquete `@botmesh/voice` con adapters STT/TTS + plugin que hook en `before('message')` para transcribir audios automáticamente.
 
 ---
 
 ### 17. Evolution API provider
 
-> **Estado: implementado** (`@bot-wa/evolution`, privado): `EvolutionProvider`, salida REST e ingest de webhooks firmados, identidad canónica de WhatsApp. Guía: `docs/guide/channels.md`.
+> **Estado: implementado** (`@botmesh/evolution`, privado): `EvolutionProvider`, salida REST e ingest de webhooks firmados, identidad canónica de WhatsApp. Guía: `docs/guide/channels.md`.
 
 **Por qué pertenece:** Evolution API es la alternativa self-hosted a Baileys. Muchos usuarios la prefieren por estabilidad.
 
@@ -547,7 +547,7 @@ bot.when(VOICE_NOTE, async (ctx) => {
 
 ```ts
 // API propuesta
-import { EvolutionProvider } from '@bot-wa/evolution'
+import { EvolutionProvider } from '@botmesh/evolution'
 
 const bot = new Bot({
   provider: new EvolutionProvider({
@@ -558,13 +558,13 @@ const bot = new Bot({
 })
 ```
 
-**Requiere:** nuevo paquete `@bot-wa/evolution` que implementa `IProvider` sobre la REST API de Evolution.
+**Requiere:** nuevo paquete `@botmesh/evolution` que implementa `IProvider` sobre la REST API de Evolution.
 
 ---
 
 ### 18. Twilio provider
 
-> **Estado: implementado** (`@bot-wa/twilio`, privado): `TwilioProvider` para WhatsApp y SMS sobre Programmable Messaging, webhooks verificados con `X-Twilio-Signature` (los JSON, ligados a `bodySHA256`). Guía: `docs/guide/channels.md`.
+> **Estado: implementado** (`@botmesh/twilio`, privado): `TwilioProvider` para WhatsApp y SMS sobre Programmable Messaging, webhooks verificados con `X-Twilio-Signature` (los JSON, ligados a `bodySHA256`). Guía: `docs/guide/channels.md`.
 
 **Por qué pertenece:** Twilio es el estándar enterprise de SMS/WhatsApp.
 
@@ -572,7 +572,7 @@ const bot = new Bot({
 - `builderbot`: `provider-twilio` completo.
 
 ```ts
-import { TwilioProvider } from '@bot-wa/twilio'
+import { TwilioProvider } from '@botmesh/twilio'
 
 const bot = new Bot({
   provider: new TwilioProvider({
@@ -584,13 +584,13 @@ const bot = new Bot({
 })
 ```
 
-**Requiere:** nuevo paquete `@bot-wa/twilio` que implementa `IProvider` sobre Twilio WhatsApp/SMS API.
+**Requiere:** nuevo paquete `@botmesh/twilio` que implementa `IProvider` sobre Twilio WhatsApp/SMS API.
 
 ---
 
 ### 19. TikTok provider
 
-> **Estado: implementado** (`@bot-wa/tiktok`, privado): `TikTokProvider` con DMs de Business Messaging y respuestas a comentarios de vídeos propios, webhooks firmados. Guía: `docs/guide/channels.md`.
+> **Estado: implementado** (`@botmesh/tiktok`, privado): `TikTokProvider` con DMs de Business Messaging y respuestas a comentarios de vídeos propios, webhooks firmados. Guía: `docs/guide/channels.md`.
 
 **Por qué pertenece:** Bot que responde comentarios de TikTok automáticamente.
 
@@ -598,7 +598,7 @@ const bot = new Bot({
 - `builderbot`: `provider-tiktok` completo — responde comentarios de videos de TikTok Business.
 
 ```ts
-import { TikTokProvider } from '@bot-wa/tiktok'
+import { TikTokProvider } from '@botmesh/tiktok'
 
 const bot = new Bot({
   provider: new TikTokProvider({
@@ -611,13 +611,13 @@ bot.when('comentario', async (ctx) => {
 })
 ```
 
-**Requiere:** nuevo paquete `@bot-wa/tiktok` que implementa `IProvider` sobre TikTok Business Open API.
+**Requiere:** nuevo paquete `@botmesh/tiktok` que implementa `IProvider` sobre TikTok Business Open API.
 
 ---
 
 ### 20. Email provider
 
-> **Estado: implementado** (`@bot-wa/email`, privado): `EmailProvider` con IMAP IDLE de entrada (`imapflow`) y SMTP de salida (`nodemailer`), hilos, detección de mensajes automáticos, rebotes y bucles. Guía: `docs/guide/channels.md`.
+> **Estado: implementado** (`@botmesh/email`, privado): `EmailProvider` con IMAP IDLE de entrada (`imapflow`) y SMTP de salida (`nodemailer`), hilos, detección de mensajes automáticos, rebotes y bucles. Guía: `docs/guide/channels.md`.
 
 **Por qué pertenece:** Bot que responde emails automáticamente. Caso de uso enterprise.
 
@@ -625,7 +625,7 @@ bot.when('comentario', async (ctx) => {
 - `builderbot`: `provider-email` completo con IMAP/SMTP.
 
 ```ts
-import { EmailProvider } from '@bot-wa/email'
+import { EmailProvider } from '@botmesh/email'
 
 const bot = new Bot({
   provider: new EmailProvider({
@@ -635,13 +635,13 @@ const bot = new Bot({
 })
 ```
 
-**Requiere:** nuevo paquete `@bot-wa/email` que implementa `IProvider` sobre IMAP (inbound) + SMTP (outbound).
+**Requiere:** nuevo paquete `@botmesh/email` que implementa `IProvider` sobre IMAP (inbound) + SMTP (outbound).
 
 ---
 
 ### 21. WPPConnect provider
 
-> **Estado: implementado** (`@bot-wa/wppconnect`, privado): `WPPConnectProvider` sobre la API REST de wppconnect-server, webhook con token e ingest ordenado. Guía: `docs/guide/channels.md`.
+> **Estado: implementado** (`@botmesh/wppconnect`, privado): `WPPConnectProvider` sobre la API REST de wppconnect-server, webhook con token e ingest ordenado. Guía: `docs/guide/channels.md`.
 
 **Por qué pertenece:** Alternativa a Baileys con diferentes trade-offs (estabilidad, features).
 
@@ -649,40 +649,40 @@ const bot = new Bot({
 - `builderbot`: `provider-wppconnect` completo.
 
 ```ts
-import { WPPConnectProvider } from '@bot-wa/wppconnect'
+import { WPPConnectProvider } from '@botmesh/wppconnect'
 
 const bot = new Bot({
   provider: new WPPConnectProvider({ session: 'my-bot' }),
 })
 ```
 
-**Requiere:** nuevo paquete `@bot-wa/wppconnect` que implementa `IProvider` sobre WPPConnect.
+**Requiere:** nuevo paquete `@botmesh/wppconnect` que implementa `IProvider` sobre WPPConnect.
 
 ---
 
 ### 22. GoHighLevel provider
 
-> **Estado: implementado** (`@bot-wa/gohighlevel`, privado): `GoHighLevelProvider` sobre la Conversations API, webhooks `InboundMessage` con firma verificada. Guía: `docs/guide/channels.md`.
+> **Estado: implementado** (`@botmesh/gohighlevel`, privado): `GoHighLevelProvider` sobre la Conversations API, webhooks `InboundMessage` con firma verificada. Guía: `docs/guide/channels.md`.
 
 **Por qué pertenece:** CRM/Marketing platform con API de mensajería.
 
 **Evidencia:**
 - `builderbot`: `provider-gohighlevel` completo.
 
-**Requiere:** nuevo paquete `@bot-wa/gohighlevel`.
+**Requiere:** nuevo paquete `@botmesh/gohighlevel`.
 
 ---
 
 ### 23. Gupshup provider
 
-> **Estado: implementado** (`@bot-wa/gupshup`, privado): `GupshupProvider` para WhatsApp (API v1 y callbacks v2). Guía: `docs/guide/channels.md`.
+> **Estado: implementado** (`@botmesh/gupshup`, privado): `GupshupProvider` para WhatsApp (API v1 y callbacks v2). Guía: `docs/guide/channels.md`.
 
 **Por qué pertenece:** Plataforma de mensajería enterprise India/global.
 
 **Evidencia:**
 - `builderbot`: `provider-gupshup` completo.
 
-**Requiere:** nuevo paquete `@bot-wa/gupshup`.
+**Requiere:** nuevo paquete `@botmesh/gupshup`.
 
 ---
 
@@ -690,7 +690,7 @@ const bot = new Bot({
 
 ### 24. Flow Registry dinámico (CRUD de flows en runtime)
 
-> **Estado: implementado.** En el core (`@bot-wa/core`, 2026-10): `bot.registerFlow()`, `unregisterFlow()`, `replaceFlow()` (cambio en caliente), `hasFlow()`, `listFlows()`, `triggerFlow()` y `listConversations()`. En `@bot-wa/manager`: documentos de flujo JSON (`compileFlowDocument`, `validateFlowDocument`, JSON Schema `FLOW_DOCUMENT_SCHEMA`, expresiones acotadas) gestionables por la API REST. Guía: `docs/guide/control-plane.md`.
+> **Estado: implementado.** En el core (`@botmesh/core`, 2026-10): `bot.registerFlow()`, `unregisterFlow()`, `replaceFlow()` (cambio en caliente), `hasFlow()`, `listFlows()`, `triggerFlow()` y `listConversations()`. En `@botmesh/manager`: documentos de flujo JSON (`compileFlowDocument`, `validateFlowDocument`, JSON Schema `FLOW_DOCUMENT_SCHEMA`, expresiones acotadas) gestionables por la API REST. Guía: `docs/guide/control-plane.md`.
 
 **Por qué pertenece:** Requiere acceso al `ConversationRuntime` para registrar/desregistrar flows sin restart.
 
@@ -722,7 +722,7 @@ bot.createFlowFromJson({
 
 ### 25. Manager API completa (REST + OpenAPI + rate limiting)
 
-> **Estado: implementado** (`@bot-wa/manager`, privado): `createRestApi()` con la API REST `/v1`, tokens con scopes (`API_SCOPES`), idempotencia (`MemoryIdempotencyStore`), rate limiting (`TokenBucketRateLimiter`) y documento OpenAPI 3.1 (`buildOpenApiDocument()`), sin dependencias (`node:http`). Guía: `docs/guide/control-plane.md`.
+> **Estado: implementado** (`@botmesh/manager`, privado): `createRestApi()` con la API REST `/v1`, tokens con scopes (`API_SCOPES`), idempotencia (`MemoryIdempotencyStore`), rate limiting (`TokenBucketRateLimiter`) y documento OpenAPI 3.1 (`buildOpenApiDocument()`), sin dependencias (`node:http`). Guía: `docs/guide/control-plane.md`.
 
 **Por qué pertenece:** La API actual solo hace `GET /bots` y `POST /bots/:id/start|stop`. Para que el Manager sea útil de verdad.
 
@@ -767,7 +767,7 @@ GET    /docs                        → Swagger UI (OpenAPI spec autogenerada)
 
 ### 26. Multi-tenant con persistencia
 
-> **Estado: implementado** (`@bot-wa/manager`, privado): configuración de bots por `tenantId` persistida en un `BotConfigStore` (`FileBotConfigStore`, un JSON por bot con escrituras atómicas, o `MemoryBotConfigStore`) y restaurada al arrancar; ids validados (`SAFE_ID_PATTERN`). Guía: `docs/guide/control-plane.md`.
+> **Estado: implementado** (`@botmesh/manager`, privado): configuración de bots por `tenantId` persistida en un `BotConfigStore` (`FileBotConfigStore`, un JSON por bot con escrituras atómicas, o `MemoryBotConfigStore`) y restaurada al arrancar; ids validados (`SAFE_ID_PATTERN`). Guía: `docs/guide/control-plane.md`.
 
 **Por qué pertenece:** Para SaaS / plataforma. Cada tenant tiene su bot aislado.
 
@@ -799,7 +799,7 @@ await manager.createBot({
 
 ### 27. Auto-reconnect con backoff exponencial
 
-> **Estado: implementado** (`@bot-wa/manager`, privado): `autoReconnect` (por defecto `{ maxRetries: 5, initialDelay: 1000, maxDelay: 30000 }`) con backoff exponencial y eventos de reconexión, más supervisión del estado de conexión de cada bot. Guía: `docs/guide/control-plane.md`.
+> **Estado: implementado** (`@botmesh/manager`, privado): `autoReconnect` (por defecto `{ maxRetries: 5, initialDelay: 1000, maxDelay: 30000 }`) con backoff exponencial y eventos de reconexión, más supervisión del estado de conexión de cada bot. Guía: `docs/guide/control-plane.md`.
 
 **Por qué pertenece:** Requiere acceso al lifecycle del provider.
 
@@ -827,7 +827,7 @@ const manager = new BotManager({
 
 ### 28. Function calling / Tool use en AI
 
-> **Estado: implementado** (`@bot-wa/ai`, 2026-10): `aiPlugin({ tools })` con `defineTool`, esquema JSON o `safeParse`, bucle de varios pasos (`maxSteps`), timeout por herramienta, errores devueltos al modelo, confirmación humana (`confirm: true`, `confirmWith`) por el runtime de conversaciones y eventos de auditoría (`onToolEvent`, `bot.on('ai.tool')`). Anthropic, OpenAI (y presets compatibles), Gemini y Ollama; `MockAIProvider` puede simular llamadas a herramientas. Guía: `docs/guide/ai-tools.md`.
+> **Estado: implementado** (`@botmesh/ai`, 2026-10): `aiPlugin({ tools })` con `defineTool`, esquema JSON o `safeParse`, bucle de varios pasos (`maxSteps`), timeout por herramienta, errores devueltos al modelo, confirmación humana (`confirm: true`, `confirmWith`) por el runtime de conversaciones y eventos de auditoría (`onToolEvent`, `bot.on('ai.tool')`). Anthropic, OpenAI (y presets compatibles), Gemini y Ollama; `MockAIProvider` puede simular llamadas a herramientas. Guía: `docs/guide/ai-tools.md`.
 
 **Por qué pertenece:** Requiere integración entre el AI plugin y las tools del bot.
 
@@ -855,7 +855,7 @@ bot.plug(aiPlugin({
 
 ### 29. RAG (Retrieval Augmented Generation)
 
-> **Estado: implementado**: paquete nuevo `@bot-wa/rag` (privado; `createRag()`, loaders, chunking, embeddings OpenAI-compatible/Ollama/hash local, índice vectorial en memoria con persistencia JSON) y `aiPlugin({ rag })`, que acepta cualquier `AIRetriever` e inyecta los pasajes con citas numeradas (`appendSources`, `rag.timeoutMs`). Guía: `docs/guide/ai-memory-rag.md`.
+> **Estado: implementado**: paquete nuevo `@botmesh/rag` (privado; `createRag()`, loaders, chunking, embeddings OpenAI-compatible/Ollama/hash local, índice vectorial en memoria con persistencia JSON) y `aiPlugin({ rag })`, que acepta cualquier `AIRetriever` e inyecta los pasajes con citas numeradas (`appendSources`, `rag.timeoutMs`). Guía: `docs/guide/ai-memory-rag.md`.
 
 **Por qué pertenece:** Requiere indexación + retrieval integrado al AI plugin.
 
@@ -874,13 +874,13 @@ bot.plug(aiPlugin({
 // El bot responde con contexto de los documentos automáticamente
 ```
 
-**Requiere:** nuevo paquete `@bot-wa/rag` con indexación (embeddings) + retrieval + integración con `AIClient`.
+**Requiere:** nuevo paquete `@botmesh/rag` con indexación (embeddings) + retrieval + integración con `AIClient`.
 
 ---
 
 ### 30. Memoria a largo plazo por usuario
 
-> **Estado: implementado** (`@bot-wa/ai`, 2026-10): `aiPlugin({ memory })` guarda hechos por usuario en `ctx.user` (namespace `ai.memory`), los inyecta en la autorespuesta y, con `autoExtract`, extrae hechos nuevos en segundo plano (`maxFacts`, `ttl` por hecho); `ctx.tools.ai.memory()`, `remember()`, `forget()`; `bot.deleteSubject()` los borra; en grupos no se inyectan salvo `memory.injectInGroups`. Guía: `docs/guide/ai-memory-rag.md`.
+> **Estado: implementado** (`@botmesh/ai`, 2026-10): `aiPlugin({ memory })` guarda hechos por usuario en `ctx.user` (namespace `ai.memory`), los inyecta en la autorespuesta y, con `autoExtract`, extrae hechos nuevos en segundo plano (`maxFacts`, `ttl` por hecho); `ctx.tools.ai.memory()`, `remember()`, `forget()`; `bot.deleteSubject()` los borra; en grupos no se inyectan salvo `memory.injectInGroups`. Guía: `docs/guide/ai-memory-rag.md`.
 
 **Por qué pertenece:** Requiere integración con `ctx.user` (feature #1) + AI plugin.
 
@@ -908,7 +908,7 @@ bot.when('hola', async (ctx) => {
 
 ### 31. Contextos de NLU externos (Dialogflow / Dialogflow CX)
 
-> **Estado: implementado** (`@bot-wa/dialogflow`, privado): `dialogflowPlugin()` / `dialogflowContext()` con `detectIntent` por REST para ES y CX (JWT de cuenta de servicio, sin SDK de Google) y `whenDialogflowIntent()` para enrutar intents a flujos. Guía: `docs/guide/integrations.md`.
+> **Estado: implementado** (`@botmesh/dialogflow`, privado): `dialogflowPlugin()` / `dialogflowContext()` con `detectIntent` por REST para ES y CX (JWT de cuenta de servicio, sin SDK de Google) y `whenDialogflowIntent()` para enrutar intents a flujos. Guía: `docs/guide/integrations.md`.
 
 **Por qué pertenece:** Requiere integración con el dispatcher para ruteo de intenciones.
 
@@ -917,7 +917,7 @@ bot.when('hola', async (ctx) => {
 
 ```ts
 // API propuesta
-import { dialogflowContext } from '@bot-wa/dialogflow'
+import { dialogflowContext } from '@botmesh/dialogflow'
 
 bot.useContext(dialogflowContext({
   projectId: 'my-project',
@@ -927,7 +927,7 @@ bot.useContext(dialogflowContext({
 // Las intenciones de Dialogflow rutean a flows automáticamente
 ```
 
-**Requiere:** nuevo paquete `@bot-wa/dialogflow` que implementa un context provider sobre Dialogflow ES/CX.
+**Requiere:** nuevo paquete `@botmesh/dialogflow` que implementa un context provider sobre Dialogflow ES/CX.
 
 ---
 
@@ -935,7 +935,7 @@ bot.useContext(dialogflowContext({
 
 ### 32. Plugin Chatwoot (human handoff + CRM)
 
-> **Estado: implementado** (`@bot-wa/chatwoot`, privado): `chatwootPlugin()` sincroniza los mensajes en ambos sentidos y usa el handoff del core (#5) para que los agentes de Chatwoot tomen y devuelvan la conversación; webhook verificado. Guía: `docs/guide/integrations.md`.
+> **Estado: implementado** (`@botmesh/chatwoot`, privado): `chatwootPlugin()` sincroniza los mensajes en ambos sentidos y usa el handoff del core (#5) para que los agentes de Chatwoot tomen y devuelvan la conversación; webhook verificado. Guía: `docs/guide/integrations.md`.
 
 **Por qué pertenece:** Integración profunda con el pipeline (handoff, sync de mensajes, contactos).
 
@@ -944,7 +944,7 @@ bot.useContext(dialogflowContext({
 
 ```ts
 // API propuesta
-import { chatwootPlugin } from '@bot-wa/chatwoot'
+import { chatwootPlugin } from '@botmesh/chatwoot'
 
 bot.plug(chatwootPlugin({
   baseUrl: 'https://my.chatwoot.com',
@@ -955,19 +955,19 @@ bot.plug(chatwootPlugin({
 }))
 ```
 
-**Requiere:** nuevo paquete `@bot-wa/chatwoot` con API client + plugin que integra con el handoff (feature #5).
+**Requiere:** nuevo paquete `@botmesh/chatwoot` con API client + plugin que integra con el handoff (feature #5).
 
 ---
 
 ### 33. Plugin de colas / tickets de soporte
 
-> **Estado: implementado** (`@bot-wa/tickets`, privado): `ticketsPlugin()` y `ctx.tools.tickets` (`TicketDesk`) con colas, posición en cola, prioridades, horario de atención y persistencia en el store. Guía: `docs/guide/integrations.md`.
+> **Estado: implementado** (`@botmesh/tickets`, privado): `ticketsPlugin()` y `ctx.tools.tickets` (`TicketDesk`) con colas, posición en cola, prioridades, horario de atención y persistencia en el store. Guía: `docs/guide/integrations.md`.
 
 **Por qué pertenece:** Sistema de colas con estados (abierto, en espera, cerrado) requiere acceso al store + dispatcher.
 
 ```ts
 // API propuesta
-import { ticketsPlugin } from '@bot-wa/tickets'
+import { ticketsPlugin } from '@botmesh/tickets'
 
 bot.plug(ticketsPlugin({
   workingHours: '9-18',
@@ -985,13 +985,13 @@ bot.when('soporte', async (ctx) => {
 })
 ```
 
-**Requiere:** nuevo paquete `@bot-wa/tickets` con store de tickets + plugin.
+**Requiere:** nuevo paquete `@botmesh/tickets` con store de tickets + plugin.
 
 ---
 
 ### 34. Plugin de moderación de grupos
 
-> **Estado: implementado** (`@bot-wa/moderation`, privado): `moderationPlugin()` con ventanas anti-spam, filtros de palabras/regex, filtro de enlaces de invitación con lista permitida exacta y acciones warn/mute/kick/delete. Guía: `docs/guide/integrations.md`.
+> **Estado: implementado** (`@botmesh/moderation`, privado): `moderationPlugin()` con ventanas anti-spam, filtros de palabras/regex, filtro de enlaces de invitación con lista permitida exacta y acciones warn/mute/kick/delete. Guía: `docs/guide/integrations.md`.
 
 **Por qué pertenece:** Requiere acceso a eventos de grupo + dispatcher para ban/kick.
 
@@ -999,7 +999,7 @@ bot.when('soporte', async (ctx) => {
 
 ```ts
 // API propuesta
-import { moderationPlugin } from '@bot-wa/moderation'
+import { moderationPlugin } from '@botmesh/moderation'
 
 bot.plug(moderationPlugin({
   antiSpam: {
@@ -1015,7 +1015,7 @@ bot.plug(moderationPlugin({
 }))
 ```
 
-**Requiere:** nuevo paquete `@bot-wa/moderation` con plugin que hook en `before('message')` + eventos `group`.
+**Requiere:** nuevo paquete `@botmesh/moderation` con plugin que hook en `before('message')` + eventos `group`.
 
 ---
 
@@ -1023,7 +1023,7 @@ bot.plug(moderationPlugin({
 
 ### 35. Reacciones + edición de mensajes (outbound)
 
-> **Estado: implementado** (`@bot-wa/core`, 2026-10): `ctx.edit(content)` edita la última respuesta del propio contexto y `ctx.edit(ref, content)` un mensaje concreto (nativo con `provider.editMessage`; si no, envía un mensaje nuevo; pasa por los hooks de `send`); `ctx.react(emoji, target?)` resuelve `skipped` donde no hay reacciones; `ctx.supports(feature)` informa `native`/`degraded`/`unsupported`. Guía: `docs/guide/messages.md`.
+> **Estado: implementado** (`@botmesh/core`, 2026-10): `ctx.edit(content)` edita la última respuesta del propio contexto y `ctx.edit(ref, content)` un mensaje concreto (nativo con `provider.editMessage`; si no, envía un mensaje nuevo; pasa por los hooks de `send`); `ctx.react(emoji, target?)` resuelve `skipped` donde no hay reacciones; `ctx.supports(feature)` informa `native`/`degraded`/`unsupported`. Guía: `docs/guide/messages.md`.
 
 **Por qué pertenece:** El inbound ya las recibe (`InboundReaction`). El contrato `IProvider` ya define `editMessage()`. Falta que el bot las use.
 
@@ -1042,7 +1042,7 @@ await ctx.edit(ref, 'Texto')      // edita un mensaje específico por ref
 
 ### 36. Trigger programático de flows
 
-> **Estado: implementado** (`@bot-wa/core`, 2026-10): `bot.trigger(name, { chatId, userId?, isGroup?, data?, ifActive?, body? })` arranca un flujo o conversación registrado con `c.state` sembrado desde `data`, pasando por las listas de acceso, el handoff y la cola FIFO del chat. `bot.triggerFlow()` es un wrapper sobre él. Guía: `docs/guide/messages.md`.
+> **Estado: implementado** (`@botmesh/core`, 2026-10): `bot.trigger(name, { chatId, userId?, isGroup?, data?, ifActive?, body? })` arranca un flujo o conversación registrado con `c.state` sembrado desde `data`, pasando por las listas de acceso, el handoff y la cola FIFO del chat. `bot.triggerFlow()` es un wrapper sobre él. Guía: `docs/guide/messages.md`.
 
 **Por qué pertenece:** Requiere inyectar un `RuntimeMessage` sintético en el dispatcher.
 
@@ -1068,7 +1068,7 @@ bot.schedule('0 9 * * *', async () => {
 
 ### 37. Métricas integradas del runtime
 
-> **Estado: implementado** (`@bot-wa/core`, 2026-10): `bot.metrics()` / `bot.resetMetrics()`, eventos `'conversation:started'` y `'conversation:ended'` (`outcome`, `completed`, `durationMs`…) y exportador Prometheus sin dependencias `toPrometheus(snapshot, { prefix, labels })`. Guía: `docs/guide/messages.md`.
+> **Estado: implementado** (`@botmesh/core`, 2026-10): `bot.metrics()` / `bot.resetMetrics()`, eventos `'conversation:started'` y `'conversation:ended'` (`outcome`, `completed`, `durationMs`…) y exportador Prometheus sin dependencias `toPrometheus(snapshot, { prefix, labels })`. Guía: `docs/guide/messages.md`.
 
 **Por qué pertenece:** Datos que SOLO el engine conoce.
 
@@ -1096,7 +1096,7 @@ bot.on('conversation:ended', ({ name, durationMs, completed, chatId }) => {
 
 ### 38. `createTestBot` mejorado — aserciones de conversación
 
-> **Estado: implementado** (`@bot-wa/core/testing`, 2026-10). `createTestBot()` devuelve `chat` (un DM), `dm(userId)` y `group(groupId, { as })`; el chat tiene `send`, `sendMedia`, `sendReaction`, `sendLocation`, `pressButton`, `sendInteraction`, `expectReply`, `expectNoReply`, `replies`/`sent`/`lastReply`, `transcript()` (un `Transcript` dorado para `toMatchSnapshot` y `assertTranscript`) y `as(userId)`; matchers de Vitest (`toHaveReplied`, `toHaveRepliedMatching`, `toHaveRepliedTimes`) en `@bot-wa/core/testing/vitest`. Además `MockProvider.call()`, el kit de caos (`createTestBot(config, { chaos })`, `withChaos`) y `assertStableIdentity`. Guía: `docs/guide/testing.md`.
+> **Estado: implementado** (`@botmesh/core/testing`, 2026-10). `createTestBot()` devuelve `chat` (un DM), `dm(userId)` y `group(groupId, { as })`; el chat tiene `send`, `sendMedia`, `sendReaction`, `sendLocation`, `pressButton`, `sendInteraction`, `expectReply`, `expectNoReply`, `replies`/`sent`/`lastReply`, `transcript()` (un `Transcript` dorado para `toMatchSnapshot` y `assertTranscript`) y `as(userId)`; matchers de Vitest (`toHaveReplied`, `toHaveRepliedMatching`, `toHaveRepliedTimes`) en `@botmesh/core/testing/vitest`. Además `MockProvider.call()`, el kit de caos (`createTestBot(config, { chaos })`, `withChaos`) y `assertStableIdentity`. Guía: `docs/guide/testing.md`.
 
 **Por qué pertenece:** Requiere acceso al MockProvider + outbox.
 
@@ -1130,33 +1130,33 @@ expect(transcript).toMatchSnapshot()
 
 ## TIER 8 — DX / Tooling / CLI
 
-### 39. Más templates en `create-bot-wa`
+### 39. Más templates en `create-botmesh`
 
-> **Estado: implementado** (`create-bot-wa`, 2026-10): plantillas de caso de uso `games`, `support`, `store`, `restaurant`, `clinic` y `ai-full`, además de `baileys`, `meta`, `telegram` y `ai`. Todas usan la API v2, `defineBot` y `npm run dev`, y cada proyecto generado incluye un `AGENTS.md` para agentes de código.
+> **Estado: implementado** (`create-botmesh`, 2026-10): plantillas de caso de uso `games`, `support`, `store`, `restaurant`, `clinic` y `ai-full`, además de `baileys`, `meta`, `telegram` y `ai`. Todas usan la API v2, `defineBot` y `npm run dev`, y cada proyecto generado incluye un `AGENTS.md` para agentes de código.
 
 **Por qué pertenece:** El CLI ya existe, solo falta contenido.
 
 **Evidencia:**
 - `builderbot`: 100+ starters (cada provider × cada DB × JS/TS).
-- `bot-wa-games`: caso de uso real de juegos.
+- `botmesh-games`: caso de uso real de juegos.
 
 ```ts
 // Templates propuestos
-create-bot-wa my-bot --template=games      // bot de juegos (akinator, hangman, triqui)
-create-bot-wa my-bot --template=support    // bot de soporte con tickets
-create-bot-wa my-bot --template=store      // bot de tienda con catálogo
-create-bot-wa my-bot --template=restaurant // bot de restaurante con menú
-create-bot-wa my-bot --template=clinic     // bot de clínica con agendamiento
-create-bot-wa my-bot --template=ai-full    // AI + NLU + store + scheduler
+create-botmesh my-bot --template=games      // bot de juegos (akinator, hangman, triqui)
+create-botmesh my-bot --template=support    // bot de soporte con tickets
+create-botmesh my-bot --template=store      // bot de tienda con catálogo
+create-botmesh my-bot --template=restaurant // bot de restaurante con menú
+create-botmesh my-bot --template=clinic     // bot de clínica con agendamiento
+create-botmesh my-bot --template=ai-full    // AI + NLU + store + scheduler
 ```
 
-**Requiere:** extender `templates.ts` en `create-bot-wa`.
+**Requiere:** extender `templates.ts` en `create-botmesh`.
 
 ---
 
 ### 40. ESLint plugin propio
 
-> **Estado: implementado** (`eslint-plugin-bot-wa`, privado): reglas `no-v1-api`, `no-await-runtime-enter`, `no-async-plugin-install`, `no-empty-trigger`, `require-timeout-on-ask` y `prefer-ctx-user-over-global-state`, con configuraciones flat `recommended` y `strict`. Complementa a `bot.lint()`, que valida el grafo de flujos en runtime. Guía: `docs/guide/eslint.md`.
+> **Estado: implementado** (`eslint-plugin-botmesh`, privado): reglas `no-v1-api`, `no-await-runtime-enter`, `no-async-plugin-install`, `no-empty-trigger`, `require-timeout-on-ask` y `prefer-ctx-user-over-global-state`, con configuraciones flat `recommended` y `strict`. Complementa a `bot.lint()`, que valida el grafo de flujos en runtime. Guía: `docs/guide/eslint.md`.
 
 **Por qué pertenece:** Reglas específicas de la librería que ningún linter genérico cubre.
 
@@ -1172,7 +1172,7 @@ create-bot-wa my-bot --template=ai-full    // AI + NLU + store + scheduler
 // - prefer-ctx-user-over-globalState: migrar de globalState a ctx.user
 ```
 
-**Requiere:** nuevo paquete `eslint-plugin-bot-wa` con reglas custom.
+**Requiere:** nuevo paquete `eslint-plugin-botmesh` con reglas custom.
 
 ---
 
@@ -1182,18 +1182,18 @@ Ideas que salieron del análisis de bots reales y de los fallos de entrega/ident
 
 | Idea | Estado y API |
 |---|---|
-| **MockProvider adversario** (caos) | `ChaosProvider` / `withChaos` y `createTestBot(config, { chaos })` en `@bot-wa/core/testing`: duplicados, reordenación, latencia, fallos de envío tipados, desconexiones con replay y alias de identidad, deterministas por `seed`. Guía: `docs/guide/testing.md`. |
-| **Contrato de identidad verificable** | `assertStableIdentity`, `checkIdentityContract` y `recordEvents` en `@bot-wa/core/testing`; usado por `baileys-provider/tests/identity-contract.test.ts`. |
+| **MockProvider adversario** (caos) | `ChaosProvider` / `withChaos` y `createTestBot(config, { chaos })` en `@botmesh/core/testing`: duplicados, reordenación, latencia, fallos de envío tipados, desconexiones con replay y alias de identidad, deterministas por `seed`. Guía: `docs/guide/testing.md`. |
+| **Contrato de identidad verificable** | `assertStableIdentity`, `checkIdentityContract` y `recordEvents` en `@botmesh/core/testing`; usado por `baileys-provider/tests/identity-contract.test.ts`. |
 | **Idempotencia de entrada** | `BotConfig.dedupe` (activado por defecto): descarta re-entregas por `chatId` + id; contrato de ids de entrada documentado en `IProvider`. Guía: `docs/guide/concepts.md`. |
 | **Describe / lint de flujos** | `bot.describe()` (Mermaid o JSON), `bot.lint()` con 13 reglas, `describeFlows` / `lintFlows` sin Bot. Guía: `docs/guide/flow-tools.md`. |
-| **`bot-wa dev`** (simulador en la terminal) | CLI `bot-wa dev src/bot.js` con recarga en caliente, `defineBot` + `isMainModule`, API programática en `@bot-wa/core/dev`; `create-bot-wa` genera `npm run dev`. Guía: `docs/guide/dev-simulator.md`. |
-| **Ingress de webhooks** (`@bot-wa/server`, privado) | `createIngress()` + adaptadores `serveNode`/`createNodeHandler` (`node:http`, Express, Fastify) y `serveFetch`/`createFetchHandler` (Hono, runtimes con `fetch`): body crudo para verificar firmas, límite de tamaño (413), timeouts, límite de concurrencia y endpoints de salud. Guía: `docs/guide/server.md`. |
-| **Ventana de 24 h de WhatsApp + pricing** (`@bot-wa/meta`) | Opción `sessionWindow` / `SessionWindowManager` con `SessionWindowStore` enchufable: reabre un chat cerrado con una plantilla aprobada y reintenta el envío original cuando el usuario responde; estado por número de negocio (`forScope()`). Los estados llevan `pricing`/`conversation` normalizados en `DeliveryStatus.platformData` y `provider.usage` agrega uso y coste estimado. Guía: `docs/guide/session-window.md`. |
-| **Streaming de respuestas** (`ctx.stream`) | `ctx.stream()` en el core: borradores nativos (Telegram), edición progresiva donde hay `editMessage` o trozos por frases como degradación; los envíos llevan `stream: 'draft' \| 'edit' \| 'message'` en los hooks de `send`. `@bot-wa/ai` lo usa para las respuestas en vivo. Guía: `docs/guide/streaming.md`. |
-| **Golden transcripts** | `recordTranscript`/`RecordingProvider`, `transcriptFromStore`, `redactTranscript` (placeholders estables), formato JSON versionado y `replayTranscript`/`assertTranscript` en `@bot-wa/core/testing` con diffs y tolerancias; `@bot-wa/deployments` los usa como gate de publicación (`goldenTranscriptGate`). Guía: `docs/guide/golden-transcripts.md`. |
+| **`botmesh dev`** (simulador en la terminal) | CLI `botmesh dev src/bot.js` con recarga en caliente, `defineBot` + `isMainModule`, API programática en `@botmesh/core/dev`; `create-botmesh` genera `npm run dev`. Guía: `docs/guide/dev-simulator.md`. |
+| **Ingress de webhooks** (`@botmesh/server`, privado) | `createIngress()` + adaptadores `serveNode`/`createNodeHandler` (`node:http`, Express, Fastify) y `serveFetch`/`createFetchHandler` (Hono, runtimes con `fetch`): body crudo para verificar firmas, límite de tamaño (413), timeouts, límite de concurrencia y endpoints de salud. Guía: `docs/guide/server.md`. |
+| **Ventana de 24 h de WhatsApp + pricing** (`@botmesh/meta`) | Opción `sessionWindow` / `SessionWindowManager` con `SessionWindowStore` enchufable: reabre un chat cerrado con una plantilla aprobada y reintenta el envío original cuando el usuario responde; estado por número de negocio (`forScope()`). Los estados llevan `pricing`/`conversation` normalizados en `DeliveryStatus.platformData` y `provider.usage` agrega uso y coste estimado. Guía: `docs/guide/session-window.md`. |
+| **Streaming de respuestas** (`ctx.stream`) | `ctx.stream()` en el core: borradores nativos (Telegram), edición progresiva donde hay `editMessage` o trozos por frases como degradación; los envíos llevan `stream: 'draft' \| 'edit' \| 'message'` en los hooks de `send`. `@botmesh/ai` lo usa para las respuestas en vivo. Guía: `docs/guide/streaming.md`. |
+| **Golden transcripts** | `recordTranscript`/`RecordingProvider`, `transcriptFromStore`, `redactTranscript` (placeholders estables), formato JSON versionado y `replayTranscript`/`assertTranscript` en `@botmesh/core/testing` con diffs y tolerancias; `@botmesh/deployments` los usa como gate de publicación (`goldenTranscriptGate`). Guía: `docs/guide/golden-transcripts.md`. |
 | **Estado tipado en flujos** | `flow<S>()`; `.ask(…, 'key', { schema })`, `choose` y `.use()` infieren las claves de `c.state`; `FlowStateOf<typeof f>`. Guía: `docs/guide/flows.md`. |
-| **`AGENTS.md` en los proyectos generados** | `create-bot-wa` escribe un `AGENTS.md` con la API v2 vigente, los modismos v1 que no existen (`addAnswer`, `capture`, `flowDynamic`…) y los comandos del proyecto; exportado como `agentsMd()`. |
-| **Formularios nativos / WhatsApp Flows** | `flow().form({ id, title, fields })` con campos `text`, `number`, `email`, `date`, `select`, `multiselect` y `optin`: en `@bot-wa/meta` se envía como WhatsApp Flow estático si hay uno mapeado (`config.flows`, `provider.publishForm()`, `nativeId`); en el resto de canales (o sin mapeo) se pregunta campo a campo. Textos localizables (`core.form.*`). Guía: `docs/guide/forms.md`. |
+| **`AGENTS.md` en los proyectos generados** | `create-botmesh` escribe un `AGENTS.md` con la API v2 vigente, los modismos v1 que no existen (`addAnswer`, `capture`, `flowDynamic`…) y los comandos del proyecto; exportado como `agentsMd()`. |
+| **Formularios nativos / WhatsApp Flows** | `flow().form({ id, title, fields })` con campos `text`, `number`, `email`, `date`, `select`, `multiselect` y `optin`: en `@botmesh/meta` se envía como WhatsApp Flow estático si hay uno mapeado (`config.flows`, `provider.publishForm()`, `nativeId`); en el resto de canales (o sin mapeo) se pregunta campo a campo. Textos localizables (`core.form.*`). Guía: `docs/guide/forms.md`. |
 
 ---
 

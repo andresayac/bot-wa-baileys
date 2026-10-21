@@ -28,7 +28,7 @@ export interface RagChunk {
   metadata?: RagMetadata
 }
 
-/** One retrieval hit. Structurally compatible with `AIRetrievedChunk` of `@bot-wa/ai`. */
+/** One retrieval hit. Structurally compatible with `AIRetrievedChunk` of `@botmesh/ai`. */
 export interface RetrievedChunk extends RagChunk {
   /** Cosine similarity with the query, in [-1, 1] (higher is closer). */
   score: number

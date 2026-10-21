@@ -15,7 +15,7 @@
  * ```
  */
 
-import { loadMediaOf, MediaTooLargeError, type MediaPayload, type MessageContext, type SentMessage } from '@bot-wa/core'
+import { loadMediaOf, MediaTooLargeError, type MediaPayload, type MessageContext, type SentMessage } from '@botmesh/core'
 import { estimateDurationSec } from './audio.js'
 import {
   AudioTooLargeError,

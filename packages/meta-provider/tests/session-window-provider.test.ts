@@ -1,6 +1,6 @@
 import { Readable } from 'node:stream'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import type { DeliveryStatus, InboundEvent } from '@bot-wa/core'
+import type { DeliveryStatus, InboundEvent } from '@botmesh/core'
 import { CloudAPIProvider } from '../src/CloudAPIProvider.js'
 import { SessionWindowManager, SessionWindowReopenedError, type SessionReport, type SessionWindowState } from '../src/sessionWindow.js'
 import { UsageTracker } from '../src/pricing.js'

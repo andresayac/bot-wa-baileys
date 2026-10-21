@@ -1,6 +1,6 @@
 # Inspect & lint flows
 
-`@bot-wa/core` can describe the flows a bot has registered, as a Mermaid
+`@botmesh/core` can describe the flows a bot has registered, as a Mermaid
 diagram or a JSON graph, and check them statically for common mistakes.
 Nothing is sent and the bot does not need to be started.
 
@@ -8,7 +8,7 @@ Nothing is sent and the bot does not need to be started.
 
 ```ts
 import { writeFileSync } from 'node:fs'
-import { Bot, flow, describeFlows } from '@bot-wa/core'
+import { Bot, flow, describeFlows } from '@botmesh/core'
 
 bot.use(
   flow('register')

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { ProviderError, streamText } from '@bot-wa/core'
+import { ProviderError, streamText } from '@botmesh/core'
 import { TelegramProvider } from '../src/TelegramProvider.js'
 
 interface Call { url: string; body: Record<string, unknown> }

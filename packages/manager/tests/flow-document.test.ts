@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { createTestBot } from '@bot-wa/core/testing'
+import { createTestBot } from '@botmesh/core/testing'
 import {
   compileFlowDocument,
   evaluateExpression,

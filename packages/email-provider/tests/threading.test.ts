@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { MemoryStore } from '@bot-wa/core'
+import { MemoryStore } from '@botmesh/core'
 import { parseEmail } from '../src/mime.js'
 import { baseSubject, cursorThreadStore, MemoryThreadStore, ThreadTracker } from '../src/threading.js'
 

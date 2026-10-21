@@ -4,7 +4,7 @@
  * Skipped unless BOTWA_TEST_REDIS_URL is set (see integration.test.ts / CONTRIBUTING):
  *
  *   docker run -d --rm --name botwa-it-redis -p 127.0.0.1:56379:6379 redis:7-alpine
- *   BOTWA_TEST_REDIS_URL=redis://127.0.0.1:56379 pnpm --filter @bot-wa/redis-store test
+ *   BOTWA_TEST_REDIS_URL=redis://127.0.0.1:56379 pnpm --filter @botmesh/redis-store test
  *
  * Every test uses its own key prefix (`botwa-co-it:<uuid>:…`) and deletes it afterwards.
  * The failover test runs the dying replica in a child process (started, and killed, by
@@ -16,8 +16,8 @@ import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { createClient } from 'redis'
-import { Bot, LeaseLostError, flow, type Coordinator, type Ticket } from '@bot-wa/core'
-import { MockProvider } from '@bot-wa/core/testing'
+import { Bot, LeaseLostError, flow, type Coordinator, type Ticket } from '@botmesh/core'
+import { MockProvider } from '@botmesh/core/testing'
 import { RedisCoordinator, RedisStore, type CoordinatorClient, type NativeRedisClient } from '../src/index.js'
 import { RELEASE_TURN_SCRIPT } from '../src/coordScripts.js'
 

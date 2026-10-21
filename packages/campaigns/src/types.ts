@@ -1,5 +1,5 @@
 /**
- * Records of `@bot-wa/campaigns`: recipients, campaign definitions, delivery states
+ * Records of `@botmesh/campaigns`: recipients, campaign definitions, delivery states
  * (planned and settled), the inputs of the store operations and their errors.
  */
 

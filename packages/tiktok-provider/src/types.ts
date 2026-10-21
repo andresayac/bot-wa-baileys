@@ -1,10 +1,10 @@
 /**
- * @bot-wa/tiktok — configuration and TikTok API for Business payload shapes
+ * @botmesh/tiktok — configuration and TikTok API for Business payload shapes
  * (subset used). Field names follow the official v1.3 docs.
  */
 
-import type { SecureFetchOptions } from '@bot-wa/http'
-import type { LoggerLike } from '@bot-wa/core'
+import type { SecureFetchOptions } from '@botmesh/http'
+import type { LoggerLike } from '@botmesh/core'
 
 /** Access token, or a function returning the current one (TikTok account tokens expire after 24 h). */
 export type TikTokAccessToken = string | (() => string | Promise<string>)

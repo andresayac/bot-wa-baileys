@@ -21,7 +21,7 @@
  */
 
 import pino from 'pino'
-import type { LoggerLike } from '@bot-wa/core'
+import type { LoggerLike } from '@botmesh/core'
 import type {
   ChatId,
   IProvider,
@@ -34,8 +34,8 @@ import type {
   SerializedMediaRef,
   TextFormat,
   UserId,
-} from '@bot-wa/core'
-import { PayloadTooLargeError, ProviderError } from '@bot-wa/core'
+} from '@botmesh/core'
+import { PayloadTooLargeError, ProviderError } from '@botmesh/core'
 import { BoundedMap, fetchTyped, header, rawText, request, retryAfterMs, type HeaderBag } from './http.js'
 import { channelOf, parseInbound } from './parseInbound.js'
 import { bodySha256, paramsFromObject, parseFormParams, verifyTwilioSignature, type TwilioParams } from './signature.js'

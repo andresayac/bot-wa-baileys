@@ -10,7 +10,7 @@
  */
 
 import type { WACallEvent } from '@whiskeysockets/baileys'
-import type { CallEvent, ChatId, UserId } from '@bot-wa/core'
+import type { CallEvent, ChatId, UserId } from '@botmesh/core'
 
 /** Cap on remembered group calls (one entry per call in progress). */
 const CALL_GROUPS_MAX = 500

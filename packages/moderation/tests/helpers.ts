@@ -1,5 +1,5 @@
-import { Bot } from '@bot-wa/core'
-import { MockProvider } from '@bot-wa/core/testing'
+import { Bot } from '@botmesh/core'
+import { MockProvider } from '@botmesh/core/testing'
 
 /** MockProvider with the optional moderation capabilities (delete + group admin). */
 export class AdminMockProvider extends MockProvider {

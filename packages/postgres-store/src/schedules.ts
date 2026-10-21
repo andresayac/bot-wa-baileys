@@ -21,7 +21,7 @@
  * ```
  */
 
-import type { ClaimResult, CompletePatch, ScheduleKind, ScheduleRecord, ScheduleStore } from '@bot-wa/core'
+import type { ClaimResult, CompletePatch, ScheduleKind, ScheduleRecord, ScheduleStore } from '@botmesh/core'
 import type { NativePostgresPool, PostgresQueryResult } from './PostgresStore.js'
 
 /** What {@link PostgresScheduleStore} needs from a pool: parameterized `query()` only. */

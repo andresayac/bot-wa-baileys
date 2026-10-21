@@ -6,7 +6,7 @@
  *
  * @example
  * ```ts
- * import { toJid, isGroup, isPn } from '@bot-wa/core'
+ * import { toJid, isGroup, isPn } from '@botmesh/core'
  *
  * const jid = toJid('573001234567')              // '573001234567@s.whatsapp.net'
  * const isGroupChat = isGroup(jid)              // false
@@ -30,7 +30,7 @@ import {
 export type JID = string
 // ChatId/UserId are core's opaque ids (a JID here; UserId in LID or PN form).
 // Re-exported, not redeclared, so toChatId/toUserId return the public core types.
-import type { ChatId, UserId } from '@bot-wa/core'
+import type { ChatId, UserId } from '@botmesh/core'
 export type { ChatId, UserId }
 /** Anything that can be turned into a JID: full JID, plain number, or `{ groupId, userId }`. */
 export type JidInput = string | number | { groupId: string; userId?: string }

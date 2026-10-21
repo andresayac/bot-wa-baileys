@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { OutsideSessionWindowError, RecipientUnreachableError } from '@bot-wa/core'
+import { OutsideSessionWindowError, RecipientUnreachableError } from '@botmesh/core'
 import { MessengerProvider, toProviderError } from '../src/MessengerProvider.js'
 import { toOutbound, toOutboundMessages } from '../src/toOutbound.js'
 import { parseInbound } from '../src/parseInbound.js'

@@ -1,7 +1,7 @@
 /** Durable media references: the journaled `file_id` round-trips and downloads like a live one. */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createServer } from 'node:http'
-import { ProviderError, type SerializedMediaRef } from '@bot-wa/core'
+import { ProviderError, type SerializedMediaRef } from '@botmesh/core'
 import { TelegramProvider } from '../src/TelegramProvider.js'
 
 afterEach(() => vi.unstubAllGlobals())

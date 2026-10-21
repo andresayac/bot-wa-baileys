@@ -8,7 +8,7 @@ import type BetterSqlite3 from 'better-sqlite3'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { SQLiteStore } from '../src/SQLiteStore.js'
-import type { FlowCheckpoint, StoredMessage } from '@bot-wa/core'
+import type { FlowCheckpoint, StoredMessage } from '@botmesh/core'
 
 // Each test gets its own temp directory: on Windows a just-closed SQLite file can stay
 // locked for a moment (EBUSY), so reusing one fixed path made the suite flaky.

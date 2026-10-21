@@ -1,5 +1,5 @@
 /**
- * BotManager — multi-bot orchestrator for `@bot-wa/core`.
+ * BotManager — multi-bot orchestrator for `@botmesh/core`.
  *
  * Keeps a registry of bot instances keyed by id, tracks their running state
  * (a bot is *running* between its `start()` and `stop()`), and offers
@@ -16,12 +16,12 @@
  * - **dynamic JSON flows** per bot (`addFlow`/`putFlow`/`removeFlow`).
  *
  * Any object with `start()` / `stop()` is manageable — a real
- * {@link import('@bot-wa/core').Bot | Bot} from `@bot-wa/core` or a test stub.
+ * {@link import('@botmesh/core').Bot | Bot} from `@botmesh/core` or a test stub.
  *
  * @example
  * ```ts
- * import { Bot } from '@bot-wa/core'
- * import { BotManager } from '@bot-wa/manager'
+ * import { Bot } from '@botmesh/core'
+ * import { BotManager } from '@botmesh/manager'
  *
  * const manager = new BotManager()
  * manager.on('error', ({ id, error }) => console.error(id, error))
@@ -133,7 +133,7 @@ export interface ManagerEventMap {
 
 /** Options for the {@link BotManager} constructor. */
 export interface BotManagerOptions {
-  /** Inject a custom pino logger. Defaults to a silent `bot-wa-manager` logger. */
+  /** Inject a custom pino logger. Defaults to a silent `botmesh-manager` logger. */
   logger?: Logger
   /** Builds bots from persisted configs. Required by `createBot()`/`updateBot()`/`restore()`. */
   factory?: BotFactory
@@ -210,7 +210,7 @@ export class BotManager extends EventEmitter {
     super()
     this.logger =
       opts.logger ??
-      pino({ name: 'bot-wa-manager', level: process.env.BOTWA_MANAGER_LOG_LEVEL ?? 'silent' })
+      pino({ name: 'botmesh-manager', level: process.env.BOTWA_MANAGER_LOG_LEVEL ?? 'silent' })
     this.factory = opts.factory
     this.configStore = opts.configStore ?? (opts.persistence ? new FileBotConfigStore({
       dir: opts.persistence.dir,

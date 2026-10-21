@@ -4,8 +4,8 @@
 import { Readable } from 'node:stream'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { describe, it, expect, beforeEach } from 'vitest'
-import { Bot, RateLimitedError } from '@bot-wa/core'
-import { MockProvider } from '@bot-wa/core/testing'
+import { Bot, RateLimitedError } from '@botmesh/core'
+import { MockProvider } from '@botmesh/core/testing'
 import {
   BotManager,
   MemoryBotConfigStore,
@@ -254,7 +254,7 @@ describe('REST API — messaging, conversations, flows, idempotency', () => {
     ])
     for (const media of [
       '/etc/passwd', { path: '/etc/passwd' }, { url: 'file:///etc/passwd' }, { url: 'http://insecure' },
-      // SSRF: transports such as Baileys download `{ url }` media themselves, without @bot-wa/http.
+      // SSRF: transports such as Baileys download `{ url }` media themselves, without @botmesh/http.
       { url: 'https://127.0.0.1/a.png' }, { url: 'https://[::ffff:7f00:1]/a.png' }, { url: 'https://localhost/a.png' },
       { url: 'https://internal.example/a.png' }, { url: 'https://user:pw@example.com/a.png' },
     ]) {

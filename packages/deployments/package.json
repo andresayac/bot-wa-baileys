@@ -1,5 +1,5 @@
 {
-  "name": "@bot-wa/deployments",
+  "name": "@botmesh/deployments",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -25,15 +25,15 @@
     "typecheck": "tsc -p tsconfig.test.json"
   },
   "dependencies": {
-    "@bot-wa/core": "workspace:*",
-    "@bot-wa/tenant-kv": "workspace:*"
+    "@botmesh/core": "workspace:*",
+    "@botmesh/tenant-kv": "workspace:*"
   },
   "author": "Andres Aya",
   "license": "MIT",
   "devDependencies": {
-    "@bot-wa/postgres-store": "workspace:*",
-    "@bot-wa/redis-store": "workspace:*",
-    "@bot-wa/sqlite-store": "workspace:*",
+    "@botmesh/postgres-store": "workspace:*",
+    "@botmesh/redis-store": "workspace:*",
+    "@botmesh/sqlite-store": "workspace:*",
     "@types/node": "^26.1.1",
     "@types/pg": "^8.11.10",
     "better-sqlite3": "^11.7.0",

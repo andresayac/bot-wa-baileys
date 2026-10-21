@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import type { DeliveryStatus, InboundEvent } from '@bot-wa/core'
+import type { DeliveryStatus, InboundEvent } from '@botmesh/core'
 import { parseInbound } from '../src/parseInbound.js'
 import { UsageTracker, parsePricing, parseConversation, pricingOf } from '../src/pricing.js'
 import { fixture } from './support-fixtures.js'

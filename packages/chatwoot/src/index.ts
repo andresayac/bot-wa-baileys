@@ -1,5 +1,5 @@
 /**
- * @bot-wa/chatwoot — Chatwoot inbox sync + human handoff for `@bot-wa/core`.
+ * @botmesh/chatwoot — Chatwoot inbox sync + human handoff for `@botmesh/core`.
  *
  * - {@link chatwootPlugin} — the plugin (also exposes the webhook handler and helpers).
  * - {@link ChatwootClient} — the minimal Application API client it uses (via secureFetch).
@@ -32,7 +32,7 @@ export type { HeaderBag, WebhookAuthConfig } from './webhookAuth.js'
 export { inboundText, outboundText } from './format.js'
 
 /** Types `ctx.tools.chatwoot` once this package is imported. */
-declare module '@bot-wa/core' {
+declare module '@botmesh/core' {
   interface DefaultTools {
     /** Present when `chatwootPlugin` is plugged into the Bot. */
     chatwoot?: ChatwootApi

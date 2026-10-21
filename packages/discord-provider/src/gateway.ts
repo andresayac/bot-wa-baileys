@@ -16,8 +16,8 @@
  */
 
 import WebSocket from 'ws'
-import type { LoggerLike } from '@bot-wa/core'
-import type { ConnectionUpdate, DisconnectReason } from '@bot-wa/core'
+import type { LoggerLike } from '@botmesh/core'
+import type { ConnectionUpdate, DisconnectReason } from '@botmesh/core'
 import {
   FATAL_CLOSE_CODES,
   FRESH_SESSION_CODES,
@@ -184,7 +184,7 @@ export class GatewaySocket {
       d: {
         token: this.cfg.token,
         intents: this.cfg.intents,
-        properties: { os: process.platform, browser: '@bot-wa/discord', device: '@bot-wa/discord' },
+        properties: { os: process.platform, browser: '@botmesh/discord', device: '@botmesh/discord' },
       },
     })
   }

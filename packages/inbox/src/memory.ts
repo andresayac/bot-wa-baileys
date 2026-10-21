@@ -5,8 +5,8 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import type { StoredMessage } from '@bot-wa/core'
-import { assertTenantId } from '@bot-wa/tenant-kv'
+import type { StoredMessage } from '@botmesh/core'
+import { assertTenantId } from '@botmesh/tenant-kv'
 import type { InboxStore } from './store.js'
 import {
   InboxConflictError,

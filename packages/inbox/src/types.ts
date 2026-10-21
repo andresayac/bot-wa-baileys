@@ -1,5 +1,5 @@
 /**
- * Records of `@bot-wa/inbox`: conversations as agents see them, internal notes, the
+ * Records of `@botmesh/inbox`: conversations as agents see them, internal notes, the
  * inputs of the store operations and the errors they reject with.
  */
 

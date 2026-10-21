@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { DeploymentExistsError, DeploymentGateError, DeploymentRegistry, MemoryDeploymentStore } from '@bot-wa/deployments'
+import { DeploymentExistsError, DeploymentGateError, DeploymentRegistry, MemoryDeploymentStore } from '@botmesh/deployments'
 import {
   FlowDocumentError,
   flowArtifact,

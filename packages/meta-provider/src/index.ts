@@ -1,5 +1,5 @@
 /**
- * @bot-wa/meta — WhatsApp Cloud API (official Meta) transport for @bot-wa/core.
+ * @botmesh/meta — WhatsApp Cloud API (official Meta) transport for @botmesh/core.
  * Webhook-based, no ban risk, native buttons/lists/templates.
  */
 
@@ -21,8 +21,8 @@ export type {
 } from './parseInbound.js'
 export { MemoryIdentityMap, isBsuid } from './identity.js'
 export type { IdentityMap, IdentityLogger, MemoryIdentityMapOptions, MaybePromise } from './identity.js'
-export { verifyChallenge, verifySignature } from '@bot-wa/graph-core'
-export type { ChallengeQuery } from '@bot-wa/graph-core'
+export { verifyChallenge, verifySignature } from '@botmesh/graph-core'
+export type { ChallengeQuery } from '@botmesh/graph-core'
 export type { CloudAPIProviderConfig, GraphErrorBody, GraphSendMessageResponse } from './types.js'
 export {
   SessionWindowManager,

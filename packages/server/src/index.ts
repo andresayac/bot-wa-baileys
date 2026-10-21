@@ -1,10 +1,10 @@
 /**
- * @bot-wa/server — webhook ingress for @bot-wa providers.
+ * @botmesh/server — webhook ingress for @botmesh providers.
  *
  * Captures the raw body bytes (for signature checks), enforces body-size,
  * timeout and concurrency limits, routes GET handshakes / POST events to each
  * provider and serves `/healthz` + `/readyz`. Framework adapters live in the
- * `@bot-wa/server/express`, `/fastify` and `/hono` subpaths and import nothing
+ * `@botmesh/server/express`, `/fastify` and `/hono` subpaths and import nothing
  * from those frameworks.
  */
 export { createIngress, normalizePath, DEFAULT_MAX_BODY_BYTES, DEFAULT_BODY_TIMEOUT_MS, DEFAULT_INGEST_TIMEOUT_MS, DEFAULT_MAX_CONCURRENT } from './ingress.js'

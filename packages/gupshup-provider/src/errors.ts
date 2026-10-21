@@ -6,7 +6,7 @@ import {
   ProviderError,
   RateLimitedError,
   RecipientUnreachableError,
-} from '@bot-wa/core'
+} from '@botmesh/core'
 
 /** Any Gupshup failure not mapped to a more specific class. */
 export class GupshupApiError extends ProviderError {

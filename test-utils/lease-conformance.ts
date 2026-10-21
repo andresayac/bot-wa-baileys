@@ -7,7 +7,7 @@
  * the expiry tests use short real TTLs.
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import type { LeaseProvider } from '@bot-wa/core'
+import type { LeaseProvider } from '@botmesh/core'
 
 export interface LeaseHarness {
   make(): Promise<{ lease: LeaseProvider; teardown: () => Promise<void> }>

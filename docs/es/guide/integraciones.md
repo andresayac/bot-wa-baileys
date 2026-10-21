@@ -9,10 +9,10 @@ de la primera alpha) y su API puede cambiar. Úsalos desde el monorepo
 
 | Paquete | Qué hace | Herramienta |
 | --- | --- | --- |
-| [`@bot-wa/chatwoot`](#chatwoot) | Refleja los chats en un inbox de Chatwoot; los agentes de Chatwoot toman el control mediante el handoff del core | `ctx.tools.chatwoot` |
-| [`@bot-wa/tickets`](#tickets) | Tickets de soporte con cola por prioridad, horario de atención y persistencia en el store | `ctx.tools.tickets` |
-| [`@bot-wa/moderation`](#moderacion) | Moderación de grupos: anti-spam, filtros de palabras y enlaces, warn/mute/kick/delete | `ctx.tools.moderation` |
-| [`@bot-wa/dialogflow`](#dialogflow) | Detección de intenciones con Dialogflow ES/CX y ruteo de intención a flow | `ctx.tools.dialogflow` |
+| [`@botmesh/chatwoot`](#chatwoot) | Refleja los chats en un inbox de Chatwoot; los agentes de Chatwoot toman el control mediante el handoff del core | `ctx.tools.chatwoot` |
+| [`@botmesh/tickets`](#tickets) | Tickets de soporte con cola por prioridad, horario de atención y persistencia en el store | `ctx.tools.tickets` |
+| [`@botmesh/moderation`](#moderacion) | Moderación de grupos: anti-spam, filtros de palabras y enlaces, warn/mute/kick/delete | `ctx.tools.moderation` |
+| [`@botmesh/dialogflow`](#dialogflow) | Detección de intenciones con Dialogflow ES/CX y ruteo de intención a flow | `ctx.tools.dialogflow` |
 
 Los cuatro son plugins normales (`bot.plug(factory({...}))`) con un
 `install` síncrono. Importar un paquete tipa su entrada de `ctx.tools.*`;
@@ -21,10 +21,10 @@ fuera de un handler, usa `bot.injectTools.<nombre>`.
 ```json
 {
   "dependencies": {
-    "@bot-wa/chatwoot": "workspace:*",
-    "@bot-wa/tickets": "workspace:*",
-    "@bot-wa/moderation": "workspace:*",
-    "@bot-wa/dialogflow": "workspace:*"
+    "@botmesh/chatwoot": "workspace:*",
+    "@botmesh/tickets": "workspace:*",
+    "@botmesh/moderation": "workspace:*",
+    "@botmesh/dialogflow": "workspace:*"
   }
 }
 ```
@@ -65,8 +65,8 @@ Conecta el bot con un inbox de **canal API** en
 
 ```ts
 import { createServer } from 'node:http'
-import { Bot } from '@bot-wa/core'
-import { chatwootPlugin } from '@bot-wa/chatwoot'
+import { Bot } from '@botmesh/core'
+import { chatwootPlugin } from '@botmesh/chatwoot'
 
 const bot = new Bot({ provider, store, handoff: { allowCommands: ['/bot'] } })
 
@@ -161,7 +161,7 @@ pendiente, útil al apagar y en tests) y `client` (`ChatwootClient`).
 - `handleWebhook` responde `401` sin autenticación válida, `400` con JSON
   inválido y `503` antes de que el plugin esté instalado; nunca lanza.
   `webhookHandler` solo acepta `POST` y limita el body a 1 MiB.
-- El HTTP saliente pasa por `secureFetch` de `@bot-wa/http`: solo HTTPS,
+- El HTTP saliente pasa por `secureFetch` de `@botmesh/http`: solo HTTPS,
   protección anti-SSRF, timeouts y sin seguir redirecciones, así que el
   `api_access_token` nunca llega a otro origen. Un Chatwoot self-hosted en
   la LAN necesita `http.allowPrivateHosts` (y `http.allowHttp` para HTTP
@@ -183,7 +183,7 @@ pendiente, útil al apagar y en tests) y `client` (`ChatwootClient`).
 Tickets de soporte y una cola en `ctx.tools.tickets`.
 
 ```ts
-import { ticketsPlugin } from '@bot-wa/tickets'
+import { ticketsPlugin } from '@botmesh/tickets'
 
 bot.plug(ticketsPlugin({
   workingHours: { days: [1, 2, 3, 4, 5], start: '09:00', end: '18:00' },
@@ -267,8 +267,8 @@ memoria no cambia. `TicketDesk` también se puede usar sin bot:
 Moderación de grupos que corre antes que cualquier handler.
 
 ```ts
-import { Bot } from '@bot-wa/core'
-import { moderationPlugin } from '@bot-wa/moderation'
+import { Bot } from '@botmesh/core'
+import { moderationPlugin } from '@botmesh/moderation'
 
 const bot = new Bot({ provider })            // groupMode 'all' (the default)
 
@@ -362,8 +362,8 @@ Google: el JWT de la cuenta de servicio se firma con `node:crypto` (RS256)
 y todas las peticiones salen por `secureFetch`.
 
 ```ts
-import { Bot, flow } from '@bot-wa/core'
-import { dialogflowContext, whenDialogflowIntent } from '@bot-wa/dialogflow'
+import { Bot, flow } from '@botmesh/core'
+import { dialogflowContext, whenDialogflowIntent } from '@botmesh/dialogflow'
 
 const bot = new Bot({ provider })
 

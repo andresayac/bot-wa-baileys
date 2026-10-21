@@ -7,7 +7,7 @@
  */
 
 import { describe, it, expect, expectTypeOf, vi, afterEach } from 'vitest'
-import type { IProvider, MessageRef } from '@bot-wa/core'
+import type { IProvider, MessageRef } from '@botmesh/core'
 import { DiscordProvider } from '../src/DiscordProvider.js'
 import { fakeSocketFactory } from './_fakeSocket.js'
 

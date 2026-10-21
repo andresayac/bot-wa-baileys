@@ -1,8 +1,8 @@
 {
-  "name": "@bot-wa/ai",
+  "name": "@botmesh/ai",
   "version": "0.2.0-alpha.0",
   "type": "module",
-  "description": "Multi-provider AI autoresponder plugin (Anthropic / OpenAI / Ollama) for @bot-wa/core, with per-chat conversation memory and a ctx.tools.ai client.",
+  "description": "Multi-provider AI autoresponder plugin (Anthropic / OpenAI / Ollama) for @botmesh/core, with per-chat conversation memory and a ctx.tools.ai client.",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
   "exports": {
@@ -31,12 +31,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/andresayac/bot-wa-baileys.git",
+    "url": "git+https://github.com/andresayac/botmesh.git",
     "directory": "packages/ai"
   },
-  "homepage": "https://github.com/andresayac/bot-wa-baileys/tree/main/packages/ai#readme",
+  "homepage": "https://github.com/andresayac/botmesh/tree/main/packages/ai#readme",
   "bugs": {
-    "url": "https://github.com/andresayac/bot-wa-baileys/issues"
+    "url": "https://github.com/andresayac/botmesh/issues"
   },
   "files": [
     "./lib/**/*"
@@ -48,7 +48,7 @@
     "typecheck": "tsc -p tsconfig.test.json"
   },
   "dependencies": {
-    "@bot-wa/core": "workspace:^"
+    "@botmesh/core": "workspace:^"
   },
   "peerDependencies": {
     "@anthropic-ai/sdk": "^0.68.0",
@@ -68,7 +68,7 @@
   },
   "devDependencies": {
     "@anthropic-ai/sdk": "^0.68.0",
-    "@bot-wa/telegram": "workspace:^",
+    "@botmesh/telegram": "workspace:^",
     "@types/node": "^26.1.1",
     "openai": "^6.48.0",
     "typescript": "^7.0.2"

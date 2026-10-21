@@ -1,10 +1,10 @@
 /**
- * @bot-wa/baileys — WhatsApp transport for @bot-wa/core (Baileys 7, IProvider v2).
+ * @botmesh/baileys — WhatsApp transport for @botmesh/core (Baileys 7, IProvider v2).
  *
  * @example
  * ```ts
- * import { Bot } from '@bot-wa/core'
- * import { BaileysProvider } from '@bot-wa/baileys'
+ * import { Bot } from '@botmesh/core'
+ * import { BaileysProvider } from '@botmesh/baileys'
  *
  * const bot = new Bot({ provider: new BaileysProvider({ session: 'demo', qr: { terminal: true } }) })
  * await bot.start()

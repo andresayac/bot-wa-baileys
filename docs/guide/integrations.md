@@ -8,10 +8,10 @@ alpha) and whose API may change. Use them from the monorepo (`workspace:*`).
 
 | Package | What it does | Tool |
 | --- | --- | --- |
-| [`@bot-wa/chatwoot`](#chatwoot) | Mirrors chats into a Chatwoot inbox; Chatwoot agents take over through the core handoff | `ctx.tools.chatwoot` |
-| [`@bot-wa/tickets`](#tickets) | Support tickets with a priority queue, working hours and store persistence | `ctx.tools.tickets` |
-| [`@bot-wa/moderation`](#moderation) | Group moderation: anti-spam, word/link filters, warn/mute/kick/delete | `ctx.tools.moderation` |
-| [`@bot-wa/dialogflow`](#dialogflow) | Dialogflow ES/CX intent detection and intent-to-flow routing | `ctx.tools.dialogflow` |
+| [`@botmesh/chatwoot`](#chatwoot) | Mirrors chats into a Chatwoot inbox; Chatwoot agents take over through the core handoff | `ctx.tools.chatwoot` |
+| [`@botmesh/tickets`](#tickets) | Support tickets with a priority queue, working hours and store persistence | `ctx.tools.tickets` |
+| [`@botmesh/moderation`](#moderation) | Group moderation: anti-spam, word/link filters, warn/mute/kick/delete | `ctx.tools.moderation` |
+| [`@botmesh/dialogflow`](#dialogflow) | Dialogflow ES/CX intent detection and intent-to-flow routing | `ctx.tools.dialogflow` |
 
 All four are regular plugins (`bot.plug(factory({...}))`) with a
 synchronous `install`. Importing a package types its `ctx.tools.*` entry;
@@ -20,10 +20,10 @@ outside a handler, use `bot.injectTools.<name>`.
 ```json
 {
   "dependencies": {
-    "@bot-wa/chatwoot": "workspace:*",
-    "@bot-wa/tickets": "workspace:*",
-    "@bot-wa/moderation": "workspace:*",
-    "@bot-wa/dialogflow": "workspace:*"
+    "@botmesh/chatwoot": "workspace:*",
+    "@botmesh/tickets": "workspace:*",
+    "@botmesh/moderation": "workspace:*",
+    "@botmesh/dialogflow": "workspace:*"
   }
 }
 ```
@@ -61,8 +61,8 @@ Bridges the bot with an **API channel** inbox in
 
 ```ts
 import { createServer } from 'node:http'
-import { Bot } from '@bot-wa/core'
-import { chatwootPlugin } from '@bot-wa/chatwoot'
+import { Bot } from '@botmesh/core'
+import { chatwootPlugin } from '@botmesh/chatwoot'
 
 const bot = new Bot({ provider, store, handoff: { allowCommands: ['/bot'] } })
 
@@ -156,7 +156,7 @@ on shutdown and in tests) and `client` (`ChatwootClient`).
 - `handleWebhook` answers `401` without valid auth, `400` on invalid JSON
   and `503` before the plugin is installed; it never throws.
   `webhookHandler` only accepts `POST` and caps the body at 1 MiB.
-- Outgoing HTTP goes through `secureFetch` from `@bot-wa/http`: HTTPS only,
+- Outgoing HTTP goes through `secureFetch` from `@botmesh/http`: HTTPS only,
   SSRF guard, timeouts and no redirects, so `api_access_token` never
   reaches another origin. A self-hosted Chatwoot on a LAN needs
   `http.allowPrivateHosts` (and `http.allowHttp` for plain HTTP).
@@ -176,7 +176,7 @@ on shutdown and in tests) and `client` (`ChatwootClient`).
 Support tickets and a queue as `ctx.tools.tickets`.
 
 ```ts
-import { ticketsPlugin } from '@bot-wa/tickets'
+import { ticketsPlugin } from '@botmesh/tickets'
 
 bot.plug(ticketsPlugin({
   workingHours: { days: [1, 2, 3, 4, 5], start: '09:00', end: '18:00' },
@@ -258,8 +258,8 @@ used without a bot: `new TicketDesk({ storage: memoryTicketStorage() })`.
 Group moderation that runs before any handler.
 
 ```ts
-import { Bot } from '@bot-wa/core'
-import { moderationPlugin } from '@bot-wa/moderation'
+import { Bot } from '@botmesh/core'
+import { moderationPlugin } from '@botmesh/moderation'
 
 const bot = new Bot({ provider })            // groupMode 'all' (the default)
 
@@ -351,8 +351,8 @@ the service-account JWT is signed with `node:crypto` (RS256) and all
 requests go through `secureFetch`.
 
 ```ts
-import { Bot, flow } from '@bot-wa/core'
-import { dialogflowContext, whenDialogflowIntent } from '@bot-wa/dialogflow'
+import { Bot, flow } from '@botmesh/core'
+import { dialogflowContext, whenDialogflowIntent } from '@botmesh/dialogflow'
 
 const bot = new Bot({ provider })
 

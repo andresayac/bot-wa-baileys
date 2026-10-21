@@ -2,12 +2,12 @@
  * nluPlugin — install an {@link IntentEngine} on a Bot.
  *
  * Exposes the engine as `ctx.tools.nlu` (typed via module augmentation of
- * `@bot-wa/core`'s `DefaultTools`) and optionally seeds it with intents from
+ * `@botmesh/core`'s `DefaultTools`) and optionally seeds it with intents from
  * config. Pair it with {@link whenIntent} to route messages by intent.
  *
  * @example
  * ```ts
- * import { nluPlugin, whenIntent, type IntentEngine } from '@bot-wa/nlu'
+ * import { nluPlugin, whenIntent, type IntentEngine } from '@botmesh/nlu'
  *
  * bot.plug(nluPlugin, {
  *   threshold: 0.5,
@@ -22,7 +22,7 @@
  * ```
  */
 
-import { definePlugin } from '@bot-wa/core'
+import { definePlugin } from '@botmesh/core'
 import { IntentEngine } from './IntentEngine.js'
 
 export interface NluPluginConfig {
@@ -35,7 +35,7 @@ export interface NluPluginConfig {
 export const nluPlugin = definePlugin<NluPluginConfig>({
   name: 'nlu',
   version: '0.1.0',
-  description: 'Lightweight local intent matching for @bot-wa/core — no external services.',
+  description: 'Lightweight local intent matching for @botmesh/core — no external services.',
   install(ctx, config = {}) {
     const engine = new IntentEngine({ threshold: config.threshold })
     for (const [intent, utterances] of Object.entries(config.intents ?? {})) {

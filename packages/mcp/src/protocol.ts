@@ -1,6 +1,6 @@
 /**
  * JSON-RPC 2.0 and the MCP stdio framing, hand-rolled so this package has no dependencies
- * (the same choice as `@bot-wa/server` and `@bot-wa/manager`).
+ * (the same choice as `@botmesh/server` and `@botmesh/manager`).
  *
  * The stdio transport is **newline-delimited JSON**: one message per line, never pretty
  * printed, and nothing else may be written to stdout. {@link LineDecoder} tolerates

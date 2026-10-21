@@ -1,24 +1,24 @@
 /**
- * Shared string builders for the `create-bot-wa` templates (package.json,
+ * Shared string builders for the `create-botmesh` templates (package.json,
  * the `defineBot` bot module, README, .gitignore) plus the dependency
  * versions stamped into generated projects. Pure — no I/O.
  */
 
-import { BOTWA_VERSIONS } from './versions.js'
-import type { BotWaPackage } from './versions.js'
+import { BOTMESH_VERSIONS } from './versions.js'
+import type { BotMeshPackage } from './versions.js'
 
 /* Versions stamped into generated package.json files.
  *
- * The `@bot-wa/*` ranges come from ./versions.ts, generated at build time from
+ * The `@botmesh/*` ranges come from ./versions.ts, generated at build time from
  * the current version of each public workspace package (a caret over the exact
  * version, so a prerelease such as `^2.0.0-alpha.2` still resolves on npm). */
-export { BOTWA_VERSIONS }
-export type { BotWaPackage }
+export { BOTMESH_VERSIONS }
+export type { BotMeshPackage }
 
-/** The range stamped for a public `@bot-wa/*` package. */
-export const botWaRange = (name: BotWaPackage): string => BOTWA_VERSIONS[name]
+/** The range stamped for a public `@botmesh/*` package. */
+export const botMeshRange = (name: BotMeshPackage): string => BOTMESH_VERSIONS[name]
 
-export const CORE_VERSION = botWaRange('@bot-wa/core')
+export const CORE_VERSION = botMeshRange('@botmesh/core')
 export const ANTHROPIC_SDK_VERSION = '^0.68.0'
 export const BETTER_SQLITE3_VERSION = '^11.7.0'
 
@@ -33,12 +33,12 @@ export function packageJson(name: string, deps: Record<string, string>): string 
     version: '0.1.0',
     private: true,
     type: 'module',
-    description: 'A bot built with @bot-wa/core',
+    description: 'A bot built with @botmesh/core',
     engines: { node: '>=22' },
     scripts: {
       start: 'node --env-file=.env src/bot.js',
-      // Terminal chat simulator with hot reload (ships with @bot-wa/core).
-      dev: 'bot-wa dev src/bot.js --env-file .env',
+      // Terminal chat simulator with hot reload (ships with @botmesh/core).
+      dev: 'botmesh dev src/bot.js --env-file .env',
     },
     dependencies: deps,
   }
@@ -55,16 +55,16 @@ export const HANDLERS = [
   "  flow('menu')",
   "    .say('📋 *Menú*\\n1️⃣ Info\\n2️⃣ Ping')",
   "    .ask('Responde 1 o 2:', 'choice')",
-  "    .say(async (_msg, c) => (c.state.choice === '1' ? 'ℹ️ Hecho con @bot-wa/core' : '🏓 ¡pong!'))",
+  "    .say(async (_msg, c) => (c.state.choice === '1' ? 'ℹ️ Hecho con @botmesh/core' : '🏓 ¡pong!'))",
   '    // Abandoned conversations end after 5 minutes without an answer.',
   "    .timeout('5m'),",
   ')',
 ]
 
 export interface BotModuleParts {
-  /** Import lines after the `@bot-wa/core` import (transport, plugins, stores). */
+  /** Import lines after the `@botmesh/core` import (transport, plugins, stores). */
   imports: string[]
-  /** Extra named imports from `@bot-wa/core` (besides Bot, defineBot, flow, isMainModule). */
+  /** Extra named imports from `@botmesh/core` (besides Bot, defineBot, flow, isMainModule). */
   coreImports?: string[]
   /** Module-level lines right after the imports (constants the factory reads). */
   prelude?: string[]
@@ -83,7 +83,7 @@ export interface BotModuleParts {
 /**
  * Assemble `src/bot.js` in the defineBot factory pattern:
  *  - `createBot` (the default export) builds the bot around ANY provider —
- *    `npm run dev` (`bot-wa dev`) calls it with the terminal simulator;
+ *    `npm run dev` (`botmesh dev`) calls it with the terminal simulator;
  *  - the `isMainModule(import.meta)` block runs only on `npm start` and
  *    connects the real provider.
  * `setup`, `handlers` and `main` lines are written at column 0 and indented into place here.
@@ -92,13 +92,13 @@ export function botModule(parts: BotModuleParts): string {
   const indent = (lines: string[]) => lines.map((line) => (line ? '  ' + line : line))
   const coreNames = ['Bot', 'defineBot', 'flow', 'isMainModule', ...(parts.coreImports ?? [])]
   return [
-    'import { ' + coreNames.join(', ') + " } from '@bot-wa/core'",
+    'import { ' + coreNames.join(', ') + " } from '@botmesh/core'",
     ...parts.imports,
     '',
     ...(parts.prelude ? [...parts.prelude, ''] : []),
     '// Your bot as a factory: give it a transport provider, get the configured Bot back.',
     '// `npm start` passes the real provider (bottom of this file); `npm run dev` passes the',
-    '// bot-wa dev terminal simulator, so you can try flows with no phone and no ban risk.',
+    '// botmesh dev terminal simulator, so you can try flows with no phone and no ban risk.',
     'const createBot = defineBot((' + (parts.params ?? 'provider') + ') => {',
     '  const bot = new Bot(' + (parts.config ?? '{ provider }') + ')',
     '',
@@ -110,7 +110,7 @@ export function botModule(parts: BotModuleParts): string {
     'export default createBot',
     '',
     '// `npm start` runs this file directly: connect the real provider.',
-    '// (`bot-wa dev` only imports the factory above, so this block is skipped there.)',
+    '// (`botmesh dev` only imports the factory above, so this block is skipped there.)',
     'if (isMainModule(import.meta)) {',
     ...indent(parts.main),
     '}',
@@ -125,7 +125,7 @@ export function readme(name: string, label: string, description: string, notes: 
     '',
     '> ' + description,
     '',
-    'Template: **' + label + '** — generated by [`create-bot-wa`](https://www.npmjs.com/package/create-bot-wa).',
+    'Template: **' + label + '** — generated by [`create-botmesh`](https://www.npmjs.com/package/create-botmesh).',
     '',
     '## Run',
     '',
@@ -140,7 +140,7 @@ export function readme(name: string, label: string, description: string, notes: 
     '',
     '## Try it in the terminal',
     '',
-    '`npm run dev` starts the **bot-wa dev** simulator: you type as a user, the bot answers right there, and',
+    '`npm run dev` starts the **botmesh dev** simulator: you type as a user, the bot answers right there, and',
     'saving a file reloads it. Nothing is sent to a real chat, so there is no ban risk. Type `:help` inside for',
     'commands (`:as <user>`, `:group <id>`, `:media image ./cat.png`, `:click <n>`, `:state`, `:reset`, `:quit`).',
     '',
@@ -153,7 +153,7 @@ export function readme(name: string, label: string, description: string, notes: 
     '',
     '## Learn more',
     '',
-    '- [`@bot-wa/core`](https://www.npmjs.com/package/@bot-wa/core) — `when`, `flow`, `conversation`, plugins, hooks, scheduler.',
+    '- [`@botmesh/core`](https://www.npmjs.com/package/@botmesh/core) — `when`, `flow`, `conversation`, plugins, hooks, scheduler.',
     '',
   ].join('\n')
 }

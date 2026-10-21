@@ -6,7 +6,7 @@
  * pino-shaped logger through untouched and wraps anything else.
  */
 
-import type { LoggerLike } from '@bot-wa/core'
+import type { LoggerLike } from '@botmesh/core'
 
 /**
  * Structural copy of Baileys' `ILogger` (its main entry does not re-export it).

@@ -1,5 +1,5 @@
 /**
- * @bot-wa/hub — tenant-scoped plugin registry: validated manifests, per-tenant installs
+ * @botmesh/hub — tenant-scoped plugin registry: validated manifests, per-tenant installs
  * and permission-gated enabling.
  *
  * - {@link validateManifest} — checks id, semver, entry path and that the runtime
@@ -7,8 +7,8 @@
  * - {@link PluginRegistry} — installs validated manifests per tenant and only enables a
  *   plugin once every declared permission has been granted.
  * - {@link MemoryPluginStore} — the in-RAM reference store (default).
- * - {@link KvPluginStore} — persisted through any `DurableKv` of `@bot-wa/core`
- *   (SQLite, PostgreSQL, Redis, file) via `@bot-wa/tenant-kv`.
+ * - {@link KvPluginStore} — persisted through any `DurableKv` of `@botmesh/core`
+ *   (SQLite, PostgreSQL, Redis, file) via `@botmesh/tenant-kv`.
  *
  * The registry never downloads or executes plugin code; signing, sandboxing and a
  * remote marketplace belong to a later infrastructure layer.

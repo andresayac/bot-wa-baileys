@@ -2,7 +2,7 @@
  * RateLimiter — unit tests for the token bucket rate limiter.
  */
 import { describe, it, expect, beforeEach } from 'vitest'
-import { ProviderError, RateLimitedError } from '@bot-wa/core'
+import { ProviderError, RateLimitedError } from '@botmesh/core'
 import { RateLimiter, RateLimiterTimeout } from '../src/RateLimiter.js'
 
 describe('RateLimiter', () => {

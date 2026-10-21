@@ -5,8 +5,8 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { createServer, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
-import { PayloadTooLargeError, ProviderError } from '@bot-wa/core'
-import { SecureHttpError } from '@bot-wa/http'
+import { PayloadTooLargeError, ProviderError } from '@botmesh/core'
+import { SecureHttpError } from '@botmesh/http'
 import { GraphClient } from '../src/graphClient.js'
 
 const cfg = { accessToken: 'TOK', phoneNumberId: 'PNID', apiVersion: 'v21.0', graphUrl: 'https://graph.facebook.com' }

@@ -12,7 +12,7 @@
  * webhook retries, never targetable).
  */
 
-import type { MessageRef } from '@bot-wa/core'
+import type { MessageRef } from '@botmesh/core'
 
 export type TelegramTarget =
   | { kind: 'message'; chat_id: number | string; message_id: number }

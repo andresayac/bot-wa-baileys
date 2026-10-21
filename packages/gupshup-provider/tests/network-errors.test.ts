@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { ProviderError } from '@bot-wa/core'
+import { ProviderError } from '@botmesh/core'
 import { GupshupProvider } from '../src/GupshupProvider.js'
 import { fakeHttp } from './support.js'
 

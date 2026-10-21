@@ -1,6 +1,6 @@
-# @bot-wa/otel
+# @botmesh/otel
 
-OpenTelemetry for [`@bot-wa/core`](../core): a `BotTracer` that turns the bot's spans into OpenTelemetry spans, and a bridge from `bot.metrics()` to OpenTelemetry metrics.
+OpenTelemetry for [`@botmesh/core`](../core): a `BotTracer` that turns the bot's spans into OpenTelemetry spans, and a bridge from `bot.metrics()` to OpenTelemetry metrics.
 
 > Paquete **privado** por ahora (no se publica en npm). Úsalo dentro del monorepo.
 
@@ -15,8 +15,8 @@ pnpm add @opentelemetry/api @opentelemetry/sdk-node @opentelemetry/exporter-trac
 ```ts
 import { NodeSDK } from '@opentelemetry/sdk-node'
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http'
-import { Bot } from '@bot-wa/core'
-import { createOtelTracer, otelMetricsPlugin } from '@bot-wa/otel'
+import { Bot } from '@botmesh/core'
+import { createOtelTracer, otelMetricsPlugin } from '@botmesh/otel'
 
 const sdk = new NodeSDK({ serviceName: 'mi-bot', traceExporter: new OTLPTraceExporter() })
 sdk.start()
@@ -28,7 +28,7 @@ const bot = new Bot({
 bot.plug(otelMetricsPlugin())
 ```
 
-Spans: `bot.inbound` → `bot.persist` / `bot.dispatch` → `bot.handler` → `bot.conversation.turn` → `bot.pace` → `bot.send`, más `chat {model}`, `execute_tool {name}` y `bot.ai.retrieve` de `@bot-wa/ai`. Sin cuerpos de mensaje ni datos personales; los ids van con HMAC por defecto.
+Spans: `bot.inbound` → `bot.persist` / `bot.dispatch` → `bot.handler` → `bot.conversation.turn` → `bot.pace` → `bot.send`, más `chat {model}`, `execute_tool {name}` y `bot.ai.retrieve` de `@botmesh/ai`. Sin cuerpos de mensaje ni datos personales; los ids van con HMAC por defecto.
 
 - `createOtelTracer(opts?)`: carga `@opentelemetry/api` y devuelve el tracer.
 - `otelTracer({ api, ... })`: igual, síncrono, con la API inyectada.

@@ -1,14 +1,14 @@
 /**
  * Minimal Chatwoot Application API client (`/api/v1/accounts/{accountId}/…`).
  *
- * Every request goes through `secureFetch` from `@bot-wa/http` (HTTPS only, SSRF guard on
+ * Every request goes through `secureFetch` from `@botmesh/http` (HTTPS only, SSRF guard on
  * the resolved address, timeout, size limit) and never follows redirects, so the
  * `api_access_token` header can never be forwarded to another origin. Self-hosted
  * Chatwoot on a private network needs `http.allowPrivateHosts` (and `http.allowHttp`
  * for plain HTTP) explicitly.
  */
 
-import { secureFetch, type HostResolver } from '@bot-wa/http'
+import { secureFetch, type HostResolver } from '@botmesh/http'
 
 /** Transport knobs for the Chatwoot client (all optional). */
 export interface ChatwootHttpOptions {

@@ -1,6 +1,6 @@
 /**
  * KvContactStore — {@link ContactStore} persisted through any `DurableKv` of
- * `@bot-wa/core` (SQLite, PostgreSQL, Redis, file or memory) via `@bot-wa/tenant-kv`.
+ * `@botmesh/core` (SQLite, PostgreSQL, Redis, file or memory) via `@botmesh/tenant-kv`.
  *
  * One table per tenant, `product/crm/contact/<tenant>`: id = contact id, `all` index =
  * most recently updated first. `upsert` replaces the document, `setConsent` is a
@@ -8,8 +8,8 @@
  * validate the stored document instead of trusting it.
  */
 
-import type { DurableKv } from '@bot-wa/core'
-import { TenantDocs } from '@bot-wa/tenant-kv'
+import type { DurableKv } from '@botmesh/core'
+import { TenantDocs } from '@botmesh/tenant-kv'
 import {
   DEFAULT_LIST_LIMIT,
   DEFAULT_SCAN,

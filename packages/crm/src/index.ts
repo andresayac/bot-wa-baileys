@@ -1,11 +1,11 @@
 /**
- * @bot-wa/crm — tenant-isolated contact directory: contacts with per-channel
+ * @botmesh/crm — tenant-isolated contact directory: contacts with per-channel
  * addresses, tags, attributes and marketing consent, plus rule-based segments.
  *
  * - {@link ContactDirectory} — the agent-facing facade over a {@link ContactStore}.
  * - {@link MemoryContactStore} — the in-RAM reference store (default).
- * - {@link KvContactStore} — persisted through any `DurableKv` of `@bot-wa/core`
- *   (SQLite, PostgreSQL, Redis, file) via `@bot-wa/tenant-kv`.
+ * - {@link KvContactStore} — persisted through any `DurableKv` of `@botmesh/core`
+ *   (SQLite, PostgreSQL, Redis, file) via `@botmesh/tenant-kv`.
  *
  * Private package: not published to npm.
  *

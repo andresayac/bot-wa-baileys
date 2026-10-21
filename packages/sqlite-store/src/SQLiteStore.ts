@@ -3,9 +3,9 @@
  *
  * @example
  * ```ts
- * import { Bot } from '@bot-wa/core'
- * import { BaileysProvider } from '@bot-wa/baileys'
- * import { SQLiteStore } from '@bot-wa/sqlite-store'
+ * import { Bot } from '@botmesh/core'
+ * import { BaileysProvider } from '@botmesh/baileys'
+ * import { SQLiteStore } from '@botmesh/sqlite-store'
  *
  * const bot = new Bot({
  *   provider: new BaileysProvider({ session: 'demo' }),
@@ -26,8 +26,8 @@ import type {
   StoredMessage,
   UserDataEntry,
   UserId,
-} from '@bot-wa/core'
-import { legacyMessageKey, messageKey } from '@bot-wa/core'
+} from '@botmesh/core'
+import { legacyMessageKey, messageKey } from '@botmesh/core'
 import { SqliteUserData } from './userData.js'
 import { SQLiteScheduleStore } from './schedules.js'
 import { SQLiteDurability } from './durability.js'
@@ -436,7 +436,7 @@ export class SQLiteStore implements IStore {
   /**
    * The durability backend on this database (table `durable`), sharing this store's
    * connection: `new Bot({ store, durability: { journal: store.durability() } })`. Its
-   * `kv` is a `DurableKv` the product packages (`@bot-wa/inbox`…) can persist to as well.
+   * `kv` is a `DurableKv` the product packages (`@botmesh/inbox`…) can persist to as well.
    * Always the same instance.
    */
   durability(): SQLiteDurability {

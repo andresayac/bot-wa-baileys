@@ -68,12 +68,12 @@ await ctx.contact('573001234567', 'Support Bot')
 `ctx.buttons(text, buttons)` sends normalized button content. How it lands
 depends on the provider:
 
-- **`@bot-wa/baileys`** — native interactive buttons are dead in the
+- **`@botmesh/baileys`** — native interactive buttons are dead in the
   current WhatsApp Web protocol, so buttons degrade to a **numbered text
   menu**. A numbered menu (`.choose()` in a flow, or `c.choose()` in a
   conversation — see [Flows](./flows)) or a real poll usually reads better.
-- **`@bot-wa/meta`** (Cloud API) — native interactive buttons/lists/templates.
-- **`@bot-wa/telegram`** — native inline keyboards.
+- **`@botmesh/meta`** (Cloud API) — native interactive buttons/lists/templates.
+- **`@botmesh/telegram`** — native inline keyboards.
 
 ```ts
 await ctx.buttons('Choose one', [
@@ -90,7 +90,7 @@ await ctx.poll('What do you like?', ['🍕 Pizza', '🍔 Burger'], true)
 ```
 
 If a provider cannot honor a content kind at all, `send` rejects with a
-typed `UnsupportedContentError` from `@bot-wa/core`.
+typed `UnsupportedContentError` from `@botmesh/core`.
 
 ## Typing indicator and reply delays
 
@@ -225,7 +225,7 @@ HighLevel have no inbound locations. On other channels, or when the transport se
 no coordinates, `ctx.type` is still `'location'` but `sharedLocation` is
 `undefined`. Provider authors map their payload with
 `toInboundLocation({ latitude, longitude, name, address, live })` from
-`@bot-wa/core`, which drops missing or out-of-range coordinates.
+`@botmesh/core`, which drops missing or out-of-range coordinates.
 
 Inside a conversation, `c.waitLocation(opts?)` waits for one and resolves with
 the `InboundLocation`; anything else re-prompts with `otherwise` (default: the
@@ -268,7 +268,7 @@ process** can be decrypted (after a restart, votes on older polls are
 dropped with a `debug` log), and the bot cannot vote. A poll someone else
 creates still arrives as a `poll` message (`bot.onPoll`, the
 [`POLL` trigger](./triggers#message-type-triggers)); the encrypted vote no
-longer does. Details in the `@bot-wa/baileys` README.
+longer does. Details in the `@botmesh/baileys` README.
 
 ## Access media content
 
@@ -277,7 +277,7 @@ until you ask for the bytes with `loadMediaOf(ctx)`. It downloads once through
 the provider and caches the result on `ctx.media`:
 
 ```ts
-import { loadMediaOf, MediaTooLargeError } from '@bot-wa/core'
+import { loadMediaOf, MediaTooLargeError } from '@botmesh/core'
 
 bot.onImage(async (ctx) => {
   try {
@@ -329,7 +329,7 @@ same for the same person (the identity contract):
   group and presence events, `ctx.mentions` and the bot's own `selfId` all
   use it, so `groupMode: 'mentions'` works whether the mention used the LID
   or the PN.
-- **Cloud API (`@bot-wa/meta`):** users who turned on a WhatsApp
+- **Cloud API (`@botmesh/meta`):** users who turned on a WhatsApp
   **username** may arrive without a phone number, only with a
   business-scoped user id (**BSUID**, e.g. `US.13491208655302741918`). The
   provider keeps one stable id per person (the phone when known, otherwise
@@ -338,7 +338,7 @@ same for the same person (the identity contract):
   automatically. `senderInfo.username` and
   `senderInfo.platformData.bsuid` expose the details. Authentication
   templates require a phone: sending one to a BSUID fails with Graph error
-  `131062`, mapped to `UnsupportedContentError`. See the `@bot-wa/meta`
+  `131062`, mapped to `UnsupportedContentError`. See the `@botmesh/meta`
   README.
 
 ## Sending outside a handler

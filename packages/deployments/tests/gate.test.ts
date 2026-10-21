@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
-import { Bot, MemoryKv, type IProvider } from '@bot-wa/core'
-import { createTranscript, type Transcript } from '@bot-wa/core/testing'
+import { Bot, MemoryKv, type IProvider } from '@botmesh/core'
+import { createTranscript, type Transcript } from '@botmesh/core/testing'
 
 import {
   DeploymentGateError,

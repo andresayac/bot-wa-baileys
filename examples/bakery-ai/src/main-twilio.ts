@@ -1,16 +1,16 @@
 /**
  * Bakery assistant on WhatsApp through Twilio (official WhatsApp Business API).
  *
- *   pnpm --filter @bot-wa/example-bakery-ai build
- *   pnpm --filter @bot-wa/example-bakery-ai start:twilio
+ *   pnpm --filter @botmesh/example-bakery-ai build
+ *   pnpm --filter @botmesh/example-bakery-ai start:twilio
  *
  * Twilio POSTs every incoming message to PUBLIC_URL + WEBHOOK_PATH. The
  * provider verifies the X-Twilio-Signature against that exact URL, so
  * PUBLIC_URL must be what Twilio calls (your tunnel or reverse proxy).
  */
 import { createServer } from 'node:http'
-import { createIngress, createNodeHandler } from '@bot-wa/server'
-import { TwilioProvider } from '@bot-wa/twilio'
+import { createIngress, createNodeHandler } from '@botmesh/server'
+import { TwilioProvider } from '@botmesh/twilio'
 import { createBakeryBot } from './bot.js'
 import { describeConfig, loadTwilioConfig } from './config.js'
 import { attachBotLogging, createLogger, loadConfigOrExit, onShutdown } from './runtime.js'

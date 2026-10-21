@@ -7,7 +7,7 @@
  * (see clusterEnv.ts); the kill -9 test runs on the single node only:
  *
  *   docker run -d --rm --name botwa-it-redis -p 127.0.0.1:56379:6379 redis:7-alpine
- *   BOTWA_TEST_REDIS_URL=redis://127.0.0.1:56379 pnpm --filter @bot-wa/redis-store test
+ *   BOTWA_TEST_REDIS_URL=redis://127.0.0.1:56379 pnpm --filter @botmesh/redis-store test
  *
  * Every test uses its own key prefix and deletes it afterwards. The kill -9 test runs the
  * dying replica in a child process and needs the package built (`lib/`).
@@ -18,8 +18,8 @@ import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { createClient } from 'redis'
-import { Bot, flow, type BotConfig, type ConversationHandoverConfig } from '@bot-wa/core'
-import { MockProvider } from '@bot-wa/core/testing'
+import { Bot, flow, type BotConfig, type ConversationHandoverConfig } from '@botmesh/core'
+import { MockProvider } from '@botmesh/core/testing'
 import { RedisCoordinator, RedisDurability, RedisStore, type NativeRedisClient } from '../src/index.js'
 import type { NativeRedisClusterClient, RedisClusterConnectOptions } from '../src/client.js'
 import { CLUSTER_URL, cleanupPrefix, clusterOptions, connectCluster } from './clusterEnv.js'

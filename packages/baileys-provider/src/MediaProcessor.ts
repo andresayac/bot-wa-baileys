@@ -14,8 +14,8 @@ import { readFile } from 'fs/promises'
 
 ffmpeg.setFfmpegPath(ffmpegInstaller.path)
 
-import { PayloadTooLargeError, UnsupportedContentError, type MediaSource, type OutboundContent } from '@bot-wa/core'
-import { fetchBuffer, SecureHttpError, type HostResolver } from '@bot-wa/http'
+import { PayloadTooLargeError, UnsupportedContentError, type MediaSource, type OutboundContent } from '@botmesh/core'
+import { fetchBuffer, SecureHttpError, type HostResolver } from '@botmesh/http'
 
 export type WAMediaUpload =
   | Buffer
@@ -47,7 +47,7 @@ export function toMediaUpload(source: MediaSource): WAMediaUpload {
  * without checking where they land: a public URL that redirects to
  * `http://169.254.169.254/…` would make the bot fetch (and send) internal data.
  * By default the provider downloads remote media itself through
- * `@bot-wa/http` (every redirect hop vetted, connection pinned to the vetted
+ * `@botmesh/http` (every redirect hop vetted, connection pinned to the vetted
  * address, size and time capped) and hands Baileys a Buffer.
  */
 export interface RemoteMediaConfig {
@@ -74,7 +74,7 @@ export interface RemoteMediaConfig {
 export const REMOTE_MEDIA_MAX_BYTES = 64 * 1024 * 1024
 
 /**
- * Download `{ url }` media through `@bot-wa/http` and return a Buffer, unless
+ * Download `{ url }` media through `@botmesh/http` and return a Buffer, unless
  * {@link RemoteMediaConfig.allowPrivateHosts} opts back into the pass-through.
  * Rejects with {@link PayloadTooLargeError} over the size cap and
  * {@link UnsupportedContentError} for an unsafe or failing URL.

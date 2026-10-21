@@ -1,13 +1,13 @@
 /**
- * `@bot-wa/events/durability`: an events journal as a bot's durability backend. It must pass
+ * `@botmesh/events/durability`: an events journal as a bot's durability backend. It must pass
  * the same conformance suite and crash-recovery matrix as the core backends.
  */
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { Bot, MemoryStore, StaleLeaseError, flow } from '@bot-wa/core'
-import { CrashableProvider, MockProvider, crashable } from '@bot-wa/core/testing'
+import { Bot, MemoryStore, StaleLeaseError, flow } from '@botmesh/core'
+import { CrashableProvider, MockProvider, crashable } from '@botmesh/core/testing'
 import { runDurabilityConformance } from '../../../test-utils/durability-conformance.js'
 import { runCrashRecoveryMatrix, type CrashMatrixDeps } from '../../../test-utils/durability-crash.js'
 import { EventWorker, FileEventJournal, MemoryEventJournal } from '../src/index.js'

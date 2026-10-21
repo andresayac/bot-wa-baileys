@@ -1,5 +1,5 @@
 /**
- * Records of `@bot-wa/crm`: contacts, segment rules, store inputs and the errors the
+ * Records of `@botmesh/crm`: contacts, segment rules, store inputs and the errors the
  * directory rejects with.
  */
 

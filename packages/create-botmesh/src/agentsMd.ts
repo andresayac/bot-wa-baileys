@@ -1,6 +1,6 @@
 /**
  * `AGENTS.md` for generated projects: tells AI coding agents (Claude Code,
- * Codex, Cursor, Copilot…) which @bot-wa API is current, which v1 idioms do
+ * Codex, Cursor, Copilot…) which @botmesh API is current, which v1 idioms do
  * NOT exist, and which commands to run. Pure string builder.
  */
 
@@ -9,7 +9,7 @@ export interface AgentsMdInfo {
   name: string
   /** Template label, e.g. `WhatsApp · Baileys`. */
   label: string
-  /** `@bot-wa/*` (and other) runtime dependencies of the project. */
+  /** `@botmesh/*` (and other) runtime dependencies of the project. */
   dependencies: string[]
   /** Template-specific notes (one markdown line each). */
   notes?: string[]
@@ -22,13 +22,13 @@ export function agentsMd(info: AgentsMdInfo): string {
     '# AGENTS.md',
     '',
     'Instructions for AI coding agents working on **' + info.name + '** (template: ' + info.label + ').',
-    'This bot uses the **@bot-wa v2 API**. Read this file before writing or changing bot code.',
+    'This bot uses the **@botmesh v2 API**. Read this file before writing or changing bot code.',
     '',
     '## Commands',
     '',
     fence + 'bash',
     'npm install            # install dependencies (or: pnpm install)',
-    'npm run dev            # bot-wa dev: chat with the bot in the terminal (simulated provider, hot reload)',
+    'npm run dev            # botmesh dev: chat with the bot in the terminal (simulated provider, hot reload)',
     'npm start              # connect the real transport (reads .env via node --env-file)',
     'node --check src/bot.js  # quick syntax check',
     fence,
@@ -47,7 +47,7 @@ export function agentsMd(info: AgentsMdInfo): string {
     '## The v2 API (use this)',
     '',
     fence + 'js',
-    "import { Bot, defineBot, flow, isMainModule } from '@bot-wa/core'",
+    "import { Bot, defineBot, flow, isMainModule } from '@botmesh/core'",
     '',
     "bot.when('hola', async (ctx) => { await ctx.reply('¡Hola!') })          // keyword handler",
     "bot.command('ayuda', async (ctx) => { await ctx.reply('…') })           // /ayuda",
@@ -69,7 +69,7 @@ export function agentsMd(info: AgentsMdInfo): string {
     '- Flow steps: `.say`, `.ask(text, stateKey, opts)`, `.do`, `.choose`, `.media`, `.goto`, `.timeout`, `.persistent`.',
     '  Answers land in `c.state[stateKey]`.',
     '- Per-user data that must survive restarts: `ctx.user.get/set/update/delete` (`ctx.user.ns(\'feature\')` to namespace;',
-    '  inside flow steps use `userOf(ctx)` from `@bot-wa/core`). Do **not** keep per-user state in module-level',
+    '  inside flow steps use `userOf(ctx)` from `@botmesh/core`). Do **not** keep per-user state in module-level',
     '  `Map`s/objects or a `globalState` — it is lost on restart and leaks between users.',
     '- Triggers compare by **normalized equality** (`\'hola\'` matches "Hóla " but not "hola amigo"). For substring',
     "  matching use `{ pattern: 'precio', match: 'contains' }` or a RegExp. Never use an empty trigger (`''`, `[]`).",

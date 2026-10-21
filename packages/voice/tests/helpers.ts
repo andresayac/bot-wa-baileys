@@ -1,4 +1,4 @@
-import type { HostResolver } from '@bot-wa/http'
+import type { HostResolver } from '@botmesh/http'
 
 export interface CapturedRequest {
   url: string

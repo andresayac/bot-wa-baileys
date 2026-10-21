@@ -1,4 +1,4 @@
-import { parseDuration, RetriesExceeded, type Bot, type ConversationControls, type MessageContext, type MessageRef } from '@bot-wa/core'
+import { parseDuration, RetriesExceeded, type Bot, type ConversationControls, type MessageContext, type MessageRef } from '@botmesh/core'
 import { AI_MESSAGES, aiText } from '../i18n.js'
 import { classifyConfirmation } from './confirm.js'
 import type { ToolConfirmation, ToolConfirmer, ToolConfirmRequest } from './types.js'

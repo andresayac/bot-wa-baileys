@@ -1,7 +1,7 @@
 /** PostgresDurability (hermetic, FakeDurablePool) against the shared durability suites. */
 import { describe, expect, it } from 'vitest'
-import { Bot, MemoryStore, flow } from '@bot-wa/core'
-import { CrashableProvider, MockProvider, crashable } from '@bot-wa/core/testing'
+import { Bot, MemoryStore, flow } from '@botmesh/core'
+import { CrashableProvider, MockProvider, crashable } from '@botmesh/core/testing'
 import { PostgresDurability, PostgresDurableKv } from '../src/index.js'
 import { FakeDurablePool } from './fakeDurablePool.js'
 import { runDurabilityConformance, runDurableKvConformance } from '../../../test-utils/durability-conformance.js'

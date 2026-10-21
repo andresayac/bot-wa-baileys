@@ -1,8 +1,8 @@
 {
-  "name": "@bot-wa/baileys",
+  "name": "@botmesh/baileys",
   "version": "0.2.0-alpha.0",
   "type": "module",
-  "description": "WhatsApp transport for @bot-wa/core, built on Baileys 7 (IProvider v2).",
+  "description": "WhatsApp transport for @botmesh/core, built on Baileys 7 (IProvider v2).",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
   "exports": {
@@ -20,18 +20,18 @@
     "whatsapp",
     "provider",
     "transport",
-    "bot-wa"
+    "botmesh"
   ],
   "author": "Andres Aya",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/andresayac/bot-wa-baileys.git",
+    "url": "git+https://github.com/andresayac/botmesh.git",
     "directory": "packages/baileys-provider"
   },
-  "homepage": "https://github.com/andresayac/bot-wa-baileys/tree/main/packages/baileys-provider#readme",
+  "homepage": "https://github.com/andresayac/botmesh/tree/main/packages/baileys-provider#readme",
   "bugs": {
-    "url": "https://github.com/andresayac/bot-wa-baileys/issues"
+    "url": "https://github.com/andresayac/botmesh/issues"
   },
   "files": [
     "./lib/**/*"
@@ -45,8 +45,8 @@
     "typecheck": "tsc -p tsconfig.test.json"
   },
   "dependencies": {
-    "@bot-wa/core": "workspace:^",
-    "@bot-wa/http": "workspace:^",
+    "@botmesh/core": "workspace:^",
+    "@botmesh/http": "workspace:^",
     "@cacheable/node-cache": "^1.5.0",
     "@ffmpeg-installer/ffmpeg": "^1.1.0",
     "@hapi/boom": "^10.0.1",

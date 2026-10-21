@@ -9,10 +9,10 @@ import {
   RateLimitedError,
   RecipientUnreachableError,
   type ChatId,
-} from '@bot-wa/core'
+} from '@botmesh/core'
 import type { DiscordApiErrorBody, DiscordMessageResponse } from './types.js'
 import type { DiscordFile } from './toOutbound.js'
-import { secureFetch, type SecureFetchOptions } from '@bot-wa/http'
+import { secureFetch, type SecureFetchOptions } from '@botmesh/http'
 
 export interface DiscordRestClientConfig {
   token: string

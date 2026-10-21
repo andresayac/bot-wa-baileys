@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { Bot, flow, MemoryStore, TRACE_ATTR } from '@bot-wa/core'
-import { MockProvider } from '@bot-wa/core/testing'
+import { Bot, flow, MemoryStore, TRACE_ATTR } from '@botmesh/core'
+import { MockProvider } from '@botmesh/core/testing'
 
 import { createOtelTracer, otelTracer } from '../src/index.js'
 import { api, memoryTracing, tick } from './helpers.js'

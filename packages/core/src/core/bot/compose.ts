@@ -93,7 +93,7 @@ export function composeBot(host: ComposeHost, inputConfig: BotConfig, fields: Co
     throw new Error(
       'Bot requires a transport provider. Construct one and pass it: ' +
         "new Bot({ provider: new BaileysProvider({ session: 'demo' }) }). " +
-        'See @bot-wa/baileys for the WhatsApp transport.',
+        'See @botmesh/baileys for the WhatsApp transport.',
     )
   }
   const k = {} as Mutable<BotKernel>

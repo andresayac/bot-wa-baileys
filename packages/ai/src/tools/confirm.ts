@@ -1,4 +1,4 @@
-import type { ConversationControls, MessageContext } from '@bot-wa/core'
+import type { ConversationControls, MessageContext } from '@botmesh/core'
 import { askWithButtons, rendersButtons } from './autoreplyConfirm.js'
 import type { ToolConfirmation, ToolConfirmer } from './types.js'
 

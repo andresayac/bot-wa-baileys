@@ -1,11 +1,11 @@
-# @bot-wa/postgres-store
+# @botmesh/postgres-store
 
 > **Experimental — aún no publicado en npm** (experimental, not yet published to npm). A real, tested implementation, but the package is `private`: it is not part of the first alpha and its API may change. Use it from this monorepo (`workspace:*`); the `pnpm add` below will work once it is published.
 
-PostgreSQL [`IStore`](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/core) implementation for **@bot-wa/core** — persistent, shared bot state backed by PostgreSQL (node-postgres, `pg`). Point any number of bot replicas at the same database and they share message logs, chats, contacts, flow checkpoints, AI conversation history and delivery cursors.
+PostgreSQL [`IStore`](https://github.com/andresayac/botmesh/tree/main/packages/core) implementation for **@botmesh/core** — persistent, shared bot state backed by PostgreSQL (node-postgres, `pg`). Point any number of bot replicas at the same database and they share message logs, chats, contacts, flow checkpoints, AI conversation history and delivery cursors.
 
 - Documents stored as **JSONB**; per-chat logs ordered by a dedicated `timestamp BIGINT` column.
-- `getMessagesByChat(chatId, limit)` is a plain `ORDER BY timestamp DESC LIMIT n` (+ reverse) — latest `limit` messages, oldest→newest (same windowing semantics as `@bot-wa/redis-store` / `@bot-wa/sqlite-store`).
+- `getMessagesByChat(chatId, limit)` is a plain `ORDER BY timestamp DESC LIMIT n` (+ reverse) — latest `limit` messages, oldest→newest (same windowing semantics as `@botmesh/redis-store` / `@botmesh/sqlite-store`).
 - Optional **table prefix**, so apps/bots can share one database.
 - `upsertChat` / `upsertContact` shallow-merge **atomically on the server** (`jsonb ||`), so concurrent partial updates from several replicas never drop each other's fields.
 - Injectable pool → fully hermetic unit tests (an in-memory `FakePool` ships with the test-suite; no real PostgreSQL needed), plus an opt-in [integration suite](#integration-tests) against a real server.
@@ -13,7 +13,7 @@ PostgreSQL [`IStore`](https://github.com/andresayac/bot-wa-baileys/tree/main/pac
 ## Install
 
 ```bash
-pnpm add @bot-wa/postgres-store pg
+pnpm add @botmesh/postgres-store pg
 ```
 
 **Requires a running PostgreSQL server** reachable from the bot (e.g. `postgres://localhost:5432/botwa`). The store creates its tables automatically on `start()` (`CREATE TABLE IF NOT EXISTS`, safe across replicas and restarts).
@@ -21,9 +21,9 @@ pnpm add @bot-wa/postgres-store pg
 ## Usage with Bot
 
 ```ts
-import { Bot } from '@bot-wa/core'
-import { BaileysProvider } from '@bot-wa/baileys'
-import { PostgresStore } from '@bot-wa/postgres-store'
+import { Bot } from '@botmesh/core'
+import { BaileysProvider } from '@botmesh/baileys'
+import { PostgresStore } from '@botmesh/postgres-store'
 
 const store = new PostgresStore({
   connectionString: process.env.DATABASE_URL, // default: postgres://localhost:5432/botwa
@@ -84,7 +84,7 @@ An index on `(chat_id, timestamp)` backs `getMessagesByChat`. All writes are par
 ## Notes
 
 - Designed for **shared state**: multiple bot replicas on one PostgreSQL database get a consistent view of history, checkpoints and cursors.
-- Messages, chats, contacts and cursors live forever — delete them explicitly. There is no TTL (unlike `@bot-wa/redis-store`).
+- Messages, chats, contacts and cursors live forever — delete them explicitly. There is no TTL (unlike `@botmesh/redis-store`).
 - `start()` is idempotent while started; it creates a pool only when none was injected. `stop()` ends only a self-created pool — an injected pool is left open. An own-pool store can be restarted after `stop()` (fresh pool, idempotent schema pass).
 - Replicas may boot at the same moment: concurrent `CREATE TABLE IF NOT EXISTS` of the same table can lose a race on PostgreSQL's catalog (`23505` on `pg_type`), and `start()` retries that statement instead of failing.
 - `jsonb` cannot hold U+0000 or unpaired UTF-16 surrogates (e.g. text cut in the middle of an emoji). Rather than failing the whole write, those characters are stored as U+FFFD in the JSONB documents (messages, chats, contacts, checkpoints, conversations); everything else round-trips unchanged.
@@ -93,7 +93,7 @@ An index on `(chat_id, timestamp)` backs `getMessagesByChat`. All writes are par
 - `timestamp` may be any number: the `BIGINT` sort column gets `Math.floor(timestamp)`, while the exact value is kept in the `msg` document. Order among messages with the same (floored) timestamp is not defined.
 - `deleteChat` removes the message log and the chat record in **one statement** (a data-modifying CTE), so both commit or neither does.
 - `purgeExpiredUserData` deletes `purgeBatchSize` rows per statement (picked by primary key through the expiry index) until nothing expired is left, so a large backlog never runs as one long transaction.
-- **Message keys.** `messageKey(ref)` (from `@bot-wa/core`) is `{chatId}:{id}` with `%` and `:` percent-escaped in each part (`%25`, `%3A`), so ids that contain `:` — Twilio's `whatsapp:+1…` chat ids — never collide (`('a:b', 'c')` and `('a', 'b:c')` used to share the key `a:b:c`). Ids without `:` or `%` keep exactly the key earlier versions wrote. Rows written by an earlier version under the old unescaped key are still read and deleted (a fallback that only runs for ids containing `:` or `%`, and only returns or deletes a row whose stored `ref` is that very message, since a legacy key can be another message's new key), and re-saving such a message moves it to the new key — no manual migration. One theoretical edge remains: an id that literally contains `%3A` and was stored by an earlier version can be overwritten by a new message whose id has `:` in the same place.
+- **Message keys.** `messageKey(ref)` (from `@botmesh/core`) is `{chatId}:{id}` with `%` and `:` percent-escaped in each part (`%25`, `%3A`), so ids that contain `:` — Twilio's `whatsapp:+1…` chat ids — never collide (`('a:b', 'c')` and `('a', 'b:c')` used to share the key `a:b:c`). Ids without `:` or `%` keep exactly the key earlier versions wrote. Rows written by an earlier version under the old unescaped key are still read and deleted (a fallback that only runs for ids containing `:` or `%`, and only returns or deletes a row whose stored `ref` is that very message, since a legacy key can be another message's new key), and re-saving such a message moves it to the new key — no manual migration. One theoretical edge remains: an id that literally contains `%3A` and was stored by an earlier version can be overwritten by a new message whose id has `:` in the same place.
 
 ## Durable scheduler
 
@@ -123,7 +123,7 @@ It is opt-in: without `BOTWA_TEST_POSTGRES_URL` the whole file is skipped and `p
 docker run -d --name botwa-it-postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=botwa -p 55432:5432 postgres:16-alpine
 
 BOTWA_TEST_POSTGRES_URL=postgres://postgres:postgres@127.0.0.1:55432/botwa \
-  pnpm --filter @bot-wa/postgres-store test
+  pnpm --filter @botmesh/postgres-store test
 
 docker rm -f botwa-it-postgres
 ```

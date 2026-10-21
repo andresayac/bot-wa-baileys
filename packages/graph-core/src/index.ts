@@ -1,6 +1,6 @@
 /**
- * @bot-wa/graph-core — shared Meta Graph helpers used by @bot-wa/meta,
- * @bot-wa/messenger and @bot-wa/instagram.
+ * @botmesh/graph-core — shared Meta Graph helpers used by @botmesh/meta,
+ * @botmesh/messenger and @botmesh/instagram.
  */
 export { verifyChallenge, verifySignature } from './webhook.js'
 export type { ChallengeQuery } from './webhook.js'

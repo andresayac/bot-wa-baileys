@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { createHmac } from 'node:crypto'
 import { createServer } from 'node:http'
-import { ProviderError, RateLimitedError, UnsupportedContentError } from '@bot-wa/core'
+import { ProviderError, RateLimitedError, UnsupportedContentError } from '@botmesh/core'
 import { MessengerProvider } from '../src/MessengerProvider.js'
 
 interface Call { url: string; init?: RequestInit }

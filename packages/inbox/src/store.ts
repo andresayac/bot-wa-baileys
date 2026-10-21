@@ -1,14 +1,14 @@
 /**
- * InboxStore — the storage contract of `@bot-wa/inbox`. `MemoryInboxStore` is the
+ * InboxStore — the storage contract of `@botmesh/inbox`. `MemoryInboxStore` is the
  * reference implementation and `KvInboxStore` persists through any `DurableKv` of
- * `@bot-wa/core`; both pass `test-utils/inbox-store-conformance.ts`.
+ * `@botmesh/core`; both pass `test-utils/inbox-store-conformance.ts`.
  *
  * Every mutation of an existing conversation is a compare-and-set on its `version`
  * (atomic in the backend: two agents can never silently overwrite each other), and
  * every read returns a copy.
  */
 
-import type { StoredMessage } from '@bot-wa/core'
+import type { StoredMessage } from '@botmesh/core'
 import type { InboxConversation, InboxListOptions, InboxNote, InboxPatch, InboxUpsert } from './types.js'
 
 export interface InboxStore {

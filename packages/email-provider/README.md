@@ -1,13 +1,13 @@
-# @bot-wa/email
+# @botmesh/email
 
-> **Experimental — aún no publicado en npm.** Implementación real y con tests, pero el paquete es `private`: su API puede cambiar. Úsalo desde este monorepo (`workspace:*`); el `pnpm add @bot-wa/email` de abajo funcionará cuando se publique.
+> **Experimental — aún no publicado en npm.** Implementación real y con tests, pero el paquete es `private`: su API puede cambiar. Úsalo desde este monorepo (`workspace:*`); el `pnpm add @botmesh/email` de abajo funcionará cuando se publique.
 
-Transporte **email** para [`@bot-wa/core`](../core): **IMAP IDLE** para recibir (o `ingest()` con el MIME crudo desde un webhook de correo entrante) y **SMTP** para responder. Cada hilo de correo es un chat, así que los flows (`flow().ask()...`) funcionan igual que en WhatsApp o Telegram: el cliente responde al email y el bot continúa la conversación en el mismo hilo.
+Transporte **email** para [`@botmesh/core`](../core): **IMAP IDLE** para recibir (o `ingest()` con el MIME crudo desde un webhook de correo entrante) y **SMTP** para responder. Cada hilo de correo es un chat, así que los flows (`flow().ask()...`) funcionan igual que en WhatsApp o Telegram: el cliente responde al email y el bot continúa la conversación en el mismo hilo.
 
 ## Instalación
 
 ```bash
-pnpm add @bot-wa/core @bot-wa/email
+pnpm add @botmesh/core @botmesh/email
 pnpm add imapflow nodemailer   # peers opcionales: IMAP (entrada) y SMTP (salida)
 ```
 
@@ -16,8 +16,8 @@ pnpm add imapflow nodemailer   # peers opcionales: IMAP (entrada) y SMTP (salida
 ## Uso
 
 ```ts
-import { Bot, flow } from '@bot-wa/core'
-import { EmailProvider } from '@bot-wa/email'
+import { Bot, flow } from '@botmesh/core'
+import { EmailProvider } from '@botmesh/email'
 
 const provider = new EmailProvider({
   address: 'soporte@acme.com',
@@ -87,9 +87,9 @@ Sin `requireAuthentication`, trata `senderId` como una dirección declarada, no 
 El estado de los hilos (a quién responder, asunto, cadena `References`) vive en memoria por defecto. Para seguir respondiendo después de un reinicio, guárdalo en cualquier store con cursores:
 
 ```ts
-import { Bot } from '@bot-wa/core'
-import { SQLiteStore } from '@bot-wa/sqlite-store'
-import { cursorThreadStore, EmailProvider } from '@bot-wa/email'
+import { Bot } from '@botmesh/core'
+import { SQLiteStore } from '@botmesh/sqlite-store'
+import { cursorThreadStore, EmailProvider } from '@botmesh/email'
 
 const store = new SQLiteStore({ file: './bot.db' })
 const provider = new EmailProvider({ ..., threadStore: cursorThreadStore(store) })
@@ -157,7 +157,7 @@ docker run -d --name botwa-it-greenmail \
   -e GREENMAIL_OPTS="-Dgreenmail.setup.test.all -Dgreenmail.hostname=0.0.0.0 -Dgreenmail.auth.disabled" \
   -p 127.0.0.1:3025:3025 -p 127.0.0.1:3143:3143 greenmail/standalone:2.1.3
 
-BOTWA_TEST_EMAIL=1 pnpm --filter @bot-wa/email test
+BOTWA_TEST_EMAIL=1 pnpm --filter @botmesh/email test
 
 docker rm -f botwa-it-greenmail
 ```

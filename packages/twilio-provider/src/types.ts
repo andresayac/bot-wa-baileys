@@ -1,9 +1,9 @@
 /**
- * @bot-wa/twilio — configuration and Twilio REST wire shapes (subset used).
+ * @botmesh/twilio — configuration and Twilio REST wire shapes (subset used).
  */
 
 import type { ProviderHttpOptions } from './http.js'
-import type { LoggerLike } from '@bot-wa/core'
+import type { LoggerLike } from '@botmesh/core'
 
 export interface TwilioProviderConfig {
   /** Account SID (`AC…`). Used in the REST path and, with `authToken`, as Basic auth. */

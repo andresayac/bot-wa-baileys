@@ -27,7 +27,7 @@ import type {
   MediaRef,
   MessageType,
   SenderInfo,
-} from '@bot-wa/core'
+} from '@botmesh/core'
 import { commentChatId, conversationChatId, highIntentChatId } from './chatId.js'
 import { idString, parseJsonLossless } from './json.js'
 import type {

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { PayloadTooLargeError, UnsupportedContentError, type InboundEvent, type InboundMessage } from '@bot-wa/core'
+import { PayloadTooLargeError, UnsupportedContentError, type InboundEvent, type InboundMessage } from '@botmesh/core'
 import { EmailProvider, type EmailProviderConfig, type EmailRaw } from '../src/index.js'
 import { email, FakeImapServer, FakeSmtp, waitFor } from './support/fakes.js'
 

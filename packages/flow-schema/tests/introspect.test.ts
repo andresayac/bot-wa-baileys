@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { flow } from '@bot-wa/core'
+import { flow } from '@botmesh/core'
 import { FlowExportError, compileFlowDocument, exportFlowDocument, type FlowDocument } from '../src/index.js'
 
 const fullDocument = (): FlowDocument => ({

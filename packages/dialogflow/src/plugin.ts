@@ -9,7 +9,7 @@
  *
  * @example
  * ```ts
- * import { dialogflowContext, whenDialogflowIntent } from '@bot-wa/dialogflow'
+ * import { dialogflowContext, whenDialogflowIntent } from '@botmesh/dialogflow'
  *
  * bot.plug(dialogflowContext({
  *   credentials: JSON.parse(process.env.GOOGLE_CREDENTIALS!),
@@ -20,7 +20,7 @@
  * ```
  */
 
-import { definePlugin, type MessageContext, type PluginSpec } from '@bot-wa/core'
+import { definePlugin, type MessageContext, type PluginSpec } from '@botmesh/core'
 import type { DialogflowClient, DialogflowClientConfig } from './client.js'
 import { DialogflowContext, type DialogflowContextOptions } from './context.js'
 import { whenDialogflowIntent, type IntentTarget } from './whenDialogflowIntent.js'

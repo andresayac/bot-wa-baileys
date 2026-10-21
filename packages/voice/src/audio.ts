@@ -5,7 +5,7 @@
  * BEFORE paying for a transcription.
  *
  * No transcoding happens here. Providers already convert outbound voice notes
- * (`@bot-wa/baileys` transcodes `kind: 'voice'` to OGG/Opus with ffmpeg); for
+ * (`@botmesh/baileys` transcodes `kind: 'voice'` to OGG/Opus with ffmpeg); for
  * the other channels ask the TTS service for OGG/Opus directly (see README).
  */
 

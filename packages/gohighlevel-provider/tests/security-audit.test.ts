@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { InboundEvent } from '@bot-wa/core'
+import type { InboundEvent } from '@botmesh/core'
 import { GoHighLevelProvider } from '../src/GoHighLevelProvider.js'
 import { fakeHttp } from './support.js'
 import { keys, LOCATION, SMS_INBOUND } from './fixtures.js'

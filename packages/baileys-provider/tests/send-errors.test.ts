@@ -12,7 +12,7 @@ import {
   RateLimitedError,
   RecipientUnreachableError,
   PayloadTooLargeError,
-} from '@bot-wa/core'
+} from '@botmesh/core'
 
 describe('mapSendError', () => {
   it('maps 429 to RateLimitedError honoring retry-after', () => {

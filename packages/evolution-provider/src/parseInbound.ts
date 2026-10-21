@@ -7,7 +7,7 @@
  * `senderId` — even when a later payload only carries the LID.
  */
 
-import { toInboundLocation } from '@bot-wa/core'
+import { toInboundLocation } from '@botmesh/core'
 import type {
   ChatInfo,
   DisconnectReason,
@@ -18,8 +18,8 @@ import type {
   MessageType,
   QuotedRef,
   SenderInfo,
-} from '@bot-wa/core'
-import { isGroupJid, isLidJid, isRecord, normalizeJid, type WaIdentityStore } from '@bot-wa/wa-gateway-kit'
+} from '@botmesh/core'
+import { isGroupJid, isLidJid, isRecord, normalizeJid, type WaIdentityStore } from '@botmesh/wa-gateway-kit'
 import type { EvolutionContextInfo, EvolutionMediaToken, EvolutionMessage, EvolutionMessageKey, EvolutionWebhook } from './types.js'
 
 export interface ParseContext {

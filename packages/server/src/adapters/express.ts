@@ -8,8 +8,8 @@
  * @example
  * ```ts
  * import express from 'express'
- * import { createIngress } from '@bot-wa/server'
- * import { expressIngress } from '@bot-wa/server/express'
+ * import { createIngress } from '@botmesh/server'
+ * import { expressIngress } from '@botmesh/server/express'
  *
  * const app = express()
  * app.use(expressIngress(createIngress({ routes: [{ path: '/webhook', provider }], bot })))

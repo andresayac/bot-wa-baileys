@@ -4,15 +4,15 @@ What the framework verifies for you on each untrusted surface, what you still
 have to configure, and the risks that remain. The section below is the result
 of the October 2026 audit of the newer surfaces (webhook ingress, the manager
 REST API, the newer channels and plugins). To report a vulnerability, follow
-[`SECURITY.md`](https://github.com/andresayac/bot-wa-baileys/blob/main/SECURITY.md).
+[`SECURITY.md`](https://github.com/andresayac/botmesh/blob/main/SECURITY.md).
 
 ## Security audit (2026-10)
 
-**Scope:** `@bot-wa/server`, `twilio`, `gohighlevel`, `gupshup`, `evolution`,
+**Scope:** `@botmesh/server`, `twilio`, `gohighlevel`, `gupshup`, `evolution`,
 `wppconnect`, `email`, `tiktok`, `chatwoot`, `voice`, `rag`, `manager` (`/v1`
 REST and the older `createManagerApi`), `dialogflow`, `moderation`, the webhook
-paths of `meta`/`messenger`/`instagram` (`@bot-wa/graph-core`) and `telegram`,
-plus the shared HTTP client `@bot-wa/http`.
+paths of `meta`/`messenger`/`instagram` (`@botmesh/graph-core`) and `telegram`,
+plus the shared HTTP client `@botmesh/http`.
 
 Every issue fixed during the audit has a regression test (look for
 `security-audit` in the package tests).
@@ -39,9 +39,9 @@ is in the dedupe window.
 ### Verified
 
 - **Raw-body signatures.** Signatures are computed over the received bytes,
-  never over re-serialized JSON. `@bot-wa/server` reads the raw body itself
+  never over re-serialized JSON. `@botmesh/server` reads the raw body itself
   and answers `500` if a body parser consumed it first.
-- **Ingress limits** (`@bot-wa/server`): body size (`413`, checked against
+- **Ingress limits** (`@botmesh/server`): body size (`413`, checked against
   `Content-Length` and while streaming), body and ingest timeouts (`408`/`503`),
   a concurrency cap (`503` + `Retry-After`), header-injection-safe response
   headers (CR/LF/NUL rejected) and logs with metadata only (no bodies,
@@ -78,44 +78,44 @@ is in the dedupe window.
 
 ### Fixed during the audit
 
-- **`@bot-wa/http`: IPv6 SSRF bypass.** `isPrivateAddress` did not understand
+- **`@botmesh/http`: IPv6 SSRF bypass.** `isPrivateAddress` did not understand
   IPv6 that embeds an IPv4: `https://[::ffff:7f00:1]/` (the form `URL`
   normalizes `::ffff:127.0.0.1` to), `::127.0.0.1`, NAT64 (`64:ff9b::/96`),
   6to4 (`2002::/16`) and Teredo reached internal addresses. It now expands
   IPv6 and judges the embedded IPv4; unparseable literals fail closed.
-- **`@bot-wa/http`: redirects.** Cross-origin hops now also drop
+- **`@botmesh/http`: redirects.** Cross-origin hops now also drop
   credential-looking headers (`apikey`, `x-api-key`, `xi-api-key`,
   `x-auth-token`...), not only `Authorization`/`Cookie`; a `303` (and a
   `301`/`302` after `POST`) continues as a body-less `GET`, like `fetch`.
-- **`@bot-wa/manager`: SSRF through `send`.** `POST /v1/bots/{id}/send`
+- **`@botmesh/manager`: SSRF through `send`.** `POST /v1/bots/{id}/send`
   accepted any `https` media URL, and transports such as Baileys download
   `{ url }` media themselves (outside `secureFetch`). Hosts that are or resolve
   to internal addresses are now rejected with `400`
   (`allowPrivateMediaHosts: true` to opt out, `mediaHostResolver` for tests).
-- **`@bot-wa/baileys`: SSRF through redirects.** Baileys downloaded `{ url }`
+- **`@botmesh/baileys`: SSRF through redirects.** Baileys downloaded `{ url }`
   media with plain `fetch`, which follows redirects without checking them, so a
   public URL answering `302` to `http://169.254.169.254/…` got past the REST
   host check. The provider now downloads remote media itself through
-  `@bot-wa/http` (every hop vetted, socket pinned to the vetted address, 64 MiB
+  `@botmesh/http` (every hop vetted, socket pinned to the vetted address, 64 MiB
   and 60 s caps) and hands Baileys a Buffer. Tune it with `remoteMedia`
   (`maxBytes`, `timeoutMs`, `allowHttp`); `remoteMedia.allowPrivateHosts: true`
   restores the old pass-through for media served from your own network.
-- **`@bot-wa/manager`: error leak.** The older `createManagerApi` returned the
+- **`@botmesh/manager`: error leak.** The older `createManagerApi` returned the
   error message on `500`; it now answers `"start failed"`/`"stop failed"` and
   hands the error to `onError`.
-- **`@bot-wa/graph-core`: verify token.** The `GET` handshake compared the
+- **`@botmesh/graph-core`: verify token.** The `GET` handshake compared the
   token with `===` and accepted an empty configured token; now constant-time,
   non-empty and string-only.
-- **`@bot-wa/email`: header injection.** Subjects and display names decoded
+- **`@botmesh/email`: header injection.** Subjects and display names decoded
   from RFC 2047 could carry CR/LF into the reply's `Subject`/`To`; they are
   collapsed to one line. Native `cc`/`bcc` must be plain addresses.
-- **`@bot-wa/gohighlevel`: cross-location replay.** HighLevel signs every
+- **`@botmesh/gohighlevel`: cross-location replay.** HighLevel signs every
   app's webhooks with one platform key, so a body signed for another location
   verified here too; events without (or with another) `locationId` are ignored.
-- **`@bot-wa/chatwoot`: agent attachments.** Only absolute `http(s)` URLs are
+- **`@botmesh/chatwoot`: agent attachments.** Only absolute `http(s)` URLs are
   forwarded (Baileys reads any other `{ url }` from the local disk), file names
   lose path separators and a malformed `%` no longer drops the whole message.
-- **`@bot-wa/moderation`: quadratic link scan.** `findLinks` compared every bare
+- **`@botmesh/moderation`: quadratic link scan.** `findLinks` compared every bare
   invite with every link (≈2.5 s on a 200 KB message); it is linear now.
 
 ### Residual risks
@@ -144,7 +144,7 @@ is in the dedupe window.
   and HighLevel hand the link to the platform. The REST API vets the first host,
   but a redirect is resolved by that other server, outside `secureFetch`. Host
   those servers where an internal redirect target is unreachable, or send
-  Buffers. Baileys is covered (it downloads through `@bot-wa/http`) unless you
+  Buffers. Baileys is covered (it downloads through `@botmesh/http`) unless you
   set `remoteMedia.allowPrivateHosts: true`.
 - **In-memory state grows with contacts**: LID/PN identity maps (Evolution,
   WPPConnect, Baileys), moderation warning counters and the email suppression

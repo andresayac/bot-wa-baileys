@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { MemoryStore, NOOP_TRACING, TRACE_ATTR, type BotTracing } from '@bot-wa/core'
-import { createRecordingTracer, createTestBot, type RecordingTracer } from '@bot-wa/core/testing'
+import { MemoryStore, NOOP_TRACING, TRACE_ATTR, type BotTracing } from '@botmesh/core'
+import { createRecordingTracer, createTestBot, type RecordingTracer } from '@botmesh/core/testing'
 
 import { aiPlugin } from '../src/plugin.js'
 import { AIClient } from '../src/AIClient.js'
@@ -46,7 +46,7 @@ function noSecrets(rec: RecordingTracer): void {
   }
 }
 
-describe('@bot-wa/ai tracing', () => {
+describe('@botmesh/ai tracing', () => {
   it('the autoreply model call is a chat span under the handler, with GenAI attributes and no text', async () => {
     const { rec, bot, chat } = await tracedBot()
     bot.plug(aiPlugin({ __provider: new UsageProvider(), humanizeTyping: false, model: 'acme-1' }))

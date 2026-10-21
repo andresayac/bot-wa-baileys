@@ -1,5 +1,5 @@
 /**
- * @bot-wa/telegram — Telegram Bot API transport for @bot-wa/core.
+ * @botmesh/telegram — Telegram Bot API transport for @botmesh/core.
  * Long-poll or webhook ingress, inline keyboards, native polls/reactions/edit.
  */
 

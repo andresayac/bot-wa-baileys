@@ -6,14 +6,14 @@
  * `GateRun`, so its `details` must be JSON-safe (`toJsonValue` makes them so).
  */
 
-import type { JsonValue } from '@bot-wa/core'
+import type { JsonValue } from '@botmesh/core'
 import {
   replayTranscript,
   type ReplayBotFactory,
   type ReplayOptions,
   type Transcript,
   type TranscriptDiff,
-} from '@bot-wa/core/testing'
+} from '@botmesh/core/testing'
 
 /** The version being published, as the gate sees it. */
 export interface DeploymentCandidate {

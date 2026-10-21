@@ -1,6 +1,6 @@
 /**
  * Lazy loading of `@opentelemetry/api` (an optional peer dependency): nothing imports it
- * at the top level, so `@bot-wa/otel` can be installed without OpenTelemetry and fails
+ * at the top level, so `@botmesh/otel` can be installed without OpenTelemetry and fails
  * with a clear message only when it is actually used.
  */
 import type * as OtelApiModule from '@opentelemetry/api'
@@ -9,7 +9,7 @@ import type * as OtelApiModule from '@opentelemetry/api'
 export type OtelApi = typeof OtelApiModule
 
 const INSTALL_HINT =
-  '@bot-wa/otel needs @opentelemetry/api: pnpm add @opentelemetry/api ' +
+  '@botmesh/otel needs @opentelemetry/api: pnpm add @opentelemetry/api ' +
   '(plus an SDK, e.g. @opentelemetry/sdk-node and an exporter such as @opentelemetry/exporter-trace-otlp-http)'
 
 /** Import `@opentelemetry/api`; rejects with an install hint when it is missing. `load` is a test seam. */

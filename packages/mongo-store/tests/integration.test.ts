@@ -10,7 +10,7 @@
  * hermetic. Locally:
  *
  *   docker run -d --name botwa-it-mongo -p 57017:27017 mongo:7
- *   BOTWA_TEST_MONGO_URL=mongodb://127.0.0.1:57017 pnpm --filter @bot-wa/mongo-store test
+ *   BOTWA_TEST_MONGO_URL=mongodb://127.0.0.1:57017 pnpm --filter @botmesh/mongo-store test
  *
  * Isolation: each run uses its own database (`botwa_it_<random>`, dropped in
  * afterAll) and every store instance inside it gets a unique collection
@@ -19,8 +19,8 @@
 import { randomUUID } from 'node:crypto'
 import { MongoClient } from 'mongodb'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { MemoryStore } from '@bot-wa/core'
-import { legacyMessageKey, type FlowCheckpoint, type IStore, type StoredChat, type StoredContact, type StoredMessage } from '@bot-wa/core'
+import { MemoryStore } from '@botmesh/core'
+import { legacyMessageKey, type FlowCheckpoint, type IStore, type StoredChat, type StoredContact, type StoredMessage } from '@botmesh/core'
 import { MongoStore } from '../src/MongoStore.js'
 import type { MongoStoreOptions } from '../src/MongoStore.js'
 import { runStoreConformance } from '../../../test-utils/store-conformance.js'

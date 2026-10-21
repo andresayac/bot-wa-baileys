@@ -1,4 +1,4 @@
-import type { ChatId } from '@bot-wa/core'
+import type { ChatId } from '@botmesh/core'
 
 /** Ticket priority, highest first: `urgent` > `high` > `normal` > `low`. */
 export type TicketPriority = 'low' | 'normal' | 'high' | 'urgent'

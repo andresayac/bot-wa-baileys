@@ -12,7 +12,7 @@ import { TEMPLATE_NAMES } from '../src/templates.js'
 /** Temp dirs created per test, removed after each test (hermetic). */
 const tempDirs: string[] = []
 async function makeTempDir(): Promise<string> {
-  const dir = await mkdtemp(join(tmpdir(), 'create-bot-wa-dev-'))
+  const dir = await mkdtemp(join(tmpdir(), 'create-botmesh-dev-'))
   tempDirs.push(dir)
   return dir
 }
@@ -27,10 +27,10 @@ describe('generated projects follow the defineBot factory pattern', () => {
 
     const pkg = JSON.parse(await readFile(join(target, 'package.json'), 'utf8'))
     expect(pkg.scripts.start).toBe('node --env-file=.env src/bot.js')
-    expect(pkg.scripts.dev).toBe('bot-wa dev src/bot.js --env-file .env')
+    expect(pkg.scripts.dev).toBe('botmesh dev src/bot.js --env-file .env')
 
     const bot = await readFile(join(target, 'src/bot.js'), 'utf8')
-    expect(bot).toMatch(/^import \{ Bot, defineBot, flow, isMainModule(, \w+)* \} from '@bot-wa\/core'$/m)
+    expect(bot).toMatch(/^import \{ Bot, defineBot, flow, isMainModule(, \w+)* \} from '@botmesh\/core'$/m)
     expect(bot).toMatch(/^const createBot = defineBot\(\(provider(, store)?\) => \{$/m)
     expect(bot).toMatch(/^ {2}const bot = new Bot\(\{\s*provider(,| \})/m)
     expect(bot).toContain('  return bot\n})')
@@ -53,9 +53,9 @@ describe('generated projects follow the defineBot factory pattern', () => {
 })
 
 /* ---------------------------------------------------------------------------
- * Run each generated bot.js inside the real `bot-wa dev` engine (DevSession
- * from @bot-wa/core's build), with the transport/AI packages stubbed out.
- * Requires @bot-wa/core to be built (`pnpm build`).
+ * Run each generated bot.js inside the real `botmesh dev` engine (DevSession
+ * from @botmesh/core's build), with the transport/AI packages stubbed out.
+ * Requires @botmesh/core to be built (`pnpm build`).
  * ------------------------------------------------------------------------ */
 
 const coreLib = fileURLToPath(new URL('../../core/lib/', import.meta.url))
@@ -71,7 +71,7 @@ interface DevModule {
 }
 
 const STUBS = [
-  "const forbidden = (name) => class { constructor() { throw new Error(name + ' must not be built under bot-wa dev') } }",
+  "const forbidden = (name) => class { constructor() { throw new Error(name + ' must not be built under botmesh dev') } }",
   "export const BaileysProvider = forbidden('BaileysProvider')",
   "export const CloudAPIProvider = forbidden('CloudAPIProvider')",
   "export const TelegramProvider = forbidden('TelegramProvider')",
@@ -82,7 +82,7 @@ const STUBS = [
 /** Transport templates share the hola + menu demo handlers (use-case templates: domain-templates.test.ts). */
 const TRANSPORT_TEMPLATES = TEMPLATE_NAMES.filter((t) => ['baileys', 'meta', 'telegram', 'ai'].includes(t))
 
-describe.skipIf(!existsSync(devEntry))('generated bots run in the bot-wa dev simulator', () => {
+describe.skipIf(!existsSync(devEntry))('generated bots run in the botmesh dev simulator', () => {
   it('covers the four transport templates', () => {
     expect(TRANSPORT_TEMPLATES).toHaveLength(4)
   })
@@ -93,8 +93,8 @@ describe.skipIf(!existsSync(devEntry))('generated bots run in the bot-wa dev sim
 
     const source = await readFile(join(target, 'src/bot.js'), 'utf8')
     const runnable = source
-      .replace(/from '@bot-wa\/core'/g, `from '${pathToFileURL(join(coreLib, 'index.js')).href}'`)
-      .replace(/from '@bot-wa\/(?:baileys|meta|telegram|ai)'/g, "from './stubs.mjs'")
+      .replace(/from '@botmesh\/core'/g, `from '${pathToFileURL(join(coreLib, 'index.js')).href}'`)
+      .replace(/from '@botmesh\/(?:baileys|meta|telegram|ai)'/g, "from './stubs.mjs'")
     await writeFile(join(target, 'src/stubs.mjs'), STUBS)
     await writeFile(join(target, 'src/bot.sim.mjs'), runnable)
 

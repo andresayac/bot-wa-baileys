@@ -1,6 +1,6 @@
 /**
  * Drop-in replacement for the default theme's `composables/langs` module
- * (swapped in by the `bot-wa:locale-links` plugin in ../config.ts).
+ * (swapped in by the `botmesh:locale-links` plugin in ../config.ts).
  *
  * The stock language switcher assumes every page has the same path in every
  * locale (`/guide/flows` <-> `/es/guide/flows`), but the Spanish pages use

@@ -1,5 +1,5 @@
 /**
- * @bot-wa/campaigns — consent-aware campaign planner with durable reservations.
+ * @botmesh/campaigns — consent-aware campaign planner with durable reservations.
  *
  * - {@link CampaignPlanner} — turns a campaign plus a recipient list into `queued`
  *   deliveries and explainable skips (`opt_out`, `segment`, `duplicate`, `limit`),
@@ -7,8 +7,8 @@
  *   towards `maxPerRecipient`; a queued delivery reserves its slot until it is settled
  *   or its reservation TTL expires.
  * - {@link MemoryCampaignStore} — the in-RAM reference store (default).
- * - {@link KvCampaignStore} — persisted through any `DurableKv` of `@bot-wa/core`
- *   (SQLite, PostgreSQL, Redis, file) via `@bot-wa/tenant-kv`.
+ * - {@link KvCampaignStore} — persisted through any `DurableKv` of `@botmesh/core`
+ *   (SQLite, PostgreSQL, Redis, file) via `@botmesh/tenant-kv`.
  * - {@link sendCampaign} — plans and sends with `bot.broadcast()`, settling each
  *   delivery from the real result.
  *

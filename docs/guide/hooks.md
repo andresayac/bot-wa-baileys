@@ -210,7 +210,7 @@ annotate the handler, pass the type argument, or augment `HookContextMap`
 (declaration merging):
 
 ```ts
-declare module '@bot-wa/core' {
+declare module '@botmesh/core' {
   interface HookContextMap { 'crm.lead': { leadId: string } }
 }
 bot.after('crm.lead', (lead) => lead.leadId)              // typed through the augmentation

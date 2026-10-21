@@ -1,13 +1,13 @@
-# @bot-wa/messenger
+# @botmesh/messenger
 
 > **Experimental — aún no publicado en npm.** Implementación real y con tests, pero el paquete es `private`: no forma parte de la primera alpha y su API puede cambiar. Úsalo desde este monorepo (`workspace:*`); el `pnpm add` de abajo funcionará cuando se publique.
 
-Transporte **Facebook Messenger (Send API oficial de Meta)** para [`@bot-wa/core`](../core). Hermano de `@bot-wa/meta` (WhatsApp Cloud API): misma familia Graph — **webhook con handshake `hub.challenge` + firma `X-Hub-Signature-256`** y una **Send API HTTP** (`POST /{page-id}/messages`). No abre socket.
+Transporte **Facebook Messenger (Send API oficial de Meta)** para [`@botmesh/core`](../core). Hermano de `@botmesh/meta` (WhatsApp Cloud API): misma familia Graph — **webhook con handshake `hub.challenge` + firma `X-Hub-Signature-256`** y una **Send API HTTP** (`POST /{page-id}/messages`). No abre socket.
 
 ## Instalación
 
 ```bash
-pnpm add @bot-wa/core @bot-wa/messenger
+pnpm add @botmesh/core @botmesh/messenger
 ```
 
 **Cero dependencias extra** — usa `fetch` y `crypto` nativos de Node ≥ 22.
@@ -21,8 +21,8 @@ pnpm add @bot-wa/core @bot-wa/messenger
 ## Uso
 
 ```ts
-import { Bot } from '@bot-wa/core'
-import { MessengerProvider } from '@bot-wa/messenger'
+import { Bot } from '@botmesh/core'
+import { MessengerProvider } from '@botmesh/messenger'
 import express from 'express'
 
 const provider = new MessengerProvider({
@@ -91,4 +91,4 @@ app.listen(3000)
 
 ## Errores
 
-Los errores del Graph (`res.error`) se mapean a los tipos de `@bot-wa/core`: códigos de rate limit **4/613** → `RateLimitedError` (honrando `Retry-After`); fuera de la ventana de 24 h (código 10, subcódigo 2018278) → `OutsideSessionWindowError`; destinatario no disponible o inexistente (código 551, subcódigos 1545041/2018001) → `RecipientUnreachableError`, ambos con el `chatId`; el resto → `ProviderError`.
+Los errores del Graph (`res.error`) se mapean a los tipos de `@botmesh/core`: códigos de rate limit **4/613** → `RateLimitedError` (honrando `Retry-After`); fuera de la ventana de 24 h (código 10, subcódigo 2018278) → `OutsideSessionWindowError`; destinatario no disponible o inexistente (código 551, subcódigos 1545041/2018001) → `RecipientUnreachableError`, ambos con el `chatId`; el resto → `ProviderError`.

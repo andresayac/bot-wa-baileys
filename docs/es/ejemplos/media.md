@@ -7,8 +7,8 @@ de un archivo local, o un `Buffer`.
 ## Configuración
 
 ```ts
-import { Bot } from '@bot-wa/core'
-import { BaileysProvider } from '@bot-wa/baileys'
+import { Bot } from '@botmesh/core'
+import { BaileysProvider } from '@botmesh/baileys'
 
 const bot = new Bot({
   provider: new BaileysProvider({ session: 'demo-bot', qr: { terminal: true, small: true } }),
@@ -108,7 +108,7 @@ una vez y los deja en `ctx.media` (ver
 [Acceder al contenido del media](/es/guide/mensajes#acceder-al-contenido-del-media)):
 
 ```ts
-import { loadMediaOf } from '@bot-wa/core'
+import { loadMediaOf } from '@botmesh/core'
 
 bot.onImage(async (ctx) => {
   await ctx.reply('📸 Got your image. Converting to sticker...')

@@ -8,7 +8,7 @@ import {
   UnsupportedContentError,
   type IProvider,
   type InboundEvent,
-} from '@bot-wa/core'
+} from '@botmesh/core'
 import { GoHighLevelProvider } from '../src/GoHighLevelProvider.js'
 import { GoHighLevelApiError } from '../src/errors.js'
 import { GHL_WEBHOOK_PUBLIC_KEY, verifyGhlSignature } from '../src/signature.js'

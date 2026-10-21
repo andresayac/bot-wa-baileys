@@ -2,7 +2,7 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { FileDurability, MemoryKv } from '@bot-wa/core'
+import { FileDurability, MemoryKv } from '@botmesh/core'
 import { KvContactStore, MemoryContactStore } from '../src/index.js'
 import { runContactStoreConformance } from '../../../test-utils/contact-store-conformance.js'
 

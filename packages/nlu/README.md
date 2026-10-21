@@ -1,25 +1,25 @@
-# @bot-wa/nlu
+# @botmesh/nlu
 
 > **Experimental — aún no publicado en npm** (experimental, not yet published to npm). A real, tested implementation, but the package is `private`: it is not part of the first alpha and its API may change. Use it from this monorepo (`workspace:*`); the `pnpm add` below will work once it is published.
 
-Lightweight, **fully-local** intent matching for [`@bot-wa/core`](../core). Define intents
+Lightweight, **fully-local** intent matching for [`@botmesh/core`](../core). Define intents
 with training phrases (utterances) and match incoming message text against them — no
 network calls, no ML models, no external services. Zero runtime dependencies beyond
-`@bot-wa/core`.
+`@botmesh/core`.
 
 ```bash
-pnpm add @bot-wa/nlu
+pnpm add @botmesh/nlu
 ```
 
 > **Scope note** — this is a deterministic keyword/token-overlap matcher, not a full ML
 > NLU (no embeddings, no stemming, no multilingual models). It's great for command-like
 > intents ("mi pedido", "cancelar", "hablar con un agente"). For open-ended language
-> understanding, use the LLM-based [`@bot-wa/ai`](../ai) plugin instead (or alongside).
+> understanding, use the LLM-based [`@botmesh/ai`](../ai) plugin instead (or alongside).
 
 ## Quick start
 
 ```ts
-import { IntentEngine } from '@bot-wa/nlu'
+import { IntentEngine } from '@botmesh/nlu'
 
 const nlu = new IntentEngine() // default threshold: 0.5
 nlu.define('greeting', ['hola', 'buenas', 'buenos días'])
@@ -114,10 +114,10 @@ your users actually type; avoid intents that share most of their vocabulary.
 ### `nluPlugin(config?)`
 
 Installs an engine on the Bot and exposes it as `ctx.tools.nlu` (typed automatically —
-the package augments `@bot-wa/core`'s `DefaultTools`).
+the package augments `@botmesh/core`'s `DefaultTools`).
 
 ```ts
-import { nluPlugin } from '@bot-wa/nlu'
+import { nluPlugin } from '@botmesh/nlu'
 
 bot.plug(nluPlugin, {
   threshold: 0.5, // optional
@@ -145,7 +145,7 @@ Messages that don't match — or whose best match is a different intent — fall
 other matchers and, eventually, `onMessage`. Returns an unsubscribe function.
 
 ```ts
-import { nluPlugin, whenIntent, IntentEngine } from '@bot-wa/nlu'
+import { nluPlugin, whenIntent, IntentEngine } from '@botmesh/nlu'
 
 bot.plug(nluPlugin, {
   intents: {
@@ -166,15 +166,15 @@ whenIntent(bot, nlu, 'order.status', async (ctx, match) => {
 
 // Anything no intent matched:
 bot.onMessage(async (ctx) => {
-  await ctx.reply('No entendí 🤔 (para IA de verdad, usa @bot-wa/ai)')
+  await ctx.reply('No entendí 🤔 (para IA de verdad, usa @botmesh/ai)')
 })
 ```
 
 ## Development
 
 ```bash
-pnpm --filter @bot-wa/nlu build
-pnpm --filter @bot-wa/nlu test
+pnpm --filter @botmesh/nlu build
+pnpm --filter @botmesh/nlu test
 ```
 
 ## License

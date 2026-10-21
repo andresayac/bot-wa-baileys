@@ -4,9 +4,9 @@ Por cada mensaje el bot hace mucho trabajo: listas de acceso, persistencia, la c
 
 Las trazas son **opt-in**. Sin `BotConfig.telemetry` el bot ejecuta exactamente el mismo código que antes: sin spans y sin `await` extra.
 
-- `@bot-wa/core` trae los hooks de trazas: una interfaz mínima `BotTracer`, un no-op por defecto y `bot.tracing`. Sin dependencias nuevas.
-- `@bot-wa/otel` (privado por ahora) los adapta a OpenTelemetry y además publica `bot.metrics()` como métricas de OpenTelemetry.
-- `@bot-wa/ai` añade spans de modelo, herramientas y recuperación a la misma traza.
+- `@botmesh/core` trae los hooks de trazas: una interfaz mínima `BotTracer`, un no-op por defecto y `bot.tracing`. Sin dependencias nuevas.
+- `@botmesh/otel` (privado por ahora) los adapta a OpenTelemetry y además publica `bot.metrics()` como métricas de OpenTelemetry.
+- `@botmesh/ai` añade spans de modelo, herramientas y recuperación a la misma traza.
 
 ::: tip Sin contenido de mensajes
 Los spans llevan **tipos, etapas, resultados e ids**, nunca cuerpos de mensaje, captions, prompts, respuestas del modelo, argumentos o resultados de herramientas, `c.state` ni mensajes de error. Los ids de chat, usuario y mensaje van con hash por defecto. Mira [Datos personales](#datos-personales).
@@ -38,8 +38,8 @@ sdk.start()
 
 ```ts
 // bot.ts
-import { Bot } from '@bot-wa/core'
-import { createOtelTracer, otelMetricsPlugin } from '@bot-wa/otel'
+import { Bot } from '@botmesh/core'
+import { createOtelTracer, otelMetricsPlugin } from '@botmesh/otel'
 
 const bot = new Bot({
   provider,
@@ -153,7 +153,7 @@ La respuesta del usuario llega como otro mensaje: su propio `bot.inbound` → `b
 | `bot.pace` | internal | Una respuesta con ritmo: retraso + indicador de escritura + su envío (`spans.pace`). |
 | `bot.send` | client | Cada envío y edición del pipeline de salida. La llamada al provider corre dentro. |
 | `bot.stream.update` | client | Un borrador/edición de `ctx.stream()`: solo con `spans.streamUpdates`; si no, un evento en el span activo. |
-| `chat {model}` | client | Una llamada al modelo de `@bot-wa/ai` (convenciones GenAI de OpenTelemetry). |
+| `chat {model}` | client | Una llamada al modelo de `@botmesh/ai` (convenciones GenAI de OpenTelemetry). |
 | `execute_tool {name}` | internal | Una llamada a herramienta del bucle de herramientas de la IA. |
 | `bot.ai.retrieve` | internal | Recuperación RAG (`bot.ai.rag.chunks`). |
 | `bot.task` | internal | Una ejecución de una tarea programada (`bot.schedule`/`every`/`delay`, simple o durable). Siempre es un span **raíz**; los envíos de la tarea cuelgan de él. Ver [Tareas programadas](#tareas-programadas). |
@@ -180,7 +180,7 @@ La respuesta del usuario llega como otro mensaje: su propio `bot.inbound` → `b
 | `bot.lifecycle.step`, `bot.lifecycle.phase` | lifecycle | El nombre del paso y lo que hacía: `start`, `stop` (tras el drenado) o `rollback` (un `start()` fallido deshaciendo lo que arrancó). |
 | `error.type` | cualquier span fallido | El nombre de la clase de error (`RateLimitedError`, `timeout`…). |
 
-Todos los nombres se exportan como `TRACE_ATTR` / `SPAN_NAMES` desde `@bot-wa/core`.
+Todos los nombres se exportan como `TRACE_ATTR` / `SPAN_NAMES` desde `@botmesh/core`.
 
 ### Turnos de conversación
 
@@ -207,7 +207,7 @@ Notas:
 - Solo se transportan ids con forma W3C (32/16 hex en minúsculas, lo que produce OpenTelemetry). Un tracer con otros ids no guarda nada y el turno simplemente no tiene enlace. Un valor guardado mal formado se ignora.
 - El contexto guardado es siempre el del **último** turno que escribió o quedó en espera: un stub de hand-over se reescribe cuando un turno posterior queda en espera (solo con telemetría; si no, solo se refresca antes de caducar), y el marcador de espera de un paso reenviado también lo actualiza. Un turno cuyo contexto no se puede transportar conserva el que ya estaba guardado en vez de borrarlo.
 - Una función `handover.fallback` propia recibe el contexto en `info.trace`, para enlazar sus propios spans.
-- `formatTraceparent(spanContext)` y `parseTraceparent(traceparent, tracestate?)` se exportan desde `@bot-wa/core` para tu propia propagación.
+- `formatTraceparent(spanContext)` y `parseTraceparent(traceparent, tracestate?)` se exportan desde `@botmesh/core` para tu propia propagación.
 
 ### Tareas programadas
 
@@ -234,7 +234,7 @@ bot.when('pedido', async (ctx) => {
 })
 ```
 
-Con `@bot-wa/otel`, los spans del bot también son el contexto activo de OpenTelemetry, así que `tracer.startActiveSpan()` y las auto-instrumentaciones del SDK (http, undici, pg…) cuelgan de ellos. Los plugins usan `ctx.bot.tracing` igual; `bot.tracing.idAttribute(id)` aplica la política de ids a un id tuyo.
+Con `@botmesh/otel`, los spans del bot también son el contexto activo de OpenTelemetry, así que `tracer.startActiveSpan()` y las auto-instrumentaciones del SDK (http, undici, pg…) cuelgan de ellos. Los plugins usan `ctx.bot.tracing` igual; `bot.tracing.idAttribute(id)` aplica la política de ids a un id tuyo.
 
 ## Métricas
 
@@ -278,10 +278,10 @@ new Bot({
 })
 ```
 
-| Opción de `@bot-wa/otel` | Por defecto | |
+| Opción de `@botmesh/otel` | Por defecto | |
 | --- | --- | --- |
 | `tracerProvider` | el global (`trace.getTracerProvider()`) | |
-| `tracerName` | `'@bot-wa/otel'` | Scope de instrumentación. |
+| `tracerName` | `'@botmesh/otel'` | Scope de instrumentación. |
 | `spanMetrics` | `true` | `false`, o `{ meterProvider, prefix }`. |
 | `otelMetricsPlugin({ meterProvider, prefix, attributes, perFlow, conversationDuration })` | global, `'botwa'`, `{}`, `true`, `true` | |
 
@@ -293,10 +293,10 @@ Muestrea en la raíz con un sampler basado en el padre (`new ParentBasedSampler(
 
 `BotTracer` es pequeño a propósito: `startSpan(name, options)`, que devuelve un span con `setAttribute(s)`, `addEvent`, `recordException`, `setStatus`, `end`, `isRecording` y `spanContext`, y un `withSpan(span, fn)` opcional para hacer de un span el contexto activo del backend. Cualquier librería de trazas puede implementarlo. Un tracer que lanza errores nunca rompe el bot: la llamada cae a un span no-op y se registra un aviso como mucho una vez por minuto.
 
-En tests, `createRecordingTracer()` de `@bot-wa/core/testing` guarda cada span en memoria:
+En tests, `createRecordingTracer()` de `@botmesh/core/testing` guarda cada span en memoria:
 
 ```ts
-import { createRecordingTracer, createTestBot } from '@bot-wa/core/testing'
+import { createRecordingTracer, createTestBot } from '@botmesh/core/testing'
 
 const rec = createRecordingTracer()
 const { bot, chat } = await createTestBot({ telemetry: { tracer: rec.tracer, ids: 'raw' } })

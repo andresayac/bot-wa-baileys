@@ -2,7 +2,7 @@
 
 In v1 the bot exposed 5 typed WhatsApp sub-APIs: `bot.groups`,
 `bot.profile`, `bot.privacy`, `bot.chats`, `bot.presence`. **In v2 these
-were removed from the core**: `@bot-wa/core` is transport-agnostic, and
+were removed from the core**: `@botmesh/core` is transport-agnostic, and
 group/privacy/profile management is WhatsApp-specific — it doesn't exist on
 Telegram or Discord in the same shape.
 
@@ -35,8 +35,8 @@ socket. The provider keeps a debug handle (`provider.connection`) and a
 typed getter (`provider.socket`):
 
 ```ts
-import { Bot } from '@bot-wa/core'
-import { BaileysProvider } from '@bot-wa/baileys'
+import { Bot } from '@botmesh/core'
+import { BaileysProvider } from '@botmesh/baileys'
 
 const provider = new BaileysProvider({ session: 'my-bot' })
 const bot = new Bot({ provider })
@@ -63,7 +63,7 @@ await bot.start()
 
 ::: warning Transport-specific code stays transport-specific
 Anything you write against `provider.socket` only works with
-`@bot-wa/baileys` (and only against a real WhatsApp connection — not the
+`@botmesh/baileys` (and only against a real WhatsApp connection — not the
 `MockProvider` used by `createTestBot()`). Guard it behind
 `provider.id === 'baileys'` if your code may run on other transports.
 :::

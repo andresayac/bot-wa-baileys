@@ -1,21 +1,21 @@
-# @bot-wa/sqlite-store
+# @botmesh/sqlite-store
 
-SQLite [`IStore`](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/core) implementation for **@bot-wa/core**: persistent bot state in a single file, backed by [better-sqlite3](https://github.com/WiseLibs/better-sqlite3). Message logs, chats, contacts, flow checkpoints, AI conversation history and delivery cursors survive restarts with no server to run.
+SQLite [`IStore`](https://github.com/andresayac/botmesh/tree/main/packages/core) implementation for **@botmesh/core**: persistent bot state in a single file, backed by [better-sqlite3](https://github.com/WiseLibs/better-sqlite3). Message logs, chats, contacts, flow checkpoints, AI conversation history and delivery cursors survive restarts with no server to run.
 
 > **Alpha, first npm publish pending.** This package is part of the first alpha, but nothing is on npm yet. Until it is, use it from this monorepo (`workspace:*`); the `pnpm add` below is the command that will work once it is published.
 
 - One file, zero config. Tables are created on construction (`CREATE TABLE IF NOT EXISTS`), so there are no migrations to run by hand.
 - **WAL** journal mode by default (`synchronous = NORMAL`) for better concurrent reads.
-- `getMessagesByChat(limit)` is served by a `(chat_id, timestamp)` index and returns the most recent `limit` messages **oldest→newest**, the same windowing semantics as `@bot-wa/redis-store`.
+- `getMessagesByChat(limit)` is served by a `(chat_id, timestamp)` index and returns the most recent `limit` messages **oldest→newest**, the same windowing semantics as `@botmesh/redis-store`.
 - Optional per-chat cap (`maxMessagesPerChat`) to bound growth; unbounded by default, since a persistent DB is often the full archive.
 - Passes the shared `IStore` conformance suite (`test-utils/store-conformance.ts`), like every other store.
 
-Best fit: a **single bot process** on a VPS or in a container. For several replicas sharing state, use `@bot-wa/redis-store`.
+Best fit: a **single bot process** on a VPS or in a container. For several replicas sharing state, use `@botmesh/redis-store`.
 
 ## Install
 
 ```bash
-pnpm add @bot-wa/sqlite-store better-sqlite3
+pnpm add @botmesh/sqlite-store better-sqlite3
 ```
 
 `better-sqlite3` is a peer dependency, a native module with prebuilt binaries for common platforms. It is loaded when the store is constructed; if it is missing, the constructor throws an error telling you to install it.
@@ -23,9 +23,9 @@ pnpm add @bot-wa/sqlite-store better-sqlite3
 ## Usage with Bot
 
 ```ts
-import { Bot } from '@bot-wa/core'
-import { BaileysProvider } from '@bot-wa/baileys'
-import { SQLiteStore } from '@bot-wa/sqlite-store'
+import { Bot } from '@botmesh/core'
+import { BaileysProvider } from '@botmesh/baileys'
+import { SQLiteStore } from '@botmesh/sqlite-store'
 
 const bot = new Bot({
   provider: new BaileysProvider({ session: 'demo' }),
@@ -57,7 +57,7 @@ With a durable store, `flow(...).persistent()` checkpoints survive a restart: th
 | `chats`         | `chat.id`                           | `StoredChat` (JSON) |
 | `contacts`      | `contact.id`                        | `StoredContact` (JSON) |
 | `checkpoints`   | key                                 | `FlowCheckpoint` (JSON: flow id, step, `c.state`) |
-| `conversations` | key                                 | `AIMessage[]` (JSON), the `@bot-wa/ai` history |
+| `conversations` | key                                 | `AIMessage[]` (JSON), the `@botmesh/ai` history |
 | `cursors`       | key                                 | delivery cursor string (e.g. Telegram `update_id`) |
 | `schedules`     | task id                             | durable scheduler tasks (`store.schedules()`): spec, next/last run, fencing token, lease |
 | `schedule_fences` | task id                           | last fencing token of each deleted durable task (tokens never go backwards) |
@@ -70,7 +70,7 @@ With a durable store, `flow(...).persistent()` checkpoints survive a restart: th
 - `getMessagesByChat(chatId, limit)`: a `limit` of `0` or less returns nothing, a fraction rounds up and `Infinity` returns the whole log.
 - Statements are prepared once per store, not on every call.
 - `purgeExpiredUserData` deletes `purgeBatchSize` rows per statement and yields to the event loop between batches, so a large backlog never blocks the bot (better-sqlite3 is synchronous) or holds the write lock for long.
-- **Message keys.** `messageKey(ref)` (from `@bot-wa/core`) is `{chatId}:{id}` with `%` and `:` percent-escaped in each part (`%25`, `%3A`), so ids that contain `:` — Twilio's `whatsapp:+1…` chat ids — never collide (`('a:b', 'c')` and `('a', 'b:c')` used to share the key `a:b:c`). Ids without `:` or `%` keep exactly the key earlier versions wrote. Rows written by an earlier version under the old unescaped key are still read and deleted (a fallback that only runs for ids containing `:` or `%`, and only returns or deletes a row whose stored `ref` is that very message, since a legacy key can be another message's new key), and re-saving such a message moves it to the new key — no manual migration. One theoretical edge remains: an id that literally contains `%3A` and was stored by an earlier version can be overwritten by a new message whose id has `:` in the same place.
+- **Message keys.** `messageKey(ref)` (from `@botmesh/core`) is `{chatId}:{id}` with `%` and `:` percent-escaped in each part (`%25`, `%3A`), so ids that contain `:` — Twilio's `whatsapp:+1…` chat ids — never collide (`('a:b', 'c')` and `('a', 'b:c')` used to share the key `a:b:c`). Ids without `:` or `%` keep exactly the key earlier versions wrote. Rows written by an earlier version under the old unescaped key are still read and deleted (a fallback that only runs for ids containing `:` or `%`, and only returns or deletes a row whose stored `ref` is that very message, since a legacy key can be another message's new key), and re-saving such a message moves it to the new key — no manual migration. One theoretical edge remains: an id that literally contains `%3A` and was stored by an earlier version can be overwritten by a new message whose id has `:` in the same place.
 
 ## Durable scheduler tasks
 
@@ -93,7 +93,7 @@ const store = new SQLiteStore({ file: './data/bot.db' })
 const bot = new Bot({ provider, store, durability: { journal: store.durability() } })
 ```
 
-Every write is one SQL statement conditioned on the stored version, so the compare-and-set is atomic even with several processes on the same file. `SQLiteDurableKv` (or `store.durability().kv`) is also the `DurableKv` the product packages (`@bot-wa/inbox`, `@bot-wa/crm`, `@bot-wa/campaigns`, `@bot-wa/deployments`, `@bot-wa/hub`) persist to. Opt-in: nothing is created until you call it.
+Every write is one SQL statement conditioned on the stored version, so the compare-and-set is atomic even with several processes on the same file. `SQLiteDurableKv` (or `store.durability().kv`) is also the `DurableKv` the product packages (`@botmesh/inbox`, `@botmesh/crm`, `@botmesh/campaigns`, `@botmesh/deployments`, `@botmesh/hub`) persist to. Opt-in: nothing is created until you call it.
 
 ## Docker
 

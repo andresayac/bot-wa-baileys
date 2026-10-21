@@ -1,6 +1,6 @@
 /** URL media references shared by Messenger and Instagram. */
 import { describe, expect, it } from 'vitest'
-import { ProviderError, type SerializedMediaRef } from '@bot-wa/core'
+import { ProviderError, type SerializedMediaRef } from '@botmesh/core'
 import { META_MEDIA_HOSTS, rehydrateUrlMediaRef, serializeUrlMediaRef } from '../src/index.js'
 
 const allowed = (url: string) => url.startsWith('https://ok.example/')

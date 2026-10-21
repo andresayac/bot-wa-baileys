@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { createTestBot } from '@bot-wa/core/testing'
-import { aiPlugin, MockAIProvider, type AIRetriever } from '@bot-wa/ai'
+import { createTestBot } from '@botmesh/core/testing'
+import { aiPlugin, MockAIProvider, type AIRetriever } from '@botmesh/ai'
 import { createRag } from '../src/Rag.js'
 
 const FAQ = `# Tienda
@@ -9,7 +9,7 @@ Los envíos a domicilio tardan 3 días hábiles en Bogotá.
 ## Pagos
 Aceptamos tarjeta de crédito, PSE y efectivo contra entrega.`
 
-describe('@bot-wa/rag + aiPlugin', () => {
+describe('@botmesh/rag + aiPlugin', () => {
   it('createRag() is an AIRetriever and grounds the autoreply with citations', async () => {
     const rag = createRag({ documents: [{ id: 'faq', source: 'faq.md', text: FAQ, format: 'markdown' }], topK: 1 })
     const retriever: AIRetriever = rag // structural compatibility (compile-time)

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { Bot } from '@bot-wa/core'
-import { MockProvider } from '@bot-wa/core/testing'
+import { Bot } from '@botmesh/core'
+import { MockProvider } from '@botmesh/core/testing'
 import { BotManager, MemoryBotConfigStore, type BotConfigRecord, type BotFactory, type FlowDocument } from '../src/index.js'
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))

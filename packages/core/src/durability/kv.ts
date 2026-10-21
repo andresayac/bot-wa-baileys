@@ -5,8 +5,8 @@
  * two sorted indexes; every state transition, lease and fencing rule lives once in
  * `journal.ts`, so all backends behave identically and the shared conformance suite
  * covers them all. Implemented in core by {@link MemoryKv} (and the file backend),
- * by `@bot-wa/postgres-store` (one table, `UPDATE … WHERE version = $n`) and by
- * `@bot-wa/redis-store` (compare-and-set script + sorted sets).
+ * by `@botmesh/postgres-store` (one table, `UPDATE … WHERE version = $n`) and by
+ * `@botmesh/redis-store` (compare-and-set script + sorted sets).
  */
 
 /**

@@ -9,7 +9,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import type { InboundEvent } from '@bot-wa/core'
+import type { InboundEvent } from '@botmesh/core'
 import type { Logger } from 'pino'
 import { parseInbound, type GraphWebhookBody } from '../src/parseInbound.js'
 import { CloudAPIProvider } from '../src/CloudAPIProvider.js'

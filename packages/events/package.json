@@ -1,5 +1,5 @@
 {
-  "name": "@bot-wa/events",
+  "name": "@botmesh/events",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -17,12 +17,12 @@
     }
   },
   "engines": { "node": ">=22" },
-  "keywords": ["bot-wa", "events", "inbox", "outbox", "idempotency", "dlq"],
+  "keywords": ["botmesh", "events", "inbox", "outbox", "idempotency", "dlq"],
   "author": "Andres Aya",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/andresayac/bot-wa-baileys.git",
+    "url": "git+https://github.com/andresayac/botmesh.git",
     "directory": "packages/events"
   },
   "files": ["./lib/**/*"],
@@ -33,13 +33,13 @@
     "typecheck": "tsc -p tsconfig.test.json"
   },
   "peerDependencies": {
-    "@bot-wa/core": "workspace:*"
+    "@botmesh/core": "workspace:*"
   },
   "peerDependenciesMeta": {
-    "@bot-wa/core": { "optional": true }
+    "@botmesh/core": { "optional": true }
   },
   "devDependencies": {
-    "@bot-wa/core": "workspace:*",
+    "@botmesh/core": "workspace:*",
     "@types/node": "^26.1.1",
     "typescript": "^7.0.2",
     "vite": "^7.3.6",

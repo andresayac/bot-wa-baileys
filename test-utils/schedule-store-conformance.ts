@@ -11,7 +11,7 @@
  * Every call takes an explicit `now`, so no test depends on the wall clock.
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import type { ScheduleStore } from '@bot-wa/core'
+import type { ScheduleStore } from '@botmesh/core'
 
 export interface ScheduleStoreHarness {
   make(): Promise<{ store: ScheduleStore; teardown: () => Promise<void> }>

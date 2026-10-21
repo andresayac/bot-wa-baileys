@@ -1,8 +1,8 @@
 /**
- * `@bot-wa/core/dev` — the `bot-wa dev` terminal chat simulator as a library.
+ * `@botmesh/core/dev` — the `botmesh dev` terminal chat simulator as a library.
  *
- * Most people only use the CLI (`bot-wa dev src/bot.js`) plus `defineBot` from
- * `@bot-wa/core`. This subpath exposes the building blocks for custom tooling:
+ * Most people only use the CLI (`botmesh dev src/bot.js`) plus `defineBot` from
+ * `@botmesh/core`. This subpath exposes the building blocks for custom tooling:
  * {@link DevSession} (the I/O-free simulator engine), {@link DevProvider} (the
  * in-memory transport it injects), the pure renderers/parsers, the module
  * loader with hot-reload hooks, and {@link runCli} itself.
@@ -11,7 +11,7 @@
  *
  * @example
  * ```ts
- * import { DevSession } from '@bot-wa/core/dev'
+ * import { DevSession } from '@botmesh/core/dev'
  *
  * const session = new DevSession({ load: () => import('./bot.js'), write: (t) => process.stdout.write(t) })
  * await session.start()

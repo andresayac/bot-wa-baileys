@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { UnsupportedContentError, type InboundEvent, type InboundMessage } from '@bot-wa/core'
+import { UnsupportedContentError, type InboundEvent, type InboundMessage } from '@botmesh/core'
 import { EmailProvider, type EmailRaw } from '../src/index.js'
 import { email, FakeSmtp } from './support/fakes.js'
 

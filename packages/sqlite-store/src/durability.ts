@@ -18,7 +18,7 @@
  */
 
 import type BetterSqlite3 from 'better-sqlite3'
-import { KvDurability, type DurableKv, type DurableKvEntry, type DurableKvIndex, type DurableTable } from '@bot-wa/core'
+import { KvDurability, type DurableKv, type DurableKvEntry, type DurableKvIndex, type DurableTable } from '@botmesh/core'
 import type { SQLiteDatabaseLike } from './schedules.js'
 
 /** Idempotent schema of the durable-document table and its two partial indexes. */

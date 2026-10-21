@@ -1,5 +1,5 @@
 {
-  "name": "@bot-wa/inbox",
+  "name": "@botmesh/inbox",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -27,13 +27,13 @@
   "author": "Andres Aya",
   "license": "MIT",
   "dependencies": {
-    "@bot-wa/core": "workspace:*",
-    "@bot-wa/tenant-kv": "workspace:*"
+    "@botmesh/core": "workspace:*",
+    "@botmesh/tenant-kv": "workspace:*"
   },
   "devDependencies": {
-    "@bot-wa/postgres-store": "workspace:*",
-    "@bot-wa/redis-store": "workspace:*",
-    "@bot-wa/sqlite-store": "workspace:*",
+    "@botmesh/postgres-store": "workspace:*",
+    "@botmesh/redis-store": "workspace:*",
+    "@botmesh/sqlite-store": "workspace:*",
     "@types/node": "^26.1.1",
     "@types/pg": "^8.11.10",
     "better-sqlite3": "^11.7.0",

@@ -6,7 +6,7 @@
  * extra headers and in-memory attachments through.
  */
 
-import { UnsupportedContentError, type MediaSource, type OutboundContent } from '@bot-wa/core'
+import { UnsupportedContentError, type MediaSource, type OutboundContent } from '@botmesh/core'
 import type { SmtpAttachment, SmtpMailOptions } from './types.js'
 import { looksLikeAddress } from './address.js'
 

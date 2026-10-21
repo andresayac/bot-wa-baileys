@@ -7,8 +7,8 @@
  * clients — inject fakes via `createImapClient` / `smtpTransport`.
  */
 
-import type { LoggerLike, MediaRef } from '@bot-wa/core'
-import type { SecureFetchOptions } from '@bot-wa/http'
+import type { LoggerLike, MediaRef } from '@botmesh/core'
+import type { SecureFetchOptions } from '@botmesh/http'
 import type { EmailAddress } from './address.js'
 import type { AutomatedReason, FloodGuardOptions } from './loop.js'
 import type { EmailThreadingMode, EmailThreadStore } from './threading.js'

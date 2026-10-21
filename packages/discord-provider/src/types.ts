@@ -1,10 +1,10 @@
 /**
- * @bot-wa/discord — types for the Discord transport (gateway websocket for
+ * @botmesh/discord — types for the Discord transport (gateway websocket for
  * inbound events + REST for outbound sends).
  */
 
-import type { SecureFetchOptions } from '@bot-wa/http'
-import type { LoggerLike } from '@bot-wa/core'
+import type { SecureFetchOptions } from '@botmesh/http'
+import type { LoggerLike } from '@botmesh/core'
 
 /* --- Socket seam (injectable for hermetic tests) ------------------------- */
 

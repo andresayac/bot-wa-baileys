@@ -1,9 +1,9 @@
-# @bot-wa/http
+# @botmesh/http
 
 Defensive HTTP client for outbound provider downloads. It requires HTTPS, blocks private/loopback destinations and unsafe DNS, validates every redirect, caps the response and enforces a timeout.
 
 ```ts
-import { fetchBuffer } from '@bot-wa/http'
+import { fetchBuffer } from '@botmesh/http'
 
 const image = await fetchBuffer('https://cdn.example/image.png', {
   maxBytes: 8 * 1024 * 1024,
@@ -29,7 +29,7 @@ Every policy rejection is a `SecureHttpError` with a stable `code`:
 | `HTTP_STATUS` | `fetchBuffer` got a non-2xx response; the code is in `error.status`. `secureFetch` does not reject on status: it returns the `response`. |
 
 ```ts
-import { fetchBuffer, SecureHttpError } from '@bot-wa/http'
+import { fetchBuffer, SecureHttpError } from '@botmesh/http'
 
 try {
   await fetchBuffer(url)

@@ -4,7 +4,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import { assertTenantId } from '@bot-wa/tenant-kv'
+import { assertTenantId } from '@botmesh/tenant-kv'
 import type { CommitInput, DeploymentStore } from './store.js'
 import { DeploymentExistsError, DeploymentNotFoundError, gateRunId, type Deployment, type GateRun } from './types.js'
 

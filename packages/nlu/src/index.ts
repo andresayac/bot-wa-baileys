@@ -1,5 +1,5 @@
 /**
- * @bot-wa/nlu — lightweight, fully-local intent matching for `@bot-wa/core`.
+ * @botmesh/nlu — lightweight, fully-local intent matching for `@botmesh/core`.
  *
  * - {@link IntentEngine} — register intents with utterances, `match()` incoming text.
  * - {@link nluPlugin} — installs an engine as `ctx.tools.nlu` on a Bot.
@@ -8,7 +8,7 @@
  *
  * @example
  * ```ts
- * import { nluPlugin, whenIntent, IntentEngine } from '@bot-wa/nlu'
+ * import { nluPlugin, whenIntent, IntentEngine } from '@botmesh/nlu'
  *
  * bot.plug(nluPlugin, { intents: { greeting: ['hola', 'buenas'] } })
  * whenIntent(bot, bot.injectTools.nlu as IntentEngine, 'greeting', (ctx) => ctx.reply('👋'))
@@ -25,10 +25,10 @@ export { whenIntent } from './whenIntent.js'
 export type { IntentHandler } from './whenIntent.js'
 
 /**
- * Augment `@bot-wa/core` so `ctx.tools.nlu` is typed once `nluPlugin` is
+ * Augment `@botmesh/core` so `ctx.tools.nlu` is typed once `nluPlugin` is
  * installed — no casts needed in handlers.
  */
-declare module '@bot-wa/core' {
+declare module '@botmesh/core' {
   interface DefaultTools {
     /** Present when `nluPlugin` is plugged into the Bot. */
     nlu?: IntentEngine

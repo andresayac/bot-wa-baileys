@@ -18,8 +18,8 @@
  * per channel; WhatsApp and SMS are deliberately different chats.
  */
 
-import { toInboundLocation } from '@bot-wa/core'
-import type { InboundEvent, InboundLocation, MediaRef, MessageType } from '@bot-wa/core'
+import { toInboundLocation } from '@botmesh/core'
+import type { InboundEvent, InboundLocation, MediaRef, MessageType } from '@botmesh/core'
 import type { TwilioWebhookParams } from './types.js'
 
 function one(params: TwilioWebhookParams, key: string): string | undefined {

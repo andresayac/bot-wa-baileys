@@ -1,10 +1,10 @@
 /**
- * @bot-wa/gohighlevel — configuration and HighLevel (LeadConnector) wire
+ * @botmesh/gohighlevel — configuration and HighLevel (LeadConnector) wire
  * shapes (subset used).
  */
 
 import type { ProviderHttpOptions } from './http.js'
-import type { LoggerLike } from '@bot-wa/core'
+import type { LoggerLike } from '@botmesh/core'
 
 /** Message channels accepted by `POST /conversations/messages` (`type`). */
 export type GhlChannel = 'SMS' | 'WhatsApp' | 'Email' | 'IG' | 'FB' | 'Custom' | 'Live_Chat' | 'GMB' | (string & {})

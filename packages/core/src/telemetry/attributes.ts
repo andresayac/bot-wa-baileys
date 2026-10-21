@@ -3,7 +3,7 @@
  */
 
 /**
- * Every span name and attribute key the core and `@bot-wa/ai` write, in one place (so a
+ * Every span name and attribute key the core and `@botmesh/ai` write, in one place (so a
  * rename of the OpenTelemetry semantic conventions is a one-line change). The `gen_ai.*`
  * keys follow the OpenTelemetry GenAI conventions (experimental).
  */
@@ -76,7 +76,7 @@ export const TRACE_ATTR = {
   aiRagChunks: 'bot.ai.rag.chunks',
 } as const
 
-/** Span names written by the core and `@bot-wa/ai`. */
+/** Span names written by the core and `@botmesh/ai`. */
 export const SPAN_NAMES = {
   inbound: 'bot.inbound',
   persist: 'bot.persist',

@@ -211,7 +211,7 @@ Un evento propio (uno para el que un plugin corre sus propios hooks) es
 `HookContextMap` (declaration merging):
 
 ```ts
-declare module '@bot-wa/core' {
+declare module '@botmesh/core' {
   interface HookContextMap { 'crm.lead': { leadId: string } }
 }
 bot.after('crm.lead', (lead) => lead.leadId)              // tipado por la ampliación

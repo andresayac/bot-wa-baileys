@@ -1,7 +1,7 @@
 /**
- * CampaignStore — the storage contract of `@bot-wa/campaigns`. `MemoryCampaignStore` is
+ * CampaignStore — the storage contract of `@botmesh/campaigns`. `MemoryCampaignStore` is
  * the reference implementation and `KvCampaignStore` persists through any `DurableKv` of
- * `@bot-wa/core`; both pass `test-utils/campaign-store-conformance.ts`.
+ * `@botmesh/core`; both pass `test-utils/campaign-store-conformance.ts`.
  *
  * The per-(tenant, campaign, recipient) state document is the atomic unit: a
  * reservation, its settlement and the `sent` counter live together, so two workers can

@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect, expectTypeOf } from 'vitest'
-import { Bot, type IProvider } from '@bot-wa/core'
+import { Bot, type IProvider } from '@botmesh/core'
 import { TwilioProvider } from '../src/TwilioProvider.js'
 import type { TwilioWebhookParams } from '../src/types.js'
 import { computeTwilioSignature, parseFormParams } from '../src/signature.js'

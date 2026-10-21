@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { createTestBot } from '@bot-wa/core/testing'
+import { createTestBot } from '@botmesh/core/testing'
 import { formatMarkdown, formatMarkdownStream } from '../src/format.js'
 import { MockAIProvider } from '../src/MockAIProvider.js'
 import { aiPlugin, type AIPluginConfig } from '../src/plugin.js'

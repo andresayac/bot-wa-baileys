@@ -1,7 +1,7 @@
 /**
- * ContactStore — the storage contract of `@bot-wa/crm`. `MemoryContactStore` is the
+ * ContactStore — the storage contract of `@botmesh/crm`. `MemoryContactStore` is the
  * reference implementation and `KvContactStore` persists through any `DurableKv` of
- * `@bot-wa/core`; both pass `test-utils/contact-store-conformance.ts`.
+ * `@botmesh/core`; both pass `test-utils/contact-store-conformance.ts`.
  *
  * `upsert` replaces the whole contact (tags are normalized), `setConsent` is a
  * compare-and-set loop that never loses another writer's changes, and every read

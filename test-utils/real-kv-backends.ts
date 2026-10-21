@@ -5,8 +5,8 @@
  * docker commands). Every `fresh()` returns an isolated kv (its own file, table prefix or
  * key prefix); `close()` drops everything the run created.
  *
- * Imported relatively by the product packages, which declare `@bot-wa/sqlite-store`,
- * `@bot-wa/postgres-store`, `@bot-wa/redis-store`, `pg` and `redis` as devDependencies and
+ * Imported relatively by the product packages, which declare `@botmesh/sqlite-store`,
+ * `@botmesh/postgres-store`, `@botmesh/redis-store`, `pg` and `redis` as devDependencies and
  * pass them in as `deps` (Vite resolves bare imports from the importing file, so this
  * file cannot import them itself).
  */
@@ -14,7 +14,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
-import type { DurableKv } from '@bot-wa/core'
+import type { DurableKv } from '@botmesh/core'
 
 /* Structural shapes of the modules the packages pass in. They are deliberately loose:
  * this file lives in `test-utils/`, outside every package's `node_modules`, so it must

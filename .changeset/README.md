@@ -34,7 +34,7 @@ Un paquete público no puede depender (en `dependencies`/`peerDependencies`) de 
 
 El repo está en **modo prerelease `alpha`**: `pnpm changeset pre enter alpha` creó `pre.json` en esta carpeta (no lo borres ni lo edites a mano). Mientras siga ahí:
 
-- `changeset version` genera versiones de prerelease: `@bot-wa/core` sale como `2.0.0-alpha.N` y el resto como `x.y.z-alpha.N`.
+- `changeset version` genera versiones de prerelease: `@botmesh/core` sale como `2.0.0-alpha.N` y el resto como `x.y.z-alpha.N`.
 - `changeset publish` publica bajo el dist-tag `alpha`, no `latest`.
 - `pnpm changeset status --verbose` muestra qué versión recibiría cada paquete.
 

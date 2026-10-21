@@ -193,7 +193,7 @@ describe('documentation tools', () => {
     await mkdir(join(root, 'api'), { recursive: true })
     await writeFile(
       join(root, 'guide', 'flows.md'),
-      '# Flows\n\n## Waits\n\nA flow parks in an `ask` until the user answers.\n\n```bash\n# this is not a heading\nbot-wa dev\n```\n\n## Timeouts\n\nThe wait ends after its timeout.\n',
+      '# Flows\n\n## Waits\n\nA flow parks in an `ask` until the user answers.\n\n```bash\n# this is not a heading\nbotmesh dev\n```\n\n## Timeouts\n\nThe wait ends after its timeout.\n',
       'utf8',
     )
     await writeFile(join(root, 'es', 'guide', 'flujos.md'), '# Flujos\n\n## Esperas\n\nUn flujo se queda esperando en un `ask`.\n', 'utf8')
@@ -217,9 +217,9 @@ describe('documentation tools', () => {
   })
 
   it('does not treat a comment inside a code fence as a heading', () => {
-    const sections = parseSections('guide/x.md', '# T\n\n```bash\n# not a heading\nbot-wa dev\n```\n\n## Real\n\nbody\n')
+    const sections = parseSections('guide/x.md', '# T\n\n```bash\n# not a heading\nbotmesh dev\n```\n\n## Real\n\nbody\n')
     expect(sections.map((section) => section.heading)).toEqual(['T', 'Real'])
-    expect(sections[0]!.body).toContain('bot-wa dev')
+    expect(sections[0]!.body).toContain('botmesh dev')
   })
 
   it('returns no hits for an empty or unknown query', () => {

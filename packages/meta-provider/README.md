@@ -1,11 +1,11 @@
-# @bot-wa/meta
+# @botmesh/meta
 
-The **official WhatsApp Cloud API (Meta)** transport for [`@bot-wa/core`](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/core). Unlike Baileys (WhatsApp Web, unofficial), the Cloud API is **official: no ban risk**, with **native buttons, lists and templates**. It is webhook-based (it opens no socket).
+The **official WhatsApp Cloud API (Meta)** transport for [`@botmesh/core`](https://github.com/andresayac/botmesh/tree/main/packages/core). Unlike Baileys (WhatsApp Web, unofficial), the Cloud API is **official: no ban risk**, with **native buttons, lists and templates**. It is webhook-based (it opens no socket).
 
 ## Installation
 
 ```bash
-pnpm add @bot-wa/core @bot-wa/meta
+pnpm add @botmesh/core @botmesh/meta
 ```
 
 **No extra dependencies** — it uses Node ≥ 22's native `fetch` and `crypto`.
@@ -20,8 +20,8 @@ pnpm add @bot-wa/core @bot-wa/meta
 ## Usage
 
 ```ts
-import { Bot } from '@bot-wa/core'
-import { CloudAPIProvider } from '@bot-wa/meta'
+import { Bot } from '@botmesh/core'
+import { CloudAPIProvider } from '@botmesh/meta'
 import express from 'express'
 
 const provider = new CloudAPIProvider({
@@ -175,7 +175,7 @@ interface IdentityMap {
 With Redis (asynchronous):
 
 ```ts
-import { CloudAPIProvider } from '@bot-wa/meta'
+import { CloudAPIProvider } from '@botmesh/meta'
 
 const provider = new CloudAPIProvider({
   // ...accessToken, phoneNumberId, verifyToken, appSecret
@@ -189,7 +189,7 @@ const provider = new CloudAPIProvider({
 Or synchronous, preloading from your database and writing in the background:
 
 ```ts
-import { CloudAPIProvider, MemoryIdentityMap } from '@bot-wa/meta'
+import { CloudAPIProvider, MemoryIdentityMap } from '@botmesh/meta'
 
 const memory = new MemoryIdentityMap({ maxEntries: 100_000, entries: await db.loadBsuidPairs() })
 const provider = new CloudAPIProvider({

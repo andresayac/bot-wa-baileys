@@ -36,7 +36,7 @@ bot.when('hola', async (ctx) => {
 await bot.user('5491122334455').ns('billing').set('plan', 'pro')
 
 // En los pasos de un flujo el ctx es un RuntimeMessage: usa userOf()
-import { userOf } from '@bot-wa/core'
+import { userOf } from '@botmesh/core'
 
 flow('idioma')
   .ask('¿Idioma?', 'lang')

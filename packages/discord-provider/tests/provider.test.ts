@@ -4,8 +4,8 @@
  */
 
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import type { InboundEvent, InboundInteraction } from '@bot-wa/core'
-import { ProviderError, RecipientUnreachableError, UnsupportedContentError } from '@bot-wa/core'
+import type { InboundEvent, InboundInteraction } from '@botmesh/core'
+import { ProviderError, RecipientUnreachableError, UnsupportedContentError } from '@botmesh/core'
 import { DiscordProvider } from '../src/DiscordProvider.js'
 import { fakeSocketFactory, wait } from './_fakeSocket.js'
 

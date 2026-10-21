@@ -9,7 +9,7 @@ import { COMPONENT_SCHEMAS, ROUTES, API_SCOPES } from './spec.js'
 export interface OpenApiOptions {
   /** URL prefix of the API. Default `'/v1'`. */
   prefix?: string
-  /** `info.title`. Default `'bot-wa Manager API'`. */
+  /** `info.title`. Default `'botmesh Manager API'`. */
   title?: string
   /** `info.version`. Default `'1.0.0'`. */
   version?: string
@@ -73,9 +73,9 @@ export function buildOpenApiDocument(opts: OpenApiOptions = {}): OpenApiDocument
   return {
     openapi: '3.1.0',
     info: {
-      title: opts.title ?? 'bot-wa Manager API',
+      title: opts.title ?? 'botmesh Manager API',
       version: opts.version ?? '1.0.0',
-      description: 'Control plane of @bot-wa/manager: bots, lifecycle, messaging, conversations, JSON flows and metrics. '
+      description: 'Control plane of @botmesh/manager: bots, lifecycle, messaging, conversations, JSON flows and metrics. '
         + 'Every response carries `X-Request-Id`; mutating routes accept `Idempotency-Key`; all routes are rate limited. '
         + `Token scopes: ${API_SCOPES.join(', ')} (or *).`,
     },

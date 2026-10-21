@@ -3,7 +3,7 @@ import { assertSafeTarget, isPrivateAddress, secureFetch } from '../src/index.js
 
 const publicResolver = async () => ['93.184.216.34']
 
-describe('@bot-wa/http — IPv6 forms that embed a private IPv4', () => {
+describe('@botmesh/http — IPv6 forms that embed a private IPv4', () => {
   it.each([
     '::7f00:1', // IPv4-compatible ::127.0.0.1
     '::ffff:7f00:1', // IPv4-mapped, hex form (what URL normalizes to)
@@ -36,7 +36,7 @@ describe('@bot-wa/http — IPv6 forms that embed a private IPv4', () => {
   })
 })
 
-describe('@bot-wa/http — redirects', () => {
+describe('@botmesh/http — redirects', () => {
   it('strips API-key style headers on a cross-origin redirect', async () => {
     const fetch = vi.fn<typeof globalThis.fetch>()
       .mockResolvedValueOnce(new Response(null, { status: 302, headers: { location: 'https://other.example/file' } }))

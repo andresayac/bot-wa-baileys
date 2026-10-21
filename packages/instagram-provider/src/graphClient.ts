@@ -4,9 +4,9 @@
  * core's typed provider errors (code 4 / 613 → RateLimitedError).
  */
 
-import { ProviderError, type ChatId, type OutboundContent } from '@bot-wa/core'
-import { toGraphError, readGraphResponse, type GraphError } from '@bot-wa/graph-core'
-import { secureFetch, type SecureFetchOptions } from '@bot-wa/http'
+import { ProviderError, type ChatId, type OutboundContent } from '@botmesh/core'
+import { toGraphError, readGraphResponse, type GraphError } from '@botmesh/graph-core'
+import { secureFetch, type SecureFetchOptions } from '@botmesh/http'
 
 export interface GraphClientConfig {
   accessToken: string
@@ -17,7 +17,7 @@ export interface GraphClientConfig {
 
 /**
  * Translate a Graph error into a typed provider error. Thin wrapper over the
- * shared {@link toGraphError} of `@bot-wa/graph-core`, the single source of the
+ * shared {@link toGraphError} of `@botmesh/graph-core`, the single source of the
  * Messenger Platform window/recipient codes. `chatId` (the IGSID the call
  * targeted) is carried on window/unreachable errors.
  */

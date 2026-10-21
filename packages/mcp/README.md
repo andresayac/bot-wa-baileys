@@ -1,4 +1,4 @@
-# @bot-wa/mcp
+# @botmesh/mcp
 
 > **Paquete privado** (`"private": true`, no se publica en npm). Implementación real; la API puede cambiar sin aviso mientras la alpha no salga.
 
@@ -38,12 +38,12 @@ node packages/mcp/lib/bin.js
 
 ### VS Code
 
-El repo trae `.vscode/mcp.json`; tras `pnpm build`, MCP → *bot-wa* → Start.
+El repo trae `.vscode/mcp.json`; tras `pnpm build`, MCP → *botmesh* → Start.
 
 ### Programa
 
 ```ts
-import { createMcpServer, serveStream } from '@bot-wa/mcp'
+import { createMcpServer, serveStream } from '@botmesh/mcp'
 
 const server = createMcpServer({ docsDir: 'docs' })
 await serveStream(process.stdin, { server, write: (line) => process.stdout.write(`${line}\n`) })
@@ -51,11 +51,11 @@ await serveStream(process.stdin, { server, write: (line) => process.stdout.write
 
 ## Diseño
 
-- **Sin dependencias.** El transporte es `LineDecoder` + `JSON-RPC` escrito a mano (igual que `@bot-wa/server` y `@bot-wa/manager`), con `ping`, `initialize`, `tools/list` y `tools/call`; `resources/*` y `prompts/*` contestan `-32601` porque no se anuncian como capability.
-- **Solo lo que ya existe.** `flow_*` envuelve `@bot-wa/flow-schema` y `lintFlows`/`describeFlows` de `@bot-wa/core`; no reimplementa validación ni añade un segundo esquema.
+- **Sin dependencias.** El transporte es `LineDecoder` + `JSON-RPC` escrito a mano (igual que `@botmesh/server` y `@botmesh/manager`), con `ping`, `initialize`, `tools/list` y `tools/call`; `resources/*` y `prompts/*` contestan `-32601` porque no se anuncian como capability.
+- **Solo lo que ya existe.** `flow_*` envuelve `@botmesh/flow-schema` y `lintFlows`/`describeFlows` de `@botmesh/core`; no reimplementa validación ni añade un segundo esquema.
 - **El `initialize` lleva las reglas caras de equivocar**: la API v1 no existe, los documentos son datos, `void runtime.enter(...)` y la identidad la resuelve el provider.
 - **README de búsqueda determinista**: sin modelo de ranking ni fuzzy; IDF + presencia + bonus por heading, con stopwords EN/ES. Un identificador raro (`appendLog`) gana a una palabra que aparece en todas las páginas.
 
 ## Tests
 
-`pnpm --filter @bot-wa/mcp test` — 49 casos: framing con chunks partidos, envelopes, cada tool (válido/inválido/migración/diff/subflow), el esquema contra los 14 tipos de paso, búsqueda bilingüe sobre un árbol temporal (incluido el rechazo de `../`), y la sincronización de la versión con `package.json`.
+`pnpm --filter @botmesh/mcp test` — 49 casos: framing con chunks partidos, envelopes, cada tool (válido/inválido/migración/diff/subflow), el esquema contra los 14 tipos de paso, búsqueda bilingüe sobre un árbol temporal (incluido el rechazo de `../`), y la sincronización de la versión con `package.json`.

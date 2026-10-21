@@ -9,7 +9,7 @@ import {
   RecipientUnreachableError,
   UnsupportedContentError,
   type InboundEvent,
-} from '@bot-wa/core'
+} from '@botmesh/core'
 import { TwilioProvider } from '../src/TwilioProvider.js'
 import { computeTwilioSignature, parseFormParams } from '../src/signature.js'
 import { TwilioApiError } from '../src/errors.js'

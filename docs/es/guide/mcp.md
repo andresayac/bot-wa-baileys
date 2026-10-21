@@ -1,6 +1,6 @@
 # Servidor MCP
 
-`@bot-wa/mcp` (privado, solo monorepo) es un servidor **MCP** (Model Context Protocol) por stdio. Le da a un agente de código (o a un editor) las piezas deterministas del proyecto para escribir, validar, compilar, dibujar, lintear, migrar y comparar un documento de flujo **sin arrancar un bot**: sin teléfono, sin credenciales, sin red.
+`@botmesh/mcp` (privado, solo monorepo) es un servidor **MCP** (Model Context Protocol) por stdio. Le da a un agente de código (o a un editor) las piezas deterministas del proyecto para escribir, validar, compilar, dibujar, lintear, migrar y comparar un documento de flujo **sin arrancar un bot**: sin teléfono, sin credenciales, sin red.
 
 Cada herramienta es una función de sus argumentos. El servidor **no tiene dependencias** (el transporte JSON-RPC son ~150 líneas de `LineDecoder` + envelopes), nunca evalúa código y nunca escribe en disco.
 
@@ -15,12 +15,12 @@ node packages/mcp/lib/bin.js                   # solo herramientas de flujo
 
 `--docs <dir>` (o `BOTWA_DOCS_DIR`) apunta a un árbol de documentación; sin él las dos herramientas de docs **no** se anuncian en `tools/list`, así que un cliente nunca ve una herramienta que no puede funcionar.
 
-En VS Code el repo ya trae `.vscode/mcp.json`: ejecuta `pnpm build` una vez y arranca el servidor *bot-wa* desde la vista MCP.
+En VS Code el repo ya trae `.vscode/mcp.json`: ejecuta `pnpm build` una vez y arranca el servidor *botmesh* desde la vista MCP.
 
 ### Por programa
 
 ```ts
-import { createMcpServer, serveStream } from '@bot-wa/mcp'
+import { createMcpServer, serveStream } from '@botmesh/mcp'
 
 const server = createMcpServer({ docsDir: 'docs' })
 await serveStream(process.stdin, { server, write: (line) => process.stdout.write(`${line}\n`) })
@@ -40,7 +40,7 @@ await serveStream(process.stdin, { server, write: (line) => process.stdout.write
 | `docs_search` | `query`, `limit?` | Secciones con `path`, `title`, `heading`, `snippet` y `score` (solo con directorio de docs). |
 | `docs_page` | `path` | El markdown de una página (solo con directorio de docs). |
 
-`flow_analyze` ejecuta **las mismas** `describeFlows()` y `lintFlows()` que usan `bot.describe()` y `bot.lint()`, y `flow_*` envuelve `@bot-wa/flow-schema`, así que el servidor no puede contradecir al runtime ni al gate de despliegue.
+`flow_analyze` ejecuta **las mismas** `describeFlows()` y `lintFlows()` que usan `bot.describe()` y `bot.lint()`, y `flow_*` envuelve `@botmesh/flow-schema`, así que el servidor no puede contradecir al runtime ni al gate de despliegue.
 
 ### «Válido» o «inválido» es un resultado, no un error
 
@@ -70,4 +70,4 @@ El ranking es determinista y deliberadamente simple: términos sin acentos ni ma
 
 ## Tests
 
-`pnpm --filter @bot-wa/mcp test` cubre el framing (mensajes partidos entre chunks, `\r\n`, una última línea sin salto, chunks en UTF-8), cada herramienta con entrada válida e inválida, los 14 tipos de paso, la resolución de subflows, la migración de un documento sin versión, una búsqueda bilingüe sobre un árbol temporal (incluido el rechazo de `../`) y la sincronización de la versión con `package.json`.
+`pnpm --filter @botmesh/mcp test` cubre el framing (mensajes partidos entre chunks, `\r\n`, una última línea sin salto, chunks en UTF-8), cada herramienta con entrada válida e inválida, los 14 tipos de paso, la resolución de subflows, la migración de un documento sin versión, una búsqueda bilingüe sobre un árbol temporal (incluido el rechazo de `../`) y la sincronización de la versión con `package.json`.

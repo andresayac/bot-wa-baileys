@@ -1,9 +1,9 @@
 /**
  * WPPConnectProvider — wppconnect-server (WA-JS REST gateway) transport for
- * @bot-wa/core.
+ * @botmesh/core.
  *
  *  - Outbound: `POST {baseUrl}/api/{session}/<endpoint>` with
- *    `Authorization: Bearer <token>`, through `secureFetch` (@bot-wa/http). With
+ *    `Authorization: Bearer <token>`, through `secureFetch` (@botmesh/http). With
  *    `secretKey`, the token is generated on `start()` and refreshed once on 401.
  *  - Inbound: the server POSTs webhooks (`onmessage`, `onack`, …); the host
  *    hands each body, headers and request URL to {@link WPPConnectProvider.ingest},
@@ -26,7 +26,7 @@
  */
 
 import pino from 'pino'
-import type { LoggerLike } from '@bot-wa/core'
+import type { LoggerLike } from '@botmesh/core'
 import type {
   ChatId,
   ConnectionState,
@@ -41,14 +41,14 @@ import type {
   SendResult,
   SerializedMediaRef,
   UserId,
-} from '@bot-wa/core'
+} from '@botmesh/core'
 import {
   PayloadTooLargeError,
   ProviderError,
   RateLimitedError,
   RecipientUnreachableError,
   UnsupportedContentError,
-} from '@bot-wa/core'
+} from '@botmesh/core'
 import {
   WaIdentityStore,
   describeErrorBody,
@@ -59,7 +59,7 @@ import {
   resolveHttpPolicy,
   restCall,
   type RestHttpOptions,
-} from '@bot-wa/wa-gateway-kit'
+} from '@botmesh/wa-gateway-kit'
 import { jidOf, lidsIn, parseWebhook, serializedId } from './parseInbound.js'
 import { target, toOutbound } from './toOutbound.js'
 import type { WPPConnectProviderConfig, WppMediaToken } from './types.js'

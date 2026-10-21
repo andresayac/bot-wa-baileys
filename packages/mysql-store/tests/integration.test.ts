@@ -14,7 +14,7 @@
  *   docker run -d --name botwa-it-mysql -e MYSQL_ROOT_PASSWORD=root \
  *     -e MYSQL_DATABASE=botwa -p 53306:3306 mysql:8.4
  *   BOTWA_TEST_MYSQL_URL=mysql://root:root@127.0.0.1:53306/botwa \
- *     pnpm --filter @bot-wa/mysql-store test
+ *     pnpm --filter @botmesh/mysql-store test
  *
  * Isolation: every store gets its own table prefix (`it<run>_<n>_`), so runs
  * never collide with each other or with real data in the same database. Each
@@ -25,7 +25,7 @@ import { randomBytes } from 'node:crypto'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { createPool } from 'mysql2/promise'
 import type { Pool, RowDataPacket } from 'mysql2/promise'
-import { legacyMessageKey, type AIMessage, type FlowCheckpoint, type StoredChat, type StoredContact, type StoredMessage } from '@bot-wa/core'
+import { legacyMessageKey, type AIMessage, type FlowCheckpoint, type StoredChat, type StoredContact, type StoredMessage } from '@botmesh/core'
 import { MysqlStore } from '../src/MysqlStore.js'
 import type { MysqlQueryResult, MysqlStoreOptions, PoolLike } from '../src/MysqlStore.js'
 import { runStoreConformance } from '../../../test-utils/store-conformance.js'

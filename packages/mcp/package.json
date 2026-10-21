@@ -1,5 +1,5 @@
 {
-  "name": "@bot-wa/mcp",
+  "name": "@botmesh/mcp",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -7,7 +7,7 @@
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
   "bin": {
-    "bot-wa-mcp": "./lib/bin.js"
+    "botmesh-mcp": "./lib/bin.js"
   },
   "exports": {
     ".": {
@@ -30,14 +30,14 @@
   "keywords": [
     "mcp",
     "model-context-protocol",
-    "bot-wa",
+    "botmesh",
     "flows"
   ],
   "author": "Andres Aya",
   "license": "MIT",
   "dependencies": {
-    "@bot-wa/core": "workspace:*",
-    "@bot-wa/flow-schema": "workspace:*"
+    "@botmesh/core": "workspace:*",
+    "@botmesh/flow-schema": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^26.1.1",

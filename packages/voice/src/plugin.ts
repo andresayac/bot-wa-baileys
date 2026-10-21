@@ -25,7 +25,7 @@
  *
  * @example
  * ```ts
- * import { voicePlugin } from '@bot-wa/voice'
+ * import { voicePlugin } from '@botmesh/voice'
  *
  * bot.plug(voicePlugin({
  *   stt: { provider: 'openai', model: 'whisper-1', apiKey: process.env.OPENAI_API_KEY },
@@ -43,7 +43,7 @@ import {
   type PluginContext,
   type PluginSpec,
   type SendOptions,
-} from '@bot-wa/core'
+} from '@botmesh/core'
 import { VoiceConfigError, VoiceError } from './errors.js'
 import type { SttConfig, TtsConfig } from './resolve.js'
 import { VoiceClient, type VoiceLimits } from './VoiceClient.js'
@@ -63,7 +63,7 @@ export interface AutoTranscribeOptions {
    *    answers `c.ask()` / `c.waitText()` (which accept text only) while
    *    `c.waitMedia(['voice'])`, `c.choose()`, `c.waitAny()` and `VOICE_NOTE`
    *    triggers keep receiving it as a voice note.
-   *  - `true`: always — text-only handlers (e.g. the `@bot-wa/ai` autoresponder)
+   *  - `true`: always — text-only handlers (e.g. the `@botmesh/ai` autoresponder)
    *    answer audio, but `VOICE_NOTE`/`AUDIO` triggers no longer match.
    *  - `false`: never.
    */

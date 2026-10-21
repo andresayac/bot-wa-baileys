@@ -1,5 +1,5 @@
 /**
- * `@bot-wa/core/testing/vitest` — vitest matchers for bots (`toHaveReplied`,
+ * `@botmesh/core/testing/vitest` — vitest matchers for bots (`toHaveReplied`,
  * `toHaveRepliedMatching`, `toHaveRepliedTimes`) plus the type augmentation that
  * makes them visible on `expect(...)`. `vitest` is an optional peer: this module
  * never imports it at runtime (the `declare module` below is type-only), so the
@@ -9,7 +9,7 @@
  * @example
  * ```ts
  * import { expect } from 'vitest'
- * import { botMatchers } from '@bot-wa/core/testing/vitest'
+ * import { botMatchers } from '@botmesh/core/testing/vitest'
  * expect.extend(botMatchers)          // once (a setupFiles entry) or per test file
  * expect(chat).toHaveReplied(/hola/)
  * ```

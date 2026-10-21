@@ -1,14 +1,14 @@
 /**
  * KvPluginStore — {@link PluginStore} persisted through any `DurableKv` of
- * `@bot-wa/core` (SQLite, PostgreSQL, Redis, file or memory) via `@bot-wa/tenant-kv`.
+ * `@botmesh/core` (SQLite, PostgreSQL, Redis, file or memory) via `@botmesh/tenant-kv`.
  *
  * One table per tenant, `product/hub/plugin/<tenant>`: id = plugin id, `all` index =
  * most recently installed first. `install` replaces the document and `setEnabled` is a
  * compare-and-set loop, so a concurrent writer is retried instead of overwritten.
  */
 
-import type { DurableKv } from '@bot-wa/core'
-import { TenantDocs } from '@bot-wa/tenant-kv'
+import type { DurableKv } from '@botmesh/core'
+import { TenantDocs } from '@botmesh/tenant-kv'
 import {
   DEFAULT_LIST_LIMIT,
   assertLimit,

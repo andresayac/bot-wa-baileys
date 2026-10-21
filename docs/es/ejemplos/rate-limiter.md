@@ -6,8 +6,8 @@ ventana de tiempo.
 ## El plugin
 
 ```ts
-import { Bot, definePlugin } from '@bot-wa/core'
-import { BaileysProvider } from '@bot-wa/baileys'
+import { Bot, definePlugin } from '@botmesh/core'
+import { BaileysProvider } from '@botmesh/baileys'
 
 interface RateLimitConfig {
   max?: number

@@ -1,5 +1,5 @@
 /**
- * The `bot-wa` command line: `bot-wa dev <entry>` runs the terminal chat
+ * The `botmesh` command line: `botmesh dev <entry>` runs the terminal chat
  * simulator with hot reload.
  *
  * {@link runCli} is the whole program with its I/O injected (streams, module
@@ -30,7 +30,7 @@ export class DevUsageError extends Error {
   }
 }
 
-/** Parsed `bot-wa` arguments. */
+/** Parsed `botmesh` arguments. */
 export interface DevCliOptions {
   command: 'dev' | 'help' | 'version'
   /** Bot module path (relative to cwd), for `dev`. */
@@ -74,15 +74,15 @@ export interface CliIO {
   nodeVersion?: string
 }
 
-/** `bot-wa --help` text. */
+/** `botmesh --help` text. */
 export const CLI_USAGE = [
-  'Usage: bot-wa dev <entry> [options]',
+  'Usage: botmesh dev <entry> [options]',
   '',
   'Chat with your bot in the terminal: no phone, no real transport, no ban risk.',
   'Hot reload: saving a file in the entry folder restarts the bot with the new code.',
   '',
   '<entry> must default-export a bot factory:',
-  "  import { Bot, defineBot } from '@bot-wa/core'",
+  "  import { Bot, defineBot } from '@botmesh/core'",
   '  export default defineBot((provider) => {',
   '    const bot = new Bot({ provider })',
   "    bot.when('hola', (ctx) => ctx.reply('¡Hola!'))",
@@ -105,7 +105,7 @@ export const CLI_USAGE = [
 ].join('\n')
 
 /**
- * Parse `bot-wa` arguments (without `node` and the script). Pure.
+ * Parse `botmesh` arguments (without `node` and the script). Pure.
  * @throws {DevUsageError} on unknown commands/options or a missing entry.
  */
 export function parseCliArgs(argv: readonly string[]): DevCliOptions {
@@ -146,7 +146,7 @@ export function parseCliArgs(argv: readonly string[]): DevCliOptions {
         out.entry = arg
     }
   }
-  if (!out.entry) throw new DevUsageError('bot-wa dev needs an entry file, e.g. bot-wa dev src/bot.js')
+  if (!out.entry) throw new DevUsageError('botmesh dev needs an entry file, e.g. botmesh dev src/bot.js')
   return out
 }
 
@@ -154,7 +154,7 @@ export function parseCliArgs(argv: readonly string[]): DevCliOptions {
 const PIPED_MAX_SETTLE_MS = 30_000
 
 const HALT_NOTICE =
-  '• stopping: bot-wa dev will not call a bot factory that builds its own provider again — each call could open ' +
+  '• stopping: botmesh dev will not call a bot factory that builds its own provider again — each call could open ' +
   'another real connection. Exiting closes anything it left open.\n'
 
 function readVersion(): string {
@@ -179,7 +179,7 @@ function errorMessage(error: unknown): string {
 }
 
 /**
- * Run the `bot-wa` CLI. Resolves with the process exit code: `0` success,
+ * Run the `botmesh` CLI. Resolves with the process exit code: `0` success,
  * `1` runtime failure (missing entry, unsupported TypeScript, load failure
  * without watch, an entry that ran without exporting a factory, a factory that
  * builds its own provider), `2` usage error.
@@ -190,7 +190,7 @@ export async function runCli(argv: readonly string[], io: CliIO): Promise<number
     options = parseCliArgs(argv)
   } catch (error) {
     if (!(error instanceof DevUsageError)) throw error
-    io.stderr.write(`bot-wa: ${error.message}\n\n${CLI_USAGE}\n`)
+    io.stderr.write(`botmesh: ${error.message}\n\n${CLI_USAGE}\n`)
     return 2
   }
   if (options.command === 'help') {
@@ -198,7 +198,7 @@ export async function runCli(argv: readonly string[], io: CliIO): Promise<number
     return 0
   }
   if (options.command === 'version') {
-    io.stdout.write(`bot-wa ${readVersion()}\n`)
+    io.stdout.write(`botmesh ${readVersion()}\n`)
     return 0
   }
   return runDev(options, options.entry!, io)
@@ -209,7 +209,7 @@ async function runDev(options: DevCliOptions, entryArg: string, io: CliIO): Prom
   const env = io.env ?? process.env
   const entry = resolvePath(cwd, entryArg)
   if (!isFile(entry)) {
-    io.stderr.write(`bot-wa dev: entry not found: ${entry}\n`)
+    io.stderr.write(`botmesh dev: entry not found: ${entry}\n`)
     return 1
   }
   const tsHint = checkTypeScriptSupport(entryArg, {
@@ -299,7 +299,7 @@ async function runDev(options: DevCliOptions, entryArg: string, io: CliIO): Prom
   const watchDir = options.watchDir ? resolvePath(cwd, options.watchDir) : dirname(entry)
   const identity = session.identity
   write([
-    'bot-wa dev — terminal simulator · nothing is sent to a real chat',
+    'botmesh dev — terminal simulator · nothing is sent to a real chat',
     `  entry  ${rel(entry)}`,
     options.watch
       ? `  watch  ${rel(watchDir)} (hot reload on save${hooks === 'none' ? '; only the entry file is re-imported' : ''})`

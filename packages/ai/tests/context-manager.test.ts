@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { MemoryStore } from '@bot-wa/core'
+import { MemoryStore } from '@botmesh/core'
 import { ContextManager } from '../src/ContextManager.js'
 import { chatKeyOf } from '../src/chatKey.js'
 

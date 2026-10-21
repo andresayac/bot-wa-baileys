@@ -1,5 +1,5 @@
 /**
- * RedisCoordinator — multi-replica {@link Coordinator} for `@bot-wa/core`, on one Redis.
+ * RedisCoordinator — multi-replica {@link Coordinator} for `@botmesh/core`, on one Redis.
  *
  * Every replica of a bot gets its own instance (distinct `replicaId`) pointing at the
  * same Redis and `prefix`, passed as `BotConfig.coordination.coordinator`:
@@ -37,8 +37,8 @@
  *
  * @example
  * ```ts
- * import { Bot } from '@bot-wa/core'
- * import { RedisStore, RedisCoordinator } from '@bot-wa/redis-store'
+ * import { Bot } from '@botmesh/core'
+ * import { RedisStore, RedisCoordinator } from '@botmesh/redis-store'
  *
  * const store = new RedisStore({ url: process.env.REDIS_URL, prefix: 'mybot' })
  * const bot = new Bot({
@@ -60,7 +60,7 @@ import {
   type Leadership,
   type LeaseLossReason,
   type Ticket,
-} from '@bot-wa/core'
+} from '@botmesh/core'
 import type { NativeRedisClient, RedisLikeClient } from './RedisStore.js'
 import { PROBE_EXISTS_SCRIPT, TURN_CLUSTER_SCRIPT } from './clusterScripts.js'
 import { coordKeys, type CoordKeys, type RedisKeyLayout } from './layout.js'

@@ -1,19 +1,19 @@
-# @bot-wa/mongo-store
+# @botmesh/mongo-store
 
 > [!WARNING]
 > **Experimental — not yet published on npm** (`"private": true`). The API may change without notice.
 
-MongoDB [`IStore`](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/core) implementation for **@bot-wa/core** — persistent, shared bot state backed by MongoDB (official driver v6). Point any number of bot replicas at the same MongoDB deployment and they share message logs, chats, contacts, flow checkpoints, AI conversation history and delivery cursors.
+MongoDB [`IStore`](https://github.com/andresayac/botmesh/tree/main/packages/core) implementation for **@botmesh/core** — persistent, shared bot state backed by MongoDB (official driver v6). Point any number of bot replicas at the same MongoDB deployment and they share message logs, chats, contacts, flow checkpoints, AI conversation history and delivery cursors.
 
 - Six collections (`messages`, `chats`, `contacts`, `checkpoints`, `conversations`, `cursors`), each optionally **prefixed**, inside one configurable **database** — apps/bots can share a cluster.
-- `getMessagesByChat(limit)` is served by a compound `{chatId: 1, timestamp: 1}` index (created on `start()`) and returns the most-recent `limit` messages **ascending** by timestamp — same windowing semantics as `@bot-wa/redis-store` / `@bot-wa/sqlite-store`.
+- `getMessagesByChat(limit)` is served by a compound `{chatId: 1, timestamp: 1}` index (created on `start()`) and returns the most-recent `limit` messages **ascending** by timestamp — same windowing semantics as `@botmesh/redis-store` / `@botmesh/sqlite-store`.
 - Every write is an **upsert** keyed by `_id` (`messageKey(ref)` for messages, the entity id for chats/contacts, the logical key for the rest) — safe under concurrent replicas.
 - Injectable client → fully hermetic unit tests (an in-memory fake ships with the test-suite), plus an opt-in [integration suite](#integration-tests) against a real MongoDB.
 
 ## Install
 
 ```bash
-pnpm add @bot-wa/mongo-store mongodb
+pnpm add @botmesh/mongo-store mongodb
 ```
 
 Requires a **running MongoDB instance** reachable from the bot (e.g. `mongodb://localhost:27017` — a local `mongod`, Docker: `docker run -p 27017:27017 mongo:7`, or Atlas). The driver is a direct dependency; no native build step.
@@ -21,9 +21,9 @@ Requires a **running MongoDB instance** reachable from the bot (e.g. `mongodb://
 ## Usage with Bot
 
 ```ts
-import { Bot } from '@bot-wa/core'
-import { BaileysProvider } from '@bot-wa/baileys'
-import { MongoStore } from '@bot-wa/mongo-store'
+import { Bot } from '@botmesh/core'
+import { BaileysProvider } from '@botmesh/baileys'
+import { MongoStore } from '@botmesh/mongo-store'
 
 const store = new MongoStore({
   url: process.env.MONGO_URL,     // default: mongodb://localhost:27017
@@ -89,7 +89,7 @@ const store = new MongoStore({ client: fake })
 
 `purgeExpiredUserData` reads up to `purgeBatchSize` expired `_id`s through the `expiresAt` index and removes them with one `deleteMany`, repeating until nothing expired is left.
 
-- **Message keys.** `messageKey(ref)` (from `@bot-wa/core`) is `{chatId}:{id}` with `%` and `:` percent-escaped in each part (`%25`, `%3A`), so ids that contain `:` — Twilio's `whatsapp:+1…` chat ids — never collide (`('a:b', 'c')` and `('a', 'b:c')` used to share the key `a:b:c`). Ids without `:` or `%` keep exactly the key earlier versions wrote. Rows written by an earlier version under the old unescaped key are still read and deleted (a fallback that only runs for ids containing `:` or `%`, and only returns or deletes a row whose stored `ref` is that very message, since a legacy key can be another message's new key), and re-saving such a message moves it to the new key — no manual migration. One theoretical edge remains: an id that literally contains `%3A` and was stored by an earlier version can be overwritten by a new message whose id has `:` in the same place.
+- **Message keys.** `messageKey(ref)` (from `@botmesh/core`) is `{chatId}:{id}` with `%` and `:` percent-escaped in each part (`%25`, `%3A`), so ids that contain `:` — Twilio's `whatsapp:+1…` chat ids — never collide (`('a:b', 'c')` and `('a', 'b:c')` used to share the key `a:b:c`). Ids without `:` or `%` keep exactly the key earlier versions wrote. Rows written by an earlier version under the old unescaped key are still read and deleted (a fallback that only runs for ids containing `:` or `%`, and only returns or deletes a row whose stored `ref` is that very message, since a legacy key can be another message's new key), and re-saving such a message moves it to the new key — no manual migration. One theoretical edge remains: an id that literally contains `%3A` and was stored by an earlier version can be overwritten by a new message whose id has `:` in the same place.
 
 ## BSON notes
 
@@ -120,7 +120,7 @@ The default `pnpm test` is hermetic: the unit tests use the in-memory fake and `
 
 ```bash
 docker run -d --name botwa-it-mongo -p 57017:27017 mongo:7
-BOTWA_TEST_MONGO_URL=mongodb://127.0.0.1:57017 pnpm --filter @bot-wa/mongo-store test
+BOTWA_TEST_MONGO_URL=mongodb://127.0.0.1:57017 pnpm --filter @botmesh/mongo-store test
 docker rm -f botwa-it-mongo
 ```
 

@@ -9,7 +9,7 @@
  * provider's per-chat `textFormatFor`, else its `capabilities.textFormat`); {@link formatMarkdownStream} does the same for a
  * streamed reply, emitting each piece as soon as its markers are complete.
  */
-import type { TextFormat } from '@bot-wa/core'
+import type { TextFormat } from '@botmesh/core'
 
 export type { TextFormat }
 

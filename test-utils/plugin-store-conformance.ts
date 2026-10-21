@@ -1,5 +1,5 @@
 /**
- * Shared conformance suite for `@bot-wa/hub`'s `PluginStore`: tenant isolation, install
+ * Shared conformance suite for `@botmesh/hub`'s `PluginStore`: tenant isolation, install
  * replacement, enable/disable persistence, bounded listings and copies.
  * `MemoryPluginStore` is the reference; `KvPluginStore` must behave identically on every
  * backend.

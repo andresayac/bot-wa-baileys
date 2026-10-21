@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { Bot } from '@bot-wa/core'
+import { Bot } from '@botmesh/core'
 import { moderationPlugin } from '../src/index.js'
 import { compileTerms, firstMatch } from '../src/words.js'
 import { AdminMockProvider, flush, groupMsg, startBot } from './helpers.js'

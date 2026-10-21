@@ -9,7 +9,7 @@
  *
  * Without tracing (or with a disabled one) every helper calls straight through.
  */
-import { TRACE_ATTR, type BotSpan, type BotTracing, type TraceAttributes } from '@bot-wa/core'
+import { TRACE_ATTR, type BotSpan, type BotTracing, type TraceAttributes } from '@botmesh/core'
 
 import type { GenerateResult } from './types.js'
 

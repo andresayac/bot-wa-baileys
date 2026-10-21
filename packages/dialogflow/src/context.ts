@@ -4,7 +4,7 @@
  * session mapping (one Dialogflow session per chat, or per participant).
  */
 
-import type { MessageContext } from '@bot-wa/core'
+import type { MessageContext } from '@botmesh/core'
 import { DialogflowClient, toSessionId, type DialogflowClientConfig, type DialogflowResult } from './client.js'
 
 /** The bits of a message context the session mapping reads. */

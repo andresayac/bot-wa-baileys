@@ -3,7 +3,7 @@
  * runs against a real server in schedules.integration.test.ts.
  */
 import { describe, expect, it } from 'vitest'
-import { Scheduler, type ScheduledRun } from '@bot-wa/core'
+import { Scheduler, type ScheduledRun } from '@botmesh/core'
 import { MongoStore } from '../src/MongoStore.js'
 import { MongoScheduleStore, toNum } from '../src/schedules.js'
 import { runScheduleStoreConformance } from '../../../test-utils/schedule-store-conformance.js'

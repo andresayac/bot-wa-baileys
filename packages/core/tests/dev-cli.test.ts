@@ -17,7 +17,7 @@ const silent: LoggerLike = { debug() {}, info() {}, warn() {}, error() {}, child
 
 const tempDirs: string[] = []
 async function makeTempDir(): Promise<string> {
-  const dir = await mkdtemp(join(tmpdir(), 'bot-wa-dev-test-'))
+  const dir = await mkdtemp(join(tmpdir(), 'botmesh-dev-test-'))
   tempDirs.push(dir)
   return dir
 }
@@ -97,14 +97,14 @@ describe('runCli', () => {
   it('prints usage for help and exits 0', async () => {
     const { io, out } = makeIO()
     expect(await runCli(['--help'], io)).toBe(0)
-    expect(out.text()).toContain('bot-wa dev <entry>')
+    expect(out.text()).toContain('botmesh dev <entry>')
     expect(CLI_USAGE).toContain('--env-file')
   })
 
   it('prints the version', async () => {
     const { io, out } = makeIO()
     expect(await runCli(['--version'], io)).toBe(0)
-    expect(out.text()).toMatch(/^bot-wa \d+\.\d+\.\d+/)
+    expect(out.text()).toMatch(/^botmesh \d+\.\d+\.\d+/)
   })
 
   it('exits 2 with usage on bad arguments', async () => {
@@ -382,7 +382,7 @@ function startBin(cwd: string, args: string[]) {
   }
 }
 
-describe.skipIf(!existsSync(binPath))('bot-wa dev (end to end, built bin)', () => {
+describe.skipIf(!existsSync(binPath))('botmesh dev (end to end, built bin)', () => {
   it('hot-reloads relative imports of a JS entry', async () => {
     const dir = await makeTempDir()
     await writeFile(join(dir, 'greeting.mjs'), "export const greeting = 'saludo v1'\n")

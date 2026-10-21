@@ -1,6 +1,6 @@
 /** HighLevel REST error → typed `ProviderError` mapping. */
 
-import { PayloadTooLargeError, ProviderError, RateLimitedError, RecipientUnreachableError } from '@bot-wa/core'
+import { PayloadTooLargeError, ProviderError, RateLimitedError, RecipientUnreachableError } from '@botmesh/core'
 import type { GhlErrorBody } from './types.js'
 
 /** Any HighLevel API failure not mapped to a more specific class. */

@@ -1,4 +1,4 @@
-# @bot-wa/deployments
+# @botmesh/deployments
 
 > Experimental · privado (`"private": true`, no se publica en npm). La API puede cambiar sin aviso.
 >
@@ -7,7 +7,7 @@
 Versiones inmutables por tenant y bot, con una única versión activa, publish gates cuyas ejecuciones quedan registradas y rollback. Persiste sobre cualquier `DurableKv` del core (SQLite, PostgreSQL, Redis, archivo) o en memoria.
 
 ```ts
-import { DeploymentRegistry } from '@bot-wa/deployments'
+import { DeploymentRegistry } from '@botmesh/deployments'
 
 const registry = new DeploymentRegistry() // en memoria; ver «Persistencia»
 await registry.publish('acme', 'support', '1.1.0', 'sha256:...')
@@ -19,13 +19,13 @@ El artefacto es una referencia opaca; el despliegue real y el rollout gradual pe
 
 ## Persistencia
 
-`DeploymentRegistry` recibe un `DeploymentStore`. `MemoryDeploymentStore` (el de por defecto) vive en RAM; `KvDeploymentStore` guarda todo en un `DurableKv` del core a través de `@bot-wa/tenant-kv`, así que funciona en cualquier backend de durabilidad:
+`DeploymentRegistry` recibe un `DeploymentStore`. `MemoryDeploymentStore` (el de por defecto) vive en RAM; `KvDeploymentStore` guarda todo en un `DurableKv` del core a través de `@botmesh/tenant-kv`, así que funciona en cualquier backend de durabilidad:
 
 ```ts
-import { KvDeploymentStore } from '@bot-wa/deployments'
-import { SQLiteStore } from '@bot-wa/sqlite-store'
-import { PostgresDurableKv } from '@bot-wa/postgres-store'
-import { RedisDurableKv } from '@bot-wa/redis-store'
+import { KvDeploymentStore } from '@botmesh/deployments'
+import { SQLiteStore } from '@botmesh/sqlite-store'
+import { PostgresDurableKv } from '@botmesh/postgres-store'
+import { RedisDurableKv } from '@botmesh/redis-store'
 
 const sqlite = new SQLiteStore({ file: './data/bot.db' })
 new DeploymentRegistry(new KvDeploymentStore(sqlite.durability().kv))
@@ -45,12 +45,12 @@ Quien crea el kv es quien lo arranca y lo para (`start()`/`stop()`); puede ser e
 
 **Toda ejecución de gate se persiste**, pase o falle: `registry.gateRuns(tenantId, botId, version)` devuelve los `GateRun` (`ok`, `reason`, `summary`, `details` en JSON, `startedAt`/`finishedAt`). Los `details` (en `goldenTranscriptGate`, los resultados por transcript con sus diffs y el informe) se guardan como JSON; por encima de `maxGateDetailsBytes` (256 KiB) se recortan y el run queda marcado `truncated: true` sin cambiar la decisión.
 
-`goldenTranscriptGate` reproduce transcripts dorados (ver `recordTranscript` / `redactTranscript` / `replayTranscript` en `@bot-wa/core/testing`) contra el bot candidato y solo deja pasar la versión si todos coinciden:
+`goldenTranscriptGate` reproduce transcripts dorados (ver `recordTranscript` / `redactTranscript` / `replayTranscript` en `@botmesh/core/testing`) contra el bot candidato y solo deja pasar la versión si todos coinciden:
 
 ```ts
 import { readFileSync } from 'node:fs'
-import { parseTranscript, REPLAY_MASKS } from '@bot-wa/core/testing'
-import { DeploymentGateError, DeploymentRegistry, goldenTranscriptGate } from '@bot-wa/deployments'
+import { parseTranscript, REPLAY_MASKS } from '@botmesh/core/testing'
+import { DeploymentGateError, DeploymentRegistry, goldenTranscriptGate } from '@botmesh/deployments'
 
 const gate = goldenTranscriptGate({
   transcripts: [parseTranscript(readFileSync('golden/checkout.json', 'utf8'))],

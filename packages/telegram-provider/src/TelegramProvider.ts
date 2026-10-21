@@ -1,5 +1,5 @@
 /**
- * TelegramProvider — Telegram Bot API transport for @bot-wa/core.
+ * TelegramProvider — Telegram Bot API transport for @botmesh/core.
  *
  * Two ingress modes, both supported (pushIngress: true):
  *  - Long-poll (default, `polling: true`): start() loops getUpdates with a
@@ -21,8 +21,8 @@ import { readFile } from 'node:fs/promises'
 import { basename } from 'node:path'
 import { timingSafeEqual } from 'node:crypto'
 import pino from 'pino'
-import type { LoggerLike } from '@bot-wa/core'
-import { SecureHttpError, secureFetch } from '@bot-wa/http'
+import type { LoggerLike } from '@botmesh/core'
+import { SecureHttpError, secureFetch } from '@botmesh/http'
 import type {
   ChatId,
   ConnectionState,
@@ -39,14 +39,14 @@ import type {
   SendResult,
   SerializedMediaRef,
   UserId,
-} from '@bot-wa/core'
+} from '@botmesh/core'
 import {
   ProviderError,
   RateLimitedError,
   PayloadTooLargeError,
   RecipientUnreachableError,
   UnsupportedContentError,
-} from '@bot-wa/core'
+} from '@botmesh/core'
 import type { TelegramProviderConfig, TelegramResponse, TelegramUpdate, TelegramUser } from './types.js'
 import { parseUpdate } from './parseInbound.js'
 import { replyParametersOf, targetOf } from './refs.js'

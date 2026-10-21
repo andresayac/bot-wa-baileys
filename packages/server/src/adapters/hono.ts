@@ -6,8 +6,8 @@
  * @example
  * ```ts
  * import { Hono } from 'hono'
- * import { createIngress } from '@bot-wa/server'
- * import { honoIngress } from '@bot-wa/server/hono'
+ * import { createIngress } from '@botmesh/server'
+ * import { honoIngress } from '@botmesh/server/hono'
  *
  * const app = new Hono()
  * app.use('*', honoIngress(createIngress({ routes: [{ path: '/webhook', provider }], bot })))

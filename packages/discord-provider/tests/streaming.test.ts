@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { streamText } from '@bot-wa/core'
+import { streamText } from '@botmesh/core'
 import { DiscordProvider } from '../src/DiscordProvider.js'
 import { fakeSocketFactory } from './_fakeSocket.js'
 

@@ -13,7 +13,7 @@ import { cdArgument, main, parseArgs } from '../src/cli.js'
 const tempDirs: string[] = []
 
 async function makeTempDir(): Promise<string> {
-  const dir = await mkdtemp(join(tmpdir(), 'create-bot-wa-test-'))
+  const dir = await mkdtemp(join(tmpdir(), 'create-botmesh-test-'))
   tempDirs.push(dir)
   return dir
 }
@@ -57,11 +57,11 @@ describe('scaffold — every template', () => {
     expect(pkg.name).toBe('my-bot')
     expect(pkg.type).toBe('module')
     expect(pkg.scripts.start).toBe('node --env-file=.env src/bot.js')
-    expect(pkg.dependencies['@bot-wa/core']).toBeTruthy()
+    expect(pkg.dependencies['@botmesh/core']).toBeTruthy()
 
     // bot.js — imports core + the right provider, has the /hola handler, a flow, and starts.
     const bot = await read(target, 'src/bot.js')
-    expect(bot).toContain("from '@bot-wa/core'")
+    expect(bot).toContain("from '@botmesh/core'")
     expect(bot).toContain('bot.when(\'hola\'')
     expect(bot).toContain('flow(')
     expect(bot).toContain('await bot.start()')
@@ -88,10 +88,10 @@ describe('scaffold — every template', () => {
     await scaffold({ targetDir: target, template: 'baileys' })
 
     const pkg = JSON.parse(await read(target, 'package.json'))
-    expect(Object.keys(pkg.dependencies).sort()).toEqual(['@bot-wa/baileys', '@bot-wa/core'])
+    expect(Object.keys(pkg.dependencies).sort()).toEqual(['@botmesh/baileys', '@botmesh/core'])
 
     const bot = await read(target, 'src/bot.js')
-    expect(bot).toContain("import { BaileysProvider } from '@bot-wa/baileys'")
+    expect(bot).toContain("import { BaileysProvider } from '@botmesh/baileys'")
     expect(bot).toContain('new BaileysProvider(')
 
     expect(await read(target, '.env.example')).toContain('BOT_SESSION=')
@@ -103,10 +103,10 @@ describe('scaffold — every template', () => {
     await scaffold({ targetDir: target, template: 'meta' })
 
     const pkg = JSON.parse(await read(target, 'package.json'))
-    expect(Object.keys(pkg.dependencies).sort()).toEqual(['@bot-wa/core', '@bot-wa/meta'])
+    expect(Object.keys(pkg.dependencies).sort()).toEqual(['@botmesh/core', '@botmesh/meta'])
 
     const bot = await read(target, 'src/bot.js')
-    expect(bot).toContain("import { CloudAPIProvider } from '@bot-wa/meta'")
+    expect(bot).toContain("import { CloudAPIProvider } from '@botmesh/meta'")
     expect(bot).toContain('new CloudAPIProvider(')
     expect(bot).toContain('provider.verifyChallenge(')
     expect(bot).toContain('provider.ingest(')
@@ -126,10 +126,10 @@ describe('scaffold — every template', () => {
     await scaffold({ targetDir: target, template: 'telegram' })
 
     const pkg = JSON.parse(await read(target, 'package.json'))
-    expect(Object.keys(pkg.dependencies).sort()).toEqual(['@bot-wa/core', '@bot-wa/telegram'])
+    expect(Object.keys(pkg.dependencies).sort()).toEqual(['@botmesh/core', '@botmesh/telegram'])
 
     const bot = await read(target, 'src/bot.js')
-    expect(bot).toContain("import { TelegramProvider } from '@bot-wa/telegram'")
+    expect(bot).toContain("import { TelegramProvider } from '@botmesh/telegram'")
     expect(bot).toContain('new TelegramProvider({ token: process.env.TELEGRAM_TOKEN })')
 
     expect(await read(target, '.env.example')).toContain('TELEGRAM_TOKEN=')
@@ -143,13 +143,13 @@ describe('scaffold — every template', () => {
     const pkg = JSON.parse(await read(target, 'package.json'))
     expect(Object.keys(pkg.dependencies).sort()).toEqual([
       '@anthropic-ai/sdk',
-      '@bot-wa/ai',
-      '@bot-wa/baileys',
-      '@bot-wa/core',
+      '@botmesh/ai',
+      '@botmesh/baileys',
+      '@botmesh/core',
     ])
 
     const bot = await read(target, 'src/bot.js')
-    expect(bot).toContain("import { aiPlugin } from '@bot-wa/ai'")
+    expect(bot).toContain("import { aiPlugin } from '@botmesh/ai'")
     expect(bot).toContain('bot.plug(')
     expect(bot).toContain("provider: 'anthropic'")
     expect(bot).toContain('process.env.ANTHROPIC_API_KEY')
@@ -326,20 +326,20 @@ describe('cli parseArgs', () => {
   })
 })
 
-describe('inside the bot-wa monorepo', () => {
-  /** A fake checkout of this repo: pnpm-workspace.yaml + packages/core named @bot-wa/core. */
+describe('inside the botmesh monorepo', () => {
+  /** A fake checkout of this repo: pnpm-workspace.yaml + packages/core named @botmesh/core. */
   async function fakeMonorepo(): Promise<string> {
     const root = await makeTempDir()
     await writeFile(join(root, 'pnpm-workspace.yaml'), "packages:\n  - 'packages/*'\n")
-    await writeFile(join(root, 'package.json'), JSON.stringify({ name: 'bot-wa-monorepo', private: true }))
+    await writeFile(join(root, 'package.json'), JSON.stringify({ name: 'botmesh-monorepo', private: true }))
     await mkdir(join(root, 'packages', 'core'), { recursive: true })
-    await writeFile(join(root, 'packages', 'core', 'package.json'), JSON.stringify({ name: '@bot-wa/core' }))
+    await writeFile(join(root, 'packages', 'core', 'package.json'), JSON.stringify({ name: '@botmesh/core' }))
     return root
   }
 
-  it('refuses to scaffold anywhere inside the bot-wa workspace', async () => {
+  it('refuses to scaffold anywhere inside the botmesh workspace', async () => {
     const root = await fakeMonorepo()
-    await expect(scaffold({ targetDir: join(root, 'my-bot'), template: 'baileys' })).rejects.toThrow(/inside the bot-wa monorepo/)
+    await expect(scaffold({ targetDir: join(root, 'my-bot'), template: 'baileys' })).rejects.toThrow(/inside the botmesh monorepo/)
     await expect(scaffold({ targetDir: join(root, 'packages', 'x', 'my-bot'), template: 'baileys' })).rejects.toThrow(/--force/)
     await expect(readFile(join(root, 'my-bot', 'package.json'), 'utf8')).rejects.toThrow()
   })
@@ -366,7 +366,7 @@ describe('inside the bot-wa monorepo', () => {
     try {
       await main([join(root, 'my-bot'), '--yes'])
       expect(process.exitCode).toBe(1)
-      expect(errors.join('\n')).toMatch(/inside the bot-wa monorepo/)
+      expect(errors.join('\n')).toMatch(/inside the botmesh monorepo/)
       await expect(readFile(join(root, 'my-bot', 'package.json'), 'utf8')).rejects.toThrow()
     } finally {
       spy.mockRestore()

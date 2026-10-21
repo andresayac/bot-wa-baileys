@@ -1,11 +1,11 @@
-# @bot-wa/events
+# @botmesh/events
 
 > **Experimental — aún no publicado en npm.** Implementación real y con tests, pero el paquete es `private`: no forma parte de la primera alpha y su API puede cambiar. Úsalo desde este monorepo (`workspace:*`).
 
 Primitivas sin dependencias para procesar trabajo asíncrono de forma fiable: envelopes versionados, idempotencia, leases, reintentos con backoff y cola de mensajes muertos (DLQ).
 
 ```ts
-import { createEnvelope, EventWorker, MemoryEventJournal } from '@bot-wa/events'
+import { createEnvelope, EventWorker, MemoryEventJournal } from '@botmesh/events'
 
 const journal = new MemoryEventJournal()
 const event = createEnvelope({
@@ -38,14 +38,14 @@ Para tests, inyecta el reloj: `new EventWorker(journal, { clock: () => now })`.
 
 Para una instancia única también existe `FileEventJournal.open('./data/events.json')`: recupera el snapshot tras un reinicio y escribe con reemplazo atómico. No sirve para varios procesos a la vez; para eso está `SharedFileEventJournal` (abajo) o un adaptador sobre una base de datos.
 
-### Backend de durabilidad del bot (`@bot-wa/events/durability`)
+### Backend de durabilidad del bot (`@botmesh/events/durability`)
 
 Si tu app ya usa un journal de eventos, puede servir también como backend de la [durabilidad](../../docs/es/guide/durabilidad.md) del bot (`BotConfig.durability`), sin otro store:
 
 ```ts
-import { Bot } from '@bot-wa/core'
-import { FileEventJournal } from '@bot-wa/events'
-import { eventsDurability } from '@bot-wa/events/durability'
+import { Bot } from '@botmesh/core'
+import { FileEventJournal } from '@botmesh/events'
+import { eventsDurability } from '@botmesh/events/durability'
 
 const journal = await FileEventJournal.open('./data/events.json', { lock: true })
 const bot = new Bot({ provider, durability: { journal: eventsDurability({ journal }) } })

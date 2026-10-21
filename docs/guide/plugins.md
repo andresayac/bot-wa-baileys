@@ -5,8 +5,8 @@ Plugins are reusable packages of functionality.
 ## Use a plugin
 
 ```ts
-import { Bot, slashCommandsPlugin } from '@bot-wa/core'
-import { BaileysProvider } from '@bot-wa/baileys'
+import { Bot, slashCommandsPlugin } from '@botmesh/core'
+import { BaileysProvider } from '@botmesh/baileys'
 
 const bot = new Bot({ provider: new BaileysProvider({ session: 'my-bot' }) })
 
@@ -86,7 +86,7 @@ Unknown `/commands` get an automatic "unknown command" reply
 ### Simple plugin
 
 ```ts
-import { definePlugin } from '@bot-wa/core'
+import { definePlugin } from '@botmesh/core'
 
 const loggingPlugin = definePlugin({
   name: 'logging',
@@ -171,23 +171,23 @@ names the reason. In JavaScript the bot keeps going before an `async install`
 finishes, and its rejection only reaches the `'error'` event (older core
 versions let it crash the process) — nothing is rolled back and the plugin
 counts as plugged; the ESLint rule
-[`no-async-plugin-install`](./eslint#bot-wa-no-async-plugin-install) covers that
+[`no-async-plugin-install`](./eslint#botmesh-no-async-plugin-install) covers that
 case. If your plugin needs async setup (open a connection, load an SDK), keep
 `install` synchronous and resolve lazily on first use, reporting configuration
-errors without crashing. That's how `@bot-wa/ai` loads its provider SDKs.
+errors without crashing. That's how `@botmesh/ai` loads its provider SDKs.
 :::
 
 ## Plugin packages
 
 Besides `slashCommandsPlugin`, these packages ship ready-made plugins:
 
-- [AI](/guide/ai) — `@bot-wa/ai`: LLM replies (`aiPlugin`), with
+- [AI](/guide/ai) — `@botmesh/ai`: LLM replies (`aiPlugin`), with
   [tools](/guide/ai-tools), [memory and RAG](/guide/ai-memory-rag) and
   [streaming](/guide/streaming).
-- [Voice](/guide/voice) — experimental `@bot-wa/voice` (`voicePlugin`):
+- [Voice](/guide/voice) — experimental `@botmesh/voice` (`voicePlugin`):
   speech-to-text for inbound voice notes and text-to-speech replies.
-- [Integrations](/guide/integrations) — experimental `@bot-wa/chatwoot`,
-  `@bot-wa/tickets`, `@bot-wa/moderation` and `@bot-wa/dialogflow`.
+- [Integrations](/guide/integrations) — experimental `@botmesh/chatwoot`,
+  `@botmesh/tickets`, `@botmesh/moderation` and `@botmesh/dialogflow`.
 
 ## Next steps
 

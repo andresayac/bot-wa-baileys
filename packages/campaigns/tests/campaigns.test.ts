@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { Bot, MemoryKv, RecipientUnreachableError, type OutboundContent, type SendOptions, type SendResult } from '@bot-wa/core'
-import { MockProvider } from '@bot-wa/core/testing'
+import { Bot, MemoryKv, RecipientUnreachableError, type OutboundContent, type SendOptions, type SendResult } from '@botmesh/core'
+import { MockProvider } from '@botmesh/core/testing'
 
 import {
   CampaignPlanner,

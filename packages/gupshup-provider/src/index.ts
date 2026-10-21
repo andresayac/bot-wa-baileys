@@ -1,5 +1,5 @@
 /**
- * @bot-wa/gupshup — Gupshup WhatsApp transport for @bot-wa/core: v1 send API
+ * @botmesh/gupshup — Gupshup WhatsApp transport for @botmesh/core: v1 send API
  * (text, media, quick replies, lists, templates) and v2 callbacks
  * authenticated by a shared webhook token.
  */

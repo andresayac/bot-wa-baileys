@@ -26,7 +26,7 @@
  */
 
 import { createHash } from 'node:crypto'
-import type { ChatId, IStore } from '@bot-wa/core'
+import type { ChatId, IStore } from '@botmesh/core'
 import { domainOf, normalizeAddress, type EmailAddress } from './address.js'
 import type { ParsedEmail } from './mime.js'
 

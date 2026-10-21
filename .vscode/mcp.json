@@ -1,6 +1,6 @@
 {
   "servers": {
-    "bot-wa": {
+    "botmesh": {
       "type": "stdio",
       "command": "node",
       "args": [

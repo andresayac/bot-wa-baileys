@@ -13,7 +13,7 @@
  * erased data back.
  */
 
-import { parseDuration, type UserData } from '@bot-wa/core'
+import { parseDuration, type UserData } from '@botmesh/core'
 
 /** One remembered fact about a user. */
 export interface MemoryFact {

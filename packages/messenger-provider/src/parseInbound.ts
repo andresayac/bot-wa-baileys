@@ -13,8 +13,8 @@ import type {
   InboundMessage,
   MediaRef,
   MessageType,
-} from '@bot-wa/core'
-import { toInboundLocation } from '@bot-wa/core'
+} from '@botmesh/core'
+import { toInboundLocation } from '@botmesh/core'
 
 /* Loose Messenger webhook shapes (only the fields we read). */
 

@@ -2,22 +2,22 @@
 
 The **store** is where the bot keeps messages, chats, contacts, flow state, checkpoints and AI conversation history. Choosing the right store is the difference between a bot that forgets everything on restart and one that survives deploys.
 
-Stores implement the generic, transport-neutral `IStore` from `@bot-wa/core` — the same store works with any provider (Baileys, Cloud API, Telegram, Discord).
+Stores implement the generic, transport-neutral `IStore` from `@botmesh/core` — the same store works with any provider (Baileys, Cloud API, Telegram, Discord).
 
 ## Available stores
 
 | Store | Package | Persistence | Use case |
 |---|---|---|---|
-| `MemoryStore` *(default)* | `@bot-wa/core` | In-memory (optional JSON dump) | Development, tests, short-lived bots |
-| `SQLiteStore` | `@bot-wa/sqlite-store` | SQLite file (WAL mode) | **Production** — single-bot, zero-config |
-| `RedisStore` | `@bot-wa/redis-store` | Redis server | Distributed state, multiple instances, TTL |
-| `MongoStore` · `PostgresStore` · `MysqlStore` | `@bot-wa/mongo-store` · `@bot-wa/postgres-store` · `@bot-wa/mysql-store` | MongoDB / PostgreSQL / MySQL | **Experimental** — real, tested implementations, not published yet |
+| `MemoryStore` *(default)* | `@botmesh/core` | In-memory (optional JSON dump) | Development, tests, short-lived bots |
+| `SQLiteStore` | `@botmesh/sqlite-store` | SQLite file (WAL mode) | **Production** — single-bot, zero-config |
+| `RedisStore` | `@botmesh/redis-store` | Redis server | Distributed state, multiple instances, TTL |
+| `MongoStore` · `PostgresStore` · `MysqlStore` | `@botmesh/mongo-store` · `@botmesh/postgres-store` · `@botmesh/mysql-store` | MongoDB / PostgreSQL / MySQL | **Experimental** — real, tested implementations, not published yet |
 
 `MemoryStore` ships with the core. `SQLiteStore` and `RedisStore` are part of
 the first alpha (not on npm yet — the first publish is being prepared). The
 MongoDB, PostgreSQL and MySQL stores pass the same `IStore` conformance
 suite but stay private (unpublished) for now; see their READMEs in the
-[repository](https://github.com/andresayac/bot-wa-baileys/tree/main/packages).
+[repository](https://github.com/andresayac/botmesh/tree/main/packages).
 
 ## MemoryStore (default)
 
@@ -50,13 +50,13 @@ everything.
 A real database backed by [better-sqlite3](https://github.com/WiseLibs/better-sqlite3) — synchronous, zero-config, single-file. Perfect for a single bot instance on a VPS or Docker container. It's a **separate package**; `better-sqlite3` is a peer dependency you install next to it (it is loaded when the store is constructed, so a missing install fails with a clear error):
 
 ```bash
-pnpm add @bot-wa/sqlite-store@alpha better-sqlite3
+pnpm add @botmesh/sqlite-store@alpha better-sqlite3
 ```
 
 ```ts
-import { Bot } from '@bot-wa/core'
-import { BaileysProvider } from '@bot-wa/baileys'
-import { SQLiteStore } from '@bot-wa/sqlite-store'
+import { Bot } from '@botmesh/core'
+import { BaileysProvider } from '@botmesh/baileys'
+import { SQLiteStore } from '@botmesh/sqlite-store'
 
 const bot = new Bot({
   provider: new BaileysProvider({ session: 'my-bot' }),
@@ -82,7 +82,7 @@ const bot = new Bot({
 | `chats` | Chat metadata (name, kind, etc.) |
 | `contacts` | Contact info (display name, username, etc.) |
 | `checkpoints` | `persistent()` flow checkpoints, including the flow's `c.state` — survive restarts |
-| `conversations` | AI conversation history (`@bot-wa/ai`) |
+| `conversations` | AI conversation history (`@botmesh/ai`) |
 | `cursors` | Delivery cursors (e.g. Telegram's `update_id`) |
 
 ### Schema
@@ -94,9 +94,9 @@ The store creates its tables on construction (`CREATE TABLE IF NOT EXISTS`). You
 With `SQLiteStore`, `flow(...).persistent()` checkpoints survive process restarts for free:
 
 ```ts
-import { Bot, flow } from '@bot-wa/core'
-import { BaileysProvider } from '@bot-wa/baileys'
-import { SQLiteStore } from '@bot-wa/sqlite-store'
+import { Bot, flow } from '@botmesh/core'
+import { BaileysProvider } from '@botmesh/baileys'
+import { SQLiteStore } from '@botmesh/sqlite-store'
 
 const bot = new Bot({
   provider: new BaileysProvider({ session: 'my-bot' }),
@@ -119,13 +119,13 @@ If the process crashes mid-flow, the next message from that user **resumes at th
 When you need state shared across processes/instances (horizontal scaling, TTL'd per-chat logs), use the Redis store:
 
 ```bash
-pnpm add @bot-wa/redis-store@alpha
+pnpm add @botmesh/redis-store@alpha
 ```
 
 ```ts
-import { Bot } from '@bot-wa/core'
-import { BaileysProvider } from '@bot-wa/baileys'
-import { RedisStore } from '@bot-wa/redis-store'
+import { Bot } from '@botmesh/core'
+import { BaileysProvider } from '@botmesh/baileys'
+import { RedisStore } from '@botmesh/redis-store'
 
 const bot = new Bot({
   provider: new BaileysProvider({ session: 'my-bot' }),
@@ -164,7 +164,7 @@ backlog never runs as one long delete.
 Implement the `IStore` interface to plug in any other backend (MongoDB, PostgreSQL and MySQL already have experimental stores in the monorepo):
 
 ```ts
-import type { IStore } from '@bot-wa/core'
+import type { IStore } from '@botmesh/core'
 
 class MyStore implements IStore {
   async saveMessage(msg) { /* ... */ }

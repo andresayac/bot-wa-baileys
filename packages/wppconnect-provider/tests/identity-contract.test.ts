@@ -1,14 +1,14 @@
 /**
- * The identity stability contract (`@bot-wa/core/testing`) against the real
+ * The identity stability contract (`@botmesh/core/testing`) against the real
  * WPPConnect ingest path: recorded webhooks whose sender flips PN → LID, with
  * the `contact/pn-lid` lookup served by a fake fetch.
  */
 import { describe, it, expect } from 'vitest'
 import pino from 'pino'
-import { assertStableIdentity, checkIdentityContract, recordEvents } from '@bot-wa/core/testing'
+import { assertStableIdentity, checkIdentityContract, recordEvents } from '@botmesh/core/testing'
 import { WPPConnectProvider } from '../src/WPPConnectProvider.js'
 import { parseWebhook } from '../src/parseInbound.js'
-import { WaIdentityStore } from '@bot-wa/wa-gateway-kit'
+import { WaIdentityStore } from '@botmesh/wa-gateway-kit'
 import { fakeFetch, fixture, resolver } from './support/fake.js'
 
 const PN = '573001112233@c.us'

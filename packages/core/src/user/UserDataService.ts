@@ -274,7 +274,7 @@ export class UserDataService {
       throw new UserDataError(
         'UNSUPPORTED_STORE',
         'ctx.user requires a store implementing getUserData/setUserData/deleteUserData/listUserData ' +
-          '(MemoryStore and every @bot-wa/*-store do)',
+          '(MemoryStore and every @botmesh/*-store do)',
       )
     }
     return this.store

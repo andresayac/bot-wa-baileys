@@ -13,7 +13,7 @@
  */
 
 import { normalizeMessageContent, proto, toNumber, type WAMessage, type WAMessageKey } from '@whiskeysockets/baileys'
-import { ProviderError, type MediaRef, type SerializedMediaRef } from '@bot-wa/core'
+import { ProviderError, type MediaRef, type SerializedMediaRef } from '@botmesh/core'
 
 /** Format version written by {@link serializeBaileysMediaRef}. */
 export const BAILEYS_MEDIA_REF_VERSION = 1

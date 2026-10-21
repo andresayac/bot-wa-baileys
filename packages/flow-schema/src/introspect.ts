@@ -8,7 +8,7 @@
  * issue instead of being silently dropped.
  */
 
-import type { CompiledFlow, CompiledStep, FormDefinition, FormField, Trigger } from '@bot-wa/core'
+import type { CompiledFlow, CompiledStep, FormDefinition, FormField, Trigger } from '@botmesh/core'
 import { flowDocumentSource, flowStepSource } from './compile.js'
 import type { FlowDocument, FlowDocumentIssue, FlowFormDocument, FlowFormFieldDocument, FlowMediaDocumentSource, FlowStepDocument } from './schema.js'
 

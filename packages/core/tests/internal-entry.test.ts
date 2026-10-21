@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import * as main from '../src/index.js'
 import * as internal from '../src/internal.js'
 
-/** The engine internals moved to `@bot-wa/core/internal` (deferred item 1 of docs/api-review.md). */
+/** The engine internals moved to `@botmesh/core/internal` (deferred item 1 of docs/api-review.md). */
 const INTERNAL_NAMES = [
   'buildMessageContext', 'createControls', 'createPacer', 'runBroadcast', 'runFormStep',
   'newFormToken', 'resolveFormMode', 'resolveReplyTyping', 'normalizeTypingConfig',
@@ -11,7 +11,7 @@ const INTERNAL_NAMES = [
   'formatUptime', 'TYPING_REFRESH_MS',
 ] as const
 
-describe('@bot-wa/core/internal', () => {
+describe('@botmesh/core/internal', () => {
   it('exports exactly the engine internals', () => {
     expect(Object.keys(internal).sort()).toEqual([...INTERNAL_NAMES].sort())
   })

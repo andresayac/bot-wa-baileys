@@ -5,8 +5,8 @@
  * the logs.
  */
 import { loadEnvFile } from 'node:process'
-import { parseDuration } from '@bot-wa/core'
-import { isPreset, type AIProviderName, type AIThinking, type Effort } from '@bot-wa/ai'
+import { parseDuration } from '@botmesh/core'
+import { isPreset, type AIProviderName, type AIThinking, type Effort } from '@botmesh/ai'
 
 export type Env = Readonly<Record<string, string | undefined>>
 
@@ -207,7 +207,7 @@ function readAI(r: Reader): AIEnvConfig {
   const raw = (r.str('AI_PROVIDER') ?? 'ollama').toLowerCase()
   let provider: AIProviderName = 'ollama'
   if ((NATIVE_PROVIDERS as readonly string[]).includes(raw) || isPreset(raw)) provider = raw as AIProviderName
-  else r.problems.push(`AI_PROVIDER must be one of: ${NATIVE_PROVIDERS.join(', ')} or an @bot-wa/ai preset (deepseek, groq, openrouter, ...).`)
+  else r.problems.push(`AI_PROVIDER must be one of: ${NATIVE_PROVIDERS.join(', ')} or an @botmesh/ai preset (deepseek, groq, openrouter, ...).`)
 
   const isOllama = provider === 'ollama'
   // Ollama has no default model; the other providers and presets do.

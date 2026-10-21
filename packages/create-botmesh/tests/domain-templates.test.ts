@@ -11,7 +11,7 @@ import { TEMPLATE_NAMES, TEMPLATES, type TemplateName } from '../src/templates.j
 
 const tempDirs: string[] = []
 async function makeTempDir(): Promise<string> {
-  const dir = await mkdtemp(join(tmpdir(), 'create-bot-wa-domain-'))
+  const dir = await mkdtemp(join(tmpdir(), 'create-botmesh-domain-'))
   tempDirs.push(dir)
   return dir
 }
@@ -40,8 +40,8 @@ describe('use-case templates (FEATURES #39)', () => {
 
     const pkg = JSON.parse(await readFile(join(target, 'package.json'), 'utf8'))
     expect(pkg.type).toBe('module')
-    expect(pkg.scripts.dev).toBe('bot-wa dev src/bot.js --env-file .env')
-    expect(pkg.dependencies['@bot-wa/baileys']).toBeTruthy()
+    expect(pkg.scripts.dev).toBe('botmesh dev src/bot.js --env-file .env')
+    expect(pkg.dependencies['@botmesh/baileys']).toBeTruthy()
 
     const bot = await readFile(join(target, 'src/bot.js'), 'utf8')
     expect(bot).toContain('defineBot(')
@@ -61,10 +61,10 @@ describe('use-case templates (FEATURES #39)', () => {
     const pkg = JSON.parse(await readFile(join(target, 'package.json'), 'utf8'))
     expect(Object.keys(pkg.dependencies).sort()).toEqual([
       '@anthropic-ai/sdk',
-      '@bot-wa/ai',
-      '@bot-wa/baileys',
-      '@bot-wa/core',
-      '@bot-wa/sqlite-store',
+      '@botmesh/ai',
+      '@botmesh/baileys',
+      '@botmesh/core',
+      '@botmesh/sqlite-store',
       'better-sqlite3',
     ])
     const bot = await readFile(join(target, 'src/bot.js'), 'utf8')
@@ -111,13 +111,13 @@ describe('AGENTS.md in every generated project', () => {
 })
 
 /* ---------------------------------------------------------------------------
- * Drive each generated use-case bot in the real `bot-wa dev` engine.
+ * Drive each generated use-case bot in the real `botmesh dev` engine.
  * ------------------------------------------------------------------------ */
 
 const coreLib = fileURLToPath(new URL('../../core/lib/', import.meta.url))
 const devEntry = join(coreLib, 'dev', 'index.js')
 const testingEntry = join(coreLib, 'testing', 'index.js')
-// The real @bot-wa/ai (built), to render the template tools' confirmation prompts.
+// The real @botmesh/ai (built), to render the template tools' confirmation prompts.
 const aiEntry = fileURLToPath(new URL('../../ai/lib/index.js', import.meta.url))
 
 interface DevSessionLike {
@@ -130,7 +130,7 @@ interface DevModule {
 }
 
 const STUBS = [
-  "const forbidden = (name) => class { constructor() { throw new Error(name + ' must not be built under bot-wa dev') } }",
+  "const forbidden = (name) => class { constructor() { throw new Error(name + ' must not be built under botmesh dev') } }",
   "export const BaileysProvider = forbidden('BaileysProvider')",
   "export const SQLiteStore = forbidden('SQLiteStore')",
   "export const aiPlugin = (config) => { globalThis.__botwaAiConfig = config; return { name: 'ai-stub', install() {} } }",
@@ -224,14 +224,14 @@ async function prepare(template: TemplateName): Promise<string> {
   await scaffold({ targetDir: target, template })
   const source = await readFile(join(target, 'src/bot.js'), 'utf8')
   const runnable = source
-    .replace(/from '@bot-wa\/core'/g, `from '${pathToFileURL(join(coreLib, 'index.js')).href}'`)
-    .replace(/from '@bot-wa\/(?:baileys|ai|sqlite-store)'/g, "from './stubs.mjs'")
+    .replace(/from '@botmesh\/core'/g, `from '${pathToFileURL(join(coreLib, 'index.js')).href}'`)
+    .replace(/from '@botmesh\/(?:baileys|ai|sqlite-store)'/g, "from './stubs.mjs'")
   await writeFile(join(target, 'src/stubs.mjs'), STUBS)
   await writeFile(join(target, 'src/bot.sim.mjs'), runnable)
   return join(target, 'src/bot.sim.mjs')
 }
 
-describe.skipIf(!existsSync(devEntry))('use-case bots run in the bot-wa dev simulator', () => {
+describe.skipIf(!existsSync(devEntry))('use-case bots run in the botmesh dev simulator', () => {
   it('has a script for every use-case template', () => {
     expect(Object.keys(SCRIPTS).sort()).toEqual([...DOMAIN].sort())
   })

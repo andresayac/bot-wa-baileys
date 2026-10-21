@@ -3,7 +3,7 @@
  * read state, resolution, SLA, notes and the projection of ledger messages.
  */
 
-import type { StoredMessage } from '@bot-wa/core'
+import type { StoredMessage } from '@botmesh/core'
 import { MemoryInboxStore } from './memory.js'
 import type { InboxStore } from './store.js'
 import type { InboxConversation, InboxListOptions, InboxNote, InboxUpsert } from './types.js'

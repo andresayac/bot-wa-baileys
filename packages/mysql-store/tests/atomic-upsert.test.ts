@@ -7,8 +7,8 @@
  * same against a real MySQL with many clients.
  */
 import { describe, it, expect, beforeEach } from 'vitest'
-import { MemoryStore } from '@bot-wa/core'
-import type { StoredChat, StoredContact } from '@bot-wa/core'
+import { MemoryStore } from '@botmesh/core'
+import type { StoredChat, StoredContact } from '@botmesh/core'
 import { MysqlStore } from '../src/MysqlStore.js'
 import { FakePool, deadlockError, mysqlError } from './fakePool.js'
 

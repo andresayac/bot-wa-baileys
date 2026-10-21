@@ -56,7 +56,7 @@ bot.when({ pattern: 'hi', match: 'contains' }, handler)
 
 ## Can I send buttons?
 
-It depends on the transport. With the official Cloud API (`@bot-wa/meta`)
+It depends on the transport. With the official Cloud API (`@botmesh/meta`)
 and Telegram, `ctx.buttons(text, buttons)` sends **native** buttons (see
 [Messages & media](./messages)). On Baileys, no — native interactive
 buttons/lists are dead in the current WhatsApp Web protocol. Use a numbered
@@ -75,7 +75,7 @@ loses those checkpoints unless the store is file-backed:
 ```ts
 const bot = new Bot({
   provider: new BaileysProvider({ session: 'my-bot' }),
-  storeConfig: { file: './store.json' }, // or use @bot-wa/sqlite-store
+  storeConfig: { file: './store.json' }, // or use @botmesh/sqlite-store
 })
 ```
 
@@ -128,7 +128,7 @@ Yes. The bot works with both personal and WhatsApp Business accounts.
 Not on the WhatsApp Business Platform. Since **2026-01-15** Meta's terms
 prohibit **general-purpose AI assistants** (open-ended chatbots whose main
 purpose is the AI itself). AI that serves your business — customer support,
-sales, bookings — is allowed. With `@bot-wa/ai`, write a persona scoped to
+sales, bookings — is allowed. With `@botmesh/ai`, write a persona scoped to
 your business; see the [AI plugin guide](./ai#whatsapp-ai-policy-since-2026-01-15).
 
 ## Can my account get banned?
@@ -139,7 +139,7 @@ WhatsApp can detect excessive automation. To minimize risk:
 - Use `markOnlineOnConnect: false` (a `BaileysProvider` option)
 - Respect rate limits (the provider's [built-in limiter](./rate-limiting))
 - Don't reply instantly to everything (turn on the [typing indicator](./messages#typing-indicator-and-reply-delays) with `BotConfig.typing`)
-- Consider the official [Cloud API](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/meta-provider) (`@bot-wa/meta`) for business-critical bots — no ban risk
+- Consider the official [Cloud API](https://github.com/andresayac/botmesh/tree/main/packages/meta-provider) (`@botmesh/meta`) for business-critical bots — no ban risk
 
 ## Do I need TypeScript?
 
@@ -150,7 +150,7 @@ gives you autocomplete and type-checking, but it's optional.
 
 ## Why do I get `ERR_REQUIRE_ESM` or "require is not defined"?
 
-You're trying to `require('@bot-wa/core')` (or a transport package) from a
+You're trying to `require('@botmesh/core')` (or a transport package) from a
 CommonJS file. There is no CJS build — switch to `import` (add
 `"type": "module"` to your `package.json`, or use a `.mjs` extension).
 Node >= 22.12 can also `require()` an ESM package via its experimental
@@ -159,11 +159,11 @@ Node >= 22.12 can also `require()` an ESM package via its experimental
 ## Where is the full API reference?
 
 At the [API Reference](/api/) — generated with TypeDoc from the source code. It
-covers **`@bot-wa/core`** (every public export, including the internals-free
+covers **`@botmesh/core`** (every public export, including the internals-free
 `/internal` split); the channel, store and plugin packages are documented in
 their guide pages and in each package's `README.md` (`packages/<pkg>/README.md`).
 
 ## Still having problems?
 
-- [Open an issue on GitHub](https://github.com/andresayac/bot-wa-baileys/issues)
+- [Open an issue on GitHub](https://github.com/andresayac/botmesh/issues)
 - [Check the examples](/examples/messages)

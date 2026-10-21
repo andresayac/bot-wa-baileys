@@ -1,5 +1,5 @@
 /**
- * Shared conformance suite for `@bot-wa/inbox`'s `InboxStore`: tenant isolation,
+ * Shared conformance suite for `@botmesh/inbox`'s `InboxStore`: tenant isolation,
  * compare-and-set upserts and updates (never a silent overwrite), bounded listings with
  * the active index, atomic message projection, notes and concurrency.
  * `MemoryInboxStore` is the reference; `KvInboxStore` must behave identically on every backend.
@@ -7,7 +7,7 @@
  * Type-only imports keep this file runtime-dependency-free (vitest is injected by the runner).
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import type { StoredMessage } from '@bot-wa/core'
+import type { StoredMessage } from '@botmesh/core'
 import type { InboxStore } from '../packages/inbox/src/store.js'
 
 export interface InboxStoreHarness {

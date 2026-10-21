@@ -6,7 +6,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { RedisStore } from '../src/RedisStore.js'
 import { FakeRedisClient, ScanningFakeRedisClient } from './fakeRedis.js'
-import type { FlowCheckpoint, StoredMessage } from '@bot-wa/core'
+import type { FlowCheckpoint, StoredMessage } from '@botmesh/core'
 
 // Mock the 'redis' module so `new RedisStore({ url })` (no injected client)
 // builds a fake instead of a real socket. Async factory keeps it hoist-safe.

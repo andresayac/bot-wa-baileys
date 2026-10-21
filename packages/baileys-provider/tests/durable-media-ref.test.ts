@@ -5,7 +5,7 @@
  */
 import { describe, expect, it, vi } from 'vitest'
 import { proto, type WAMessage } from '@whiskeysockets/baileys'
-import type { MediaRef, SerializedMediaRef } from '@bot-wa/core'
+import type { MediaRef, SerializedMediaRef } from '@botmesh/core'
 
 const download = vi.fn(async (message: WAMessage) => Buffer.from(`media:${message.key.id}`))
 
@@ -22,8 +22,8 @@ vi.mock('@whiskeysockets/baileys', async (importOriginal) => {
 
 const { BaileysProvider } = await import('../src/BaileysProvider.js')
 const { connect } = await import('./support/harness.js')
-const { Bot, IMAGE, MemoryDurability, MemoryStore, ProviderError, loadMediaOf } = await import('@bot-wa/core')
-const { crashable } = await import('@bot-wa/core/testing')
+const { Bot, IMAGE, MemoryDurability, MemoryStore, ProviderError, loadMediaOf } = await import('@botmesh/core')
+const { crashable } = await import('@botmesh/core/testing')
 
 const DM = '573001111111@s.whatsapp.net'
 const GROUP = '120363000000000000@g.us'

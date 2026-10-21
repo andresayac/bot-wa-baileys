@@ -1,11 +1,11 @@
 /**
- * Tool calling (function calling) types for `@bot-wa/ai`.
+ * Tool calling (function calling) types for `@botmesh/ai`.
  *
  * Tools are declared once, provider-neutrally, and each provider maps them to
  * its native shape (Anthropic `tools`/`tool_use`, OpenAI `tools`/`tool_calls`,
  * Gemini `functionDeclarations`/`functionCall`, Ollama `tools`/`tool_calls`).
  */
-import type { MessageContext } from '@bot-wa/core'
+import type { MessageContext } from '@botmesh/core'
 
 /** A JSON Schema object (the `parameters` / `input_schema` sent to the model). */
 export type JSONSchema = { [key: string]: unknown }

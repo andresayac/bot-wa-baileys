@@ -1,8 +1,8 @@
 /**
  * Storage interface — re-exported from the transport-agnostic contract in
  * `core/provider.ts`. This module keeps the historical `store/IStore.js` import
- * path stable. Implementations: MemoryStore (built-in), @bot-wa/sqlite-store,
- * @bot-wa/redis-store, etc.
+ * path stable. Implementations: MemoryStore (built-in), @botmesh/sqlite-store,
+ * @botmesh/redis-store, etc.
  */
 
 export type {

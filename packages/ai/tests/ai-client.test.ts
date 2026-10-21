@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { MemoryStore } from '@bot-wa/core'
+import { MemoryStore } from '@botmesh/core'
 import { MockAIProvider } from '../src/MockAIProvider.js'
 import { ContextManager } from '../src/ContextManager.js'
-import { TimeoutError } from '@bot-wa/core'
+import { TimeoutError } from '@botmesh/core'
 import { AIClient, AITimeoutError } from '../src/AIClient.js'
 import type { AIProvider, GenerateInput, GenerateResult } from '../src/types.js'
 

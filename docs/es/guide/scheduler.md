@@ -141,8 +141,8 @@ Es opt-in: las tareas sin `id` y los bots sin `scheduler` se comportan igual que
 antes.
 
 ```ts
-import { Bot } from '@bot-wa/core'
-import { SQLiteStore } from '@bot-wa/sqlite-store'
+import { Bot } from '@botmesh/core'
+import { SQLiteStore } from '@botmesh/sqlite-store'
 
 const store = new SQLiteStore({ file: './data/bot.db' })
 const bot = new Bot({ provider, store, scheduler: { store: store.schedules() } })
@@ -260,14 +260,14 @@ el prefijo del store:
 
 | Store | `store.schedules()` | Almacenamiento |
 |---|---|---|
-| `@bot-wa/sqlite-store` | `SQLiteScheduleStore` | Tabla `schedules` (más `schedule_fences`); cada llamada es una transacción `BEGIN IMMEDIATE`. |
-| `@bot-wa/redis-store` | `RedisScheduleStore` | `{prefix}:sched:{id}`, scripts de compare-and-set. |
-| `@bot-wa/postgres-store` | `PostgresScheduleStore` | Tabla `{tablePrefix}schedules`; cada llamada es una sentencia atómica (los reclamos son `UPDATE … RETURNING`). |
-| `@bot-wa/mysql-store` | `MysqlScheduleStore` | Tabla `{tablePrefix}schedules` (ids VARBINARY, hasta 1024 bytes); los reclamos hacen `SELECT … FOR UPDATE` en una transacción corta. |
-| `@bot-wa/mongo-store` | `MongoScheduleStore` | Colección `{collectionPrefix}schedules`; comandos de un solo documento (`findOneAndUpdate`), así que sirve un `mongod` standalone. |
+| `@botmesh/sqlite-store` | `SQLiteScheduleStore` | Tabla `schedules` (más `schedule_fences`); cada llamada es una transacción `BEGIN IMMEDIATE`. |
+| `@botmesh/redis-store` | `RedisScheduleStore` | `{prefix}:sched:{id}`, scripts de compare-and-set. |
+| `@botmesh/postgres-store` | `PostgresScheduleStore` | Tabla `{tablePrefix}schedules`; cada llamada es una sentencia atómica (los reclamos son `UPDATE … RETURNING`). |
+| `@botmesh/mysql-store` | `MysqlScheduleStore` | Tabla `{tablePrefix}schedules` (ids VARBINARY, hasta 1024 bytes); los reclamos hacen `SELECT … FOR UPDATE` en una transacción corta. |
+| `@botmesh/mongo-store` | `MongoScheduleStore` | Colección `{collectionPrefix}schedules`; comandos de un solo documento (`findOneAndUpdate`), así que sirve un `mongod` standalone. |
 
 ```ts
-import { PostgresStore } from '@bot-wa/postgres-store'
+import { PostgresStore } from '@botmesh/postgres-store'
 
 const store = new PostgresStore({ connectionString: process.env.DATABASE_URL })
 const bot = new Bot({ provider, store, scheduler: { store: store.schedules() } })
@@ -282,7 +282,7 @@ cuando ningún ejecutor pueda seguir teniendo su token (por ejemplo
 `DELETE FROM schedules WHERE deleted AND updated_at < <hace un día>`).
 
 Sirve cualquier objeto que implemente `ScheduleStore` (exportado desde
-`@bot-wa/core`, con `MemoryScheduleStore` como referencia y la suite compartida
+`@botmesh/core`, con `MemoryScheduleStore` como referencia y la suite compartida
 `test-utils/schedule-store-conformance.ts` para comprobarlo).
 
 ### Garantías y límites

@@ -6,7 +6,7 @@
 
 import { describe, it, expect, expectTypeOf, vi } from 'vitest'
 import { createHmac } from 'node:crypto'
-import { Bot, flow, type IProvider } from '@bot-wa/core'
+import { Bot, flow, type IProvider } from '@botmesh/core'
 import { TikTokProvider } from '../src/TikTokProvider.js'
 import * as fx from './fixtures/webhooks.js'
 

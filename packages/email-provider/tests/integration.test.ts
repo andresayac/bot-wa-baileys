@@ -10,7 +10,7 @@
  *   docker run -d --name botwa-it-greenmail \
  *     -e GREENMAIL_OPTS="-Dgreenmail.setup.test.all -Dgreenmail.hostname=0.0.0.0 -Dgreenmail.auth.disabled" \
  *     -p 127.0.0.1:3025:3025 -p 127.0.0.1:3143:3143 greenmail/standalone:2.1.3
- *   BOTWA_TEST_EMAIL=1 pnpm --filter @bot-wa/email test
+ *   BOTWA_TEST_EMAIL=1 pnpm --filter @botmesh/email test
  *
  * Host and ports: BOTWA_TEST_EMAIL_HOST (default 127.0.0.1),
  * BOTWA_TEST_EMAIL_SMTP_PORT (3025) and BOTWA_TEST_EMAIL_IMAP_PORT (3143),
@@ -23,7 +23,7 @@
  */
 import { randomUUID } from 'node:crypto'
 import { afterEach, describe, expect, it } from 'vitest'
-import { Bot, flow, MemoryStore, type InboundEvent, type InboundMessage } from '@bot-wa/core'
+import { Bot, flow, MemoryStore, type InboundEvent, type InboundMessage } from '@botmesh/core'
 import { cursorThreadStore, EmailProvider, parseEmail, type EmailProviderConfig, type EmailRaw, type ParsedEmail } from '../src/index.js'
 
 const ENABLED = !!process.env.BOTWA_TEST_EMAIL

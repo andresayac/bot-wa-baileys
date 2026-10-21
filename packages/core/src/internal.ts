@@ -1,18 +1,18 @@
 /**
- * `@bot-wa/core/internal` — engine internals.
+ * `@botmesh/core/internal` — engine internals.
  *
  * Building blocks the `Bot` is made of: the context builder, the reply pacer, the
  * broadcast engine, the metrics collector, the native-form runner and their helpers.
  * They are exported for engine work, custom bots and advanced tests. **No semver
  * guarantee:** any of them may change or disappear in a minor release. Applications
- * should use the `Bot` API from `@bot-wa/core` instead.
+ * should use the `Bot` API from `@botmesh/core` instead.
  *
- * Until v3 the main entry (`@bot-wa/core`) re-exports every name here, marked
+ * Until v3 the main entry (`@botmesh/core`) re-exports every name here, marked
  * `@deprecated`; import them from this subpath.
  *
  * @example
  * ```ts
- * import { createPacer, MetricsCollector } from '@bot-wa/core/internal'
+ * import { createPacer, MetricsCollector } from '@botmesh/core/internal'
  * ```
  *
  * @packageDocumentation

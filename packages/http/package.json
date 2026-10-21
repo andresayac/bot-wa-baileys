@@ -1,5 +1,5 @@
 {
-  "name": "@bot-wa/http",
+  "name": "@botmesh/http",
   "version": "0.2.0-alpha.0",
   "type": "module",
   "description": "Safe outbound HTTP primitives for BotWA providers.",
@@ -24,7 +24,7 @@
     "typecheck": "tsc -p tsconfig.test.json"
   },
   "keywords": [
-    "bot-wa",
+    "botmesh",
     "http",
     "ssrf",
     "security"
@@ -33,7 +33,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/andresayac/bot-wa-baileys.git",
+    "url": "git+https://github.com/andresayac/botmesh.git",
     "directory": "packages/http"
   },
   "devDependencies": {
@@ -48,8 +48,8 @@
   "publishConfig": {
     "access": "public"
   },
-  "homepage": "https://github.com/andresayac/bot-wa-baileys/tree/main/packages/http#readme",
+  "homepage": "https://github.com/andresayac/botmesh/tree/main/packages/http#readme",
   "bugs": {
-    "url": "https://github.com/andresayac/bot-wa-baileys/issues"
+    "url": "https://github.com/andresayac/botmesh/issues"
   }
 }

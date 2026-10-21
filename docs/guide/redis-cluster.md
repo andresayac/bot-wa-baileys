@@ -1,6 +1,6 @@
 # Redis Cluster
 
-`@bot-wa/redis-store` runs on a **Redis Cluster** through an opt-in **key layout**.
+`@botmesh/redis-store` runs on a **Redis Cluster** through an opt-in **key layout**.
 A bot that does not opt in keeps the exact key names, scripts and commands it
 used before.
 
@@ -24,8 +24,8 @@ Pass a node-redis cluster client, or let the component create one:
 
 ```ts
 import { createCluster } from 'redis'
-import { Bot } from '@bot-wa/core'
-import { RedisStore, RedisDurability } from '@bot-wa/redis-store'
+import { Bot } from '@botmesh/core'
+import { RedisStore, RedisDurability } from '@botmesh/redis-store'
 
 const cluster = createCluster({ rootNodes: [{ url: 'redis://redis-0:6379' }], useReplicas: false })
 cluster.on('error', (err) => logger.error({ err }, 'redis cluster'))
@@ -146,7 +146,7 @@ compare-and-set writes, fences and indexes. Migrate offline instead.
 
    ```ts
    import { createClient } from 'redis'
-   import { migrateToClusterLayout, inspectKeyspace } from '@bot-wa/redis-store'
+   import { migrateToClusterLayout, inspectKeyspace } from '@botmesh/redis-store'
 
    const source = createClient({ url: 'redis://old:6379' })
    await source.connect()
@@ -226,9 +226,9 @@ otherwise the stale cluster-layout records win the next forward pass.
 ```bash
 docker run -d --name botwa-it-redis-cluster -e IP=0.0.0.0 -e INITIAL_PORT=47100 \
   -e MASTERS=3 -e SLAVES_PER_MASTER=1 -p 127.0.0.1:47100-47105:47100-47105 grokzen/redis-cluster:7.0.10
-BOTWA_TEST_REDIS_CLUSTER_URL=redis://127.0.0.1:47100 pnpm --filter @bot-wa/redis-store test
+BOTWA_TEST_REDIS_CLUSTER_URL=redis://127.0.0.1:47100 pnpm --filter @botmesh/redis-store test
 # optional: failover and slot migration under load
-BOTWA_TEST_REDIS_CLUSTER_CHAOS=1 BOTWA_TEST_REDIS_CLUSTER_URL=redis://127.0.0.1:47100 pnpm --filter @bot-wa/redis-store test
+BOTWA_TEST_REDIS_CLUSTER_CHAOS=1 BOTWA_TEST_REDIS_CLUSTER_URL=redis://127.0.0.1:47100 pnpm --filter @botmesh/redis-store test
 docker rm -f botwa-it-redis-cluster
 ```
 

@@ -2,7 +2,7 @@
  * `CloudAPIProviderConfig.logger` takes any core `LoggerLike` (pino still accepted).
  */
 import { describe, expect, it, vi } from 'vitest'
-import type { LoggerLike } from '@bot-wa/core'
+import type { LoggerLike } from '@botmesh/core'
 import { CloudAPIProvider } from '../src/CloudAPIProvider.js'
 
 describe('CloudAPIProvider logger', () => {

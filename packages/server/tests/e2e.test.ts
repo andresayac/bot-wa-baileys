@@ -1,8 +1,8 @@
 import { createHmac } from 'node:crypto'
 import { afterEach, describe, expect, it } from 'vitest'
-import { Bot } from '@bot-wa/core'
-import { CloudAPIProvider } from '@bot-wa/meta'
-import { TelegramProvider } from '@bot-wa/telegram'
+import { Bot } from '@botmesh/core'
+import { CloudAPIProvider } from '@botmesh/meta'
+import { TelegramProvider } from '@botmesh/telegram'
 import { createIngress, createNodeHandler } from '../src/index.js'
 import { listen, tick, type Running } from './support.js'
 

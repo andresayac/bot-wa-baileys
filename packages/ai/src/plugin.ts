@@ -21,13 +21,13 @@
  *
  * @example
  * ```ts
- * import { aiPlugin } from '@bot-wa/ai'
+ * import { aiPlugin } from '@botmesh/ai'
  *
  * bot.plug(aiPlugin({ provider: 'anthropic', apiKey: process.env.ANTHROPIC_API_KEY }))
  * ```
  */
 
-import { CORE_MESSAGES, definePlugin, type MessageContext, type PluginContext, type PluginSpec } from '@bot-wa/core'
+import { CORE_MESSAGES, definePlugin, type MessageContext, type PluginContext, type PluginSpec } from '@botmesh/core'
 import type { AIConfig, AIProvider, AIStreamConfig } from './types.js'
 import { ContextManager } from './ContextManager.js'
 import { AIClient } from './AIClient.js'
@@ -41,7 +41,7 @@ import { AIToolCancelledError, type AIToolEvent } from './tools/types.js'
 import { editsMessages, isConfirmButtonId, isLiveConfirmButton, suspendingConfirmer } from './tools/autoreplyConfirm.js'
 import { AI_MESSAGES, aiText } from './i18n.js'
 import { formatMarkdown, formatMarkdownStream, type TextFormat } from './format.js'
-import type { BotTracing } from '@bot-wa/core'
+import type { BotTracing } from '@botmesh/core'
 
 /** `bot.tracing` when the core has it and it is enabled (an older core has no `tracing`). */
 function tracingOf(bot: unknown): BotTracing | undefined {

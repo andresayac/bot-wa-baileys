@@ -1,5 +1,5 @@
 /**
- * moderationPlugin — group moderation for `@bot-wa/core`.
+ * moderationPlugin — group moderation for `@botmesh/core`.
  *
  * Hooks `before('message')` (priority 100 by default, so it runs before other
  * hooks and every handler): a muted sender's messages are dropped; a message
@@ -7,7 +7,7 @@
  *
  * @example
  * ```ts
- * import { moderationPlugin } from '@bot-wa/moderation'
+ * import { moderationPlugin } from '@botmesh/moderation'
  *
  * bot.plug(moderationPlugin({
  *   provider,                                   // enables delete/kick/admin lookups when supported
@@ -20,7 +20,7 @@
  * ```
  */
 
-import { definePlugin, type GroupEvent, type MessageContext, type PluginSpec } from '@bot-wa/core'
+import { definePlugin, type GroupEvent, type MessageContext, type PluginSpec } from '@botmesh/core'
 import { Moderator } from './Moderator.js'
 import type { ModerationConfig } from './types.js'
 

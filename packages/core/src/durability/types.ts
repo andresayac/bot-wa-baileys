@@ -16,7 +16,7 @@
  *
  * Backends implement {@link DurabilityBackend}. Core ships `MemoryDurability`
  * (default; the reference implementation, lost on a crash) and `FileDurability`
- * (single process); `@bot-wa/postgres-store` and `@bot-wa/redis-store` ship shared
+ * (single process); `@botmesh/postgres-store` and `@botmesh/redis-store` ship shared
  * backends. Every backend passes the shared conformance suite
  * (`test-utils/durability-conformance.ts`).
  */

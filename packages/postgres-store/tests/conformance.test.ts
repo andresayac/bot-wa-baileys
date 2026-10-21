@@ -1,5 +1,5 @@
 /** PostgresStore against the shared IStore conformance suite (in-memory FakePool). */
-import { legacyMessageKey, type StoredMessage } from '@bot-wa/core'
+import { legacyMessageKey, type StoredMessage } from '@botmesh/core'
 import { PostgresStore } from '../src/PostgresStore.js'
 import { FakePool } from './fakePool.js'
 import { runStoreConformance } from '../../../test-utils/store-conformance.js'

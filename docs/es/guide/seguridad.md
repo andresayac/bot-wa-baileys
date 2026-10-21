@@ -4,15 +4,15 @@ Qué verifica el framework por ti en cada superficie no confiable, qué tienes
 que configurar tú y qué riesgos quedan. La sección siguiente es el resultado de
 la auditoría de octubre de 2026 de las superficies nuevas (ingress de webhooks,
 API REST del manager, canales y plugins nuevos). Para reportar una
-vulnerabilidad, sigue [`SECURITY.md`](https://github.com/andresayac/bot-wa-baileys/blob/main/SECURITY.md).
+vulnerabilidad, sigue [`SECURITY.md`](https://github.com/andresayac/botmesh/blob/main/SECURITY.md).
 
 ## Auditoría de seguridad (2026-10)
 
-**Alcance:** `@bot-wa/server`, `twilio`, `gohighlevel`, `gupshup`, `evolution`,
+**Alcance:** `@botmesh/server`, `twilio`, `gohighlevel`, `gupshup`, `evolution`,
 `wppconnect`, `email`, `tiktok`, `chatwoot`, `voice`, `rag`, `manager` (REST
 `/v1` y el antiguo `createManagerApi`), `dialogflow`, `moderation`, los webhooks
-de `meta`/`messenger`/`instagram` (`@bot-wa/graph-core`) y `telegram`, más el
-cliente HTTP compartido `@bot-wa/http`.
+de `meta`/`messenger`/`instagram` (`@botmesh/graph-core`) y `telegram`, más el
+cliente HTTP compartido `@botmesh/http`.
 
 Cada problema corregido en la auditoría tiene su test de regresión (busca
 `security-audit` en los tests del paquete).
@@ -39,9 +39,9 @@ siga en la ventana de dedupe.
 ### Verificado
 
 - **Firmas sobre el body crudo.** Las firmas se calculan sobre los bytes
-  recibidos, nunca sobre JSON re-serializado. `@bot-wa/server` lee el body
+  recibidos, nunca sobre JSON re-serializado. `@botmesh/server` lee el body
   crudo él mismo y responde `500` si un body parser lo consumió antes.
-- **Límites del ingress** (`@bot-wa/server`): tamaño del body (`413`, por
+- **Límites del ingress** (`@botmesh/server`): tamaño del body (`413`, por
   `Content-Length` y durante la lectura), timeouts de body e ingest
   (`408`/`503`), tope de concurrencia (`503` + `Retry-After`), cabeceras de
   respuesta a salvo de inyección (se rechazan CR/LF/NUL) y logs solo con
@@ -80,49 +80,49 @@ siga en la ventana de dedupe.
 
 ### Corregido en la auditoría
 
-- **`@bot-wa/http`: bypass de SSRF por IPv6.** `isPrivateAddress` no entendía
+- **`@botmesh/http`: bypass de SSRF por IPv6.** `isPrivateAddress` no entendía
   las IPv6 que embeben una IPv4: `https://[::ffff:7f00:1]/` (la forma a la que
   `URL` normaliza `::ffff:127.0.0.1`), `::127.0.0.1`, NAT64 (`64:ff9b::/96`),
   6to4 (`2002::/16`) y Teredo llegaban a direcciones internas. Ahora expande la
   IPv6 y juzga la IPv4 embebida; un literal que no se puede parsear se bloquea.
-- **`@bot-wa/http`: redirecciones.** Al cambiar de origen también se quitan las
+- **`@botmesh/http`: redirecciones.** Al cambiar de origen también se quitan las
   cabeceras con pinta de credencial (`apikey`, `x-api-key`, `xi-api-key`,
   `x-auth-token`...), no solo `Authorization`/`Cookie`; un `303` (y un
   `301`/`302` tras un `POST`) sigue como `GET` sin body, como hace `fetch`.
-- **`@bot-wa/manager`: SSRF vía `send`.** `POST /v1/bots/{id}/send` aceptaba
+- **`@botmesh/manager`: SSRF vía `send`.** `POST /v1/bots/{id}/send` aceptaba
   cualquier URL `https` de media, y transportes como Baileys descargan los
   `{ url }` por su cuenta (fuera de `secureFetch`). Ahora se rechazan con `400`
   los hosts que son o resuelven a direcciones internas
   (`allowPrivateMediaHosts: true` para desactivarlo, `mediaHostResolver` para
   tests).
-- **`@bot-wa/baileys`: SSRF por redirecciones.** Baileys descargaba los
+- **`@botmesh/baileys`: SSRF por redirecciones.** Baileys descargaba los
   `{ url }` con `fetch` sin más, que sigue las redirecciones sin comprobarlas,
   así que una URL pública que respondía `302` hacia `http://169.254.169.254/…`
   se saltaba la comprobación de host de la API REST. Ahora el provider descarga
-  la media remota él mismo con `@bot-wa/http` (cada salto revalidado, socket
+  la media remota él mismo con `@botmesh/http` (cada salto revalidado, socket
   fijado a la dirección comprobada, límites de 64 MiB y 60 s) y le pasa un
   Buffer a Baileys. Se ajusta con `remoteMedia` (`maxBytes`, `timeoutMs`,
   `allowHttp`); `remoteMedia.allowPrivateHosts: true` recupera el paso directo
   anterior para media servida desde tu propia red.
-- **`@bot-wa/manager`: fuga de errores.** El antiguo `createManagerApi`
+- **`@botmesh/manager`: fuga de errores.** El antiguo `createManagerApi`
   devolvía el mensaje del error en los `500`; ahora responde
   `"start failed"`/`"stop failed"` y entrega el error a `onError`.
-- **`@bot-wa/graph-core`: verify token.** El handshake `GET` comparaba el token
+- **`@botmesh/graph-core`: verify token.** El handshake `GET` comparaba el token
   con `===` y aceptaba un token configurado vacío; ahora es en tiempo
   constante, no vacío y solo strings.
-- **`@bot-wa/email`: inyección de cabeceras.** Asuntos y nombres visibles
+- **`@botmesh/email`: inyección de cabeceras.** Asuntos y nombres visibles
   decodificados de RFC 2047 podían meter CR/LF en el `Subject`/`To` de la
   respuesta; se reducen a una línea. Los `cc`/`bcc` nativos deben ser
   direcciones simples.
-- **`@bot-wa/gohighlevel`: replay entre locations.** HighLevel firma los
+- **`@botmesh/gohighlevel`: replay entre locations.** HighLevel firma los
   webhooks de todas las apps con una sola clave de plataforma, así que un body
   firmado para otra location también verificaba aquí; los eventos sin
   `locationId` (o con otro) se ignoran.
-- **`@bot-wa/chatwoot`: adjuntos de agentes.** Solo se reenvían URLs `http(s)`
+- **`@botmesh/chatwoot`: adjuntos de agentes.** Solo se reenvían URLs `http(s)`
   absolutas (Baileys lee de disco cualquier otro `{ url }`), los nombres de
   archivo pierden los separadores de ruta y un `%` mal formado ya no descarta
   el mensaje entero.
-- **`@bot-wa/moderation`: escaneo cuadrático de enlaces.** `findLinks`
+- **`@botmesh/moderation`: escaneo cuadrático de enlaces.** `findLinks`
   comparaba cada invitación suelta con cada enlace (≈2,5 s con un mensaje de
   200 KB); ahora es lineal.
 
@@ -153,7 +153,7 @@ siga en la ventana de dedupe.
   enlace a la plataforma. La API REST comprueba el primer host, pero una
   redirección la resuelve ese otro servidor, fuera de `secureFetch`. Despliega
   esos servidores donde un destino interno no sea alcanzable, o envía Buffers.
-  Baileys está cubierto (descarga con `@bot-wa/http`) salvo que pongas
+  Baileys está cubierto (descarga con `@botmesh/http`) salvo que pongas
   `remoteMedia.allowPrivateHosts: true`.
 - **El estado en memoria crece con los contactos**: los mapas de identidad
   LID/PN (Evolution, WPPConnect, Baileys), los contadores de avisos de

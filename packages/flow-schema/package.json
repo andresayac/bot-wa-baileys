@@ -1,5 +1,5 @@
 {
-  "name": "@bot-wa/flow-schema",
+  "name": "@botmesh/flow-schema",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -27,12 +27,12 @@
   "author": "Andres Aya",
   "license": "MIT",
   "dependencies": {
-    "@bot-wa/core": "workspace:*",
-    "@bot-wa/deployments": "workspace:*",
-    "@bot-wa/http": "workspace:*"
+    "@botmesh/core": "workspace:*",
+    "@botmesh/deployments": "workspace:*",
+    "@botmesh/http": "workspace:*"
   },
   "devDependencies": {
-    "@bot-wa/ai": "workspace:*",
+    "@botmesh/ai": "workspace:*",
     "@types/node": "^26.1.1",
     "typescript": "^7.0.2",
     "vite": "^7.3.6",

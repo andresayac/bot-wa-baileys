@@ -1,5 +1,5 @@
 /**
- * File watching for `bot-wa dev` hot reload: `node:fs` `watch` (recursive),
+ * File watching for `botmesh dev` hot reload: `node:fs` `watch` (recursive),
  * filtered to source files and debounced so one save = one reload.
  */
 

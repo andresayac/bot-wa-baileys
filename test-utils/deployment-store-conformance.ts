@@ -1,5 +1,5 @@
 /**
- * Shared conformance suite for `@bot-wa/deployments`' `DeploymentStore`: commit /
+ * Shared conformance suite for `@botmesh/deployments`' `DeploymentStore`: commit /
  * activate / list semantics, tenant isolation, reservations (gated publishes) with
  * expiry, gate-run audit records and concurrency. `MemoryDeploymentStore` is the
  * reference; `KvDeploymentStore` must behave identically on every backend.

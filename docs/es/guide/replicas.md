@@ -22,9 +22,9 @@ sigue y el bot se comporta exactamente como antes.
 ## Configuración
 
 ```ts
-import { Bot } from '@bot-wa/core'
-import { BaileysProvider } from '@bot-wa/baileys'
-import { RedisStore } from '@bot-wa/redis-store'
+import { Bot } from '@botmesh/core'
+import { BaileysProvider } from '@botmesh/baileys'
+import { RedisStore } from '@botmesh/redis-store'
 
 const store = new RedisStore({ url: process.env.REDIS_URL, prefix: 'tienda' })
 
@@ -103,13 +103,13 @@ líder se detiene o muere.
 
 | Provider | `exclusiveSession` | Con N réplicas |
 | --- | --- | --- |
-| `@bot-wa/baileys` | `true` | 1 conectada + en espera |
-| `@bot-wa/telegram` (long polling) | `true` | 1 haciendo polling + en espera |
-| `@bot-wa/telegram` (webhook) | `false` | todas reciben |
-| `@bot-wa/discord` | `true` | 1 gateway + en espera |
-| `@bot-wa/email` (IMAP) | `true` | 1 sesión IMAP + en espera |
-| `@bot-wa/email` (solo `ingest()`) | `false` | todas reciben |
-| `@bot-wa/meta`, Messenger, Instagram y otros providers de webhook | sin definir (`false`) | todas reciben |
+| `@botmesh/baileys` | `true` | 1 conectada + en espera |
+| `@botmesh/telegram` (long polling) | `true` | 1 haciendo polling + en espera |
+| `@botmesh/telegram` (webhook) | `false` | todas reciben |
+| `@botmesh/discord` | `true` | 1 gateway + en espera |
+| `@botmesh/email` (IMAP) | `true` | 1 sesión IMAP + en espera |
+| `@botmesh/email` (solo `ingest()`) | `false` | todas reciben |
+| `@botmesh/meta`, Messenger, Instagram y otros providers de webhook | sin definir (`false`) | todas reciben |
 
 Si el transporte de la líder sigue `'closed'` durante `providerDownMs`
 (sesión cerrada, sesión tomada por otro, reconexión abandonada), la réplica
@@ -336,7 +336,7 @@ réplicas que comparten Redis, y `coordinator.crash()` simula la caída de una
 réplica:
 
 ```ts
-import { Bot, MemoryCoordinationHub, MemoryCoordinator, MemoryStore } from '@bot-wa/core'
+import { Bot, MemoryCoordinationHub, MemoryCoordinator, MemoryStore } from '@botmesh/core'
 
 const hub = new MemoryCoordinationHub()
 const store = new MemoryStore()

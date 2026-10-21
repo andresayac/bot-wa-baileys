@@ -1,7 +1,7 @@
 /**
- * DeploymentStore — the storage contract of `@bot-wa/deployments`. `MemoryDeploymentStore`
+ * DeploymentStore — the storage contract of `@botmesh/deployments`. `MemoryDeploymentStore`
  * is the reference implementation and `KvDeploymentStore` persists through any
- * `DurableKv` of `@bot-wa/core`; both pass `test-utils/deployment-store-conformance.ts`.
+ * `DurableKv` of `@botmesh/core`; both pass `test-utils/deployment-store-conformance.ts`.
  *
  * Per tenant and bot the store keeps immutable version records, exactly one active
  * version, short-lived reservations (a version whose gate is still running) and the

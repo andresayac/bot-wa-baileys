@@ -1,11 +1,11 @@
 /**
- * Pure draft/publish helpers for `@bot-wa/deployments`: a stable digest of a document
+ * Pure draft/publish helpers for `@botmesh/deployments`: a stable digest of a document
  * (the deployment artifact), a structural diff between two drafts and a gate that
  * validates + compiles the candidate before it is activated.
  */
 
 import { createHash } from 'node:crypto'
-import { DeploymentRegistry, type Deployment, type DeploymentCandidate, type DeploymentGate, type GateResult } from '@bot-wa/deployments'
+import { DeploymentRegistry, type Deployment, type DeploymentCandidate, type DeploymentGate, type GateResult } from '@botmesh/deployments'
 import { compileFlowDocument } from './compile.js'
 import { FlowDocumentError, validateFlowDocument, type FlowDocument, type FlowDocumentIssue } from './schema.js'
 

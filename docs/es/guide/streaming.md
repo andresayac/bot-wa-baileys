@@ -117,7 +117,7 @@ bot.before('send', async (payload, next) => {
 Un hook que aborta un borrador o una edición se salta esa actualización. El
 log de mensajes guarda el texto final editado de cada mensaje.
 
-## Con `@bot-wa/ai`
+## Con `@botmesh/ai`
 
 El autoresponder de IA transmite su respuesta con la opción `stream`:
 
@@ -147,7 +147,7 @@ streaming de `replyInChat()`: lee y guarda el historial del chat, aplica
 [memoria y RAG](/es/guide/ai-memoria-rag) y entrega la respuesta por partes.
 
 ```ts
-import { chatKeyOf } from '@bot-wa/ai'
+import { chatKeyOf } from '@botmesh/ai'
 
 bot.when('explica', async (ctx) => {
   await ctx.stream(
@@ -163,7 +163,7 @@ guarda salvo que pases `keepPartial: false` (combínalo con
 inactividad: si no llega ningún fragmento en ese tiempo, lanza
 `AITimeoutError`.
 
-Con [`@bot-wa/voice`](/es/guide/voz) y `autoReplyWithVoice`, la salida en
+Con [`@botmesh/voice`](/es/guide/voz) y `autoReplyWithVoice`, la salida en
 streaming siempre se queda en texto.
 
 ## Destinos propios
@@ -172,7 +172,7 @@ streaming siempre se queda en texto.
 (un widget web, un test) úsalo directamente con un `StreamTarget`:
 
 ```ts
-import { streamText, splitMessage } from '@bot-wa/core'
+import { streamText, splitMessage } from '@botmesh/core'
 
 const result = await streamText({
   capabilities: { streaming: 'edit', maxTextLength: 2000 },
@@ -192,7 +192,7 @@ destino, y `findSplitPoint(text, max)` dónde se cortaría el texto.
 
 ```ts
 import { vi } from 'vitest'
-import { createTestBot } from '@bot-wa/core/testing'
+import { createTestBot } from '@botmesh/core/testing'
 
 const { bot, chat, provider } = await createTestBot({}, { provider: { streaming: 'edit' } })
 let done = false

@@ -4,9 +4,9 @@
  * No network, no credentials.
  */
 import { afterEach, describe, it, expect } from 'vitest'
-import { MockProvider, type MockOutgoing } from '@bot-wa/core/testing'
-import { MockAIProvider, type GenerateInput, type MockTurn } from '@bot-wa/ai'
-import type { Bot } from '@bot-wa/core'
+import { MockProvider, type MockOutgoing } from '@botmesh/core/testing'
+import { MockAIProvider, type GenerateInput, type MockTurn } from '@botmesh/ai'
+import type { Bot } from '@botmesh/core'
 import { createBakeryBot, GREETING } from '../src/bot.js'
 import { InMemoryOrderStore } from '../src/shop.js'
 

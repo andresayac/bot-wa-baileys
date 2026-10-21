@@ -1,7 +1,7 @@
 /** RedisDurability (hermetic, FakeRedisClient) against the shared durability suites. */
 import { describe, expect, it } from 'vitest'
-import { Bot, MemoryStore, flow } from '@bot-wa/core'
-import { CrashableProvider, MockProvider, crashable } from '@bot-wa/core/testing'
+import { Bot, MemoryStore, flow } from '@botmesh/core'
+import { CrashableProvider, MockProvider, crashable } from '@botmesh/core/testing'
 import { RedisDurability, RedisDurableKv } from '../src/index.js'
 import { FakeRedisClient } from './fakeRedis.js'
 import { runDurabilityConformance, runDurableKvConformance } from '../../../test-utils/durability-conformance.js'

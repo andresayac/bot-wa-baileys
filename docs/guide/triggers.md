@@ -1,6 +1,6 @@
 # Special triggers: WELCOME, message types and CALL
 
-Besides text, regex and predicate triggers, `@bot-wa/core` exports trigger
+Besides text, regex and predicate triggers, `@botmesh/core` exports trigger
 constants for a subject's **first contact**, for **message types** (images,
 voice notes, locations...) and for **incoming calls**. They work everywhere
 a trigger is accepted: `bot.when()`, `flow()` / `addKeyword()` (including
@@ -11,7 +11,7 @@ import {
   Bot, flow, addKeyword, typeTrigger,
   WELCOME, MEDIA, IMAGE, VIDEO, AUDIO, VOICE_NOTE, DOCUMENT, STICKER,
   LOCATION, CONTACT, POLL, CALL,
-} from '@bot-wa/core'
+} from '@botmesh/core'
 ```
 
 ## WELCOME
@@ -140,7 +140,7 @@ bot.when(CALL, (ctx) => { ctx.call?.status; ctx.call?.isVideo })      // typed C
   `bot.when(CALL, fn)` handlers still run mid-flow.
 - `bot.onType('call', handler)` is the same as `bot.when(CALL, handler)`.
 - Testing: `provider.call({ id: 'c1', from: 'user-1', status: 'offer' })` on
-  `MockProvider` (`@bot-wa/core/testing`).
+  `MockProvider` (`@botmesh/core/testing`).
 
 Flows built with `flow(WELCOME)` or a type trigger get an anonymous id, so
 `.persistent()` needs an explicit `.id('...')`.

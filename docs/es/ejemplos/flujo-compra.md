@@ -5,8 +5,8 @@ Un flujo con un menú numerado y branching usando `.choose()`.
 ## El flujo
 
 ```ts
-import { Bot, flow } from '@bot-wa/core'
-import { BaileysProvider } from '@bot-wa/baileys'
+import { Bot, flow } from '@botmesh/core'
+import { BaileysProvider } from '@botmesh/baileys'
 
 const bot = new Bot({
   provider: new BaileysProvider({ session: 'demo-bot', qr: { terminal: true, small: true } }),

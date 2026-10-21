@@ -1,5 +1,5 @@
 /**
- * DevProvider — the in-memory transport `bot-wa dev` injects into your bot
+ * DevProvider — the in-memory transport `botmesh dev` injects into your bot
  * factory. It is a {@link MockProvider} (no sockets, nothing leaves the
  * process) extended with what an interactive simulator needs:
  *

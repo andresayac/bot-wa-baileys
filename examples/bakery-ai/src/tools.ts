@@ -8,7 +8,7 @@
  * with `enum`, a quote tool, update/cancel/list next to create, `dedupe` on
  * create, and an explicit `{ error }` for unknown order ids.
  */
-import { defineTool, type AIToolContext, type AIToolSet, type JSONSchema } from '@bot-wa/ai'
+import { defineTool, type AIToolContext, type AIToolSet, type JSONSchema } from '@botmesh/ai'
 import {
   MAX_QUANTITY,
   PRODUCT_IDS,

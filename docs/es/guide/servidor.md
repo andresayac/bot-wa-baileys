@@ -1,9 +1,9 @@
-# Servidor de webhooks (`@bot-wa/server`)
+# Servidor de webhooks (`@botmesh/server`)
 
 Los providers por webhook (WhatsApp Cloud API, Messenger, Instagram, Telegram
 en modo webhook, Evolution, Twilio, TikTok...) no abren ninguna conexión: el
 canal envía los eventos por POST a **tu** servidor HTTP, y tú le pasas cada
-petición a `provider.ingest()`. `@bot-wa/server` es esa capa HTTP, bien
+petición a `provider.ingest()`. `@botmesh/server` es esa capa HTTP, bien
 hecha:
 
 - **Bytes crudos del body**: `ingest()` recibe el `Buffer` exacto que llegó.
@@ -22,7 +22,7 @@ hecha:
 - **Sin dependencias de frameworks**: adaptadores para `node:http`, Express,
   Fastify, Hono y runtimes estilo fetch, tipados estructuralmente.
 
-> `@bot-wa/server` es **experimental**: el paquete es `private` y no se
+> `@botmesh/server` es **experimental**: el paquete es `private` y no se
 > publica en npm. Úsalo desde este monorepo (`"workspace:*"`).
 
 Los providers por socket (Baileys, Discord, Telegram en modo polling, Email
@@ -32,10 +32,10 @@ por IMAP) no necesitan ingress.
 
 ```ts
 import { createServer } from 'node:http'
-import { Bot } from '@bot-wa/core'
-import { CloudAPIProvider } from '@bot-wa/meta'
-import { TelegramProvider } from '@bot-wa/telegram'
-import { createIngress, createNodeHandler } from '@bot-wa/server'
+import { Bot } from '@botmesh/core'
+import { CloudAPIProvider } from '@botmesh/meta'
+import { TelegramProvider } from '@botmesh/telegram'
+import { createIngress, createNodeHandler } from '@botmesh/server'
 
 const whatsapp = new CloudAPIProvider({
   accessToken: process.env.META_TOKEN!,
@@ -83,7 +83,7 @@ sirve; pasa `onNotFound: (req, res) => ...` para encadenar otro handler.
 
 ```ts
 import express from 'express'
-import { expressIngress } from '@bot-wa/server/express'
+import { expressIngress } from '@botmesh/server/express'
 
 const app = express()
 app.use(expressIngress(ingress)) // BEFORE express.json()
@@ -100,7 +100,7 @@ reutiliza ese `Buffer` (y sigue aplicando `maxBodyBytes`).
 
 ```ts
 import Fastify from 'fastify'
-import { fastifyIngress } from '@bot-wa/server/fastify'
+import { fastifyIngress } from '@botmesh/server/fastify'
 
 const app = Fastify()
 app.register(fastifyIngress(ingress), { prefix: '/hooks' }) // /hooks/webhook/whatsapp, /hooks/healthz...
@@ -113,8 +113,8 @@ sus propias rutas; el resto de tus rutas conserva el parser JSON de Fastify.
 
 ```ts
 import { Hono } from 'hono'
-import { honoIngress } from '@bot-wa/server/hono'
-import { createFetchHandler } from '@bot-wa/server'
+import { honoIngress } from '@botmesh/server/hono'
+import { createFetchHandler } from '@botmesh/server'
 
 const app = new Hono()
 app.use('*', honoIngress(ingress)) // unserved paths → next()
@@ -263,4 +263,4 @@ tu framework y llama tú a `provider.ingest(body, headers, req.originalUrl)` /
 
 - [Canales](/es/guide/canales): qué providers funcionan por webhook.
 - [Despliegue](/es/guide/deploy)
-- [README de `@bot-wa/server`](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/server)
+- [README de `@botmesh/server`](https://github.com/andresayac/botmesh/tree/main/packages/server)

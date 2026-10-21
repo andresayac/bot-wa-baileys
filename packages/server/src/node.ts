@@ -143,7 +143,7 @@ export function serveNode(ingress: Ingress, req: NodeRequestLike, res: ServerRes
  * @example
  * ```ts
  * import { createServer } from 'node:http'
- * import { createIngress, createNodeHandler } from '@bot-wa/server'
+ * import { createIngress, createNodeHandler } from '@botmesh/server'
  *
  * const ingress = createIngress({ routes: [{ path: '/webhook', provider }], bot })
  * createServer(createNodeHandler(ingress)).listen(3000)

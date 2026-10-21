@@ -4,7 +4,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { createHmac } from 'node:crypto'
-import { ProviderError } from '@bot-wa/core'
+import { ProviderError } from '@botmesh/core'
 import { CloudAPIProvider } from '../src/CloudAPIProvider.js'
 import { parseInbound, type GraphWebhookBody } from '../src/parseInbound.js'
 

@@ -1,5 +1,5 @@
 /**
- * `provider.selfId` and inbound `mentions`. @bot-wa/core uses `selfId` for two
+ * `provider.selfId` and inbound `mentions`. @botmesh/core uses `selfId` for two
  * things: the `senderId` of the outbound messages it stores, and the group
  * filter `groupMode: 'mentions'`, which runs `ctx.mentions.includes(selfId)`.
  * Baileys keeps the bot's id device-qualified in `creds.me.id`
@@ -9,7 +9,7 @@
  */
 import { describe, expect, it, vi } from 'vitest'
 import type { WAMessage } from '@whiskeysockets/baileys'
-import { Bot } from '@bot-wa/core'
+import { Bot } from '@botmesh/core'
 
 vi.mock('@whiskeysockets/baileys', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@whiskeysockets/baileys')>()

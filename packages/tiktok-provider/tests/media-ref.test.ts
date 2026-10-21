@@ -1,6 +1,6 @@
 /** Durable media refs: TikTok media coordinates (or a sticker URL) are journaled and rebuilt. */
 import { describe, expect, it } from 'vitest'
-import type { MediaRef, SerializedMediaRef } from '@bot-wa/core'
+import type { MediaRef, SerializedMediaRef } from '@botmesh/core'
 import { TikTokProvider } from '../src/index.js'
 
 const provider = new TikTokProvider({ accessToken: 'ACCESS', businessId: 'biz', appSecret: 'S', selfUniqueIdentifier: 'me' })

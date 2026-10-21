@@ -1,6 +1,6 @@
 /**
  * KvDeploymentStore — {@link DeploymentStore} persisted through any `DurableKv` of
- * `@bot-wa/core` (SQLite, PostgreSQL, Redis, file or memory) via `@bot-wa/tenant-kv`.
+ * `@botmesh/core` (SQLite, PostgreSQL, Redis, file or memory) via `@botmesh/tenant-kv`.
  *
  * Tables (one per tenant, bot ids percent-encoded):
  *  - `product/deployments/bot/<tenant>`                  id = bot id: `{ activeVersion, versions, pending }`.
@@ -15,8 +15,8 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import type { DurableKv, JsonValue } from '@bot-wa/core'
-import { TenantDocs } from '@bot-wa/tenant-kv'
+import type { DurableKv, JsonValue } from '@botmesh/core'
+import { TenantDocs } from '@botmesh/tenant-kv'
 import { assertDeploymentIds, assertListLimit } from './memory.js'
 import type { CommitInput, DeploymentStore } from './store.js'
 import { DeploymentExistsError, DeploymentNotFoundError, gateRunId, type Deployment, type GateRecord, type GateRun } from './types.js'
@@ -39,7 +39,7 @@ interface VersionDoc {
 export interface KvDeploymentStoreOptions {
   /** Time source (epoch ms). Default `Date.now`. */
   clock?: () => number
-  /** Compare-and-set retries per write (see `@bot-wa/tenant-kv`). */
+  /** Compare-and-set retries per write (see `@botmesh/tenant-kv`). */
   attempts?: number
 }
 

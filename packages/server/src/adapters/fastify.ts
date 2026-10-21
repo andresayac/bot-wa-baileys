@@ -7,8 +7,8 @@
  * @example
  * ```ts
  * import Fastify from 'fastify'
- * import { createIngress } from '@bot-wa/server'
- * import { fastifyIngress } from '@bot-wa/server/fastify'
+ * import { createIngress } from '@botmesh/server'
+ * import { fastifyIngress } from '@botmesh/server/fastify'
  *
  * const app = Fastify()
  * app.register(fastifyIngress(createIngress({ routes: [{ path: '/webhook', provider }], bot })), { prefix: '/hooks' })

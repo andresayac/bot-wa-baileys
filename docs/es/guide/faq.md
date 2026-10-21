@@ -58,7 +58,7 @@ bot.when({ pattern: 'hi', match: 'contains' }, handler)
 
 ## ¿Puedo enviar botones?
 
-Depende del transporte. Con la Cloud API oficial (`@bot-wa/meta`) y con
+Depende del transporte. Con la Cloud API oficial (`@botmesh/meta`) y con
 Telegram, `ctx.buttons(texto, botones)` envía botones **nativos** (ver
 [Mensajes y media](./mensajes)). En Baileys, no: los botones/listas
 interactivos nativos están muertos en el protocolo actual de WhatsApp Web.
@@ -79,7 +79,7 @@ que el store tenga un archivo detrás:
 ```ts
 const bot = new Bot({
   provider: new BaileysProvider({ session: 'my-bot' }),
-  storeConfig: { file: './store.json' }, // o usa @bot-wa/sqlite-store
+  storeConfig: { file: './store.json' }, // o usa @botmesh/sqlite-store
 })
 ```
 
@@ -134,7 +134,7 @@ No en la WhatsApp Business Platform. Desde el **15-01-2026** los términos de
 Meta **prohíben los asistentes de IA de propósito general** (chatbots
 abiertos cuya funcionalidad principal es la propia IA). La IA al servicio de
 tu negocio — atención al cliente, ventas, reservas — sí está permitida. Con
-`@bot-wa/ai`, escribe una persona acotada a tu negocio; mira la
+`@botmesh/ai`, escribe una persona acotada a tu negocio; mira la
 [guía del plugin de IA](./ai#politica-de-ia-de-whatsapp-desde-el-15-01-2026).
 
 ## ¿Pueden banear mi cuenta?
@@ -145,7 +145,7 @@ WhatsApp puede detectar automatización excesiva. Para minimizar el riesgo:
 - Usa `markOnlineOnConnect: false` (opción de `BaileysProvider`)
 - Respeta los límites de rate (el [limiter integrado](./rate-limiting) del provider)
 - No respondas instantáneamente a todo (activa el [indicador de escritura](./mensajes#indicador-de-escritura-y-pausas) con `BotConfig.typing`)
-- Considera la [Cloud API](https://github.com/andresayac/bot-wa-baileys/tree/main/packages/meta-provider) oficial (`@bot-wa/meta`) para bots críticos — sin riesgo de baneo
+- Considera la [Cloud API](https://github.com/andresayac/botmesh/tree/main/packages/meta-provider) oficial (`@botmesh/meta`) para bots críticos — sin riesgo de baneo
 
 ## ¿Necesito TypeScript?
 
@@ -157,7 +157,7 @@ type-checking, pero es opcional.
 
 ## ¿Por qué me sale `ERR_REQUIRE_ESM` o "require is not defined"?
 
-Estás intentando hacer `require('@bot-wa/core')` (o un paquete de
+Estás intentando hacer `require('@botmesh/core')` (o un paquete de
 transporte) desde un archivo CommonJS. No hay build de CJS — cambia a
 `import` (agrega `"type": "module"` a tu `package.json`, o usa la extensión
 `.mjs`). Node >= 22.12 también puede hacer `require()` de un paquete ESM
@@ -166,11 +166,11 @@ gracias a su soporte experimental `require(esm)`.
 ## ¿Dónde está la API reference completa?
 
 En la [API Reference](/api/) — generada con TypeDoc desde el código fuente. Cubre
-**`@bot-wa/core`** (todos sus exports públicos, con la separación de `/internal`);
+**`@botmesh/core`** (todos sus exports públicos, con la separación de `/internal`);
 los paquetes de canal, store y plugins están documentados en su página de guía y
 en el `README.md` de cada paquete (`packages/<pkg>/README.md`).
 
 ## ¿Sigues teniendo problemas?
 
-- [Abre un issue en GitHub](https://github.com/andresayac/bot-wa-baileys/issues)
+- [Abre un issue en GitHub](https://github.com/andresayac/botmesh/issues)
 - [Revisa los ejemplos](/es/ejemplos/mensajes)

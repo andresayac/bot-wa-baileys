@@ -1,6 +1,6 @@
 /**
  * KvCampaignStore — {@link CampaignStore} persisted through any `DurableKv` of
- * `@bot-wa/core` (SQLite, PostgreSQL, Redis, file or memory) via `@bot-wa/tenant-kv`.
+ * `@botmesh/core` (SQLite, PostgreSQL, Redis, file or memory) via `@botmesh/tenant-kv`.
  *
  * One table per tenant and campaign, `product/campaigns/state/<tenant>/<campaign>`:
  * id = recipient id and the document holds `sent`, the live reservations and the recent
@@ -8,8 +8,8 @@
  * document, so the operation is atomic in the backend, even between processes.
  */
 
-import type { DurableKv } from '@bot-wa/core'
-import { TenantDocs, assertTenantId } from '@bot-wa/tenant-kv'
+import type { DurableKv } from '@botmesh/core'
+import { TenantDocs, assertTenantId } from '@botmesh/tenant-kv'
 import {
   applyReserve,
   applySettle,

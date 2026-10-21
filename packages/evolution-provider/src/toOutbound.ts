@@ -3,13 +3,13 @@
  * API v2 request (`POST /message/<endpoint>/{instance}` + JSON body).
  *
  * WhatsApp Web has no reliable native buttons/lists, so `buttons`, `list` and
- * `card` degrade to numbered text (same as `@bot-wa/baileys`). `template` is a
+ * `card` degrade to numbered text (same as `@botmesh/baileys`). `template` is a
  * Cloud-API-only concept and throws {@link UnsupportedContentError}. `native`
  * with `provider: 'evolution'` posts `{ endpoint, body }` verbatim.
  */
 
-import { UnsupportedContentError, type MessageRef, type OutboundContent } from '@bot-wa/core'
-import { isRecord, resolveMedia } from '@bot-wa/wa-gateway-kit'
+import { UnsupportedContentError, type MessageRef, type OutboundContent } from '@botmesh/core'
+import { isRecord, resolveMedia } from '@botmesh/wa-gateway-kit'
 import type { EvolutionMessageKey } from './types.js'
 
 export interface EvolutionOutbound {

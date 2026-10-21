@@ -1,8 +1,8 @@
 /**
- * Project templates for `create-bot-wa`.
+ * Project templates for `create-botmesh`.
  *
  * Each template is a pure string-builder set: given a package name it
- * returns the full file list of a runnable @bot-wa project (package.json,
+ * returns the full file list of a runnable @botmesh project (package.json,
  * src/bot.js, .env.example, .gitignore, README.md, AGENTS.md). No I/O here — see
  * `scaffold.ts` for the writer.
  */
@@ -17,7 +17,7 @@ import {
   aiBotConfig,
   baileysMain,
   botModule,
-  botWaRange,
+  botMeshRange,
   packageJson,
   readme,
 } from './shared.js'
@@ -62,14 +62,14 @@ const baileys: ProjectTemplate = {
     {
       path: 'package.json',
       contents: packageJson(name, {
-        '@bot-wa/core': CORE_VERSION,
-        '@bot-wa/baileys': botWaRange('@bot-wa/baileys'),
+        '@botmesh/core': CORE_VERSION,
+        '@botmesh/baileys': botMeshRange('@botmesh/baileys'),
       }),
     },
     {
       path: 'src/bot.js',
       contents: botModule({
-        imports: ["import { BaileysProvider } from '@bot-wa/baileys'"],
+        imports: ["import { BaileysProvider } from '@botmesh/baileys'"],
         main: baileysMain('my-bot', '✅ Bot connected — send it "hola"'),
       }),
     },
@@ -99,14 +99,14 @@ const meta: ProjectTemplate = {
     {
       path: 'package.json',
       contents: packageJson(name, {
-        '@bot-wa/core': CORE_VERSION,
-        '@bot-wa/meta': botWaRange('@bot-wa/meta'),
+        '@botmesh/core': CORE_VERSION,
+        '@botmesh/meta': botMeshRange('@botmesh/meta'),
       }),
     },
     {
       path: 'src/bot.js',
       contents: botModule({
-        imports: ["import { createServer } from 'node:http'", "import { CloudAPIProvider } from '@bot-wa/meta'"],
+        imports: ["import { createServer } from 'node:http'", "import { CloudAPIProvider } from '@botmesh/meta'"],
         main: [
           '// Secrets come from .env (loaded via `node --env-file=.env`).',
           '// META_TOKEN / META_PHONE_ID: Meta developer portal → WhatsApp → API setup.',
@@ -205,14 +205,14 @@ const telegram: ProjectTemplate = {
     {
       path: 'package.json',
       contents: packageJson(name, {
-        '@bot-wa/core': CORE_VERSION,
-        '@bot-wa/telegram': botWaRange('@bot-wa/telegram'),
+        '@botmesh/core': CORE_VERSION,
+        '@botmesh/telegram': botMeshRange('@botmesh/telegram'),
       }),
     },
     {
       path: 'src/bot.js',
       contents: botModule({
-        imports: ["import { TelegramProvider } from '@bot-wa/telegram'"],
+        imports: ["import { TelegramProvider } from '@botmesh/telegram'"],
         main: [
           '// TELEGRAM_TOKEN: create a bot with @BotFather and paste the token in .env.',
           'const bot = await createBot(new TelegramProvider({ token: process.env.TELEGRAM_TOKEN }))',
@@ -237,7 +237,7 @@ const telegram: ProjectTemplate = {
 }
 function telegramLabel(): string { return 'Telegram · Bot API' }
 
-/* ai (baileys + @bot-wa/ai) ----------------------------------------------- */
+/* ai (baileys + @botmesh/ai) ----------------------------------------------- */
 
 /* Since 2026-01-15 Meta's WhatsApp Business Platform terms ("AI Providers")
  * prohibit general-purpose AI assistants; AI that serves the business's own
@@ -248,21 +248,21 @@ function telegramLabel(): string { return 'Telegram · Bot API' }
 const ai: ProjectTemplate = {
   name: 'ai',
   label: 'WhatsApp · Baileys + AI',
-  description: 'WhatsApp bot (Baileys) with a business-scoped AI customer-support autoresponder via @bot-wa/ai (Anthropic).',
+  description: 'WhatsApp bot (Baileys) with a business-scoped AI customer-support autoresponder via @botmesh/ai (Anthropic).',
   files: (name) => [
     {
       path: 'package.json',
       contents: packageJson(name, {
-        '@bot-wa/core': CORE_VERSION,
-        '@bot-wa/baileys': botWaRange('@bot-wa/baileys'),
-        '@bot-wa/ai': botWaRange('@bot-wa/ai'),
+        '@botmesh/core': CORE_VERSION,
+        '@botmesh/baileys': botMeshRange('@botmesh/baileys'),
+        '@botmesh/ai': botMeshRange('@botmesh/ai'),
         '@anthropic-ai/sdk': ANTHROPIC_SDK_VERSION,
       }),
     },
     {
       path: 'src/bot.js',
       contents: botModule({
-        imports: ["import { BaileysProvider } from '@bot-wa/baileys'", "import { aiPlugin } from '@bot-wa/ai'"],
+        imports: ["import { BaileysProvider } from '@botmesh/baileys'", "import { aiPlugin } from '@botmesh/ai'"],
         prelude: [
           '// Business-scoped persona: keep the AI on YOUR business (support, sales, bookings).',
           '// Since 2026-01-15 the WhatsApp Business Platform terms prohibit general-purpose',
@@ -319,7 +319,7 @@ const ai: ProjectTemplate = {
         'Since 2026-01-15 the Meta terms for the **WhatsApp Business Platform** prohibit **general-purpose AI assistants**',
         '(open-ended, ChatGPT-style chatbots whose main purpose is the AI itself). AI that serves your own business —',
         'customer support, sales, bookings — is allowed. Keep `PERSONA` scoped to your business, especially if you move',
-        'this bot to the official Cloud API (`@bot-wa/meta`). Baileys is an unofficial WhatsApp Web client and is also',
+        'this bot to the official Cloud API (`@botmesh/meta`). Baileys is an unofficial WhatsApp Web client and is also',
         'subject to WhatsApp\'s terms. Check the [current terms](' + AI_POLICY_URL + ') before going live.',
       ]),
     },

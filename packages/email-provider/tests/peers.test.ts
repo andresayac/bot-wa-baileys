@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { ProviderError } from '@bot-wa/core'
+import { ProviderError } from '@botmesh/core'
 import { EmailProvider } from '../src/index.js'
 import { loadModule } from '../src/loadModule.js'
 import { email, FakeImapServer, FakeSmtp, waitFor } from './support/fakes.js'

@@ -4,7 +4,7 @@
  * of a webhook), and `withSpan` makes bot spans the active OTel context so the SDK's
  * auto-instrumentations (http, undici, pg, …) nest under them.
  */
-import { noopTracer, type BotSpan, type BotTracer, type SpanContextRef, type SpanException, type SpanKind, type SpanOptions, type SpanStatus, type TraceAttributeValue, type TraceAttributes } from '@bot-wa/core'
+import { noopTracer, type BotSpan, type BotTracer, type SpanContextRef, type SpanException, type SpanKind, type SpanOptions, type SpanStatus, type TraceAttributeValue, type TraceAttributes } from '@botmesh/core'
 import type { Attributes, Context, Link, MeterProvider, Span, TracerProvider } from '@opentelemetry/api'
 
 import { loadOtelApi, type OtelApi } from './load.js'
@@ -16,7 +16,7 @@ export interface OtelTracingOptions {
   api?: OtelApi
   /** Default: the global one (`api.trace.getTracerProvider()`, set by the SDK). */
   tracerProvider?: TracerProvider
-  /** Instrumentation scope name. Default `'@bot-wa/otel'`. */
+  /** Instrumentation scope name. Default `'@botmesh/otel'`. */
   tracerName?: string
   /**
    * Derive latency/token histograms from finished spans (low-cardinality attributes
@@ -100,11 +100,11 @@ class OtelBotSpan implements BotSpan {
 export function otelTracer(opts: OtelTracingOptions & { api: OtelApi }): BotTracer {
   const { api } = opts
   const provider = opts.tracerProvider ?? api.trace.getTracerProvider()
-  const tracer = provider.getTracer(opts.tracerName ?? '@bot-wa/otel')
+  const tracer = provider.getTracer(opts.tracerName ?? '@botmesh/otel')
   const sm = opts.spanMetrics ?? true
   const metrics = sm === false
     ? undefined
-    : new SpanMetrics((typeof sm === 'object' && sm.meterProvider) || api.metrics.getMeterProvider(), opts.tracerName ?? '@bot-wa/otel', (typeof sm === 'object' && sm.prefix) || 'botwa')
+    : new SpanMetrics((typeof sm === 'object' && sm.meterProvider) || api.metrics.getMeterProvider(), opts.tracerName ?? '@botmesh/otel', (typeof sm === 'object' && sm.prefix) || 'botwa')
 
   const kinds: Record<SpanKind, OtelApi['SpanKind'][keyof OtelApi['SpanKind']]> = {
     internal: api.SpanKind.INTERNAL, server: api.SpanKind.SERVER, client: api.SpanKind.CLIENT,

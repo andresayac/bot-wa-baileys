@@ -1,8 +1,8 @@
-# @bot-wa/server
+# @botmesh/server
 
 > **Experimental — aún no publicado en npm.** El paquete es `private`: úsalo desde este monorepo (`workspace:*`). Su API puede cambiar.
 
-Ingress HTTP para los canales por webhook de `@bot-wa` (WhatsApp Cloud API, Messenger, Instagram, Telegram en modo webhook, Evolution, Twilio, HighLevel, TikTok, email entrante...). El ingress llama a `ingest(raw, headers)` sin la URL: con WPPConnect y Gupshup el token del webhook tiene que llegar en una cabecera, no en la query string. Resuelve lo que todo host de webhooks tiene que hacer bien y que es fácil hacer mal:
+Ingress HTTP para los canales por webhook de `@botmesh` (WhatsApp Cloud API, Messenger, Instagram, Telegram en modo webhook, Evolution, Twilio, HighLevel, TikTok, email entrante...). El ingress llama a `ingest(raw, headers)` sin la URL: con WPPConnect y Gupshup el token del webhook tiene que llegar en una cabecera, no en la query string. Resuelve lo que todo host de webhooks tiene que hacer bien y que es fácil hacer mal:
 
 - **Bytes crudos del body**: `provider.ingest()` recibe el `Buffer` exacto que llegó (la firma `X-Hub-Signature-256` de Meta se calcula sobre esos bytes, nunca sobre JSON re-serializado).
 - **Límite de tamaño** (`413`), por defecto 1 MiB, comprobado contra `Content-Length` y mientras llega el stream.
@@ -17,10 +17,10 @@ Ingress HTTP para los canales por webhook de `@bot-wa` (WhatsApp Cloud API, Mess
 
 ```ts
 import { createServer } from 'node:http'
-import { Bot } from '@bot-wa/core'
-import { CloudAPIProvider } from '@bot-wa/meta'
-import { TelegramProvider } from '@bot-wa/telegram'
-import { createIngress, createNodeHandler } from '@bot-wa/server'
+import { Bot } from '@botmesh/core'
+import { CloudAPIProvider } from '@botmesh/meta'
+import { TelegramProvider } from '@botmesh/telegram'
+import { createIngress, createNodeHandler } from '@botmesh/server'
 
 const whatsapp = new CloudAPIProvider({ /* ... */ appSecret: process.env.META_APP_SECRET! })
 const bot = new Bot({ provider: whatsapp })
@@ -52,7 +52,7 @@ process.on('SIGTERM', async () => {
 
 ```ts
 import express from 'express'
-import { expressIngress } from '@bot-wa/server/express'
+import { expressIngress } from '@botmesh/server/express'
 
 const app = express()
 app.use(expressIngress(ingress)) // ANTES de express.json()
@@ -65,7 +65,7 @@ Si un parser ya consumió el body (`express.json()` montado antes), el ingress r
 
 ```ts
 import Fastify from 'fastify'
-import { fastifyIngress } from '@bot-wa/server/fastify'
+import { fastifyIngress } from '@botmesh/server/fastify'
 
 const app = Fastify()
 app.register(fastifyIngress(ingress), { prefix: '/hooks' }) // /hooks/webhook/whatsapp, /hooks/healthz...
@@ -77,8 +77,8 @@ Es un plugin encapsulado: su parser comodín deja el stream intacto solo para su
 
 ```ts
 import { Hono } from 'hono'
-import { honoIngress } from '@bot-wa/server/hono'
-import { createFetchHandler } from '@bot-wa/server'
+import { honoIngress } from '@botmesh/server/hono'
+import { createFetchHandler } from '@botmesh/server'
 
 const app = new Hono()
 app.use('*', honoIngress(ingress))       // rutas no servidas → next()

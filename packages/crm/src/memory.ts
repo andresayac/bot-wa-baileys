@@ -4,7 +4,7 @@
  * Every read returns a copy; state is lost on restart (use `KvContactStore` to persist).
  */
 
-import { assertTenantId } from '@bot-wa/tenant-kv'
+import { assertTenantId } from '@botmesh/tenant-kv'
 import type { ContactStore } from './store.js'
 import {
   ContactNotFoundError,

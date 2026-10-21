@@ -1,4 +1,4 @@
-import type { IStore } from '@bot-wa/core'
+import type { IStore } from '@botmesh/core'
 import type { TicketKeyValue } from './types.js'
 
 /** In-memory {@link TicketKeyValue} (lost on restart). Handy for tests or ephemeral bots. */

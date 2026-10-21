@@ -1,5 +1,5 @@
 /**
- * DiscordProvider — Discord transport for @bot-wa/core. Gateway websocket for
+ * DiscordProvider — Discord transport for @botmesh/core. Gateway websocket for
  * inbound events (pushIngress: false — the provider owns the socket), REST for
  * outbound sends. Buttons / select menus / slash commands arrive as
  * interactions and MUST be acknowledged within ~3s (interactionsRequireAck).
@@ -16,7 +16,7 @@
 import { basename } from 'node:path'
 import { readFile } from 'node:fs/promises'
 import pino from 'pino'
-import type { LoggerLike } from '@bot-wa/core'
+import type { LoggerLike } from '@botmesh/core'
 import type {
   ChatId,
   IProvider,
@@ -30,9 +30,9 @@ import type {
   SendResult,
   UserId,
   SerializedMediaRef,
-} from '@bot-wa/core'
-import { ProviderError, UnsupportedContentError } from '@bot-wa/core'
-import { isAllowedHostUrl } from '@bot-wa/http'
+} from '@botmesh/core'
+import { ProviderError, UnsupportedContentError } from '@botmesh/core'
+import { isAllowedHostUrl } from '@botmesh/http'
 import type { DiscordProviderConfig } from './types.js'
 import { DEFAULT_INTENTS } from './types.js'
 import { GatewaySocket, defaultSocketFactory } from './gateway.js'

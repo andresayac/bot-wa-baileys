@@ -1,6 +1,6 @@
 /**
- * KvInboxStore — {@link InboxStore} persisted through any `DurableKv` of `@bot-wa/core`
- * (SQLite, PostgreSQL, Redis, file or memory) via `@bot-wa/tenant-kv`.
+ * KvInboxStore — {@link InboxStore} persisted through any `DurableKv` of `@botmesh/core`
+ * (SQLite, PostgreSQL, Redis, file or memory) via `@botmesh/tenant-kv`.
  *
  * Tables (one per tenant):
  *  - `product/inbox/conv/<tenant>`           id = conversation id; `all` index = most recently
@@ -12,8 +12,8 @@
  * itself and surfaces as `InboxConflictError`.
  */
 
-import type { DurableKv, StoredMessage } from '@bot-wa/core'
-import { TenantDocs, assertTenantId } from '@bot-wa/tenant-kv'
+import type { DurableKv, StoredMessage } from '@botmesh/core'
+import { TenantDocs, assertTenantId } from '@botmesh/tenant-kv'
 import {
   DEFAULT_LIST_LIMIT,
   DEFAULT_NOTES_LIMIT,
@@ -42,7 +42,7 @@ import {
 export interface KvInboxStoreOptions {
   /** Time source (epoch ms). Default `Date.now`. */
   clock?: () => number
-  /** Compare-and-set retries of `applyMessage` (see `@bot-wa/tenant-kv`). */
+  /** Compare-and-set retries of `applyMessage` (see `@botmesh/tenant-kv`). */
   attempts?: number
 }
 

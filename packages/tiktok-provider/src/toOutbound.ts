@@ -12,7 +12,7 @@
  * documented by TikTok reject with `PayloadTooLargeError` before any request.
  */
 
-import { PayloadTooLargeError, UnsupportedContentError, type Button, type OutboundContent } from '@bot-wa/core'
+import { PayloadTooLargeError, UnsupportedContentError, type Button, type OutboundContent } from '@botmesh/core'
 
 /** DM text limit ("6,000 characters, including spaces and emojis"). */
 export const DM_TEXT_LIMIT = 6000
