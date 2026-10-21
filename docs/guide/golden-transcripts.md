@@ -210,8 +210,10 @@ and extra replies are detected.
 ## Publish gate (`@bot-wa/deployments`)
 
 ::: warning Experimental — not published yet
-`@bot-wa/deployments` is a private, in-memory prototype (not on npm): state
-lives in RAM and its API may change.
+`@bot-wa/deployments` is private (not on npm) and its API may change. It is
+persistent: `MemoryDeploymentStore` is the reference and `KvDeploymentStore`
+persists over any `DurableKv` (SQLite, PostgreSQL, Redis, file). Gate runs are
+recorded in an audit log.
 :::
 
 `DeploymentRegistry` keeps immutable versions per tenant and bot with exactly
@@ -236,10 +238,11 @@ fresh bot.
 
 ```ts
 import { readFileSync } from 'node:fs'
+import { MemoryKv } from '@bot-wa/core'
 import { parseTranscript, REPLAY_MASKS } from '@bot-wa/core/testing'
-import { DeploymentGateError, DeploymentRegistry, goldenTranscriptGate } from '@bot-wa/deployments'
+import { DeploymentGateError, DeploymentRegistry, KvDeploymentStore, goldenTranscriptGate } from '@bot-wa/deployments'
 
-const registry = new DeploymentRegistry()
+const registry = new DeploymentRegistry(new KvDeploymentStore(new MemoryKv()))
 const gate = goldenTranscriptGate({
   transcripts: [parseTranscript(readFileSync('golden/checkout.json', 'utf8'))],
   createBot: (candidate) => loadBotFactory(candidate.artifact),   // returns (provider) => Bot, not started

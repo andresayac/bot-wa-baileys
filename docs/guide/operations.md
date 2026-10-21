@@ -92,12 +92,14 @@ bot.on('conversation:ended', ({ id, name, chatId, outcome, completed, durationMs
 
 ## Operational packages
 
-::: warning Experimental and prototype packages — none is published
+::: warning Experimental packages — none is published
 `@bot-wa/events` is **experimental**: a real, tested implementation that is
-still private (not on npm). `@bot-wa/inbox`, `@bot-wa/crm`, `@bot-wa/hub`,
-`@bot-wa/campaigns` and `@bot-wa/deployments` are **prototypes**: minimal
-in-memory sketches to explore the design. They don't persist anything, don't
-scale beyond one process and are not meant for production.
+still private (not on npm). The product packages (`@bot-wa/inbox`,
+`@bot-wa/crm`, `@bot-wa/hub`, `@bot-wa/campaigns` and `@bot-wa/deployments`)
+are real and **persistent**: each has a storage contract, an in-RAM reference
+store and a `Kv*` adapter over any `DurableKv` of the core (SQLite, PostgreSQL,
+Redis, Redis Cluster or a file), with a shared conformance suite and opt-in
+real-server suites. Their APIs may still change while the alpha is unpublished.
 :::
 
 The operational packages are transport-neutral and scoped by tenant.
@@ -114,17 +116,19 @@ The same journal can also be a bot's durability backend (`eventsDurability({ jou
 
 ### Inbox and CRM
 
-`@bot-wa/inbox` provides optimistic-concurrency assignment, handoff, notes and unread state. Project ledger `StoredMessage` entries with `inbox.projectMessage(message)` so conversations can be rebuilt across channels.
+`@bot-wa/inbox` provides optimistic-concurrency assignment (a compare-and-set on `version`), handoff, notes and unread state. Project ledger `StoredMessage` entries with `inbox.projectMessage(message)` so conversations can be rebuilt across channels; `attachInbox(bot, inbox)` does it for a running bot. Persist with `new Inbox(new KvInboxStore(kv))`.
 
-`@bot-wa/crm` stores contact channels, tags, attributes and marketing consent. Always segment campaigns using tenant-scoped data and consent.
+`@bot-wa/crm` stores contact channels, tags, attributes and marketing consent, with rule-based segments (`tagsAll`, `attributes` compared strictly, consent). `ContactDirectory` is async over `MemoryContactStore` or `KvContactStore`; `setConsent` retries concurrent writers instead of overwriting them. Always segment campaigns using tenant-scoped data and consent.
 
 ### Campaigns, plugins and deployments
 
-`@bot-wa/campaigns` skips opt-outs, mismatched segments and duplicate recipients. A durable worker must perform the actual send and record delivery results.
+`@bot-wa/campaigns` skips opt-outs, mismatched segments and duplicate recipients. The store reserves one send slot per `(tenant, campaign, recipient)` with a TTL; `markSent` counts the send and `markFailed` releases the slot. `sendCampaign(bot, planner, …)` sends with `bot.broadcast()` and settles each delivery from the real result (accepted, failed, skipped by a hook or cancelled).
 
-`@bot-wa/hub` validates plugin manifests, runtime compatibility and granted permissions before enabling a plugin. It does not execute or sandbox untrusted code by itself.
+`@bot-wa/hub` validates plugin manifests, runtime compatibility and granted permissions before enabling a plugin. Installs and enable/disable are persisted per tenant; it does not execute or sandbox untrusted code by itself.
 
-`@bot-wa/deployments` tracks immutable versions and one active deployment per tenant/bot. Connect it to your deployment system for gradual rollout and physical rollback.
+`@bot-wa/deployments` tracks immutable versions and one active deployment per tenant/bot, with reservations for running gates and an audit log of gate runs. Connect it to your deployment system for gradual rollout and physical rollback.
+
+All five share the same storage model: `Memory…Store` (reference), `Kv…Store` over any `DurableKv`, a conformance suite in `test-utils/`, and tenant isolation enforced by the backend table name (`@bot-wa/tenant-kv`).
 
 ## Tracing (OpenTelemetry)
 

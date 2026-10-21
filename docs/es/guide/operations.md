@@ -95,13 +95,15 @@ bot.on('conversation:ended', ({ id, name, chatId, outcome, completed, durationMs
 
 ## Paquetes operativos
 
-::: warning Paquetes experimentales y prototipos — ninguno está publicado
+::: warning Paquetes experimentales — ninguno está publicado
 `@bot-wa/events` es **experimental**: una implementación real y con tests,
-pero todavía privada (no está en npm). `@bot-wa/inbox`, `@bot-wa/crm`,
-`@bot-wa/hub`, `@bot-wa/campaigns` y `@bot-wa/deployments` son
-**prototipos**: esqueletos mínimos en memoria para explorar el diseño. No
-persisten nada, no escalan más allá de un proceso y no están pensados para
-producción.
+pero todavía privada (no está en npm). Los paquetes de producto (`@bot-wa/inbox`,
+`@bot-wa/crm`, `@bot-wa/hub`, `@bot-wa/campaigns` y `@bot-wa/deployments`)
+son reales y **persistentes**: cada uno tiene un contrato de almacenamiento,
+una implementación de referencia en RAM y un adaptador `Kv*` sobre cualquier
+`DurableKv` del core (SQLite, PostgreSQL, Redis, Redis Cluster o archivo), con
+una suite de conformidad compartida y suites opt-in contra servidores reales.
+Su API todavía puede cambiar mientras la alpha no se publique.
 :::
 
 Los paquetes operativos son agnósticos de canal y están aislados por tenant.
@@ -118,17 +120,19 @@ El mismo journal puede servir además como backend de durabilidad de un bot (`ev
 
 ### Inbox y CRM
 
-`@bot-wa/inbox` incorpora asignación con concurrencia optimista, handoff, notas y unread. Proyecta los `StoredMessage` del ledger con `inbox.projectMessage(message)` para reconstruir conversaciones entre canales.
+`@bot-wa/inbox` incorpora asignación con concurrencia optimista (compare-and-set sobre `version`), handoff, notas y unread. Proyecta los `StoredMessage` del ledger con `inbox.projectMessage(message)` para reconstruir conversaciones entre canales; `attachInbox(bot, inbox)` lo hace para un bot en marcha. Persiste con `new Inbox(new KvInboxStore(kv))`.
 
-`@bot-wa/crm` guarda canales de contacto, tags, atributos y consentimiento de marketing. Segmenta siempre las campañas con datos aislados por tenant y con consentimiento.
+`@bot-wa/crm` guarda canales de contacto, tags, atributos y consentimiento de marketing, con segmentos por reglas (`tagsAll`, atributos comparados de forma estricta, consentimiento). `ContactDirectory` es async sobre `MemoryContactStore` o `KvContactStore`; `setConsent` reintenta a los escritores concurrentes en vez de pisarlos. Segmenta siempre las campañas con datos aislados por tenant y con consentimiento.
 
 ### Campañas, plugins y despliegues
 
-`@bot-wa/campaigns` descarta opt-outs, segmentos que no coinciden y destinatarios duplicados. Un worker durable debe realizar el envío real y registrar el resultado de cada entrega.
+`@bot-wa/campaigns` descarta opt-outs, segmentos que no coinciden y destinatarios duplicados. El store reserva un hueco de envío por `(tenant, campaña, destinatario)` con TTL; `markSent` cuenta el envío y `markFailed` libera el hueco. `sendCampaign(bot, planner, …)` envía con `bot.broadcast()` y asienta cada delivery con el resultado real (aceptado, fallido, descartado por un hook o cancelado).
 
-`@bot-wa/hub` valida manifiestos de plugins, compatibilidad con el runtime y permisos concedidos antes de habilitar un plugin. Por sí solo no ejecuta ni aísla código no confiable.
+`@bot-wa/hub` valida manifiestos de plugins, compatibilidad con el runtime y permisos concedidos antes de habilitar un plugin. Las instalaciones y el enable/disable se persisten por tenant; por sí solo no ejecuta ni aísla código no confiable.
 
-`@bot-wa/deployments` registra versiones inmutables y un despliegue activo por tenant/bot. Conéctalo a tu sistema de despliegue para hacer rollouts graduales y rollback físico.
+`@bot-wa/deployments` registra versiones inmutables y un despliegue activo por tenant/bot, con reservas para gates en ejecución y auditoría de gate runs. Conéctalo a tu sistema de despliegue para hacer rollouts graduales y rollback físico.
+
+Los cinco comparten el mismo modelo de almacenamiento: `Memory…Store` (referencia), `Kv…Store` sobre cualquier `DurableKv`, una suite de conformidad en `test-utils/` y aislamiento de tenant impuesto por el nombre de la tabla en el backend (`@bot-wa/tenant-kv`).
 
 ## Trazas (OpenTelemetry)
 

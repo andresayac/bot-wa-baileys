@@ -89,7 +89,7 @@ Experimental (private, not published):
 - @bot-wa/events — event envelopes, idempotent journal, EventWorker retries + dead-letter, fencing tokens (StaleLeaseError) against expired leases
 - eslint-plugin-bot-wa — ESLint rules (v1 API leftovers, awaited runtime.enter, async Plugin.install, asks without timeout, ...)
 
-Prototypes (private, in-memory, minimal): @bot-wa/inbox, @bot-wa/crm, @bot-wa/hub, @bot-wa/campaigns, @bot-wa/deployments (includes a golden-transcript publish gate)
+Product packages (private, persistent over any DurableKv of @bot-wa/core: MemoryKv, FileDurability, SQLiteDurableKv, PostgresDurableKv, RedisDurableKv): @bot-wa/inbox (conversations, CAS assignment, handoff, notes, SLA, ledger projection), @bot-wa/crm (contacts, tags, attributes, consent, segments), @bot-wa/campaigns (consent-aware planning, durable per-recipient reservations with TTL, sendCampaign over bot.broadcast), @bot-wa/hub (validated plugin manifests, permission-gated enable), @bot-wa/deployments (immutable versions, active version, gate reservations, rollback, audited gate runs, golden-transcript publish gate). Shared storage glue: @bot-wa/tenant-kv (tenant-scoped JSON documents with backend CAS). Each package: Memory*Store reference + Kv*Store adapter + test-utils/*-store-conformance.ts
 
 ## API essentials (v2)
 - import { Bot, flow } from '@bot-wa/core'; import { BaileysProvider } from '@bot-wa/baileys'

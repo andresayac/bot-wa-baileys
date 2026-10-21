@@ -215,8 +215,10 @@ actividad, así detecta tanto las respuestas que faltan como las que sobran.
 ## Gate de publicación (`@bot-wa/deployments`)
 
 ::: warning Experimental — aún no publicado en npm
-`@bot-wa/deployments` es un prototipo privado en memoria (no está en npm): el
-estado vive en RAM y su API puede cambiar.
+`@bot-wa/deployments` es privado (no está en npm) y su API puede cambiar. Es
+persistente: `MemoryDeploymentStore` es la referencia y `KvDeploymentStore`
+persiste sobre cualquier `DurableKv` (SQLite, PostgreSQL, Redis, archivo). Los
+gate runs se guardan en un log de auditoría.
 :::
 
 `DeploymentRegistry` guarda versiones inmutables por tenant y bot con una única
@@ -242,10 +244,11 @@ bot nuevo.
 
 ```ts
 import { readFileSync } from 'node:fs'
+import { MemoryKv } from '@bot-wa/core'
 import { parseTranscript, REPLAY_MASKS } from '@bot-wa/core/testing'
-import { DeploymentGateError, DeploymentRegistry, goldenTranscriptGate } from '@bot-wa/deployments'
+import { DeploymentGateError, DeploymentRegistry, KvDeploymentStore, goldenTranscriptGate } from '@bot-wa/deployments'
 
-const registry = new DeploymentRegistry()
+const registry = new DeploymentRegistry(new KvDeploymentStore(new MemoryKv()))
 const gate = goldenTranscriptGate({
   transcripts: [parseTranscript(readFileSync('golden/checkout.json', 'utf8'))],
   createBot: (candidate) => loadBotFactory(candidate.artifact),   // returns (provider) => Bot, not started

@@ -16,6 +16,47 @@ import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import type { DurableKv } from '@bot-wa/core'
 
+/* Structural shapes of the modules the packages pass in. They are deliberately loose:
+ * this file lives in `test-utils/`, outside every package's `node_modules`, so it must
+ * not resolve the backend packages itself (they are devDependencies of each product
+ * package, not of the root). */
+interface SqliteStoreLike {
+  durability(): { kv: DurableKv }
+  stop(): Promise<void>
+}
+interface SqliteModuleLike {
+  SQLiteStore: new (options: { file: string }) => SqliteStoreLike
+}
+interface PostgresModuleLike {
+  PostgresDurableKv: new (options: Record<string, unknown>) => DurableKv & { start(): Promise<void>; stop(): Promise<void> }
+}
+interface RedisModuleLike {
+  RedisDurableKv: new (options: Record<string, unknown>) => DurableKv
+}
+interface PgPoolLike {
+  on(event: 'error', listener: () => void): void
+  query(sql: string): Promise<unknown>
+  end(): Promise<void>
+}
+interface PgModuleLike {
+  Pool: new (options: Record<string, unknown>) => PgPoolLike
+}
+interface RedisClientLike {
+  on(event: 'error', listener: () => void): void
+  connect(): Promise<void>
+  keys(pattern: string): Promise<string[]>
+  del(keys: string | string[]): Promise<unknown>
+  quit(): Promise<void>
+}
+interface RedisClusterLike extends RedisClientLike {
+  masters: unknown[]
+  nodeClient(master: unknown): Promise<RedisClientLike>
+}
+interface RedisClientModuleLike {
+  createClient(options: Record<string, unknown>): RedisClientLike
+  createCluster(options: Record<string, unknown>): RedisClusterLike
+}
+
 export interface KvSession {
   /** A fresh, isolated, started kv and its teardown. */
   fresh(): Promise<{ kv: DurableKv; teardown: () => Promise<void> }>
@@ -32,11 +73,11 @@ export interface RealKvBackend {
 
 /** The modules each backend needs, imported by the test file of the package. */
 export interface RealKvDeps {
-  sqlite: typeof import('@bot-wa/sqlite-store')
-  postgres: typeof import('@bot-wa/postgres-store')
-  redis: typeof import('@bot-wa/redis-store')
-  pg: typeof import('pg')
-  redisClient: typeof import('redis')
+  sqlite: unknown
+  postgres: unknown
+  redis: unknown
+  pg: unknown
+  redisClient: unknown
 }
 
 const POSTGRES_URL = process.env.BOTWA_TEST_POSTGRES_URL
@@ -51,7 +92,7 @@ function sqliteBackend(deps: RealKvDeps): RealKvBackend {
     name: 'SQLite (temp file)',
     enabled: true,
     async open() {
-      const { SQLiteStore } = deps.sqlite
+      const { SQLiteStore } = deps.sqlite as SqliteModuleLike
       const dir = mkdtempSync(join(tmpdir(), 'botwa-product-sqlite-'))
       let n = 0
       return {
@@ -72,9 +113,9 @@ function postgresBackend(deps: RealKvDeps): RealKvBackend {
     name: 'PostgreSQL (real)',
     enabled: Boolean(POSTGRES_URL),
     async open() {
-      const { PostgresDurableKv } = deps.postgres
+      const { PostgresDurableKv } = deps.postgres as PostgresModuleLike
       // One pool for the whole file: a pool per kv would exhaust max_connections.
-      const pool = new deps.pg.Pool({ connectionString: POSTGRES_URL, max: 10, application_name: 'botwa-product-it' })
+      const pool = new (deps.pg as PgModuleLike).Pool({ connectionString: POSTGRES_URL, max: 10, application_name: 'botwa-product-it' })
       pool.on('error', () => {})
       const run = runId()
       const prefixes: string[] = []
@@ -101,8 +142,8 @@ function redisBackend(deps: RealKvDeps): RealKvBackend {
     name: 'Redis (real)',
     enabled: Boolean(REDIS_URL),
     async open() {
-      const { RedisDurableKv } = deps.redis
-      const client = deps.redisClient.createClient({ url: REDIS_URL })
+      const { RedisDurableKv } = deps.redis as RedisModuleLike
+      const client = (deps.redisClient as RedisClientModuleLike).createClient({ url: REDIS_URL })
       client.on('error', () => {})
       await client.connect()
       const run = `botwa-pit:${process.pid}-${randomUUID().slice(0, 8)}`
@@ -127,10 +168,10 @@ function redisClusterBackend(deps: RealKvDeps): RealKvBackend {
     name: 'Redis Cluster (real)',
     enabled: Boolean(CLUSTER_URL),
     async open() {
-      const { RedisDurableKv } = deps.redis
+      const { RedisDurableKv } = deps.redis as RedisModuleLike
       const seed = new URL(CLUSTER_URL!)
       // Every address the cluster announces is mapped to the seed's host (Docker port mapping).
-      const cluster = deps.redisClient.createCluster({
+      const cluster = (deps.redisClient as RedisClientModuleLike).createCluster({
         rootNodes: [{ url: CLUSTER_URL! }],
         nodeAddressMap: (address: string) => ({ host: seed.hostname, port: Number(address.slice(address.lastIndexOf(':') + 1)) }),
       })
