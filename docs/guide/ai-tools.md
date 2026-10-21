@@ -185,13 +185,14 @@ typed-answer hint (`ai.tools.confirmButtons`: `Voy a: {tool}{args}\n¿Confirmas?
   reply with changes that goes back to the model.
 - Once answered (or timed out / cancelled), the buttons are removed by editing
   the message into text with the choice (`→ Sí`) where the provider can edit
-  (Telegram, Discord).
+  and renders native buttons (Telegram, Discord).
 - A press on a confirmation that is no longer pending (answered, superseded by
   a newer one, timed out, `/reset`) is acknowledged and ignored, before any
   routing: each confirmation has its own button ids, so an old press never
   answers a newer confirmation nor a later question of a conversation.
-- **Channels that cannot edit messages** (WhatsApp Cloud API, Messenger,
-  Instagram) leave the buttons on screen. There, a press on a confirmation that
+- **Channels that render native buttons but cannot edit messages** (WhatsApp
+  Cloud API, Messenger, Instagram, Gupshup, TikTok) leave the buttons on screen.
+  There, a press on a confirmation that
   is no longer pending gets a short localized reply (`ai.tools.confirmExpired`:
   "Esa confirmación ya no está activa." / "That confirmation is no longer
   active."); `toolConfirm.expiredNotice: false` drops it silently. A chat handed off to a
@@ -199,9 +200,12 @@ typed-answer hint (`ai.tools.confirmButtons`: `Voy a: {tool}{args}\n¿Confirmas?
   `toolConfirm.answeredNotice: true` also replies `ai.tools.confirmAnswered`
   ("Respuesta recibida: Sí." / "Answer received: Yes.") when a press answers;
   it is off by default because those channels already show the user's pick as
-  their own message. Neither notice is sent where the buttons are edited away.
-- Channels without native buttons (WhatsApp via Baileys, Twilio, SMS, email…)
-  keep the typed question with the `(sí/no)` hint.
+  their own message. Neither notice is sent where the buttons are edited away
+  or where the confirmation is a numbered text menu (Baileys, Evolution,
+  WPPConnect, Twilio, email, GoHighLevel): there a later answer is just text.
+- Channels without native buttons (WhatsApp via Baileys, Evolution, WPPConnect,
+  Twilio, SMS, email, GoHighLevel…) keep the typed question with the `(sí/no)`
+  hint; a later answer there is plain text, with no expired-confirmation notice.
 - `toolConfirm.buttons: false` always asks for a typed answer. A tool's
   `confirmMessage` is used as is in both modes. A `bot.locale()` override of
   `ai.tools.confirm` is reused for buttons when you don't translate

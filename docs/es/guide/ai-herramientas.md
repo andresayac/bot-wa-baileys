@@ -193,26 +193,29 @@ coletilla de respuesta escrita (`ai.tools.confirmButtons`:
   segundos de Discord). Las respuestas escritas siguen funcionando junto a los
   botones, también una respuesta con cambios, que vuelve al modelo.
 - Ya respondida (o caducada / cancelada), los botones se quitan editando el
-  mensaje a texto con la elección (`→ Sí`) donde el provider puede editar
-  (Telegram, Discord).
+  mensaje a texto con la elección (`→ Sí`) donde el provider puede editar y
+  pinta botones nativos (Telegram, Discord).
 - Una pulsación sobre una confirmación que ya no está pendiente (respondida,
   sustituida por otra más nueva, caducada, `/reset`) se reconoce y se ignora
   antes de enrutar nada: cada confirmación tiene sus propios ids de botón, así
   que una pulsación vieja nunca responde una confirmación más nueva ni una
   pregunta posterior de una conversación.
-- **Canales que no editan mensajes** (WhatsApp Cloud API, Messenger,
-  Instagram): los botones se quedan en pantalla. Ahí, una pulsación sobre una
-  confirmación que ya no está pendiente recibe una respuesta corta localizada
-  (`ai.tools.confirmExpired`: "Esa confirmación ya no está activa." / "That
-  confirmation is no longer active."); `toolConfirm.expiredNotice: false` la
-  descarta en silencio. Un chat en handoff con un humano nunca recibe este aviso
-  (la pulsación solo se reconoce). Opcionalmente, `toolConfirm.answeredNotice: true`
+- **Canales que pintan botones nativos pero no editan mensajes** (WhatsApp Cloud
+  API, Messenger, Instagram, Gupshup, TikTok): los botones se quedan en
+  pantalla. Ahí, una pulsación sobre una confirmación que ya no está pendiente
+  recibe una respuesta corta localizada (`ai.tools.confirmExpired`: "Esa
+  confirmación ya no está activa." / "That confirmation is no longer active.");
+  `toolConfirm.expiredNotice: false` la descarta en silencio. Un chat en handoff
+  con un humano nunca recibe este aviso (la pulsación solo se reconoce).
+  Opcionalmente, `toolConfirm.answeredNotice: true`
   responde también `ai.tools.confirmAnswered` ("Respuesta recibida: Sí." /
   "Answer received: Yes.") cuando una pulsación responde; va apagado por
   defecto porque esos canales ya muestran la elección como mensaje del
   usuario. Ninguno de los dos avisos sale donde los botones se quitan editando.
-- Los canales sin botones nativos (WhatsApp vía Baileys, Twilio, SMS, email…)
-  mantienen la pregunta escrita con la coletilla `(sí/no)`.
+- Los canales sin botones nativos (WhatsApp vía Baileys, Evolution, WPPConnect,
+  Twilio, SMS, email, GoHighLevel…) mantienen la pregunta escrita con la
+  coletilla `(sí/no)`; ahí una respuesta posterior es texto normal y no hay
+  aviso de confirmación caducada.
 - `toolConfirm.buttons: false` pide siempre la respuesta escrita. El
   `confirmMessage` de una herramienta se usa tal cual en los dos modos. Un
   `bot.locale()` que cambia `ai.tools.confirm` se reutiliza para los botones si
