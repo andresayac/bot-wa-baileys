@@ -136,16 +136,28 @@ Las versiones se gestionan con [Changesets](https://changesets.dev) (CLI v3) y s
 
 ### Traspaso desde `@bot-wa/*`
 
-El proyecto se llamaba `@bot-wa/*` hasta octubre de 2026. Aquellos paquetes siguen en npm y hay que **deprecarlos** (no despublicarlos: despublicar rompe a quien ya los instaló) para que quien llegue por el nombre viejo encuentre el nuevo:
+El proyecto se llamaba `@bot-wa/*` hasta octubre de 2026. Aquellos paquetes siguen en npm y hay que **deprecarlos** (no despublicarlos: despublicar rompe a quien ya los instaló) para que quien llegue por el nombre viejo encuentre el nuevo.
 
-```bash
-for p in core baileys meta telegram sqlite-store redis-store ai http graph-core; do
-  npm deprecate "@bot-wa/$p@*" "Renamed to @botmesh/$p. Run: npm i @botmesh/$p@alpha"
-done
-npm deprecate "create-bot-wa@*" "Renamed to create-botmesh. Run: npm create botmesh@alpha"
+`npm deprecate` es una escritura autenticada, así que la cuenta con 2FA `auth-and-writes` exige un OTP **por paquete**. Dos avisos de este entorno:
+
+- **`npm` es un alias de pnpm** en la terminal de VS Code. `pnpm deprecate` no sabe pedir el OTP (falla con `ERR_PNPM_UNAUTHORIZED`) y no acepta `@*`; usa siempre el npm real: `& "C:\nvm4w\nodejs\npm.cmd"` en PowerShell, o desactiva el alias.
+- No hay forma de meter una lista en un solo `deprecate`: hay que ir versión por versión (el rango `@*` no vale).
+
+**Opción sin OTP (recomendada).** Crea en <https://www.npmjs.com/settings/andresaya/tokens> un **Granular Access Token** con permiso *Read and write*, marcado para **bypass 2FA**, y úsalo solo para esta operación:
+
+```powershell
+$env:NPM_TOKEN = 'npm_...'   # solo en esta sesión, nunca en un archivo del repo
+foreach ($p in 'core','baileys','meta','telegram','sqlite-store','redis-store','ai','http','graph-core') {
+  $v = if ($p -eq 'core') { '2.0.0-alpha.2' } else { '0.2.0-alpha.0' }
+  & "C:\nvm4w\nodejs\npm.cmd" deprecate "@bot-wa/$p@$v" "Renamed to @botmesh/$p. Install with: npm i @botmesh/$p@alpha"
+}
+& "C:\nvm4w\nodejs\npm.cmd" deprecate "create-bot-wa@0.2.0-alpha.0" "Renamed to create-botmesh. Run: npm create botmesh@alpha"
+Remove-Item Env:\NPM_TOKEN
 ```
 
-`npm deprecate` deja un aviso en la instalación pero mantiene el paquete descargable, y es reversible con `npm deprecate <pkg>@<version> ""`. Los `CHANGELOG.md` de cada paquete y `docs/superpowers/` conservan los nombres antiguos a propósito: narran lo que se publicó con ellos.
+**Opción manual.** Sin token, ejecuta cada comando en una terminal interactiva (sin tuberías, o npm no puede preguntar) y teclea el OTP cuando lo pida; son 10 códigos.
+
+`npm deprecate` deja un aviso en la instalación pero mantiene el paquete descargable, y es reversible con `npm deprecate "<pkg>@<version>" ""`. Los `CHANGELOG.md` de cada paquete y `docs/superpowers/` conservan los nombres antiguos a propósito: narran lo que se publicó con ellos.
 
 
 ### Flujo
