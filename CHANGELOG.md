@@ -4,6 +4,13 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/). Versionado po
 
 ## [Unreleased]
 
+### Runtime: ecos, CAS de checkpoints y journals append-only (2026-10)
+Todo opt-in: sin configurar, ningún bot cambia de comportamiento.
+- **`BotConfig.echoFilter`** (`true | { size?, ttl? }`): anillo acotado con los refs de los envíos correctos que descarta un mensaje entrante devuelto por el transporte sin `fromMe` (antes de las listas de acceso, el dedupe y el journal). Cuenta en `metrics().dropped.echo` y en `botwa_dropped_total{reason="echo"}`. Complementa el `fromMe` del provider; no lo sustituye.
+- **Checkpoints con compare-and-set** (`IStore.setCheckpointIf` / `clearCheckpointIf`, opcionales): los seis stores los implementan con una única sentencia atómica (`UPDATE … WHERE version/revision` en SQL, script Lua en Redis, filtro de versión en Mongo). `ConversationRuntime` los usa con `coordination` (`casCheckpoints`): una réplica congelada tras perder el turno ya no puede pisar el checkpoint de la nueva dueña; una escritura rechazada termina la conversación como turno perdido (`LeaseLostError`, `'superseded'`). `FlowCheckpoint.revision` encadena las escrituras por clave. Un store propio sin los métodos conserva el fence local y el bot avisa al arrancar. La suite de conformidad prueba el ganador único y que una revisión vieja no pisa la nueva.
+- **Journals append-only** (`appendLog`): `FileDurability` y `SharedFileEventJournal` añaden un delta por escritura a `<archivo>.log` (snapshot con `logSeq`), compactan cada 1000 entradas o 4 MiB y reproducen un log sobrante al abrir, recortando una última línea a medias; `FileDurability.close()` lo pliega en el snapshot. El mutex del journal compartido late (`heartbeatMs`) para no romper a un titular lento.
+- **`capabilities.exclusiveSession` auditado**: solo Baileys, Discord, Telegram polling y email con IMAP; los webhooks (Cloud API, Messenger, Instagram, Twilio, Gupshup, GoHighLevel, Evolution, WPPConnect, TikTok) y el email por `ingest()` no son exclusivos. El provider de email lo decide según tenga IMAP configurado.
+
 ### Repositorio
 - **Reorganizado a monorepo pnpm transporte-agnóstico.** El core dejó de ser específico de WhatsApp: `@bot-wa/bot-wa-baileys` pasó a **`@bot-wa/core`** (motor con `IProvider v2`, cero concepto de transporte). WhatsApp/Baileys vive ahora en `@bot-wa/baileys`.
 - **24 paquetes**: core; transportes (`baileys`, `meta`, `telegram`, `messenger`, `instagram`, `discord`); stores (`sqlite-store`, `redis-store`, `mongo-store`, `postgres-store`, `mysql-store`); infra compartida (`http`, `graph-core`); plugins (`ai`, `nlu`, `manager`, `events`); producto/operación (`inbox`, `crm`, `hub`, `campaigns`, `deployments`); tooling (`create-bot-wa`).

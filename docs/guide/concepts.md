@@ -243,6 +243,26 @@ new Bot({ provider, dedupe: false })                      // turn it off
   still blocked).
 - If persistence fails before the handlers run (store down), the key is
   released so the transport's retry is processed.
+
+## Echo filter
+
+Every provider marks its own messages with `fromMe`, and the core drops them
+before anything else. A few transports only learn their own id after a
+handshake, or a mailbox/gateway can hand back a message the bot just sent
+without that mark. `echoFilter` complements `fromMe` (it does not replace
+it): the bot remembers the refs of its successful sends and drops an inbound
+message whose ref is remembered, before the access lists, dedupe and the
+journal, so an echo never counts as incoming traffic.
+
+```ts
+new Bot({ provider, echoFilter: true })                       // 1000 refs, no TTL
+new Bot({ provider, echoFilter: { size: 5000, ttl: '10m' } }) // tune it
+```
+
+Drops count in `metrics().dropped.echo` (Prometheus: `botwa_dropped_total{reason="echo"}`)
+and only when the option is on; without it the bot behaves exactly as before.
+The ring is in memory (per process) and each remembered ref is consumed by
+the first matching echo; a later redelivery is the deduper's business.
 - A message still queued behind its chat's earlier messages when
   `bot.stop()` runs is dropped unprocessed and its key is released, so the
   same id redelivered after `bot.start()` is processed.

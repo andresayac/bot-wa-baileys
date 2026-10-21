@@ -48,6 +48,11 @@ PostgreSQL creates one table, `{tablePrefix}durable`, idempotently on start.
 Redis uses keys under `{prefix}:{durable:inbox:<scope>}` and `{prefix}:{durable:outbox:<scope>}`.
 Neither touches the store's own tables or keys.
 
+`FileDurability.open(path, { appendLog: true })` (or `{ compactEvery, compactBytes, fsync }`)
+appends each committed write to `<path>.log` instead of rewriting the snapshot, and compacts
+every 1000 entries or 4 MiB; `close()` folds the log into the snapshot. A leftover log is
+always replayed on open, even without the option.
+
 **Several bots can share one backend.** Each bot works in its own view of the
 backend, scoped by its namespace (`tenantId`, `environmentId`, `botId`,
 `connectionId`; `bot.durability.scope` is the derived id). A bot claims, replays and
@@ -106,10 +111,16 @@ const bot = new Bot({ provider, durability: { journal: eventsDurability({ journa
   ```
 
   It is meant for a few processes on one host (or a filesystem with atomic rename and
-  exclusive create; not NFS): every write rereads and rewrites the whole file. A mutex
-  left by a dead process is broken at once, and one held longer than `staleLockMs`
-  (default 30 s) is treated as abandoned; nothing is ever killed (keep it well above the
-  slowest rewrite: if three processes race to break an already stale mutex, two of them can
+  exclusive create; not NFS). By default every write rereads and rewrites the whole file;
+  with `appendLog: true` (or `{ compactEvery, compactBytes, fsync }`) each write instead
+  appends one line with the records/side state that changed to `<file>.log`, and the
+  snapshot is rewritten (carrying `logSeq`) and the log truncated every 1000 entries or
+  4 MiB. A crash between the snapshot and the truncation is harmless (replay skips entries
+  already in the snapshot) and a torn last line is cut off. A mutex left by a dead process
+  is broken at once; a live holder refreshes its mtime (heartbeat, `heartbeatMs` default a
+  third of `staleLockMs`), so only a stalled holder is treated as abandoned after
+  `staleLockMs` (default 30 s). Nothing is ever killed (keep `staleLockMs` well above the
+  slowest write: if three processes race to break an already stalled mutex, two of them can
   briefly hold it and one write may be lost; use a database journal where that matters).
   `close()` lets the operations already called finish and rejects later ones. The file format is the
   `FileEventJournal` one, but never open a file with both at the same time (the shared
