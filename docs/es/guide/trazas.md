@@ -157,6 +157,7 @@ La respuesta del usuario llega como otro mensaje: su propio `bot.inbound` → `b
 | `execute_tool {name}` | internal | Una llamada a herramienta del bucle de herramientas de la IA. |
 | `bot.ai.retrieve` | internal | Recuperación RAG (`bot.ai.rag.chunks`). |
 | `bot.task` | internal | Una ejecución de una tarea programada (`bot.schedule`/`every`/`delay`, simple o durable). Siempre es un span **raíz**; los envíos de la tarea cuelgan de él. Ver [Tareas programadas](#tareas-programadas). |
+| `bot.lifecycle` | internal | Un `start`/`stop`/`rollback` de un [paso del ciclo de vida](arquitectura.md#ciclo-de-vida): `storage`, `coordination`, `restore`, `durability`, `transport`, `jobs`. Spans raíz tomados durante `bot.start()`/`bot.stop()`; el de `transport` mide el handshake con el provider (conexión + QR de Baileys, polling de Telegram, login IMAP), que es donde se nota un arranque lento. |
 
 ### Atributos
 
@@ -176,6 +177,7 @@ La respuesta del usuario llega como otro mensaje: su propio `bot.inbound` → `b
 | `bot.task.id`, `.kind`, `.durable`, `.cron`, `.interval_ms`, `.time_zone` | tarea | Id de la tarea (según la [política de ids](#datos-personales)), `cron`/`interval`/`once`, si es durable, su especificación. |
 | `bot.task.scheduled_at`, `.missed`, `.fencing_token`, `bot.scheduler.role`, `bot.scheduler.owner` | tarea (durable) | El slot (ISO 8601), si corre con retraso, el fencing token del claim, `leader`/`follower`/`single`, el owner del scheduler de la réplica. |
 | `bot.link.reason` | enlace de span | `resume`: el enlace de una conversación retomada desde un checkpoint al turno que lo escribió. |
+| `bot.lifecycle.step`, `bot.lifecycle.phase` | lifecycle | El nombre del paso y lo que hacía: `start`, `stop` (tras el drenado) o `rollback` (un `start()` fallido deshaciendo lo que arrancó). |
 | `error.type` | cualquier span fallido | El nombre de la clase de error (`RateLimitedError`, `timeout`…). |
 
 Todos los nombres se exportan como `TRACE_ATTR` / `SPAN_NAMES` desde `@bot-wa/core`.
@@ -251,7 +253,7 @@ Con `@bot-wa/otel`, los spans del bot también son el contexto activo de OpenTel
 
 Cada punto lleva `bot.id` más tus `attributes`. `bot.resetMetrics()` hace caer los contadores acumulados, y OpenTelemetry y Prometheus lo tratan como un reinicio de contador.
 
-El tracer además deriva histogramas de los spans terminados (`spanMetrics`, activo por defecto), que se registran aunque la traza no se muestree: `botwa.inbound.duration{bot.event.kind, bot.inbound.outcome, bot.provider.id}`, `botwa.dispatch.duration{bot.dispatch.stage}`, `botwa.queue.wait`, `botwa.send.duration{bot.provider.id, bot.send.outcome}`, `gen_ai.client.operation.duration` y `gen_ai.client.token.usage{gen_ai.token.type}`. Ninguna métrica lleva ids de chat, usuario o mensaje.
+El tracer además deriva histogramas de los spans terminados (`spanMetrics`, activo por defecto), que se registran aunque la traza no se muestree: `botwa.inbound.duration{bot.event.kind, bot.inbound.outcome, bot.provider.id}`, `botwa.dispatch.duration{bot.dispatch.stage}`, `botwa.queue.wait`, `botwa.send.duration{bot.provider.id, bot.send.outcome}`, `botwa.lifecycle.duration{bot.lifecycle.step, bot.lifecycle.phase}`, `gen_ai.client.operation.duration` y `gen_ai.client.token.usage{gen_ai.token.type}`. Ninguna métrica lleva ids de chat, usuario o mensaje.
 
 ## Datos personales
 

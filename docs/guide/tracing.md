@@ -157,6 +157,7 @@ The user's answer arrives as another message: its own `bot.inbound` → `bot.dis
 | `execute_tool {name}` | internal | A tool call of the AI tool loop. |
 | `bot.ai.retrieve` | internal | RAG retrieval (`bot.ai.rag.chunks`). |
 | `bot.task` | internal | One run of a scheduled task (`bot.schedule`/`every`/`delay`, plain or durable). Always a **root** span; the task's sends nest under it. See [Scheduled tasks](#scheduled-tasks). |
+| `bot.lifecycle` | internal | One `start`/`stop`/`rollback` of a [lifecycle step](architecture.md#lifecycle): `storage`, `coordination`, `restore`, `durability`, `transport`, `jobs`. Root spans taken during `bot.start()`/`bot.stop()`; the `transport` one measures the provider handshake (Baileys connect + QR, Telegram polling, IMAP login), which is where a slow boot shows up. |
 
 ### Attributes
 
@@ -176,6 +177,7 @@ The user's answer arrives as another message: its own `bot.inbound` → `bot.dis
 | `bot.task.id`, `.kind`, `.durable`, `.cron`, `.interval_ms`, `.time_zone` | task | Task id (through the [ids policy](#personal-data)), `cron`/`interval`/`once`, durable or not, its spec. |
 | `bot.task.scheduled_at`, `.missed`, `.fencing_token`, `bot.scheduler.role`, `bot.scheduler.owner` | task (durable) | The slot (ISO 8601), whether it runs late, the claim's fencing token, `leader`/`follower`/`single`, the replica's scheduler owner. |
 | `bot.link.reason` | span link | `resume`: the link of a conversation resumed from a checkpoint to the turn that wrote it. |
+| `bot.lifecycle.step`, `bot.lifecycle.phase` | lifecycle | The step's name and what it was doing: `start`, `stop` (after the drain) or `rollback` (a failed `start()` undoing what it started). |
 | `error.type` | any failed span | The error class name (`RateLimitedError`, `timeout`…). |
 
 Every name is exported as `TRACE_ATTR` / `SPAN_NAMES` from `@bot-wa/core`.
@@ -251,7 +253,7 @@ With `@bot-wa/otel`, bot spans are also the active OpenTelemetry context, so `tr
 
 Every point carries `bot.id` plus your `attributes`. `bot.resetMetrics()` makes the cumulative counters drop, which OpenTelemetry and Prometheus treat as a counter reset.
 
-The tracer also derives histograms from finished spans (`spanMetrics`, on by default), recorded even for unsampled traces: `botwa.inbound.duration{bot.event.kind, bot.inbound.outcome, bot.provider.id}`, `botwa.dispatch.duration{bot.dispatch.stage}`, `botwa.queue.wait`, `botwa.send.duration{bot.provider.id, bot.send.outcome}`, `gen_ai.client.operation.duration` and `gen_ai.client.token.usage{gen_ai.token.type}`. No metric ever carries a chat, user or message id.
+The tracer also derives histograms from finished spans (`spanMetrics`, on by default), recorded even for unsampled traces: `botwa.inbound.duration{bot.event.kind, bot.inbound.outcome, bot.provider.id}`, `botwa.dispatch.duration{bot.dispatch.stage}`, `botwa.queue.wait`, `botwa.send.duration{bot.provider.id, bot.send.outcome}`, `botwa.lifecycle.duration{bot.lifecycle.step, bot.lifecycle.phase}`, `gen_ai.client.operation.duration` and `gen_ai.client.token.usage{gen_ai.token.type}`. No metric ever carries a chat, user or message id.
 
 ## Personal data
 

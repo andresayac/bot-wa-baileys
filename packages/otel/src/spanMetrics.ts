@@ -15,6 +15,7 @@ export const METRIC_SOURCE_KEYS: ReadonlySet<string> = new Set<string>([
   TRACE_ATTR.queueWaitMs, TRACE_ATTR.sendOutcome, TRACE_ATTR.sendEdit, TRACE_ATTR.errorType,
   TRACE_ATTR.genAiOperation, TRACE_ATTR.genAiProvider, TRACE_ATTR.genAiRequestModel,
   TRACE_ATTR.genAiInputTokens, TRACE_ATTR.genAiOutputTokens,
+  TRACE_ATTR.lifecycleStep, TRACE_ATTR.lifecyclePhase,
 ])
 
 type Picked = Map<string, TraceAttributeValue>
@@ -33,6 +34,7 @@ export class SpanMetrics {
   private readonly dispatch: Histogram
   private readonly queueWait: Histogram
   private readonly send: Histogram
+  private readonly lifecycle: Histogram
   private readonly genAiDuration: Histogram
   private readonly genAiTokens: Histogram
 
@@ -49,6 +51,9 @@ export class SpanMetrics {
     })
     this.send = meter.createHistogram(`${prefix}.send.duration`, {
       unit: 's', description: 'Time of one outbound send or edit (hooks, provider call, ledger).',
+    })
+    this.lifecycle = meter.createHistogram(`${prefix}.lifecycle.duration`, {
+      unit: 's', description: 'Time of one lifecycle step (store, coordination, restore, durability, transport, jobs).',
     })
     this.genAiDuration = meter.createHistogram('gen_ai.client.operation.duration', {
       unit: 's', description: 'GenAI operation duration.',
@@ -69,6 +74,8 @@ export class SpanMetrics {
       if (typeof wait === 'number') this.queueWait.record(Math.max(0, wait) / 1000)
     } else if (name === SPAN_NAMES.send) {
       this.send.record(seconds, pick(attrs, [TRACE_ATTR.providerId, TRACE_ATTR.sendOutcome, TRACE_ATTR.sendEdit, TRACE_ATTR.errorType]))
+    } else if (name === SPAN_NAMES.lifecycle) {
+      this.lifecycle.record(seconds, pick(attrs, [TRACE_ATTR.lifecycleStep, TRACE_ATTR.lifecyclePhase, TRACE_ATTR.providerId, TRACE_ATTR.errorType]))
     } else if (attrs.get(TRACE_ATTR.genAiOperation) === 'chat') {
       const base = pick(attrs, [TRACE_ATTR.genAiOperation, TRACE_ATTR.genAiProvider, TRACE_ATTR.genAiRequestModel])
       this.genAiDuration.record(seconds, { ...base, ...pick(attrs, [TRACE_ATTR.errorType]) })

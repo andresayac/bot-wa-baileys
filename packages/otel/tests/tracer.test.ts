@@ -33,8 +33,9 @@ describe('otelTracer', () => {
     const chain: string[] = []
     for (let s: typeof send | undefined = send; s; s = env.parentOf(s)) chain.unshift(s.name)
     expect(chain).toEqual(['bot.inbound', 'bot.dispatch', 'bot.handler', 'bot.pace', 'bot.send'])
-    // Same trace for the whole message.
-    expect(new Set(env.spans().map((s) => s.spanContext().traceId)).size).toBe(1)
+    // Same trace for the whole message (the lifecycle spans of `bot.start()` are their own traces).
+    const message = [inbound, env.byName('bot.dispatch')!, env.byName('bot.handler')!, send]
+    expect(new Set(message.map((s) => s.spanContext().traceId)).size).toBe(1)
     await bot.stop()
   })
 

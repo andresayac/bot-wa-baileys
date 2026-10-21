@@ -107,9 +107,13 @@ describe('span metrics', () => {
     })
     const metrics = await m.collect()
     const names = metrics.map((x) => x.descriptor.name)
-    for (const n of ['botwa.inbound.duration', 'botwa.dispatch.duration', 'botwa.queue.wait', 'botwa.send.duration', 'gen_ai.client.operation.duration', 'gen_ai.client.token.usage']) {
+    for (const n of ['botwa.inbound.duration', 'botwa.dispatch.duration', 'botwa.queue.wait', 'botwa.send.duration', 'botwa.lifecycle.duration', 'gen_ai.client.operation.duration', 'gen_ai.client.token.usage']) {
       expect(names, n).toContain(n)
     }
+    // Startup steps are measured: the transport (connect/handshake) included.
+    const lifecycle = metrics.find((x) => x.descriptor.name === 'botwa.lifecycle.duration')!
+    expect(lifecycle.dataPoints.map((p) => [p.attributes['bot.lifecycle.step'], p.attributes['bot.lifecycle.phase']]))
+      .toContainEqual(['transport', 'start'])
     const inbound = metrics.find((x) => x.descriptor.name === 'botwa.inbound.duration')!
     const outcomes = inbound.dataPoints.map((p) => p.attributes['bot.inbound.outcome']).sort()
     expect(outcomes).toEqual(['blocked', 'dispatched'])

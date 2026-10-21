@@ -40,6 +40,9 @@ export const TRACE_ATTR = {
   sendEdit: 'bot.send.edit',
   sendStream: 'bot.send.stream',
   errorType: 'error.type',
+  /** Lifecycle step (`storage`, `transport`, `durability`…) and what it was doing. */
+  lifecycleStep: 'bot.lifecycle.step',
+  lifecyclePhase: 'bot.lifecycle.phase',
   /** Attribute of a span LINK: why it was linked (`'resume'`: a checkpoint carried from another process). */
   linkReason: 'bot.link.reason',
   // ---- scheduled tasks (bot.task) ----
@@ -87,4 +90,5 @@ export const SPAN_NAMES = {
   streamUpdate: 'bot.stream.update',
   aiRetrieve: 'bot.ai.retrieve',
   task: 'bot.task',
+  lifecycle: 'bot.lifecycle',
 } as const

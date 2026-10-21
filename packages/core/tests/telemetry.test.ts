@@ -307,6 +307,61 @@ describe('telemetry: sends', () => {
   })
 })
 
+describe('telemetry: lifecycle', () => {
+  const phase = (s: RecordedSpan) => s.attributes[TRACE_ATTR.lifecyclePhase]
+
+  it('every lifecycle step (transport included) gets a bot.lifecycle span', async () => {
+    const rec = createRecordingTracer()
+    const provider = new MockProvider()
+    const bot = new Bot({ provider, telemetry: { tracer: rec.tracer, ids: 'raw' } })
+    bot.on('error', () => {})
+    await bot.start()
+    const starts = rec.findAll('bot.lifecycle').filter((s) => phase(s) === 'start')
+    expect(starts.map((s) => s.attributes[TRACE_ATTR.lifecycleStep])).toEqual(['storage', 'restore', 'transport', 'jobs'])
+    for (const span of starts) {
+      expect(span.attributes).toMatchObject({ [TRACE_ATTR.botId]: expect.any(String), [TRACE_ATTR.providerId]: provider.id })
+      expect(span.status.code).toBe('unset')
+      expect(span.ended).toBe(true)
+      // Startup is its own trace: no message or task is in flight.
+      expect(rec.parentOf(span)).toBeUndefined()
+    }
+    rec.reset()
+    await bot.stop()
+    const stops = rec.findAll('bot.lifecycle').filter((s) => phase(s) === 'stop')
+    // Reverse order; `restore` has no stop() (the lifecycle closes the runtime itself).
+    expect(stops.map((s) => s.attributes[TRACE_ATTR.lifecycleStep])).toEqual(['jobs', 'transport', 'storage'])
+  })
+
+  it('a failing transport start records the error and its rollback', async () => {
+    const rec = createRecordingTracer()
+    const provider = new MockProvider()
+    vi.spyOn(provider, 'start').mockRejectedValueOnce(new Error('handshake timeout'))
+    const bot = new Bot({ provider, telemetry: { tracer: rec.tracer, ids: 'raw', errorMessages: true } })
+    bot.on('error', () => {})
+    await expect(bot.start()).rejects.toThrow('handshake timeout')
+    const transport = rec.find('bot.lifecycle', (s) => s.attributes[TRACE_ATTR.lifecycleStep] === 'transport')!
+    expect(transport.attributes[TRACE_ATTR.lifecyclePhase]).toBe('start')
+    expect(transport.status).toEqual({ code: 'error', message: 'handshake timeout' })
+    expect(transport.exceptions).toEqual([{ name: 'Error', message: 'handshake timeout' }])
+    const rollbacks = rec.findAll('bot.lifecycle').filter((s) => phase(s) === 'rollback')
+    // Reverse order of what was attempted, plus the never-reached `jobs` (alwaysRollback).
+    expect(rollbacks.map((s) => s.attributes[TRACE_ATTR.lifecycleStep])).toEqual(['jobs', 'transport', 'storage'])
+    expect(rollbacks.every((s) => s.status.code === 'unset')).toBe(true)
+  })
+
+  it('without telemetry no lifecycle span is created', async () => {
+    const rec = createRecordingTracer()
+    const provider = new MockProvider()
+    const bot = new Bot({ provider })
+    bot.on('error', () => {})
+    const started = vi.spyOn(provider, 'start')
+    await bot.start()
+    await bot.stop()
+    expect(started).toHaveBeenCalledOnce()
+    expect(rec.spans).toEqual([])
+  })
+})
+
 describe('telemetry: fault isolation and equivalence', () => {
   it('a tracer that throws on every call never breaks the bot; the warning is logged once', async () => {
     const throwingSpan: BotSpan = new Proxy({} as BotSpan, { get: () => () => { throw new Error('span boom') } })

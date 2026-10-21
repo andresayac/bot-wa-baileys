@@ -4,6 +4,11 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/). Versionado po
 
 ## [Unreleased]
 
+### Trazas: span de ciclo de vida (`bot.lifecycle`) (2026-10)
+- **`@bot-wa/core`**: cada paso del [ciclo de vida](docs/guide/architecture.md#lifecycle) (`storage`, `coordination`, `restore`, `durability`, `transport`, `jobs`) abre un span **raíz** `bot.lifecycle` con `bot.lifecycle.step` y `bot.lifecycle.phase` (`start`, `stop` tras el drenado, `rollback` de un `start()` fallido), más `bot.id`/`bot.provider.id`. El de `transport` mide el handshake con el provider (conexión + QR de Baileys, polling de Telegram, login IMAP), que hasta ahora era invisible: un arranque lento o un `start()` que revienta se ve en la traza. Sin `telemetry` no se llama a ningún wrapper: el paso corre tal cual.
+- **`@bot-wa/otel`**: histograma `botwa.lifecycle.duration` derivado del span (`bot.lifecycle.step`/`phase`, `bot.provider.id`, `error.type`), para alertar de un connect lento sin muestrear trazas.
+- Guías de trazas EN/ES y `llms.txt` actualizadas.
+
 ### Media durable en los 13 canales (2026-10)
 - Los seis canales que descargaban media pero no implementaban `IProvider.serializeMediaRef`/`rehydrateMediaRef` ya lo hacen, así que un mensaje reanudado desde el journal puede volver a bajar su media: **`@bot-wa/evolution`** (jurna la clave del mensaje, nunca el base64 en línea), **`@bot-wa/wppconnect`** (`messageId`), **`@bot-wa/gupshup`** y **`@bot-wa/gohighlevel`** (URL http(s) alojada, sin credenciales ni esquemas raros), **`@bot-wa/email`** (Message-ID + índice + digest, más UID/UIDVALIDITY de IMAP cuando se conocen) y **`@bot-wa/tiktok`** (coordenadas de la media o la URL del sticker). Todos validan el valor leído como no confiable y lanzan `ProviderError` si no encaja; una URL caducada se reporta como `MediaUnavailableError`, como antes.
 - Guías de durabilidad EN/ES y `llms.txt` actualizadas con la cobertura completa.

@@ -17,6 +17,7 @@
  * → `transport` → `jobs`. A started bot runs every step's `afterStart()` before `'started'`.
  */
 import { parseTimerDuration } from '../../utils/timers.js'
+import { SPAN_NAMES, TRACE_ATTR } from '../../telemetry/attributes.js'
 import type { BotCoordination } from '../../coordination/botCoordination.js'
 import type { DurableEngine } from '../../durability/bind.js'
 import type { BotKernel } from './kernel.js'
@@ -176,7 +177,7 @@ export class Lifecycle {
     try {
       for (const step of this.steps) {
         attempted.push(step)
-        await step.start()
+        await this.runStep('start', step, () => step.start())
       }
       if (state.lifecycleAbort.signal.aborted) state.lifecycleAbort = new AbortController()
       if (state.sendsAbort.signal.aborted) state.sendsAbort = new AbortController()
@@ -193,7 +194,7 @@ export class Lifecycle {
       for (const step of this.steps) if (step.alwaysRollback && !attempted.includes(step)) undo.unshift(step)
       for (const step of undo) {
         if (!step.rollback) continue
-        try { await step.rollback() }
+        try { await this.runStep('rollback', step, () => step.rollback!()) }
         catch (rollbackError) { this.k.logger.error({ err: rollbackError, step: step.name }, 'start rollback failed') }
       }
       state.connState = 'closed'
@@ -214,7 +215,7 @@ export class Lifecycle {
     let stopError: unknown
     const stopStep = async (step: LifecycleStep) => {
       if (!step.stop) return
-      try { await step.stop() }
+      try { await this.runStep('stop', step, () => step.stop!()) }
       catch (error) { stopError ??= error }
     }
     for (const step of reversed) {
@@ -245,5 +246,23 @@ export class Lifecycle {
     this.k.counters.markStopped()
     this.k.events.emit('stopped')
     if (stopError) throw stopError
+  }
+
+  /**
+   * Run one lifecycle step under a `bot.lifecycle` span (connect latency of the transport,
+   * store/durability startup and shutdown, rollbacks). Without tracing the step runs
+   * unwrapped, exactly as before.
+   */
+  private runStep<T>(phase: 'start' | 'stop' | 'rollback', step: LifecycleStep, fn: () => Promise<T>): Promise<T> {
+    const tracing = this.k.tracing
+    if (!tracing) return fn()
+    return tracing.trace(SPAN_NAMES.lifecycle, {
+      attributes: {
+        [TRACE_ATTR.botId]: this.k.namespace.botId,
+        [TRACE_ATTR.providerId]: this.k.provider.id,
+        [TRACE_ATTR.lifecycleStep]: step.name,
+        [TRACE_ATTR.lifecyclePhase]: phase,
+      },
+    }, () => fn())
   }
 }
