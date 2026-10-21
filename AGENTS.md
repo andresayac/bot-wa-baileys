@@ -54,7 +54,7 @@ pnpm test:scripts                         # tests de los helpers de scripts/ (se
 
 pnpm docs:dev                             # sitio VitePress en local (http://localhost:5173/)
 pnpm run docs:site && pnpm docs:check     # build del sitio + enlaces/anclas rotos y diagramas sin renderizar
-pnpm docs                                 # TypeDoc + VitePress (CI lo compila en Node 24; no se publica en ningún hosting)
+pnpm run docs                             # TypeDoc + VitePress (CI lo compila en Node 24; no se publica en ningún hosting). `pnpm docs` a secas NO sirve: pnpm lo intercepta como builtin y pide un nombre de paquete.
 pnpm docs:site                            # solo VitePress (rápido; falla con enlaces muertos)
 ```
 

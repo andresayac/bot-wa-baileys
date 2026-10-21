@@ -121,7 +121,7 @@ Se genera un `.changeset/<nombre>.md` que se commitea con el PR. No hace falta p
 ```bash
 pnpm build && pnpm typecheck && pnpm test   # todo verde
 pnpm changeset                              # si cambia algo publicable
-pnpm docs                                   # opcional: verifica que el sitio compila sin links muertos
+pnpm run docs                               # opcional: verifica que el sitio compila sin links muertos (usa `pnpm run`: `pnpm docs` es un builtin de pnpm)
 ```
 
 CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) corre `build` y `test` en Node 22 y 24 en cada push a `main` y en cada PR contra `main` (en Node 24 también `pnpm run docs`). `pnpm typecheck` y los tests de integración de stores **no** corren en CI: ejecútalos en local antes de abrir el PR (los de stores, si tocas un store).
