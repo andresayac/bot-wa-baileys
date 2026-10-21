@@ -15,7 +15,7 @@ import { basename, dirname, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { KvDurability } from './journal.js'
 import { MemoryKv, type KvMutation, type MemoryKvSnapshot } from './kv.js'
-import { AppendLog, appendLogOptions, type AppendLogOptions } from './fileLog.js'
+import { AppendLog, appendLogOptions } from './fileLog.js'
 
 /** Options of {@link FileDurability.open}. */
 export interface FileDurabilityOptions {
@@ -33,7 +33,7 @@ export interface FileDurabilityOptions {
    * `false`/omitted keeps the whole-snapshot behaviour. A leftover log is always replayed
    * (and folded into a snapshot) on open, even with this off.
    */
-  appendLog?: boolean | AppendLogOptions
+  appendLog?: boolean | { compactEvery?: number; compactBytes?: number; fsync?: boolean }
 }
 
 class FileKv extends MemoryKv {

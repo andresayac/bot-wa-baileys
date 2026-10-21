@@ -4,6 +4,16 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/). Versionado po
 
 ## [Unreleased]
 
+### Flujos declarativos: `@bot-wa/flow-schema` (2026-10)
+Paquete privado nuevo con la definición única del **documento de flujo JSON** (sin código), compartida por el manager y los despliegues.
+- **Esquema versionado** (`version: 1`, draft 2020-12, `GET /v1/flows/schema`): `say`, `ask`, `choose`, `condition`, `delay`, `goto`, `end`, `media`, `form`, `guard`, `subflow`, `http`, `handoff` y `ai`; límites estructurales y errores con rutas JSON Pointer.
+- **Expresiones seguras** (movidas desde `manager`): literales, rutas de estado, comparadores, lógica y funciones `len/lower/upper/trim/number/string/contains/startsWith/endsWith/empty/oneOf`; sin `eval`, `Function`, regexes, índices ni acceso al prototipo. Plantillas `{{ path }}` solo con rutas.
+- **Compilación a `CompiledFlow`** con `resolveSubflow` (subflujos en línea, error en ciclos), `media` (URL o `stateKey`), `form`, `guard`, `http` (por `@bot-wa/http`), `handoff` e `ai` con herramientas por id. El JSON de origen se conserva como metadato.
+- **Exportación inversa** (`exportFlowDocument`): round-trip exacto de los flujos compilados desde un documento y exportación de los pasos declarativos del DSL; lo opaco lanza `FlowExportError` con rutas.
+- **Migraciones** (`migrateFlowDocument`, v0 → v1 y cadena configurable) y **helpers de despliegue** (`flowDigest`, `diffFlowDocuments`, `flowDocumentGate`, `publishFlow`) sobre `@bot-wa/deployments` (que sigue siendo el dueño del almacenamiento).
+- **`@bot-wa/manager`** ahora depende de `flow-schema` (sin copia local); su contrato REST no cambia: los documentos con `subflow` se resuelven contra los demás flujos guardados del bot.
+- **`@bot-wa/ai`**: `replyInChat`/`ask` aceptan `tools: ['id', …]` para restringir el bucle de herramientas de ese turno (`[]` = sin herramientas; un id desconocido rechaza con un error claro). Alimenta el paso `ai`.
+
 ### Limpiezas incompatibles de la alpha (api-review, puntos diferidos 2–5)
 Cambios **incompatibles** autorizados para la alpha (nada publicado en npm): resuelven los puntos diferidos 2–5 de `docs/api-review.md` (F6, F13, F15, F16, F18). Cada uno queda documentado allí.
 - **`stripInternal` en todos los paquetes** (`tsconfig.base.json`): ningún símbolo ni miembro etiquetado `@internal` llega a los `.d.ts` publicados. El único visible era `AIPluginConfig.__provider` (`@bot-wa/ai`), que pasa a ser la opción pública **`instance`** (un `AIProvider` ya construido, `MockAIProvider` en tests); `__provider` sigue funcionando en runtime como alias oculto. Nuevo `pnpm api-check` (`missing` + `any` + `internal`, ahora también por miembro y con detección de referencias colgantes `DANGLING`) y `pnpm pack:smoke` falla si un tarball lleva `@internal`.

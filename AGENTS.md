@@ -16,6 +16,7 @@ Capas (las dependencias van siempre hacia abajo, nunca al revés):
 | Stores | `sqlite-store`, `redis-store`, `mongo-store`, `postgres-store`, `mysql-store` |
 | Plugins | `ai`, `rag`, `voice`, `nlu`, `dialogflow`, `chatwoot`, `tickets`, `moderation`, `manager`, `events`, `otel` (OpenTelemetry) |
 | Producto (privado, persistente) | `inbox`, `crm`, `hub`, `campaigns`, `deployments` (+ infra `tenant-kv`: documentos JSON por tenant con CAS sobre cualquier `DurableKv`) |
+| Flujos declarativos | `flow-schema` (`@bot-wa/flow-schema`: esquema JSON versionado, expresiones seguras, compilación a `CompiledFlow`, exportación inversa, migraciones y helpers de despliegue; lo consume `manager` y opcionalmente `deployments`) |
 | Tooling | `create-bot-wa` (CLI scaffolder), `eslint-plugin` (`eslint-plugin-bot-wa`) |
 | Ejemplos | `examples/bakery-ai` (asistente de pedidos con IA sobre Baileys o Twilio) |
 
@@ -27,7 +28,7 @@ Solo 10 paquetes son **públicos**: `core`, `baileys`, `meta`, `telegram`, `sqli
 - Stores: `mongo-store`, `postgres-store`, `mysql-store`.
 - Plugins e infra: `server`, `wa-gateway-kit`, `rag`, `voice`, `nlu`, `dialogflow`, `chatwoot`, `tickets`, `moderation`, `manager`, `events`, `otel`.
 - Tooling: `eslint-plugin-bot-wa`.
-- Producto: `inbox`, `crm`, `hub`, `campaigns`, `deployments`, `tenant-kv` (todos persistentes sobre cualquier `DurableKv`).
+- Producto: `inbox`, `crm`, `hub`, `campaigns`, `deployments`, `tenant-kv` (todos persistentes sobre cualquier `DurableKv`) y `flow-schema` (documentos de flujo sin código).
 - Ejemplo: `@bot-wa/example-bakery-ai`.
 
 Un paquete público no puede depender de uno privado, y sus dependencias internas se declaran como `"workspace:^"` (al empaquetar salen como `^x.y.z`, así npm deduplica `@bot-wa/core`).
@@ -145,6 +146,11 @@ Son los errores que más caro han salido. Respétalos aunque un cambio "parezca"
 - `PluginSpec.requires` se comprueba en `plug()`: si falta un plugin requerido (por `name`), lanza antes de `install()`. `plug()` devuelve la función unplug, no el bot: no se encadena.
 - El unplug llama primero a `uninstall()` y después deshace (de lo más nuevo a lo más antiguo) lo que el plugin registró vía `ctx.bot`: `command`, `when`/`onMessage`/`onType`, conversaciones y triggers de flows, hooks, plugins anidados, flows de `registerFlow()` (o creados por `replaceFlow()`) y los callbacks de `ctx.onDispose()`. **No** deshace listeners (`on`/`once`), `provide()`/`ctx.tools`, `locale()`, `schedule`/`every`/`delay`, `onIdle`, un flow sobrescrito por `replaceFlow()` ni nada fuera del bot (store, timers): límpialo en `ctx.onDispose()`. No registres cosas en el `Bot` real saltándote `ctx.bot`.
 - `aiPlugin` es un catch-all: se instala **después** de `slashCommandsPlugin`.
+
+### Flujos declarativos (JSON)
+- `@bot-wa/flow-schema` es la **única** definición del documento de flujo: esquema versionado, validador, expresiones seguras, compilador a `CompiledFlow`, exportación inversa y migraciones. `@bot-wa/manager` depende de él (no mantengas una copia) y `@bot-wa/deployments` solo aporta el almacenamiento vía `publishFlow`/`flowDocumentGate`.
+- Un documento es **datos puros**: no admite código, rutas locales ni `eval`. Las expresiones solo leen propiedades propias de `c.state`/`$body`/`$from`/`$sender`/`$isGroup`; las plantillas `{{ path }}` solo resuelven rutas; las URLs de media son http(s); el paso `http` usa `@bot-wa/http` (anti-SSRF) y el paso `ai` solo puede restringir herramientas ya configuradas por id.
+- Los pasos declarativos se compilan 1:1 a `CompiledStep` (`say`, `ask`, `choose`, `goto`, `delay`, `media`, `guard`, `use`, `form`) y los que no tienen nodo (`condition`, `end`, `http`, `handoff`, `ai`) a un `do` con intérprete; el JSON de origen se guarda como metadato (`FLOW_STEP_SOURCE`) para que `exportFlowDocument` haga round-trip exacto. Un flujo con `do`/guard opacos lanza `FlowExportError`, no se exporta a medias.
 
 ### Stores
 - `MemoryStore` es la **referencia del contrato** de `IStore`. Todos los stores pasan la misma suite compartida, `test-utils/store-conformance.ts` (`runStoreConformance`). Un store nuevo debe incluir su `tests/conformance.test.ts` y, si cambias la semántica del contrato, actualiza la suite y los seis stores a la vez. Los métodos opcionales de datos de usuario (`ctx.user`) tienen su propia suite compartida, `test-utils/user-data-conformance.ts` (`runUserDataConformance`).
