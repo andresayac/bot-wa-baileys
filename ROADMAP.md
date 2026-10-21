@@ -238,6 +238,8 @@ Gate de salida:
 
 ## Tracks de trabajo
 
+> **Alcance de este repositorio.** Este monorepo implementa **las piezas del core y los paquetes que las consumen**. Los tracks **D** (BotWA Studio), **G** en su parte de producto (datasets, evaluaciones, red-team, routing con presupuestos) y **H** en su parte de ecosistema (marketplace, billing, trust tiers) **no pertenecen al core**: se documentan aquí como dirección de producto y se construirían en repositorios o servicios aparte, consumiendo la API pública. Lo que sí vive aquí: el motor (A), eventos/stores/durabilidad (B), el control plane REST de `@bot-wa/manager` (C, sin OIDC/RBAC multi-proveedor ni SSE todavía), los paquetes de producto persistentes `inbox`/`crm`/`campaigns`/`deployments`/`hub` (E, F y el registro de H), el plugin de IA (G, sin producto de evaluación) y `flow-schema`.
+
 ### A. Core y experiencia de desarrollo
 
 - `ctx.user` con namespaces, TTL y borrado.
@@ -587,9 +589,10 @@ Cada punto a partir del 6 requiere una spec y un plan fechado en `docs/superpowe
 
 ## Estado revisado de FEATURES.md
 
-[`FEATURES.md`](FEATURES.md) se conserva como catálogo de propuestas y APIs posibles; cada entrada lleva una línea **Estado** con la API real y su guía. Estado a 2026-10-18:
+`FEATURES.md` se conserva como catálogo de propuestas y APIs posibles; cada entrada lleva una línea **Estado** con la API real y su guía. Estado a 2026-10-21:
 
 - Implementado: `#1–#40` (`#38`, el kit de testing, desde 2026-10: `expectNoReply`, `sendMedia`/`sendReaction`/`pressButton`, `dm`/`group`/`as`, `chat.transcript()` y los matchers de Vitest). Lo que vive en paquetes nuevos sigue siendo **privado** (Experimental, sin publicar): proveedores `#17–#23` (`evolution`, `twilio`, `tiktok`, `email`, `wppconnect`, `gohighlevel`, `gupshup`), voz `#16` (`@bot-wa/voice`, como plugin y no como provider), RAG `#29` (`@bot-wa/rag`), Dialogflow `#31`, plugins `#32–#34` (`chatwoot`, `tickets`, `moderation`), manager `#24–#27` y `#40` (`eslint-plugin-bot-wa`).
+- **Producto, desde 2026-10**: `@bot-wa/inbox`, `crm`, `campaigns`, `hub` y `deployments` ya no son prototipos: tienen contrato de almacenamiento, implementación en memoria de referencia y adaptadores sobre cualquier `DurableKv` (SQLite, PostgreSQL, Redis, Redis Cluster, archivo), con suite de conformidad y pruebas contra servidores reales. Siguen siendo privados. `@bot-wa/flow-schema` añade el documento de flujo JSON versionado que consume el manager.
 - Ideas del análisis fuera del catálogo, ya implementadas: kit de caos, contrato de identidad, idempotencia de entrada, describe/lint de flujos, `bot-wa dev`, ingress de webhooks (`@bot-wa/server`), ventana de 24 h y pricing de la Cloud API, `ctx.stream`, golden transcripts con gate de publicación, estado tipado en flujos, `AGENTS.md` en los proyectos generados y formularios nativos (WhatsApp Flows).
 
 Los elementos que allí aparecen como “descartados” deben interpretarse así:

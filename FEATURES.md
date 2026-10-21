@@ -14,6 +14,8 @@ Cada feature tiene:
 - **API propuesta**
 - **Requiere** (qué tocar internamente)
 
+> **Alcance:** este catálogo marca como implementadas las propuestas que pertenecen al core y a sus paquetes. Las que son producto de otra capa (Studio web, marketplace firmado, billing) quedan descritas como dirección, **fuera de este repositorio**; consulta el aviso de alcance en [`ROADMAP.md`](ROADMAP.md#tracks-de-trabajo).
+
 ---
 
 ## TIER 1 — Motor del bot (lo que DUELE no tener)
