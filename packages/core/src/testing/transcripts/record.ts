@@ -26,8 +26,8 @@ import type {
 } from '../../core/provider.js'
 import {
   createTranscript,
-  outboundText,
-  serializeContent,
+  inboundTurnOf,
+  outboundTurnOf,
   type Transcript,
   type TranscriptOutbound,
   type TranscriptTurn,
@@ -141,11 +141,7 @@ export class RecordingProvider<P extends IProvider = IProvider> implements IProv
 
   async send(chatId: ChatId, content: OutboundContent, options?: SendOptions): Promise<SendResult> {
     const pending: PendingOut | undefined = this.recording
-      ? {
-          turn: { dir: 'out', chatId, kind: content.kind, text: outboundText(content), content: serializeContent(content), t: this.offset() },
-          settled: false,
-          failed: false,
-        }
+      ? { turn: outboundTurnOf(chatId, content, this.offset()), settled: false, failed: false }
       : undefined
     if (pending) this.push(pending)
     try {
@@ -205,33 +201,10 @@ export class RecordingProvider<P extends IProvider = IProvider> implements IProv
   private observe(event: InboundEvent): void {
     if (!this.recording) return
     if (event.kind === 'message') {
-      const message = event.message
-      if (message.fromMe && !this.includeFromMe) return
-      this.push({
-        dir: 'in',
-        chatId: message.chatId,
-        senderId: message.senderId,
-        type: message.type,
-        text: message.body ?? '',
-        ...(message.isGroup ? { isGroup: true } : {}),
-        ...(message.senderInfo?.displayName ? { displayName: message.senderInfo.displayName } : {}),
-        ...(message.ref?.id ? { id: message.ref.id } : {}),
-        t: this.offset(),
-      })
+      if (event.message.fromMe && !this.includeFromMe) return
+      this.push(inboundTurnOf(event, this.offset()))
     } else if (event.kind === 'interaction') {
-      const it = event.interaction
-      this.push({
-        dir: 'in',
-        event: 'interaction',
-        chatId: it.chatId,
-        senderId: it.senderId,
-        type: it.kind,
-        text: it.data,
-        ...(it.isGroup ? { isGroup: true } : {}),
-        ...(it.senderInfo?.displayName ? { displayName: it.senderInfo.displayName } : {}),
-        ...(it.ref?.id ? { id: it.ref.id } : {}),
-        t: this.offset(),
-      })
+      this.push(inboundTurnOf(event, this.offset()))
     }
   }
 }

@@ -1094,7 +1094,7 @@ bot.on('conversation:ended', ({ name, durationMs, completed, chatId }) => {
 
 ### 38. `createTestBot` mejorado — aserciones de conversación
 
-> **Estado: parcial** (`@bot-wa/core/testing`). Ya existen `createTestBot()` con `chat.send()`, `chat.expectReply()` y `chat.replies()`, `MockProvider.call()`, el kit de caos (`createTestBot(config, { chaos })`, `withChaos`) y `assertStableIdentity`. Faltan `expectNoReply` y `sendMedia`/`sendReaction` en el chat de test. El snapshot de conversación completa lo cubren los golden transcripts (`recordTranscript` + `assertTranscript`, ver la sección de ideas implementadas). Guía: `docs/guide/testing.md`.
+> **Estado: implementado** (`@bot-wa/core/testing`, 2026-10). `createTestBot()` devuelve `chat` (un DM), `dm(userId)` y `group(groupId, { as })`; el chat tiene `send`, `sendMedia`, `sendReaction`, `sendLocation`, `pressButton`, `sendInteraction`, `expectReply`, `expectNoReply`, `replies`/`sent`/`lastReply`, `transcript()` (un `Transcript` dorado para `toMatchSnapshot` y `assertTranscript`) y `as(userId)`; matchers de Vitest (`toHaveReplied`, `toHaveRepliedMatching`, `toHaveRepliedTimes`) en `@bot-wa/core/testing/vitest`. Además `MockProvider.call()`, el kit de caos (`createTestBot(config, { chaos })`, `withChaos`) y `assertStableIdentity`. Guía: `docs/guide/testing.md`.
 
 **Por qué pertenece:** Requiere acceso al MockProvider + outbox.
 

@@ -589,8 +589,7 @@ Cada punto a partir del 6 requiere una spec y un plan fechado en `docs/superpowe
 
 [`FEATURES.md`](FEATURES.md) se conserva como catálogo de propuestas y APIs posibles; cada entrada lleva una línea **Estado** con la API real y su guía. Estado a 2026-10-18:
 
-- Implementado: `#1–#37`, `#39` y `#40`. Lo que vive en paquetes nuevos sigue siendo **privado** (Experimental, sin publicar): proveedores `#17–#23` (`evolution`, `twilio`, `tiktok`, `email`, `wppconnect`, `gohighlevel`, `gupshup`), voz `#16` (`@bot-wa/voice`, como plugin y no como provider), RAG `#29` (`@bot-wa/rag`), Dialogflow `#31`, plugins `#32–#34` (`chatwoot`, `tickets`, `moderation`), manager `#24–#27` y `#40` (`eslint-plugin-bot-wa`).
-- Parcial: `#38` (`createTestBot` no tiene `expectNoReply` ni `sendMedia`/`sendReaction`; el snapshot de conversación lo cubren los golden transcripts).
+- Implementado: `#1–#40` (`#38`, el kit de testing, desde 2026-10: `expectNoReply`, `sendMedia`/`sendReaction`/`pressButton`, `dm`/`group`/`as`, `chat.transcript()` y los matchers de Vitest). Lo que vive en paquetes nuevos sigue siendo **privado** (Experimental, sin publicar): proveedores `#17–#23` (`evolution`, `twilio`, `tiktok`, `email`, `wppconnect`, `gohighlevel`, `gupshup`), voz `#16` (`@bot-wa/voice`, como plugin y no como provider), RAG `#29` (`@bot-wa/rag`), Dialogflow `#31`, plugins `#32–#34` (`chatwoot`, `tickets`, `moderation`), manager `#24–#27` y `#40` (`eslint-plugin-bot-wa`).
 - Ideas del análisis fuera del catálogo, ya implementadas: kit de caos, contrato de identidad, idempotencia de entrada, describe/lint de flujos, `bot-wa dev`, ingress de webhooks (`@bot-wa/server`), ventana de 24 h y pricing de la Cloud API, `ctx.stream`, golden transcripts con gate de publicación, estado tipado en flujos, `AGENTS.md` en los proyectos generados y formularios nativos (WhatsApp Flows).
 
 Los elementos que allí aparecen como “descartados” deben interpretarse así:

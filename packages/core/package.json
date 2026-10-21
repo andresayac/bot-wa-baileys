@@ -14,6 +14,10 @@
       "types": "./lib/testing/index.d.ts",
       "default": "./lib/testing/index.js"
     },
+    "./testing/vitest": {
+      "types": "./lib/testing/vitest/index.d.ts",
+      "default": "./lib/testing/vitest/index.js"
+    },
     "./dev": {
       "types": "./lib/dev/index.d.ts",
       "default": "./lib/dev/index.js"
@@ -56,6 +60,14 @@
   ],
   "dependencies": {
     "pino": "^10.3.1"
+  },
+  "peerDependencies": {
+    "vitest": ">=3.0.0"
+  },
+  "peerDependenciesMeta": {
+    "vitest": {
+      "optional": true
+    }
   },
   "author": "Andres Aya",
   "license": "MIT",
