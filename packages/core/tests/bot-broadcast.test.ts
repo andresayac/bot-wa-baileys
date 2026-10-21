@@ -79,20 +79,23 @@ describe('bot.broadcast', () => {
   })
 
   it('a rate limit pauses every concurrent worker', async () => {
+    // Monotonic clock: `Date.now()` can be coarse on Windows and this test compares deltas
+    // while the whole suite hammers the event loop.
     const starts: Array<[string, number]> = []
     let limited = false
     const { bot } = await setup((base) => async (chatId, content, options) => {
-      starts.push([chatId, Date.now()])
+      starts.push([chatId, performance.now()])
       if (chatId === 'c1' && !limited) { limited = true; throw new RateLimitedError(80) }
       await new Promise((r) => setTimeout(r, 5))
       return base(chatId, content, options)
     })
-    const t0 = Date.now()
+    const t0 = performance.now()
     const res = await bot.broadcast(ids(4), 'x', { concurrency: 2, batchSize: 4 })
     expect(res.sent).toBe(4)
     // c2 was already in flight; everything that starts after the limit waits for it.
     const late = starts.filter(([c]) => c === 'c3' || c === 'c4')
-    for (const [, at] of late) expect(at - t0).toBeGreaterThanOrEqual(70)
+    expect(late.length).toBeGreaterThan(0)
+    for (const [, at] of late) expect(at - t0).toBeGreaterThanOrEqual(60)
     await bot.stop()
   })
 

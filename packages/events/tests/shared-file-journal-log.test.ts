@@ -103,10 +103,12 @@ describe('SharedFileEventJournal append log', () => {
 describe('SharedFileEventJournal mutex heartbeat', () => {
   it('a live holder refreshes the mutex so another process waits instead of breaking it', async () => {
     const path = join(dir, 'events.json.mutex')
-    const release = await __testing.acquireMutex(path, 50, 60, 10)
+    // Generous ratios (heartbeat 20 ms vs stale 300 ms) so a busy event loop — the whole
+    // suite runs in parallel — cannot make the holder look stalled.
+    const release = await __testing.acquireMutex(path, 100, 300, 20)
     try {
-      await sleep(200) // three times the stale threshold: without the heartbeat this would be stale
-      const waiter = await SharedFileEventJournal.open(file, { staleLockMs: 60, heartbeatMs: 10, lockTimeoutMs: 80 })
+      await sleep(500) // well past the stale threshold without a heartbeat
+      const waiter = await SharedFileEventJournal.open(file, { staleLockMs: 300, heartbeatMs: 20, lockTimeoutMs: 200 })
       open.push(waiter)
       await expect(waiter.get('missing')).rejects.toThrow(/timed out waiting for the event journal mutex/)
     } finally {

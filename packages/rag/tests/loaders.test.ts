@@ -72,7 +72,9 @@ describe('loaders', () => {
     expect(doc!.text).toContain('Hola PDF de prueba')
     // a corrupt file surfaces as LOAD_FAILED, not as a raw pdf.js exception
     await expect(loadFile('kb/sub/manual.pdf', { cwd: dir })).rejects.toMatchObject({ code: 'LOAD_FAILED' })
-  })
+    // The lazy `pdf-parse` import + parsing is the slowest thing in this package: give it
+    // room when the whole suite runs in parallel (default timeout is 10 s).
+  }, 30_000)
 
   it('a missing pdf-parse peer is reported as MISSING_DEPENDENCY', async () => {
     const parser = createPdfParser(async () => { throw new Error('Cannot find package') })
