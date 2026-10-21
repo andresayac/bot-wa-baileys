@@ -165,7 +165,10 @@ gracias a su soporte experimental `require(esm)`.
 
 ## ¿Dónde está la API reference completa?
 
-En la [API Reference](/api/) — generada con TypeDoc desde el código fuente.
+En la [API Reference](/api/) — generada con TypeDoc desde el código fuente. Cubre
+**`@bot-wa/core`** (todos sus exports públicos, con la separación de `/internal`);
+los paquetes de canal, store y plugins están documentados en su página de guía y
+en el `README.md` de cada paquete (`packages/<pkg>/README.md`).
 
 ## ¿Sigues teniendo problemas?
 

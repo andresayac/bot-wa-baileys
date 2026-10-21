@@ -158,7 +158,10 @@ Node >= 22.12 can also `require()` an ESM package via its experimental
 
 ## Where is the full API reference?
 
-At the [API Reference](/api/) — generated with TypeDoc from the source code.
+At the [API Reference](/api/) — generated with TypeDoc from the source code. It
+covers **`@bot-wa/core`** (every public export, including the internals-free
+`/internal` split); the channel, store and plugin packages are documented in
+their guide pages and in each package's `README.md` (`packages/<pkg>/README.md`).
 
 ## Still having problems?
 
