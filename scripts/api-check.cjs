@@ -29,7 +29,11 @@ let problems = 0
 for (const dir of PUBLIC) {
   const pdir = path.join(root, 'packages', dir)
   const pj = JSON.parse(fs.readFileSync(path.join(pdir, 'package.json'), 'utf8'))
-  const entries = Object.entries(pj.exports).map(([k, v]) => [k, path.join(pdir, typeof v === 'string' ? v : v.types)])
+  // Data subpaths (`"./package.json": "./package.json"`, a common convenience export) have no module
+  // symbol, so they are not part of the type surface the checks below walk.
+  const entries = Object.entries(pj.exports)
+    .filter(([, v]) => !(typeof v === 'string' ? v : v.types ?? '').endsWith('.json'))
+    .map(([k, v]) => [k, path.join(pdir, typeof v === 'string' ? v : v.types)])
   const program = ts.createProgram(entries.map((e) => e[1]), {
     module: ts.ModuleKind.NodeNext, moduleResolution: ts.ModuleResolutionKind.NodeNext, noEmit: true, skipLibCheck: true,
   })

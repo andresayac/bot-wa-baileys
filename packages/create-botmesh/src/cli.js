@@ -154,7 +154,7 @@ export async function main(argv = process.argv.slice(2)) {
     console.log('Next steps:')
     console.log('  cd ' + cd)
     console.log('  npm install            # or: pnpm install')
-    console.log('  cp .env.example .env   # then fill in your credentials')
+    console.log('  cp .env.example .env   # optional: fill in your credentials (dev runs without it)')
     console.log('  npm run dev            # chat with it in the terminal (no phone needed)')
     console.log('  npm start              # connect the real channel')
   } catch (err) {

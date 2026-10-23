@@ -47,6 +47,12 @@ export interface DevCliOptions {
   watchDir?: string
   /** `--env-file <path>` (repeatable): env files loaded before importing the bot. */
   envFiles: string[]
+  /**
+   * `--env-file-if-exists <path>` (repeatable): same as {@link envFiles}, but a missing file is
+   * expected. Node parses these flags itself when they follow the script name, so the CLI accepts
+   * them too and never complains when the file is absent.
+   */
+  optionalEnvFiles?: string[]
   /** `--color` / `--no-color`; `undefined` = auto (TTY and no `NO_COLOR`). */
   color?: boolean
 }
@@ -94,6 +100,7 @@ export const CLI_USAGE = [
   '  --name <name>        simulated display name (default: Dev User)',
   '  --group <id>         start inside group chat <id>',
   '  --env-file <path>    load environment variables from a file (repeatable)',
+  '  --env-file-if-exists <path>  same, but a missing file is not reported (repeatable)',
   "  --watch <dir>        folder to watch for hot reload (default: the entry's folder)",
   '  --no-watch           disable hot reload (type :reload to re-import)',
   '  --color, --no-color  force ANSI colours on or off (default: auto)',
@@ -136,6 +143,7 @@ export function parseCliArgs(argv: readonly string[]): DevCliOptions {
       case '--name': out.name = value(); break
       case '--group': out.group = value(); break
       case '--env-file': out.envFiles.push(value()); break
+      case '--env-file-if-exists': (out.optionalEnvFiles ??= []).push(value()); break
       case '--watch': out.watch = true; out.watchDir = value(); break
       case '--no-watch': out.watch = false; break
       case '--color': out.color = true; break
@@ -223,18 +231,23 @@ async function runDev(options: DevCliOptions, entryArg: string, io: CliIO): Prom
 
   const notes: string[] = []
   const loadEnvFile = io.loadEnvFile ?? ((path: string) => process.loadEnvFile(path))
-  for (const file of options.envFiles) {
-    const path = resolvePath(cwd, file)
-    if (!isFile(path)) {
-      notes.push(`${file} not found — continuing without it`)
-      continue
-    }
-    try {
-      loadEnvFile(path)
-    } catch (error) {
-      notes.push(`could not load ${file}: ${errorMessage(error)}`)
+  const loadEnvFiles = (files: readonly string[], optional: boolean): void => {
+    for (const file of files) {
+      const path = resolvePath(cwd, file)
+      if (!isFile(path)) {
+        // `--env-file-if-exists` promises the file may be missing, so stay quiet about it.
+        if (!optional) notes.push(`${file} not found — continuing without it`)
+        continue
+      }
+      try {
+        loadEnvFile(path)
+      } catch (error) {
+        notes.push(`could not load ${file}: ${errorMessage(error)}`)
+      }
     }
   }
+  loadEnvFiles(options.envFiles, false)
+  loadEnvFiles(options.optionalEnvFiles ?? [], true)
   // Lets bot code detect the simulator (e.g. to skip real side effects).
   env.BOT_WA_DEV = '1'
 

@@ -56,7 +56,11 @@ describe('scaffold — every template', () => {
     const pkg = JSON.parse(await read(target, 'package.json'))
     expect(pkg.name).toBe('my-bot')
     expect(pkg.type).toBe('module')
-    expect(pkg.scripts.start).toBe('node --env-file=.env src/bot.js')
+    // A fresh project has no `.env` (only `.env.example`), so both scripts must tolerate it:
+    // Node's plain `--env-file` aborts with "not found", and `--env-file-if-exists` needs 22.9+.
+    expect(pkg.scripts.start).toBe('node --env-file-if-exists=.env src/bot.js')
+    expect(pkg.scripts.dev).toContain('--env-file-if-exists')
+    expect(pkg.engines.node).toBe('>=22.12')
     expect(pkg.dependencies['@botmesh/core']).toBeTruthy()
 
     // bot.js — imports core + the right provider, has the /hola handler, a flow, and starts.

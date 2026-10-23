@@ -20,6 +20,8 @@ pnpm add @botmesh/sqlite-store better-sqlite3
 
 `better-sqlite3` is a peer dependency, a native module with prebuilt binaries for common platforms. It is loaded when the store is constructed; if it is missing, the constructor throws an error telling you to install it.
 
+The supported range is `^11.7.0 || ^12.0.0 || ^13.0.0`; the store is exercised against all three majors.
+
 ## Usage with Bot
 
 ```ts

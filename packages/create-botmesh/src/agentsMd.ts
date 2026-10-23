@@ -29,7 +29,7 @@ export function agentsMd(info: AgentsMdInfo): string {
     fence + 'bash',
     'npm install            # install dependencies (or: pnpm install)',
     'npm run dev            # botmesh dev: chat with the bot in the terminal (simulated provider, hot reload)',
-    'npm start              # connect the real transport (reads .env via node --env-file)',
+    'npm start              # connect the real transport (reads .env if present, via node --env-file-if-exists)',
     'node --check src/bot.js  # quick syntax check',
     fence,
     '',

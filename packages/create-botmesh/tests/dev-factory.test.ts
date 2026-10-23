@@ -26,8 +26,8 @@ describe('generated projects follow the defineBot factory pattern', () => {
     await scaffold({ targetDir: target, template })
 
     const pkg = JSON.parse(await readFile(join(target, 'package.json'), 'utf8'))
-    expect(pkg.scripts.start).toBe('node --env-file=.env src/bot.js')
-    expect(pkg.scripts.dev).toBe('botmesh dev src/bot.js --env-file .env')
+    expect(pkg.scripts.start).toBe('node --env-file-if-exists=.env src/bot.js')
+    expect(pkg.scripts.dev).toBe('botmesh dev src/bot.js --env-file-if-exists .env')
 
     const bot = await readFile(join(target, 'src/bot.js'), 'utf8')
     expect(bot).toMatch(/^import \{ Bot, defineBot, flow, isMainModule(, \w+)* \} from '@botmesh\/core'$/m)

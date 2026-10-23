@@ -108,7 +108,7 @@ const meta: ProjectTemplate = {
       contents: botModule({
         imports: ["import { createServer } from 'node:http'", "import { CloudAPIProvider } from '@botmesh/meta'"],
         main: [
-          '// Secrets come from .env (loaded via `node --env-file=.env`).',
+          '// Secrets come from .env when present (loaded via `node --env-file-if-exists=.env`).',
           '// META_TOKEN / META_PHONE_ID: Meta developer portal → WhatsApp → API setup.',
           'const provider = new CloudAPIProvider({',
           '  accessToken: process.env.META_TOKEN,',

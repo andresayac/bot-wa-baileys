@@ -20,7 +20,9 @@ export const botMeshRange = (name: BotMeshPackage): string => BOTMESH_VERSIONS[n
 
 export const CORE_VERSION = botMeshRange('@botmesh/core')
 export const ANTHROPIC_SDK_VERSION = '^0.68.0'
-export const BETTER_SQLITE3_VERSION = '^11.7.0'
+// Same span as the `better-sqlite3` peer of @botmesh/sqlite-store: npm picks the
+// newest major it can, which matters on Node 24 (only 12.x/13.x ship prebuilds).
+export const BETTER_SQLITE3_VERSION = '^11.7.0 || ^12.0.0 || ^13.0.0'
 
 /** WhatsApp Business Solution terms (the 2026-01-15 "AI Providers" policy), linked from the AI templates. */
 export const AI_POLICY_URL = 'https://www.whatsapp.com/legal/business-solution-terms'
@@ -34,11 +36,13 @@ export function packageJson(name: string, deps: Record<string, string>): string 
     private: true,
     type: 'module',
     description: 'A bot built with @botmesh/core',
-    engines: { node: '>=22' },
+    engines: { node: '>=22.12' },
     scripts: {
-      start: 'node --env-file=.env src/bot.js',
+      // `--env-file-if-exists` (Node >= 22.9) keeps a fresh project runnable before the
+      // user copies `.env.example`: a plain `--env-file` aborts with "not found".
+      start: 'node --env-file-if-exists=.env src/bot.js',
       // Terminal chat simulator with hot reload (ships with @botmesh/core).
-      dev: 'botmesh dev src/bot.js --env-file .env',
+      dev: 'botmesh dev src/bot.js --env-file-if-exists .env',
     },
     dependencies: deps,
   }
@@ -130,8 +134,8 @@ export function readme(name: string, label: string, description: string, notes: 
     '## Run',
     '',
     fence + 'bash',
-    'npm install          # or: pnpm install',
-    'cp .env.example .env # then fill in your credentials',
+    'npm install          # or: pnpm install (Node >= 22.12)',
+    'cp .env.example .env # optional: fill in your credentials (`dev` runs without it)',
     'npm run dev          # chat with your bot in the terminal (no phone, hot reload)',
     'npm start            # connect the real provider',
     fence,
@@ -161,7 +165,7 @@ export function readme(name: string, label: string, description: string, notes: 
 /** `main` block lines shared by every Baileys-based template. */
 export function baileysMain(defaultSession: string, readyLine: string, createArgs = ''): string[] {
   return [
-    '// Secrets/config come from .env (loaded via `node --env-file=.env`; `npm run dev` loads it too).',
+    '// Secrets/config come from .env when present (`node --env-file-if-exists=.env`; `npm run dev` loads it too).',
     '// The session name just picks which sessions/<name> auth folder to use.',
     "const bot = await createBot(new BaileysProvider({ session: process.env.BOT_SESSION ?? '" + defaultSession + "' })" + createArgs + ')',
     "bot.on('qr', () => bot.logger.info('Scan the QR printed in the terminal to link WhatsApp'))",

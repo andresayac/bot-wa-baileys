@@ -1,8 +1,16 @@
 # Changelog
 
-Formato basado en [Keep a Changelog](https://keepachangelog.com/). Versionado por paquete. Todo el trabajo actual es **pre-release** (nada publicado en npm todavía).
+Formato basado en [Keep a Changelog](https://keepachangelog.com/). Versionado por paquete. La primera alpha de **`@botmesh/*`** está publicada en npm bajo el dist-tag `alpha` (`@botmesh/core@2.0.0-alpha.2` y el resto en `0.2.0-alpha.0`); las entradas anteriores al cambio de nombre hablan de `@bot-wa/*`, que es lo que se publicó entonces y sigue deprecado en npm.
 
 ## [Unreleased]
+
+### Prueba de extremo a extremo de lo publicado (2026-10)
+- **Validación real:** desde una carpeta fuera del repo se instalaron los diez paquetes publicados y se ejercitaron imports, `MockProvider` con flows y conversaciones, y `@botmesh/sqlite-store` (chats, contactos, mensajes, checkpoints con compare-and-set, conversaciones, cursores, datos por usuario y persistencia entre instancias): 12 comprobaciones del humo y 14 del store en verde. El scaffolder publicado (`pnpm dlx create-botmesh@alpha`) generó un proyecto e `npm install` lo dejó con 92 paquetes y 0 vulnerabilidades.
+- **Bug encontrado y corregido (proyecto recién generado):** `dev`/`start` usaban `--env-file .env`, y un proyecto nuevo solo trae `.env.example`. Node parsea ese flag **también después** del nombre del script, así que el arranque moría con `node: .env: not found` (exit 9) antes de ejecutar una línea. Ahora se usa **`--env-file-if-exists`** (el `.env` se carga si está y, si no, se arranca con los valores por defecto), `botmesh dev` acepta el flag, y `engines.node` del proyecto generado sube a **`>=22.12`** (el flag existe desde Node 22.9). Verificado con y sin `.env`.
+- **Bug encontrado y corregido (`@botmesh/sqlite-store`):** el peer de `better-sqlite3` estaba clavado en `^11.7.0` y `npm` avisaba al instalar la última; el store se probó contra **12.11.1** y **13.0.3** con los mismos resultados que 11.x, así que el rango cubre los tres majors. `./package.json` vuelve a estar en `exports`.
+- **Trampa documentada, sin cambiar el código:** en `core/src/conversations/retry.ts`, `retries: N` es el número **total** de intentos (`attempts++` antes de comparar), así que `retries: 1` significa cero reintentos. El nombre engaña, pero cambiarlo altera el comportamiento; queda anotado en la guía.
+- La guía de instalación de los stores avisa de que `pnpm add` (a diferencia de `npm`) resuelve el peer a la última versión e ignora el rango.
+- **Documentación corregida:** `docs/public/llms.txt` y las guías de instalación y de stores (EN/ES) todavía decían que los paquetes públicos no estaban en npm; ahora dicen que la alpha está publicada bajo el dist-tag `alpha` sin `latest`, con los rangos reales que estampa `create-botmesh`. También documentan `--env-file-if-exists` y el Node mínimo de los proyectos generados (`>=22.12`).
 
 ### El proyecto pasa a llamarse `botmesh` (2026-10)
 - **Nombres nuevos:** el repositorio es [`andresayac/botmesh`](https://github.com/andresayac/botmesh), el scope de npm es **`@botmesh/*`** (`@botmesh/core`, `@botmesh/baileys`, `@botmesh/meta`, `@botmesh/telegram`, `@botmesh/sqlite-store`, `@botmesh/redis-store`, `@botmesh/ai`, `@botmesh/http`, `@botmesh/graph-core`) y el scaffolder es **`create-botmesh`** (`npm create botmesh`), con el directorio `packages/create-botmesh`. El bin del simulador pasa de `bot-wa dev` a **`botmesh dev`**. El nombre anterior anunciaba dos cosas que el proyecto ya no es: un solo transporte y, peor, un canal concreto (Baileys) de los trece.

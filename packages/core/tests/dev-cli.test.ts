@@ -212,6 +212,47 @@ describe('runCli', () => {
     expect(out.text()).toContain('.env.missing not found')
   })
 
+  // `node --env-file-if-exists=.env` is what the generated projects use: a fresh scaffold has
+  // only `.env.example`, and Node parses that flag itself (even after the script name) while
+  // leaving it in argv, so the simulator must accept it and stay quiet about the missing file.
+  it('accepts --env-file-if-exists and says nothing when the file is absent', async () => {
+    const dir = await makeTempDir()
+    await writeFile(join(dir, 'bot.mjs'), '\n')
+    await writeFile(join(dir, '.env'), 'X=1\n')
+    const loaded: string[] = []
+    const { io, stdin, out } = makeIO({
+      cwd: dir,
+      loadEnvFile: (path) => { loaded.push(path) },
+      importModule: async () => defineBot((provider) => new Bot({ provider, logger: silent })),
+    })
+    expect(parseCliArgs(['dev', 'bot.mjs', '--env-file-if-exists', '.env'])).toMatchObject({
+      envFiles: [], optionalEnvFiles: ['.env'],
+    })
+    expect(parseCliArgs(['dev', 'bot.mjs', '--env-file-if-exists=.env'])).toMatchObject({ optionalEnvFiles: ['.env'] })
+    const exit = runCli(['dev', 'bot.mjs', '--no-watch', '--env-file-if-exists', '.env', '--env-file-if-exists', '.nope'], io)
+    stdin.end()
+    expect(await exit).toBe(0)
+    expect(loaded).toEqual([join(dir, '.env')])
+    expect(out.text()).not.toContain('.nope not found')
+  })
+
+  it('still warns when a missing file is declared required and optional at once', async () => {
+    const dir = await makeTempDir()
+    await writeFile(join(dir, 'bot.mjs'), '\n')
+    const { io, stdin, out } = makeIO({
+      cwd: dir,
+      loadEnvFile: () => {},
+      importModule: async () => defineBot((provider) => new Bot({ provider, logger: silent })),
+    })
+    const exit = runCli(
+      ['dev', 'bot.mjs', '--no-watch', '--env-file', '.dual', '--env-file-if-exists', '.dual'],
+      io,
+    )
+    stdin.end()
+    expect(await exit).toBe(0)
+    expect(out.text()).toContain('.dual not found')
+  })
+
   it('exits even in watch mode when the entry ran but exports no factory (it may have connected for real)', async () => {
     const dir = await makeTempDir()
     await writeFile(join(dir, 'bot.mjs'), '\n')

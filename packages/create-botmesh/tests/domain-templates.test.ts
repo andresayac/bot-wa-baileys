@@ -40,7 +40,7 @@ describe('use-case templates (FEATURES #39)', () => {
 
     const pkg = JSON.parse(await readFile(join(target, 'package.json'), 'utf8'))
     expect(pkg.type).toBe('module')
-    expect(pkg.scripts.dev).toBe('botmesh dev src/bot.js --env-file .env')
+    expect(pkg.scripts.dev).toBe('botmesh dev src/bot.js --env-file-if-exists .env')
     expect(pkg.dependencies['@botmesh/baileys']).toBeTruthy()
 
     const bot = await readFile(join(target, 'src/bot.js'), 'utf8')
