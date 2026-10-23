@@ -1,94 +1,94 @@
 # @botmesh/voice
 
-> **Experimental — aún no publicado en npm.** Implementación real y probada, pero el paquete es `private`: no forma parte de la primera alpha y su API puede cambiar. Úsalo desde este monorepo (`workspace:*`).
+> **Experimental — not yet published on npm.** Real, tested implementation, but the package is `private`: it is not part of the first alpha and its API may change. Use it from this monorepo (`workspace:*`).
 
-Voz para bots de [`@botmesh/core`](../core): **speech-to-text** (STT) de las notas de voz entrantes y **text-to-speech** (TTS) para responder con audio. Es un plugin, no un provider: funciona igual con WhatsApp (Baileys o Cloud API), Telegram o cualquier canal que entregue `voice`/`audio`.
+Voice for [`@botmesh/core`](../core) bots: **speech-to-text** (STT) for inbound voice notes and **text-to-speech** (TTS) to reply with audio. It is a plugin, not a provider: it works the same on WhatsApp (Baileys or Cloud API), Telegram or any channel that delivers `voice`/`audio`.
 
-- STT: OpenAI (`whisper-1`, `gpt-4o-transcribe`, `gpt-4o-mini-transcribe` y cualquier servidor compatible) y Deepgram (`nova-3`).
-- TTS: OpenAI (`gpt-4o-mini-tts`, `tts-1`) y ElevenLabs.
-- Sin SDKs: llamadas HTTPS con `secureFetch` de [`@botmesh/http`](../http) (anti-SSRF, timeouts, límite de tamaño).
-- `install()` síncrono; los adapters se resuelven en el primer uso y un `warmup()` no fatal avisa al arrancar si falta una api key.
+- STT: OpenAI (`whisper-1`, `gpt-4o-transcribe`, `gpt-4o-mini-transcribe` and any compatible server) and Deepgram (`nova-3`).
+- TTS: OpenAI (`gpt-4o-mini-tts`, `tts-1`) and ElevenLabs.
+- No SDKs: HTTPS calls with [`@botmesh/http`](../http)'s `secureFetch` (anti-SSRF, timeouts, size limit).
+- Synchronous `install()`; adapters resolve on first use and a non-fatal `warmup()` warns at startup when an API key is missing.
 
-Dentro del monorepo, decláralo como dependencia del workspace (todavía no se puede instalar desde npm):
+Inside the monorepo, declare it as a workspace dependency (it cannot be installed from npm yet):
 
 ```json
 { "dependencies": { "@botmesh/voice": "workspace:*" } }
 ```
 
-## Inicio rápido
+## Quick start
 
 ```ts
 import { VOICE_NOTE } from '@botmesh/core'
 import { voicePlugin } from '@botmesh/voice'
 
 bot.plug(voicePlugin({
-  stt: { provider: 'openai', model: 'whisper-1', apiKey: process.env.OPENAI_API_KEY, language: 'es' },
+  stt: { provider: 'openai', model: 'whisper-1', apiKey: process.env.OPENAI_API_KEY, language: 'en' },
   tts: { provider: 'openai', voice: 'nova', apiKey: process.env.OPENAI_API_KEY },
 }))
 
-// Una nota de voz que dice "Hola." también dispara este trigger:
-bot.when('hola', (ctx) => ctx.reply('¡Hola! 👋'))
+// A voice note saying "Hello." also triggers this:
+bot.when('hello', (ctx) => ctx.reply('Hello! 👋'))
 
-// Los triggers de tipo siguen funcionando, ahora con la transcripción a mano:
+// Type triggers still work, now with the transcript at hand:
 bot.when(VOICE_NOTE, async (ctx) => {
-  await ctx.reply(`Dijiste: ${ctx.transcript}`)
-  await ctx.voice(await ctx.tools.voice.synthesize('¡Entendido!'))
+  await ctx.reply(`You said: ${ctx.transcript}`)
+  await ctx.voice(await ctx.tools.voice.synthesize('Got it!'))
 })
 ```
 
-## Cómo funciona
+## How it works
 
-### `autoTranscribe` (activo por defecto si hay `stt`)
+### `autoTranscribe` (enabled by default when `stt` is set)
 
-Un hook `before('message')` (prioridad 100) descarga cada nota de voz, la transcribe y deja:
+A `before('message')` hook (priority 100) downloads every voice note, transcribes it and leaves:
 
-- `ctx.transcript`: el texto tal cual lo devolvió el servicio (`''` si no se dijo nada).
-- `ctx.body`: el mismo texto sin la puntuación de los extremos (`¡Hola!` → `Hola`), para que los triggers por igualdad, `c.ask()`, la NLU y la IA "oigan" el audio.
-- `ctx.media`: el audio descargado (no se vuelve a descargar).
-- `ctx.transcriptError`: el error, si la transcripción falló. El mensaje **se sigue enrutando** (sin transcripción) y se registra un `warn`.
-- `ctx.type`: sigue siendo `'voice'`, así que `VOICE_NOTE` sigue disparando. Con el modo por defecto `asText: 'auto'` pasa a `'text'` **solo mientras una conversación activa de ese usuario espera texto** (`c.ask()`, `c.waitText()`), para que la nota de voz responda a la pregunta. Si la conversación espera audio (`c.waitMedia(['voice'])`), un menú (`c.choose()`, que lee `body`) o cualquier mensaje (`c.waitAny()`), la nota llega como `'voice'` con su transcripción.
+- `ctx.transcript`: the text exactly as the service returned it (`''` when nothing was said).
+- `ctx.body`: the same text without leading/trailing punctuation (`¡Hello!` → `Hello`), so equality triggers, `c.ask()`, NLU and AI "hear" the audio.
+- `ctx.media`: the downloaded audio (it is not downloaded again).
+- `ctx.transcriptError`: the error, when transcription failed. The message **is still routed** (without a transcript) and a `warn` is logged.
+- `ctx.type`: it stays `'voice'`, so `VOICE_NOTE` still fires. With the default `asText: 'auto'` it becomes `'text'` **only while an active conversation for that user waits for text** (`c.ask()`, `c.waitText()`), so the voice note answers the question. If the conversation waits for audio (`c.waitMedia(['voice'])`), a menu (`c.choose()`, which reads `body`) or any message (`c.waitAny()`), the note arrives as `'voice'` with its transcript.
 
-| Opción | Tipo | Por defecto | Descripción |
+| Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `types` | `('voice' \| 'audio')[]` | `['voice']` | Qué tipos transcribir. Añade `'audio'` para archivos de audio. |
-| `setBody` | `boolean` | `true` | Escribe la transcripción en `ctx.body`. |
-| `asText` | `boolean \| 'auto'` | `'auto'` | `true`: siempre `ctx.type = 'text'` (el autoresponder de `@botmesh/ai` contesta audios, pero `VOICE_NOTE` deja de coincidir). `false`: nunca. |
-| `trimPunctuation` | `boolean` | `true` | Quita la puntuación de los extremos del `body`. |
-| `language` / `prompt` | `string` | — | Pistas para el STT en cada mensaje. Sin `language`, se usa el idioma que el i18n resolvió (`ctx.lang`, código base: `en-gb` → `en`) si viene de una señal real (preferencia, provider o `detect`), nunca el valor por defecto; si no, el servicio lo detecta. |
-| `useContextLanguage` | `boolean` | `true` | `false` ignora `ctx.lang` como pista. |
-| `filter` | `(ctx) => boolean` | — | Devuelve `false` para no transcribir (grupos grandes, usuarios sin plan…). |
-| `priority` | `number` | `100` | Prioridad del hook. |
-| `onError` | `(err, ctx) => void` | log `warn` | Qué hacer si falla la transcripción. |
+| `types` | `('voice' \| 'audio')[]` | `['voice']` | Which types to transcribe. Add `'audio'` for audio files. |
+| `setBody` | `boolean` | `true` | Writes the transcript into `ctx.body`. |
+| `asText` | `boolean \| 'auto'` | `'auto'` | `true`: always `ctx.type = 'text'` (the `@botmesh/ai` autoresponder answers audio, but `VOICE_NOTE` stops matching). `false`: never. |
+| `trimPunctuation` | `boolean` | `true` | Removes leading/trailing punctuation from `body`. |
+| `language` / `prompt` | `string` | — | STT hints per message. Without `language`, the language resolved by i18n (`ctx.lang`, base code: `en-gb` → `en`) is used if it comes from a real signal (preference, provider or `detect`), never the default value; otherwise the service detects it. |
+| `useContextLanguage` | `boolean` | `true` | `false` ignores `ctx.lang` as a hint. |
+| `filter` | `(ctx) => boolean` | — | Return `false` to skip transcription (large groups, users without a plan…). |
+| `priority` | `number` | `100` | Hook priority. |
+| `onError` | `(err, ctx) => void` | `warn` log | What to do when transcription fails. |
 
-`autoTranscribe: false` desactiva el hook; `ctx.tools.voice.transcribe(ctx)` sigue disponible a demanda.
+`autoTranscribe: false` disables the hook; `ctx.tools.voice.transcribe(ctx)` is still available on demand.
 
-### `autoReplyWithVoice` (desactivado por defecto)
+### `autoReplyWithVoice` (off by default)
 
-Mientras el **último mensaje entrante** de un chat sea una nota de voz, el texto saliente hacia ese chat se sintetiza y se envía como nota de voz. Es un hook `before('send')`, así que cubre `ctx.reply`, `flow().say`, `c.say` y el autoresponder de IA. Si el usuario vuelve a escribir texto, el chat vuelve a texto. La salida de `ctx.stream()` (borradores, ediciones en vivo, trozos y mensaje final; payload `stream` en el hook) y las ediciones de `ctx.edit` **siempre se quedan en texto**.
+While the **last inbound message** of a chat is a voice note, outbound text to that chat is synthesized and sent as a voice note. It is a `before('send')` hook, so it covers `ctx.reply`, `flow().say`, `c.say` and the AI autoresponder. If the user writes text again, the chat goes back to text. `ctx.stream()` output (drafts, live edits, chunks and the final message; `stream` payload in the hook) and `ctx.edit` edits **always stay as text**.
 
-| Opción | Tipo | Por defecto | Descripción |
+| Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `alsoText` | `boolean` | `false` | Envía la nota de voz y, después, el texto. |
-| `maxChars` | `number` | `limits.maxTextChars` | Los textos más largos se quedan como texto. |
-| `voice` / `instructions` | `string` | — | Voz y estilo para las respuestas. |
-| `triggerTypes` | `('voice' \| 'audio')[]` | `['voice']` | Qué entrantes activan el modo voz. |
-| `filter` | `(chatId, text) => boolean` | — | Devuelve `false` para mantener un texto como texto (p. ej. respuestas de un agente humano). |
+| `alsoText` | `boolean` | `false` | Sends the voice note and then the text. |
+| `maxChars` | `number` | `limits.maxTextChars` | Longer texts stay as text. |
+| `voice` / `instructions` | `string` | — | Voice and style for the replies. |
+| `triggerTypes` | `('voice' \| 'audio')[]` | `['voice']` | Which inbound messages turn voice mode on. |
+| `filter` | `(chatId, text) => boolean` | — | Return `false` to keep text as text (e.g. replies from a human agent). |
 
-Si la síntesis falla o el canal no admite `voice` (`capabilities.contentKinds`), se envía el texto original.
+If synthesis fails or the channel does not support `voice` (`capabilities.contentKinds`), the original text is sent.
 
 ## `ctx.tools.voice`
 
-| Método | Devuelve | Descripción |
+| Method | Returns | Description |
 | --- | --- | --- |
-| `transcribe(source, opts?)` | `Promise<string>` | `source`: `ctx`, `ctx.media`, un `Buffer` o `{ buffer, mimetype?, filename?, durationSec? }`. |
+| `transcribe(source, opts?)` | `Promise<string>` | `source`: `ctx`, `ctx.media`, a `Buffer` or `{ buffer, mimetype?, filename?, durationSec? }`. |
 | `transcribeDetailed(source, opts?)` | `Promise<Transcription>` | `{ text, language?, durationSec?, provider }`. |
-| `synthesize(text, opts?)` | `Promise<Buffer>` | Audio listo para `ctx.voice(buffer)`. |
+| `synthesize(text, opts?)` | `Promise<Buffer>` | Audio ready for `ctx.voice(buffer)`. |
 | `synthesizeDetailed(text, opts?)` | `Promise<SynthesizedAudio>` | `{ buffer, mimetype, format, provider }`. |
-| `speak(ctx, text, opts?)` | `Promise<SentMessage>` | Sintetiza y envía con `ctx.voice()`. |
-| `warmup()` | `Promise<void>` | Resuelve los adapters; rechaza con `VoiceConfigError`. |
-| `hasStt` / `hasTts` / `limits` | — | Configuración efectiva. |
+| `speak(ctx, text, opts?)` | `Promise<SentMessage>` | Synthesizes and sends with `ctx.voice()`. |
+| `warmup()` | `Promise<void>` | Resolves the adapters; rejects with `VoiceConfigError`. |
+| `hasStt` / `hasTts` / `limits` | — | Effective configuration. |
 
-## Proveedores
+## Providers
 
 ```ts
 // STT
@@ -100,9 +100,9 @@ Si la síntesis falla o el canal no admite `voice` (`capabilities.contentKinds`)
 { provider: 'elevenlabs', apiKey, voiceId: '21m00Tcm4TlvDq8ikWAM', modelId: 'eleven_multilingual_v2', outputFormat: 'mp3_44100_128', voiceSettings, languageCode }
 ```
 
-Las api keys caen a `OPENAI_API_KEY`, `DEEPGRAM_API_KEY` y `ELEVENLABS_API_KEY`. Todos aceptan `timeoutMs` (solo puede acortar `limits.timeoutMs`), `maxResponseBytes` y, para servidores propios en una red de confianza, `allowHttp` / `allowPrivateHosts` (p. ej. `faster-whisper-server` en `http://127.0.0.1:8000/v1`).
+API keys fall back to `OPENAI_API_KEY`, `DEEPGRAM_API_KEY` and `ELEVENLABS_API_KEY`. All accept `timeoutMs` (it can only shorten `limits.timeoutMs`), `maxResponseBytes` and, for your own servers on a trusted network, `allowHttp` / `allowPrivateHosts` (e.g. `faster-whisper-server` on `http://127.0.0.1:8000/v1`).
 
-También puedes pasar un adapter propio (un modelo local, otro servicio):
+You can also pass your own adapter (a local model, another service):
 
 ```ts
 import type { SttAdapter } from '@botmesh/voice'
@@ -116,45 +116,45 @@ const local: SttAdapter = {
 bot.plug(voicePlugin({ stt: local }))
 ```
 
-## Formatos de audio
+## Audio formats
 
-- **Entrada:** las notas de voz de WhatsApp y Telegram llegan en OGG/Opus, que Whisper, `gpt-4o-*-transcribe` y Deepgram aceptan directamente. Si el canal no informa el mimetype, se detecta por los primeros bytes (OGG, WAV, MP3, MP4/M4A, WebM, FLAC, AMR) y, si no, se asume OGG.
-- **Salida para WhatsApp:** una nota de voz (PTT) debe ser **OGG/Opus**. `@botmesh/baileys` transcodifica `kind: 'voice'` a OGG/Opus por su cuenta (con el binario de `ffmpeg` que incluye vía `@ffmpeg-installer/ffmpeg`), así que cualquier formato vale. Para Cloud API y Telegram pide OGG/Opus al TTS: es el valor por defecto en OpenAI (`format: 'opus'`); en ElevenLabs usa `outputFormat: 'opus_48000_64'` si tu plan lo ofrece (por defecto es `mp3_44100_128`, que Telegram y Cloud API aceptan como audio pero no siempre como nota de voz).
-- No hay transcodificación dentro de este paquete (no depende de `ffmpeg`).
+- **Input:** WhatsApp and Telegram voice notes arrive as OGG/Opus, which Whisper, `gpt-4o-*-transcribe` and Deepgram accept directly. If the channel does not report the mimetype, it is detected from the first bytes (OGG, WAV, MP3, MP4/M4A, WebM, FLAC, AMR) and, otherwise, OGG is assumed.
+- **Output for WhatsApp:** a voice note (PTT) must be **OGG/Opus**. `@botmesh/baileys` transcodes `kind: 'voice'` to OGG/Opus on its own (with the `ffmpeg` binary it bundles through `@ffmpeg-installer/ffmpeg`), so any format works. For Cloud API and Telegram ask the TTS for OGG/Opus: it is the OpenAI default (`format: 'opus'`); on ElevenLabs use `outputFormat: 'opus_48000_64'` if your plan offers it (the default is `mp3_44100_128`, which Telegram and Cloud API accept as audio but not always as a voice note).
+- There is no transcoding inside this package (it does not depend on `ffmpeg`).
 
-## Límites
+## Limits
 
 ```ts
 voicePlugin({
   stt, tts,
   limits: {
-    maxInputBytes: 25 * 1024 * 1024, // tamaño máximo del audio; corta la descarga en cuanto se pasa (límite de OpenAI)
-    maxDurationSec: 300,             // duración máxima; se lee del último page OGG antes de llamar al servicio
-    maxTextChars: 4096,              // caracteres máximos por síntesis
-    timeoutMs: 60_000,               // tiempo máximo por llamada STT/TTS; también es el timeout HTTP de los adapters
+    maxInputBytes: 25 * 1024 * 1024, // maximum audio size; stops the download as soon as it is exceeded (OpenAI limit)
+    maxDurationSec: 300,             // maximum duration; read from the last OGG page before calling the service
+    maxTextChars: 4096,              // maximum characters per synthesis
+    timeoutMs: 60_000,               // maximum time per STT/TTS call; also the adapters' HTTP timeout
   },
 })
 ```
 
-La duración se comprueba **antes** de pagar la transcripción cuando se conoce (`durationSec` explícito o un OGG). Para otros contenedores no se estima.
+Duration is checked **before** paying for the transcription when it is known (explicit `durationSec` or an OGG). Other containers are not estimated.
 
-## Errores
+## Errors
 
-Todos extienden `VoiceError` y llevan un `code` estable:
+All extend `VoiceError` and carry a stable `code`:
 
-| Clase | `code` | Cuándo |
+| Class | `code` | When |
 | --- | --- | --- |
-| `VoiceConfigError` | `CONFIG` | Falta api key, proveedor desconocido, STT/TTS sin configurar. |
-| `VoiceError` | `NO_MEDIA` | El mensaje no tiene audio / el texto está vacío. |
-| `AudioTooLargeError` | `AUDIO_TOO_LARGE` | Supera `maxInputBytes`. |
-| `AudioTooLongError` | `AUDIO_TOO_LONG` | Supera `maxDurationSec`. |
-| `TextTooLongError` | `TEXT_TOO_LONG` | Supera `maxTextChars`. |
-| `VoiceTimeoutError` | `TIMEOUT` | Se agotó `timeoutMs`. |
-| `VoiceHttpError` | `HTTP` | Respuesta no 2xx (`status`, detalle del servicio). |
+| `VoiceConfigError` | `CONFIG` | Missing API key, unknown provider, STT/TTS not configured. |
+| `VoiceError` | `NO_MEDIA` | The message has no audio / the text is empty. |
+| `AudioTooLargeError` | `AUDIO_TOO_LARGE` | Exceeds `maxInputBytes`. |
+| `AudioTooLongError` | `AUDIO_TOO_LONG` | Exceeds `maxDurationSec`. |
+| `TextTooLongError` | `TEXT_TOO_LONG` | Exceeds `maxTextChars`. |
+| `VoiceTimeoutError` | `TIMEOUT` | `timeoutMs` elapsed. |
+| `VoiceHttpError` | `HTTP` | Non-2xx response (`status`, service detail). |
 | `VoiceRateLimitedError` | `RATE_LIMITED` | HTTP 429 (`retryAfterMs`). |
-| `VoiceError` | `NETWORK` / `BAD_RESPONSE` | Fallo de red (también al descargar el audio del mensaje), URL insegura o respuesta inesperada. |
+| `VoiceError` | `NETWORK` / `BAD_RESPONSE` | Network failure (also when downloading the message audio), insecure URL or unexpected response. |
 
-Los mensajes de error y los logs nunca incluyen api keys, audio ni transcripciones.
+Error messages and logs never include API keys, audio or transcripts.
 
 ## Tests
 
@@ -165,16 +165,16 @@ import { voicePlugin } from '@botmesh/voice'
 const { bot, chat, provider } = await createTestBot()
 provider.downloadMedia = async () => Buffer.from('OggS...')
 bot.plug(voicePlugin({
-  stt: { name: 'fake', transcribe: async () => ({ text: 'hola', provider: 'fake' }) },
+  stt: { name: 'fake', transcribe: async () => ({ text: 'hello', provider: 'fake' }) },
 }))
-bot.when('hola', (ctx) => ctx.reply('👋'))
+bot.when('hello', (ctx) => ctx.reply('👋'))
 
 await chat.send('', { type: 'voice' })
 await chat.expectReply('👋')
 ```
 
-Los adapters HTTP aceptan `fetch` y `resolver` inyectados para probarlos sin red.
+HTTP adapters accept injected `fetch` and `resolver` to test them without network.
 
-## Licencia
+## License
 
 MIT

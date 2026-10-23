@@ -1,10 +1,10 @@
 # @botmesh/tickets
 
-> **Experimental — aún no publicado en npm.** Paquete `private` del monorepo: úsalo con `workspace:*`; su API puede cambiar.
+> **Experimental — not yet published on npm.** `private` package of the monorepo: use it with `workspace:*`; its API may change.
 
-Tickets de soporte y colas para [`@botmesh/core`](../core): `ctx.tools.tickets` con estados, prioridades, posición en cola, horario de atención, callbacks (`onAssign`, …) y persistencia en el store del bot.
+Support tickets and queues for [`@botmesh/core`](../core): `ctx.tools.tickets` with states, priorities, queue position, working hours, callbacks (`onAssign`, …) and persistence in the bot store.
 
-## Uso
+## Usage
 
 ```ts
 import { ticketsPlugin } from '@botmesh/tickets'
@@ -12,52 +12,52 @@ import { ticketsPlugin } from '@botmesh/tickets'
 bot.plug(ticketsPlugin({
   workingHours: { days: [1, 2, 3, 4, 5], start: '09:00', end: '18:00' },
   timezone: 'America/Bogota',
-  queueMessage: 'Estás en cola, posición {{position}} (ticket #{{id}})',
-  closedMessage: 'Estamos fuera de horario; te respondemos al abrir (ticket #{{id}})',
-  assignMessage: '{{assignee}} atiende tu ticket #{{id}}',
-  closeMessage: 'Ticket #{{id}} cerrado. ¡Gracias!',
-  handoffOnAssign: true,   // bot.handoff(chatId) al asignar
-  resumeOnClose: true,     // bot.resume(chatId) al cerrar
+  queueMessage: 'You are in the queue, position {{position}} (ticket #{{id}})',
+  closedMessage: 'We are outside working hours; we will reply when we open (ticket #{{id}})',
+  assignMessage: '{{assignee}} is handling your ticket #{{id}}',
+  closeMessage: 'Ticket #{{id}} closed. Thank you!',
+  handoffOnAssign: true,   // bot.handoff(chatId) on assign
+  resumeOnClose: true,     // bot.resume(chatId) on close
   onAssign: async (ticket) => notifyAgent(ticket),
 }))
 
-bot.when('soporte', async (ctx) => {
+bot.when('support', async (ctx) => {
   const ticket = await ctx.tools.tickets!.create({ chatId: ctx.from, subject: ctx.body, priority: 'normal' })
-  await ctx.reply(`🎫 Ticket #${ticket.id} creado`)
+  await ctx.reply(`🎫 Ticket #${ticket.id} created`)
 })
 
-// Panel de agentes / API propia
+// Agent panel / your own API
 const tickets = bot.injectTools.tickets!
 await tickets.assign('1', 'ana')
-await tickets.close('1', { reason: 'resuelto' })
+await tickets.close('1', { reason: 'resolved' })
 ```
 
 ## API (`ctx.tools.tickets`)
 
-| Método | Descripción |
+| Method | Description |
 | --- | --- |
-| `create({ chatId, subject, priority?, meta? })` | Crea un ticket `open`. Devuelve el ticket más `created`, `position` (1-based o `null`) y `withinWorkingHours`. Con `reuseOpen` (por defecto) devuelve el ticket no cerrado del chat si existe (`created: false`). |
-| `get(id)` | Ticket o `undefined`. |
-| `update(id, patch)` | `subject`, `priority`, `status`, `assignee` (`null` desasigna y vuelve a la cola), `meta`. Rechaza con `TicketNotFoundError`. |
-| `list(filter?)` | Filtra por `status` (uno o varios), `chatId`, `assignee`, `priority`; orden por antigüedad. |
-| `assign(id, assignee)` | Estado `assigned`; dispara `onAssign`. |
-| `close(id, { reason? })` | Estado `closed`, `closedAt`, `closeReason`; dispara `onClose`. |
-| `queue()` | Tickets `open` por prioridad (`urgent` > `high` > `normal` > `low`) y luego antigüedad. |
-| `position(id)` | Posición en cola o `null`. |
-| `isOpen(date?)` | Si es horario de atención (siempre `true` sin `workingHours`). |
+| `create({ chatId, subject, priority?, meta? })` | Creates an `open` ticket. Returns the ticket plus `created`, `position` (1-based or `null`) and `withinWorkingHours`. With `reuseOpen` (the default) it returns the chat's unclosed ticket when one exists (`created: false`). |
+| `get(id)` | Ticket or `undefined`. |
+| `update(id, patch)` | `subject`, `priority`, `status`, `assignee` (`null` unassigns and returns it to the queue), `meta`. Rejects with `TicketNotFoundError`. |
+| `list(filter?)` | Filters by `status` (one or several), `chatId`, `assignee`, `priority`; ordered by age. |
+| `assign(id, assignee)` | `assigned` state; fires `onAssign`. |
+| `close(id, { reason? })` | `closed` state, `closedAt`, `closeReason`; fires `onClose`. |
+| `queue()` | `open` tickets by priority (`urgent` > `high` > `normal` > `low`) and then age. |
+| `position(id)` | Queue position or `null`. |
+| `isOpen(date?)` | Whether it is within working hours (always `true` without `workingHours`). |
 
-Estados: `open` (en cola), `assigned`, `pending` (esperando al cliente, fuera de la cola) y `closed`. Los ids son secuenciales (`'1'`, `'2'`, …) por namespace de bot.
+States: `open` (queued), `assigned`, `pending` (waiting for the customer, out of the queue) and `closed`. Ids are sequential (`'1'`, `'2'`, …) per bot namespace.
 
-## Horario de atención
+## Working hours
 
-`workingHours` acepta `'9-18'`, `'09:30-18:15'`, `{ days, start, end }` (días `0` = domingo … `6` = sábado), un array de ventanas (turnos partidos) o una función `(date) => boolean`. El fin es exclusivo y una ventana como `'22-6'` cruza la medianoche. Se evalúa en `timezone` (IANA; por defecto la del proceso). Fuera de horario se envía `closedMessage` en lugar de `queueMessage`.
+`workingHours` accepts `'9-18'`, `'09:30-18:15'`, `{ days, start, end }` (days `0` = Sunday … `6` = Saturday), an array of windows (split shifts) or a function `(date) => boolean`. The end is exclusive and a window such as `'22-6'` crosses midnight. It is evaluated in `timezone` (IANA; process timezone by default). Outside working hours `closedMessage` is sent instead of `queueMessage`.
 
-## Persistencia
+## Persistence
 
-Por defecto usa la API de cursores del store del bot (`tickets:seq`, `tickets:index`, `tickets:t:<id>`), que implementan los seis stores; con `MemoryStore` vive en RAM. `tickets:index` solo lista los tickets no cerrados: en memoria solo viven los activos y los cerrados se leen bajo demanda (`get`, y `list` cuando el filtro puede incluir `closed`). Se carga de forma perezosa en la primera llamada (el `install` es síncrono) y las mutaciones se serializan; si falla una escritura en el store, la llamada se rechaza y la memoria no cambia. Puedes pasar tu propio `storage: { get, set }`.
+By default it uses the bot store's cursors API (`tickets:seq`, `tickets:index`, `tickets:t:<id>`), implemented by all six stores; with `MemoryStore` it lives in RAM. `tickets:index` lists only unclosed tickets: in memory only active ones live there and closed ones are read on demand (`get`, and `list` when the filter may include `closed`). It loads lazily on the first call (`install` is synchronous) and mutations are serialized; if a store write fails, the call rejects and memory does not change. You can pass your own `storage: { get, set }`.
 
-## Callbacks y mensajes
+## Callbacks and messages
 
-`onCreate`, `onAssign`, `onClose` y `onUpdate(ticket, previous)` se ejecutan tras persistir el cambio; sus errores (y los de envío) van a `onError` (por defecto, log `warn`) y nunca hacen fallar la operación. Las plantillas admiten `{{id}}`, `{{position}}`, `{{subject}}`, `{{priority}}`, `{{assignee}}`, `{{status}}` y `{{reason}}`.
+`onCreate`, `onAssign`, `onClose` and `onUpdate(ticket, previous)` run after the change is persisted; their errors (and send errors) go to `onError` (`warn` log by default) and never make the operation fail. Templates accept `{{id}}`, `{{position}}`, `{{subject}}`, `{{priority}}`, `{{assignee}}`, `{{status}}` and `{{reason}}`.
 
-`TicketDesk` se puede usar sin bot: `new TicketDesk({ storage: memoryTicketStorage() })`.
+`TicketDesk` can be used without a bot: `new TicketDesk({ storage: memoryTicketStorage() })`.

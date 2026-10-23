@@ -1,31 +1,30 @@
 # @botmesh/evolution
 
-Transporte [Evolution API](https://github.com/EvolutionAPI/evolution-api) v2
-([`IProvider` v2](../core/src/core/provider.ts)) para [@botmesh/core](../core).
-Evolution es un gateway REST self-hosted de WhatsApp construido sobre Baileys:
-el bot no abre el socket, habla con tu servidor Evolution por HTTP.
+[Evolution API](https://github.com/EvolutionAPI/evolution-api) v2 transport
+([`IProvider` v2](../core/src/core/provider.ts)) for [@botmesh/core](../core).
+Evolution is a self-hosted WhatsApp REST gateway built on Baileys:
+the bot does not open the socket, it talks to your Evolution server over HTTP.
 
-> Paquete **privado** (alpha): no se publica en npm.
+> **Private package** (alpha): not published to npm.
 
-- **Salida:** `POST {baseUrl}/message/<endpoint>/{instance}` con la cabecera
-  `apikey`, siempre por `secureFetch` de `@botmesh/http` (sin seguir redirecciones).
-- **Entrada:** webhooks de Evolution → `provider.ingest(body, headers)`, con
-  autenticación obligatoria (secreto compartido en cabecera o el `jwt_key` HS256
-  de Evolution).
-- **Identidad estable:** los gemelos LID/PN que Evolution adjunta
+- **Outbound:** `POST {baseUrl}/message/<endpoint>/{instance}` with the `apikey`
+  header, always through `@botmesh/http`'s `secureFetch` (no redirect following).
+- **Inbound:** Evolution webhooks → `provider.ingest(body, headers)`, with
+  mandatory authentication (shared secret in a header or Evolution's HS256 `jwt_key`).
+- **Stable identity:** the LID/PN twins Evolution attaches
   (`remoteJidAlt`, `senderPn`, `participantAlt`, `participantPn`, `senderLid`)
-  se enlazan dentro del provider; la misma persona siempre produce el mismo
-  `senderId`, aunque un mensaje posterior llegue solo con el LID.
-- **Contenido:** texto, imagen, vídeo, audio, nota de voz, documento, sticker,
-  ubicación, contacto, encuesta, reacción; `buttons`/`list`/`card` se degradan a
-  texto numerado; `native` para cualquier endpoint de `/message/*`.
-- **Acciones:** descarga de media, marcar como leído, escribiendo/grabando,
-  borrar para todos, editar texto.
-- **Errores tipados:** `RecipientUnreachableError` (número sin WhatsApp),
+  are linked inside the provider; the same person always produces the same
+  `senderId`, even when a later message arrives with the LID only.
+- **Content:** text, image, video, audio, voice note, document, sticker,
+  location, contact, poll, reaction; `buttons`/`list`/`card` degrade to
+  numbered text; `native` for any `/message/*` endpoint.
+- **Actions:** media download, mark as read, typing/recording,
+  delete for everyone, edit text.
+- **Typed errors:** `RecipientUnreachableError` (number without WhatsApp),
   `RateLimitedError` (429 + `Retry-After`), `PayloadTooLargeError` (413),
-  `UnsupportedContentError` (`template`), `ProviderError` para el resto.
+  `UnsupportedContentError` (`template`), `ProviderError` for the rest.
 
-## Uso
+## Usage
 
 ```ts
 import express from 'express'
@@ -40,19 +39,18 @@ const provider = new EvolutionProvider({
 })
 
 const bot = new Bot({ provider })
-bot.when('hola', (ctx) => ctx.reply('¡Hola! 👋'))
+bot.when('hello', (ctx) => ctx.reply('Hello! 👋'))
 
 const app = express()
-// Cuerpo crudo o JSON: ingest() acepta string, Buffer u objeto.
+// Raw body or JSON: ingest() accepts a string, Buffer or object.
 app.post('/webhook/evolution', express.json({ limit: '25mb' }), (req, res) => {
   res.sendStatus(provider.ingest(req.body, req.headers))
 })
 app.listen(3000)
-await bot.start() // connectionState → ready, o QR en `connection.update.authPayload`
+await bot.start() // connectionState → ready, or QR in `connection.update.authPayload`
 ```
 
-Configura el webhook de la instancia apuntando a tu ruta, con el secreto en una
-cabecera:
+Point the instance webhook at your route, with the secret in a header:
 
 ```bash
 curl -X POST http://localhost:8080/webhook/set/my-instance \
@@ -62,59 +60,58 @@ curl -X POST http://localhost:8080/webhook/set/my-instance \
        "events":["MESSAGES_UPSERT","MESSAGES_UPDATE","CONNECTION_UPDATE","QRCODE_UPDATED","CALL","GROUP_PARTICIPANTS_UPDATE"]}}'
 ```
 
-Alternativa: pon `"headers": { "jwt_key": "<clave>" }` en el webhook y
-`webhookJwtKey: '<clave>'` en el provider; Evolution envía entonces
-`Authorization: Bearer <JWT>` (HS256, caduca a los 10 min) y `ingest()` verifica
-firma, caducidad y los claims `app: 'evolution'` / `action: 'webhook'`.
+Alternative: put `"headers": { "jwt_key": "<key>" }` in the webhook and
+`webhookJwtKey: '<key>'` in the provider; Evolution then sends
+`Authorization: Bearer <JWT>` (HS256, expires after 10 min) and `ingest()` verifies
+the signature, expiry and the `app: 'evolution'` / `action: 'webhook'` claims.
 
-## Configuración
+## Configuration
 
-| Opción | Por defecto | Descripción |
+| Option | Default | Description |
 | --- | --- | --- |
-| `baseUrl` | — | URL del servidor Evolution. |
-| `apiKey` | — | Clave global o token de la instancia (cabecera `apikey`). |
-| `instance` | — | Nombre de la instancia. |
-| `webhookSecret` | — | Secreto compartido (cabecera `x-webhook-secret` o `Authorization: Bearer`). |
-| `webhookSecretHeader` | `x-webhook-secret` | Cabecera que lleva el secreto. |
-| `webhookJwtKey` | — | El `jwt_key` del webhook de Evolution. |
-| `allowUnsignedWebhooks` | `false` | Solo desarrollo local aislado. Sin secreto ni JWT, el constructor falla. |
-| `selfId` | — | JID propio; si falta, se lee de `/instance/fetchInstances` o del `connection.update`. |
-| `http` | — | `allowHttp` (por defecto, sí si `baseUrl` es `http://`), `allowPrivateHosts` (por defecto `true`: el gateway suele ser local), `timeoutMs` (30 s), `maxBytes` (64 MiB), `resolver`, `fetch`. |
-| `identityCacheSize` | `10000` | Tamaño máximo del mapa LID↔PN (LRU). |
-| `identityPersistence` | — | Mapa LID↔PN durable (`get`/`set` síncronos). Sin él, el id canónico de un contacto visto primero solo con LID puede cambiar tras un reinicio. |
-| `convertAudioToMp4` | `false` | Pide a Evolution el audio en MP4 al descargar. |
+| `baseUrl` | — | Evolution server URL. |
+| `apiKey` | — | Global key or instance token (`apikey` header). |
+| `instance` | — | Instance name. |
+| `webhookSecret` | — | Shared secret (`x-webhook-secret` header or `Authorization: Bearer`). |
+| `webhookSecretHeader` | `x-webhook-secret` | Header carrying the secret. |
+| `webhookJwtKey` | — | Evolution webhook `jwt_key`. |
+| `allowUnsignedWebhooks` | `false` | Isolated local development only. Without a secret or JWT, the constructor fails. |
+| `selfId` | — | Own JID; when missing, it is read from `/instance/fetchInstances` or from `connection.update`. |
+| `http` | — | `allowHttp` (by default yes when `baseUrl` is `http://`), `allowPrivateHosts` (default `true`: the gateway is usually local), `timeoutMs` (30 s), `maxBytes` (64 MiB), `resolver`, `fetch`. |
+| `identityCacheSize` | `10000` | Maximum size of the LID↔PN map (LRU). |
+| `identityPersistence` | — | Durable LID↔PN map (synchronous `get`/`set`). Without it, the canonical id of a contact first seen with the LID only may change after a restart. |
+| `convertAudioToMp4` | `false` | Ask Evolution for audio as MP4 when downloading. |
 
-`ingest()` devuelve el código HTTP: `200` (aceptado; también para otra instancia o
-eventos desconocidos, para que Evolution no reintente), `401` (credencial
-inválida) o `400` (no es un webhook de Evolution).
+`ingest()` returns the HTTP code: `200` (accepted; also for another instance or
+unknown events, so Evolution does not retry), `401` (invalid credential) or `400` (not an Evolution webhook).
 
-## Eventos soportados
+## Supported events
 
-| Webhook | Evento normalizado |
+| Webhook | Normalized event |
 | --- | --- |
-| `messages.upsert` | `message` (o `reaction` si es `reactionMessage`) |
+| `messages.upsert` | `message` (or `reaction` when it is a `reactionMessage`) |
 | `messages.update` | `status` (`SERVER_ACK`→`sent`, `DELIVERY_ACK`→`delivered`, `READ`/`PLAYED`→`read`, `ERROR`→`failed`) |
 | `connection.update` | `connection` (`open`→`ready`, `close` 401→`sessionInvalid`, 440→`sessionTakenOver`) |
-| `qrcode.updated` | `connection` `authenticating` con el QR en `authPayload` |
+| `qrcode.updated` | `connection` `authenticating` with the QR in `authPayload` |
 | `call` | `call` |
 | `group-participants.update` | `group` |
 
-Los nombres se aceptan en cualquier forma (`MESSAGES_UPSERT`, `messages-upsert`,
-`messages.upsert`, útil con `webhookByEvents`).
+Names are accepted in any form (`MESSAGES_UPSERT`, `messages-upsert`,
+`messages.upsert`, useful with `webhookByEvents`).
 
 ## Media
 
-`ctx.media` / `provider.downloadMedia(ref)` usa el base64 del webhook si la
-instancia tiene `webhookBase64: true`; si no, llama a
-`/chat/getBase64FromMediaMessage/{instance}`. Nunca descarga URLs arbitrarias del
-payload. Para enviar, una URL (`http(s)://` o `{ url }`) se pasa tal cual a Evolution
-y cualquier otro `MediaSource` (Buffer, ruta, stream) viaja en base64.
+`ctx.media` / `provider.downloadMedia(ref)` uses the webhook base64 when the
+instance has `webhookBase64: true`; otherwise it calls
+`/chat/getBase64FromMediaMessage/{instance}`. It never downloads arbitrary URLs from the
+payload. To send, a URL (`http(s)://` or `{ url }`) is passed to Evolution as-is
+and any other `MediaSource` (Buffer, path, stream) travels as base64.
 
-## Limitaciones
+## Limitations
 
-- Botones y listas nativos no son fiables en WhatsApp Web: se envían como texto
-  numerado. Para los de Evolution usa
-  `ctx.sendNative('evolution', { endpoint: 'sendButtons', body: {...} })`.
-- Los votos de encuesta (`pollUpdates`) aún no se emiten como `poll-vote`.
-- Si el primer mensaje de una persona llega solo con LID y sin gemelo, ese LID
-  queda como su id canónico durante la sesión (el mapa vive en memoria).
+- Native buttons and lists are unreliable on WhatsApp Web: they are sent as numbered
+text. For Evolution's own, use
+`ctx.sendNative('evolution', { endpoint: 'sendButtons', body: {...} })`.
+- Poll votes (`pollUpdates`) are not emitted as `poll-vote` yet.
+- If a person's first message arrives with the LID only and without a twin, that LID
+  stays as their canonical id for the session (the map lives in memory).

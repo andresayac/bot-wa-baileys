@@ -1,23 +1,23 @@
 # @botmesh/rag
 
-> **Experimental — aún no publicado en npm.** Implementación real y probada, pero el paquete es `private`: no forma parte de la primera alpha y su API puede cambiar. Úsalo desde este monorepo (`workspace:*`).
+> **Experimental — not yet published on npm.** Real, tested implementation, but the package is `private`: it is not part of the first alpha and its API may change. Use it from this monorepo (`workspace:*`).
 
-Retrieval Augmented Generation para [`@botmesh/ai`](../ai): carga tus documentos, los trocea, calcula embeddings y responde con los pasajes más relevantes **con citas**. Sin base de datos vectorial: índice en memoria con similitud coseno y persistencia opcional en un archivo JSON.
+Retrieval Augmented Generation for [`@botmesh/ai`](../ai): it loads your documents, chunks them, computes embeddings and answers with the most relevant passages **with citations**. No vector database: an in-memory index with cosine similarity and optional persistence to a JSON file.
 
-- **Loaders:** Markdown (por secciones de encabezados), texto, JSON (un documento por elemento de un array) y PDF (con el peer opcional `pdf-parse`, cargado bajo demanda). Directorios recursivos.
-- **Chunking:** párrafos → frases → palabras, con solapamiento (`chunkSize`, `chunkOverlap`).
-- **Embeddings intercambiables:** OpenAI-compatible (vía `fetch` seguro, sin SDK), Ollama y un embedder local determinista por hashing (tests, offline, FAQs pequeñas).
-- **Índice:** coseno en memoria, `topK`, `minScore`, filtros; guarda en JSON y, al reiniciar, **solo re-embebe los fragmentos que cambiaron**.
+- **Loaders:** Markdown (split by heading sections), text, JSON (one document per array element) and PDF (with the optional `pdf-parse` peer, loaded on demand). Recursive directories.
+- **Chunking:** paragraphs → sentences → words, with overlap (`chunkSize`, `chunkOverlap`).
+- **Interchangeable embeddings:** OpenAI-compatible (through secure `fetch`, no SDK), Ollama and a deterministic local hashing embedder (tests, offline, small FAQs).
+- **Index:** in-memory cosine, `topK`, `minScore`, filters; saved to JSON and, on restart, **only chunks that changed are re-embedded**.
 
-## Uso con `aiPlugin`
+## Usage with `aiPlugin`
 
 ```ts
 import { aiPlugin } from '@botmesh/ai'
 import { createRag } from '@botmesh/rag'
 
 const rag = createRag({
-  documents: ['./docs/faq.md', './docs/productos.pdf', './docs/catalogo.json'],
-  embeddings: 'openai',          // 'local' | 'openai' | 'ollama' | { provider, ... } | Embedder propio
+  documents: ['./docs/faq.md', './docs/products.pdf', './docs/catalog.json'],
+  embeddings: 'openai',          // 'local' | 'openai' | 'ollama' | { provider, ... } | custom Embedder
   chunkSize: 1000,
   topK: 3,
   persistPath: './data/rag-index.json',
@@ -26,47 +26,47 @@ const rag = createRag({
 bot.plug(aiPlugin({
   provider: 'openai',
   model: 'gpt-5-mini',                            // openai has no default model
-  rag: { retriever: rag, appendSources: true },   // o simplemente `rag`
+  rag: { retriever: rag, appendSources: true },   // or simply `rag`
 }))
-// Usuario: "¿cuánto tarda el envío?"
-// Bot:     "Tardan 3 días hábiles [1].\n\nFuentes: [1] docs/faq.md › Envíos"
+// User: "how long does shipping take?"
+// Bot:  "It takes 3 business days [1].\n\nSources: [1] docs/faq.md › Shipping"
 ```
 
-`createRag()` es síncrono: los documentos se cargan y embeben en el primer `retrieve()`; `aiPlugin` llama a `warmup()` al instalarse (un error se registra en el log, no tumba el proceso).
+`createRag()` is synchronous: documents are loaded and embedded on the first `retrieve()`; `aiPlugin` calls `warmup()` on install (an error is logged, it does not crash the process).
 
-## Uso directo
+## Direct usage
 
 ```ts
-const hits = await rag.retrieve('medios de pago', { topK: 2 })
-// [{ text, score, source: 'docs/faq.md', section: 'Pagos', citation: 'docs/faq.md › Pagos', id, docId, index }]
+const hits = await rag.retrieve('payment methods', { topK: 2 })
+// [{ text, score, source: 'docs/faq.md', section: 'Payments', citation: 'docs/faq.md › Payments', id, docId, index }]
 
 import { formatContext } from '@botmesh/rag'
-const answer = await ctx.tools.ai.ask(`Contexto:\n${formatContext(hits)}\n\nPregunta: ${ctx.body}`)
+const answer = await ctx.tools.ai.ask(`Context:\n${formatContext(hits)}\n\nQuestion: ${ctx.body}`)
 
-await rag.addText('Abrimos los domingos de 10 a 14.', { source: 'horario' })
-await rag.addFiles(['./docs/nuevos'])
-await rag.removeDocument('horario')
+await rag.addText('We are open on Sundays from 10 to 14.', { source: 'hours' })
+await rag.addFiles(['./docs/new'])
+await rag.removeDocument('hours')
 await rag.save()
 ```
 
 ## Embeddings
 
-| Config | Detalle |
+| Config | Detail |
 | --- | --- |
-| `'local'` (por defecto) | `HashEmbedder` (512 dims): léxico, determinista, sin red. |
-| `'openai'` / `{ provider: 'openai', apiKey, model, baseUrl, dimensions, batchSize }` | `POST {baseUrl}/embeddings`. Por defecto `text-embedding-3-small` y `OPENAI_API_KEY`. Sirve cualquier API compatible. |
-| `'ollama'` / `{ provider: 'ollama', model, baseUrl }` | `POST {baseUrl}/api/embed`, por defecto `nomic-embed-text` en `http://localhost:11434`. |
-| `Embedder` propio | `{ id, embed(texts) }`. |
+| `'local'` (default) | `HashEmbedder` (512 dims): lexical, deterministic, no network. |
+| `'openai'` / `{ provider: 'openai', apiKey, model, baseUrl, dimensions, batchSize }` | `POST {baseUrl}/embeddings`. `text-embedding-3-small` and `OPENAI_API_KEY` by default. Any compatible API works. |
+| `'ollama'` / `{ provider: 'ollama', model, baseUrl }` | `POST {baseUrl}/api/embed`, `nomic-embed-text` on `http://localhost:11434` by default. |
+| Custom `Embedder` | `{ id, embed(texts) }`. |
 
-Las peticiones salen por `secureFetch` de `@botmesh/http` (anti-SSRF): HTTPS y hosts públicos por defecto. Ollama permite `http` y hosts privados por defecto; para otros endpoints internos usa `http: { allowHttp: true, allowPrivateHosts: true }`.
+Requests go through [`@botmesh/http`](../http)'s `secureFetch` (anti-SSRF): HTTPS and public hosts by default. Ollama allows `http` and private hosts by default; for other internal endpoints use `http: { allowHttp: true, allowPrivateHosts: true }`.
 
-## Persistencia
+## Persistence
 
-Con `persistPath`, el índice se guarda (escritura atómica) tras cada cambio. Al arrancar se reutilizan los vectores de los fragmentos cuyo texto no cambió y que se calcularon con el mismo embedder (`Embedder.id`); si cambias de modelo, se reconstruye. Sin `documents`, se sirve el índice guardado tal cual (índice precompilado).
+With `persistPath`, the index is saved (atomic write) after every change. On startup, vectors are reused for chunks whose text did not change and that were computed with the same embedder (`Embedder.id`); if you change the model, it is rebuilt. Without `documents`, the saved index is served as-is (a precompiled index).
 
-Los documentos añadidos en tiempo de ejecución (`addText`, `addDocuments`, `addFiles`) se conservan al reiniciar; si uno comparte id con un documento configurado, gana el configurado. Si el archivo está corrupto y hay `documents`, se aparta como `<persistPath>.corrupt`, se avisa por `onError` y el índice se reconstruye; sin `documents` no hay de dónde reconstruir y `ready()` falla con `INVALID_INDEX`.
+Documents added at runtime (`addText`, `addDocuments`, `addFiles`) survive restarts; if one shares an id with a configured document, the configured one wins. If the file is corrupt and `documents` is set, it is moved aside as `<persistPath>.corrupt`, `onError` is notified and the index is rebuilt; without `documents` there is nothing to rebuild from and `ready()` fails with `INVALID_INDEX`.
 
-Si la ingesta falla, `retrieve()` rechaza al momento con el mismo error durante `retryDelayMs` (30 s por defecto) en lugar de volver a calcular los embeddings de todo el corpus en cada consulta; `ready()`/`warmup()` reintentan siempre. `retrieve(query, { signal })` deja de esperar la ingesta en cuanto se aborta la señal.
+If ingestion fails, `retrieve()` rejects immediately with the same error for `retryDelayMs` (30 s by default) instead of recomputing the embeddings of the whole corpus on every query; `ready()`/`warmup()` always retry. `retrieve(query, { signal })` stops waiting for ingestion as soon as the signal aborts.
 
 ## PDF
 
@@ -74,12 +74,12 @@ Si la ingesta falla, `retrieve()` rechaza al momento con el mismo error durante 
 pnpm add pdf-parse
 ```
 
-Sin el paquete, cargar un PDF falla con `RagError('MISSING_DEPENDENCY')`. También puedes pasar tu extractor: `createRag({ pdf: async (bytes) => texto })`.
+Without the package, loading a PDF fails with `RagError('MISSING_DEPENDENCY')`. You can also pass your own extractor: `createRag({ pdf: async (bytes) => text })`.
 
-## Errores
+## Errors
 
-Todo falla con `RagError` y un `code`: `INVALID_OPTIONS`, `UNSUPPORTED_FORMAT`, `LOAD_FAILED`, `MISSING_DEPENDENCY`, `EMBEDDING_FAILED`, `INVALID_INDEX`. Los mensajes nunca incluyen el cuerpo de la respuesta del proveedor de embeddings.
+Everything fails with `RagError` and a `code`: `INVALID_OPTIONS`, `UNSUPPORTED_FORMAT`, `LOAD_FAILED`, `MISSING_DEPENDENCY`, `EMBEDDING_FAILED`, `INVALID_INDEX`. Messages never include the embedding provider's response body.
 
-## Límites
+## Limits
 
-Índice de fuerza bruta: pensado para miles de fragmentos (FAQ, catálogo, manual). Para millones, implementa tu propio `retrieve()` sobre una base vectorial; `aiPlugin` solo necesita `{ retrieve(query, { topK }) }`.
+Brute-force index: intended for thousands of chunks (FAQ, catalog, manual). For millions, implement your own `retrieve()` over a vector database; `aiPlugin` only needs `{ retrieve(query, { topK }) }`.

@@ -1,46 +1,46 @@
 # @botmesh/mcp
 
-> **Paquete privado** (`"private": true`, no se publica en npm). Implementación real; la API puede cambiar sin aviso mientras la alpha no salga.
+> **Private package** (`"private": true`, not published to npm). Real implementation; the API may change without notice while the alpha is out.
 
-Servidor **MCP** (Model Context Protocol) por stdio para BotWA: expone las piezas puras del proyecto para que cualquier agente de código (Copilot, Claude Code, un editor) escriba, valide, compile, dibuje, lintee, migre y compare **documentos de flujo JSON sin arrancar un bot**.
+**MCP** (Model Context Protocol) server over stdio for botmesh: it exposes the project's pure pieces so any coding agent (Copilot, Claude Code, an editor) can write, validate, compile, draw, lint, migrate and diff **JSON flow documents without starting a bot**.
 
-Sin dependencias, sin red, sin `eval`: el protocolo (JSON-RPC 2.0 delimitado por líneas) está implementado aquí mismo y cada tool es una función de sus argumentos.
+No dependencies, no network, no `eval`: the protocol (line-delimited JSON-RPC 2.0) is implemented here and every tool is a function of its arguments.
 
-## Herramientas
+## Tools
 
-| Tool | Qué hace |
+| Tool | What it does |
 | --- | --- |
-| `flow_validate` | Valida contra el esquema versionado (draft 2020-12) y devuelve cada problema con su ruta JSON Pointer. |
-| `flow_analyze` | Valida, compila, dibuja el grafo (Mermaid o JSON) y devuelve los diagnósticos de `lintFlows` de una sola vez. Acepta `subflows` (id → documento) para `subflow`. |
-| `flow_migrate` | Encadena las migraciones conocidas (sin `version` se lee como 0) y devuelve el documento migrado y los pasos aplicados. |
-| `flow_diff` | Diff estructural de dos documentos válidos, con el digest de cada lado. |
-| `flow_digest` | `sha256` sobre JSON canónico (el orden de claves no cambia el resultado) y la etiqueta de versión que usa `publishFlow`. |
-| `flow_schema` | El JSON Schema completo, los límites estructurales y los tipos de paso aceptados (derivados del esquema, nunca desfasados). |
-| `flow_example` | Un documento canónico que valida y lintea limpio. |
-| `docs_search` | Busca en las guías (EN y ES) y devuelve secciones con ruta, heading y snippet. Solo si se configura un directorio de docs. |
-| `docs_page` | Devuelve el markdown de una página por su ruta relativa. Solo con `docsDir`. |
+| `flow_validate` | Validates against the versioned schema (draft 2020-12) and returns every problem with its JSON Pointer path. |
+| `flow_analyze` | Validates, compiles, draws the graph (Mermaid or JSON) and returns the core `lintFlows` diagnostics in one call. Accepts `subflows` (id → document) for `subflow`. |
+| `flow_migrate` | Chains the known migrations (no `version` is read as 0) and returns the migrated document and the applied steps. |
+| `flow_diff` | Structural diff of two valid documents, with each side's digest. |
+| `flow_digest` | `sha256` over canonical JSON (key order does not change the result) and the version label `publishFlow` uses. |
+| `flow_schema` | The full JSON Schema, the structural limits and the accepted step types (derived from the schema, never stale). |
+| `flow_example` | A canonical document that validates and lints clean. |
+| `docs_search` | Searches the guides (EN and ES) and returns sections with path, heading and snippet. Only when a docs directory is configured. |
+| `docs_page` | Returns the markdown of a page by its relative path. Only with `docsDir`. |
 
-**Convención de errores:** un documento inválido es una llamada **correcta** con `valid: false` y la lista de `issues`; `isError` se reserva para la petición en sí (argumentos ausentes o mal tipados, versión no migrable, ruta fuera del directorio de docs).
+**Error convention:** an invalid document is a **successful** call with `valid: false` and the `issues` list; `isError` is reserved for the request itself (missing or mistyped arguments, non-migratable version, path outside the docs directory).
 
-## Uso
+## Usage
 
 ```bash
-pnpm build                                   # los paquetes se resuelven por lib/
+pnpm build                                   # packages resolve through lib/
 
-# Con las guías (añade docs_search / docs_page):
+# With the guides (adds docs_search / docs_page):
 node packages/mcp/lib/bin.js --docs docs
 
-# Solo las herramientas de flujo:
+# Flow tools only:
 node packages/mcp/lib/bin.js
 ```
 
-`--docs <dir>` o la variable `BOTWA_DOCS_DIR`. **stdout es el canal del protocolo**: los diagnósticos van a stderr.
+`--docs <dir>` or the `BOTWA_DOCS_DIR` variable. **stdout is the protocol channel**: diagnostics go to stderr.
 
 ### VS Code
 
-El repo trae `.vscode/mcp.json`; tras `pnpm build`, MCP → *botmesh* → Start.
+The repo ships `.vscode/mcp.json`; after `pnpm build`, MCP → *botmesh* → Start.
 
-### Programa
+### Programmatic
 
 ```ts
 import { createMcpServer, serveStream } from '@botmesh/mcp'
@@ -49,13 +49,13 @@ const server = createMcpServer({ docsDir: 'docs' })
 await serveStream(process.stdin, { server, write: (line) => process.stdout.write(`${line}\n`) })
 ```
 
-## Diseño
+## Design
 
-- **Sin dependencias.** El transporte es `LineDecoder` + `JSON-RPC` escrito a mano (igual que `@botmesh/server` y `@botmesh/manager`), con `ping`, `initialize`, `tools/list` y `tools/call`; `resources/*` y `prompts/*` contestan `-32601` porque no se anuncian como capability.
-- **Solo lo que ya existe.** `flow_*` envuelve `@botmesh/flow-schema` y `lintFlows`/`describeFlows` de `@botmesh/core`; no reimplementa validación ni añade un segundo esquema.
-- **El `initialize` lleva las reglas caras de equivocar**: la API v1 no existe, los documentos son datos, `void runtime.enter(...)` y la identidad la resuelve el provider.
-- **README de búsqueda determinista**: sin modelo de ranking ni fuzzy; IDF + presencia + bonus por heading, con stopwords EN/ES. Un identificador raro (`appendLog`) gana a una palabra que aparece en todas las páginas.
+- **No dependencies.** The transport is a hand-written `LineDecoder` + `JSON-RPC` (same as `@botmesh/server` and `@botmesh/manager`), with `ping`, `initialize`, `tools/list` and `tools/call`; `resources/*` and `prompts/*` answer `-32601` because they are not advertised as capabilities.
+- **Only what already exists.** `flow_*` wraps `@botmesh/flow-schema` and `lintFlows`/`describeFlows` from `@botmesh/core`; it reimplements no validation and adds no second schema.
+- **`initialize` carries the rules that are expensive to get wrong**: the v1 API does not exist, documents are data, `void runtime.enter(...)` and identity is resolved by the provider.
+- **Deterministic search ranking**: no ranking model or fuzzy matching; IDF + presence + heading bonus, with EN/ES stopwords. A rare identifier (`appendLog`) beats a word that appears on every page.
 
 ## Tests
 
-`pnpm --filter @botmesh/mcp test` — 49 casos: framing con chunks partidos, envelopes, cada tool (válido/inválido/migración/diff/subflow), el esquema contra los 14 tipos de paso, búsqueda bilingüe sobre un árbol temporal (incluido el rechazo de `../`), y la sincronización de la versión con `package.json`.
+`pnpm --filter @botmesh/mcp test` — 49 cases: framing with split chunks, envelopes, every tool (valid/invalid/migration/diff/subflow), the schema against the 14 step types, bilingual search over a temporary tree (including rejecting `../`), and version synchronization with `package.json`.

@@ -1,31 +1,31 @@
 # @botmesh/discord
 
-> **Experimental — aún no publicado en npm.** Implementación real y con tests, pero el paquete es `private`: no forma parte de la primera alpha y su API puede cambiar. Úsalo desde este monorepo (`workspace:*`); el `pnpm add` de abajo funcionará cuando se publique.
+> **Experimental — not yet published on npm.** Real, tested implementation, but the package is `private`: it is not part of the first alpha and its API may change. Use it from this monorepo (`workspace:*`); the `pnpm add` below will work once it is published.
 
-Transporte **Discord** para [`@botmesh/core`](../core): **Gateway websocket**
-para eventos entrantes (mensajes, botones, menús y slash commands) y **REST**
-para enviar. El provider es dueño del socket (`pushIngress: false`) — no hay
-webhook que cablear.
+**Discord** transport for [`@botmesh/core`](../core): **Gateway websocket**
+for inbound events (messages, buttons, menus and slash commands) and **REST**
+to send. The provider owns the socket (`pushIngress: false`) — there is no
+webhook to wire up.
 
-## Instalación
+## Install
 
 ```bash
 pnpm add @botmesh/core @botmesh/discord
 ```
 
-Dependencias: `ws` (gateway), `fetch`/`FormData` nativos de Node ≥ 22 (REST).
+Dependencies: `ws` (gateway), Node ≥ 22 native `fetch`/`FormData` (REST).
 
-## Requisitos (Discord)
+## Requirements (Discord)
 
-1. Una aplicación en el [Developer Portal](https://discord.com/developers/applications) con un **Bot**.
-2. El **token del bot** (Bot → Reset Token).
-3. **Privileged Gateway Intents** habilitados (Bot → Privileged Gateway Intents):
-   - `MESSAGE CONTENT INTENT` — **obligatorio**, sin esto `content` llega vacío.
-   - `SERVER MEMBERS INTENT` — solo si necesitás miembros.
-4. Invitá el bot con el scope `bot` + `applications.commands` y permisos de
-   leer/enviar mensajes.
+1. An application in the [Developer Portal](https://discord.com/developers/applications) with a **Bot**.
+2. The **bot token** (Bot → Reset Token).
+3. **Privileged Gateway Intents** enabled (Bot → Privileged Gateway Intents):
+   - `MESSAGE CONTENT INTENT` — **required**, without it `content` arrives empty.
+   - `SERVER MEMBERS INTENT` — only if you need members.
+4. Invite the bot with the `bot` + `applications.commands` scopes and permission to
+   read/send messages.
 
-## Uso
+## Usage
 
 ```ts
 import { Bot } from '@botmesh/core'
@@ -33,110 +33,110 @@ import { DiscordProvider, GatewayIntents } from '@botmesh/discord'
 
 const provider = new DiscordProvider({
   token: process.env.DISCORD_TOKEN!,
-  // Opcional: además de Guilds|GuildMessages|MessageContent (default),
-  // agregá DirectMessages para recibir DMs:
+  // Optional: on top of Guilds|GuildMessages|MessageContent (default),
+  // add DirectMessages to receive DMs:
   intents: GatewayIntents.Guilds
     | GatewayIntents.GuildMessages
     | GatewayIntents.MessageContent
     | GatewayIntents.DirectMessages,
-  appId: process.env.DISCORD_APP_ID, // opcional: followups dentro de interacciones
+  appId: process.env.DISCORD_APP_ID, // optional: followups inside interactions
 })
 
 const bot = new Bot({ provider })
-bot.when('hola', (ctx) => ctx.reply('👋 ¡Hola desde Discord!'))
+bot.when('hello', (ctx) => ctx.reply('👋 Hello from Discord!'))
 await bot.start()
 ```
 
-### Botones e interacciones
+### Buttons and interactions
 
-Discord exige responder una interacción en **~3 segundos**
-(`interactionsRequireAck: true`). Los clics de botón / selección de menú /
-slash commands llegan como eventos `interaction` con un `interactionId`
-`"<id>:<token>"` y `respondBy` (epoch ms del deadline):
+Discord requires an interaction to be answered within **~3 seconds**
+(`interactionsRequireAck: true`). Button clicks / menu selections /
+slash commands arrive as `interaction` events with an `interactionId`
+`"<id>:<token>"` and `respondBy` (deadline epoch ms):
 
 ```ts
 provider.onEvent(async (e) => {
   if (e.kind !== 'interaction') return
-  // ack diferido (type 6) antes del deadline:
+  // deferred ack (type 6) before the deadline:
   await provider.acknowledgeInteraction(e.interaction.interactionId)
-  // …o respuesta inmediata con texto (type 4):
-  await provider.acknowledgeInteraction(e.interaction.interactionId, { text: 'Hecho ✅' })
+  // …or an immediate text reply (type 4):
+  await provider.acknowledgeInteraction(e.interaction.interactionId, { text: 'Done ✅' })
 })
 ```
 
-### Gateway (nota técnica)
+### Gateway (technical note)
 
-`start()` abre `wss://gateway.discord.gg/?v=10&encoding=json` e implementa el
-protocolo mínimo: HELLO → heartbeat + IDENTIFY, seguimiento de secuencia,
-RESUME tras caídas (con backoff), reconexión con sesión nueva en
-INVALID_SESSION no resumible, y parada definitiva en códigos fatales
-(4004 token inválido, 4013/4014 intents — emite `connection` con
-`reason: 'sessionInvalid'`). Para tests se inyecta un socket falso vía
-`socketFactory` (nunca se abre una conexión real).
+`start()` opens `wss://gateway.discord.gg/?v=10&encoding=json` and implements the
+minimum protocol: HELLO → heartbeat + IDENTIFY, sequence tracking,
+RESUME after drops (with backoff), reconnection with a new session on a
+non-resumable INVALID_SESSION, and a definitive stop on fatal codes
+(4004 invalid token, 4013/4014 intents — emits `connection` with
+`reason: 'sessionInvalid'`). For tests, a fake socket is injected through
+`socketFactory` (a real connection is never opened).
 
-## Qué soporta
+## What it supports
 
 | Feature | Discord |
 |---|---|
-| Texto, imagen, video, audio, voz, documento, sticker (multipart `files[0]` + `payload_json`) | ✅ |
-| **Botones** (`components`: filas de 5, hasta 25 botones; botones URL style 5) | ✅ nativo |
-| **Listas** → select menu (type 3); la interacción trae el id de la fila elegida en `data` | ✅ nativo |
+| Text, image, video, audio, voice, document, sticker (`files[0]` multipart + `payload_json`) | ✅ |
+| **Buttons** (`components`: rows of 5, up to 25 buttons; URL buttons style 5) | ✅ native |
+| **Lists** → select menu (type 3); the interaction carries the chosen row id in `data` | ✅ native |
 | Card → embed (`title`/`description`/`image`) | ✅ |
-| **Encuestas** (poll 24h) | ✅ |
-| Reacciones (PUT `.../reactions/{emoji}/@me`; una por mensaje, `react('')` la quita: ver abajo) | ✅ |
-| Typing, editar y borrar mensajes | ✅ |
-| Interacciones: botón / menú / slash command con ack obligatorio (~3s) | ✅ |
-| Grupos (guilds) y DMs (con `DirectMessages` intent) | ✅ |
-| Plantillas (kind `template`) | ❌ (no existe en Discord) |
-| Presence, confirmaciones de lectura (`markRead` no-op) | ❌ (no aplica) |
-| Ubicación / contacto | ⚠️ degradación explícita a texto (link de mapa / tarjeta de texto) |
+| **Polls** (24h poll) | ✅ |
+| Reactions (PUT `.../reactions/{emoji}/@me`; one per message, `react('')` removes it: see below) | ✅ |
+| Typing, editing and deleting messages | ✅ |
+| Interactions: button / menu / slash command with mandatory ack (~3s) | ✅ |
+| Groups (guilds) and DMs (with the `DirectMessages` intent) | ✅ |
+| Templates (kind `template`) | ❌ (does not exist in Discord) |
+| Presence, read receipts (`markRead` no-op) | ❌ (not applicable) |
+| Location / contact | ⚠️ explicit degradation to text (map link / text card) |
 
-## Reacciones del bot
+## Bot reactions
 
-Discord permite varias reacciones por usuario y las borra **por emoji**
-(`DELETE .../reactions/{emoji}/@me`). Para que `ctx.react()` se comporte igual
-que en WhatsApp y Telegram, el provider recuerda el emoji que puso el bot en
-cada mensaje (LRU en memoria, `reactionMemory`, 1000 mensajes por defecto):
+Discord allows several reactions per user and deletes them **per emoji**
+(`DELETE .../reactions/{emoji}/@me`). So that `ctx.react()` behaves the same
+as on WhatsApp and Telegram, the provider remembers the emoji the bot put on
+each message (in-memory LRU, `reactionMemory`, 1000 messages by default):
 
-- `ctx.react('✅')` sobre un mensaje donde el bot ya reaccionó con `⏳` añade
-  `✅` y luego quita `⏳` (una reacción del bot por mensaje; si quitar la
-  anterior falla, solo se registra un aviso).
-- `ctx.react('')` quita la reacción recordada.
-- Si el emoji no se conoce (se puso antes de reiniciar el proceso, salió del
-  LRU o `reactionMemory: 0`), `react('')` rechaza con `UnsupportedContentError`
-  en vez de adivinar. Con `reactionMemory: 0` tampoco hay reemplazo: cada emoji
-  se suma a los anteriores.
+- `ctx.react('✅')` on a message where the bot already reacted with `⏳` adds
+  `✅` and then removes `⏳` (one bot reaction per message; if removing the
+  previous one fails, only a warning is logged).
+- `ctx.react('')` removes the remembered reaction.
+- If the emoji is unknown (it was set before the process restarted, evicted
+  from the LRU or `reactionMemory: 0`), `react('')` rejects with
+  `UnsupportedContentError` instead of guessing. With `reactionMemory: 0`
+  there is no replacement either: each emoji adds up to the previous ones.
 
-## Errores tipados
+## Typed errors
 
-Los fallos REST (HTTP ≥ 400) se mapean a los errores de `@botmesh/core`:
-`429` → `RateLimitedError` (con `retryAfterMs` desde `retry_after`), `403` →
-`RecipientUnreachableError` (también los códigos 10003 *Unknown Channel*,
-10013 *Unknown User*, 50001 *Missing Access* y 50007 *Cannot send messages to
-this user*), `413`/código 40003 → `PayloadTooLargeError`, resto →
-`ProviderError` con el `message` de Discord. Una reacción con emoji vacío se
-rechaza con `UnsupportedContentError` (Discord no puede quitar una reacción
-sin saber cuál).
+REST failures (HTTP ≥ 400) map to `@botmesh/core` errors:
+`429` → `RateLimitedError` (with `retryAfterMs` from `retry_after`), `403` →
+`RecipientUnreachableError` (also codes 10003 *Unknown Channel*,
+10013 *Unknown User*, 50001 *Missing Access* and 50007 *Cannot send messages to
+this user*), `413`/code 40003 → `PayloadTooLargeError`, the rest →
+`ProviderError` with Discord's `message`. A reaction with an empty emoji is
+rejected with `UnsupportedContentError` (Discord cannot remove a reaction
+without knowing which one).
 
-## Identidad
+## Identity
 
-`chatId` es el snowflake del canal (`channel_id`) y `senderId` el del usuario
-(`author.id` / `member.user.id`) — estables, sin ambigüedad member-vs-user.
-Los mensajes de bots (incluido el propio) se ignoran.
+`chatId` is the channel snowflake (`channel_id`) and `senderId` the user's
+(`author.id` / `member.user.id`) — stable, with no member-vs-user ambiguity.
+Bot messages (including the bot's own) are ignored.
 
-## Configuración completa
+## Full configuration
 
 ```ts
 new DiscordProvider({
-  token: '…',                 // requerido
+  token: '…',                 // required
   intents?: number,           // default: Guilds | GuildMessages | MessageContent
-  appId?: string,             // para followups de interacción (SendOptions.interactionId)
-  selfId?: string,            // se autodetecta del READY del gateway
+  appId?: string,             // for interaction followups (SendOptions.interactionId)
+  selfId?: string,            // auto-detected from the gateway READY
   gatewayUrl?: string,        // default 'wss://gateway.discord.gg'
-  apiUrl?: string,            // default 'https://discord.com/api' (sin versión)
+  apiUrl?: string,            // default 'https://discord.com/api' (no version)
   apiVersion?: string,        // default 'v10'
-  socketFactory?: SocketFactory, // tests: socket falso
-  reconnectDelayMs?: number,  // base del backoff de reconexión, default 500
+  socketFactory?: SocketFactory, // tests: fake socket
+  reconnectDelayMs?: number,  // reconnection backoff base, default 500
   debug?: boolean, logger?: Logger,
 })
 ```

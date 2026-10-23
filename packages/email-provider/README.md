@@ -1,90 +1,90 @@
 # @botmesh/email
 
-> **Experimental — aún no publicado en npm.** Implementación real y con tests, pero el paquete es `private`: su API puede cambiar. Úsalo desde este monorepo (`workspace:*`); el `pnpm add @botmesh/email` de abajo funcionará cuando se publique.
+> **Experimental — not yet published on npm.** Real, tested implementation, but the package is `private`: its API may change. Use it from this monorepo (`workspace:*`); the `pnpm add @botmesh/email` below will work once it is published.
 
-Transporte **email** para [`@botmesh/core`](../core): **IMAP IDLE** para recibir (o `ingest()` con el MIME crudo desde un webhook de correo entrante) y **SMTP** para responder. Cada hilo de correo es un chat, así que los flows (`flow().ask()...`) funcionan igual que en WhatsApp o Telegram: el cliente responde al email y el bot continúa la conversación en el mismo hilo.
+**Email** transport for [`@botmesh/core`](../core): **IMAP IDLE** to receive (or `ingest()` with the raw MIME from an inbound-email webhook) and **SMTP** to reply. Each email thread is a chat, so flows (`flow().ask()...`) work exactly as on WhatsApp or Telegram: the customer replies to the email and the bot continues the conversation in the same thread.
 
-## Instalación
+## Install
 
 ```bash
 pnpm add @botmesh/core @botmesh/email
-pnpm add imapflow nodemailer   # peers opcionales: IMAP (entrada) y SMTP (salida)
+pnpm add imapflow nodemailer   # optional peers: IMAP (inbound) and SMTP (outbound)
 ```
 
-`imapflow` y `nodemailer` son `peerDependencies` **opcionales** y se cargan de forma lazy: si solo envías, no necesitas `imapflow`; si solo recibes por `ingest()`, no necesitas ninguno de los dos para recibir.
+`imapflow` and `nodemailer` are **optional** `peerDependencies` loaded lazily: if you only send, you do not need `imapflow`; if you only receive through `ingest()`, you need neither to receive.
 
-## Uso
+## Usage
 
 ```ts
 import { Bot, flow } from '@botmesh/core'
 import { EmailProvider } from '@botmesh/email'
 
 const provider = new EmailProvider({
-  address: 'soporte@acme.com',
-  fromName: 'Soporte Acme',
-  imap: { host: 'imap.gmail.com', port: 993, user: 'soporte@acme.com', pass: process.env.IMAP_PASS! },
-  smtp: { host: 'smtp.gmail.com', port: 465, user: 'soporte@acme.com', pass: process.env.SMTP_PASS! },
+  address: 'support@acme.com',
+  fromName: 'Acme Support',
+  imap: { host: 'imap.gmail.com', port: 993, user: 'support@acme.com', pass: process.env.IMAP_PASS! },
+  smtp: { host: 'smtp.gmail.com', port: 465, user: 'support@acme.com', pass: process.env.SMTP_PASS! },
 })
 
 const bot = new Bot({ provider })
 bot.use(
-  flow('cotizar')
-    .ask('¿Cuántas unidades necesitas?', 'qty')
-    .say((_ctx, c) => `Perfecto, preparo la cotización por ${c.state.qty} unidades.`),
+  flow('quote')
+    .ask('How many units do you need?', 'qty')
+    .say((_ctx, c) => `Great, I am preparing the quote for ${c.state.qty} units.`),
 )
 await bot.start()
 ```
 
-Con Gmail o Microsoft 365 usa una contraseña de aplicación o OAuth2 (`accessToken` en lugar de `pass`).
+With Gmail or Microsoft 365 use an app password or OAuth2 (`accessToken` instead of `pass`).
 
-## Cómo se mapea el email
+## How email is mapped
 
-| Concepto | Email |
+| Concept | Email |
 | --- | --- |
-| `senderId` | Dirección `From` normalizada (minúsculas, sin `<>`). La misma persona → el mismo id. |
-| `chatId` (modo `thread`, por defecto) | `thread:<Message-ID raíz>`: un chat por hilo, resuelto por `In-Reply-To` / `References` (y un índice de los Message-ID que envió el bot, así que funciona aunque el cliente recorte `References`). El chat pertenece a quien abrió el hilo: si otra dirección responde en él (un "responder a todos" o un `In-Reply-To` falsificado), recibe su propio chat. |
-| `chatId` (modo `sender`) | La dirección del remitente: un chat por persona, como un DM. |
-| `body` | Texto nuevo de la respuesta: se quitan el historial citado (`On … wrote:`, `El … escribió:`, bloques de Outlook, `>`) y la firma (`-- `). Si el email solo trae HTML se convierte a texto. Si queda vacío se usa el asunto. El texto completo está en `ctx.raw.text`. |
-| Adjuntos | `ctx.raw.attachments` (todos) y `media` (el primero no inline); `type` pasa a `image`/`video`/`audio`/`document`. `provider.downloadMedia(ref)` devuelve los bytes (caché en memoria y, si se desalojó, se vuelve a pedir por IMAP solo si el UID sigue siendo el mismo mensaje). |
-| Respuestas | `In-Reply-To`, `References`, `Re: <asunto>` y destinatario `From` (o `Reply-To` si es del mismo dominio; ver `replyTo`). |
-| `send('persona@x.com', ...)` | Inicia un hilo nuevo con esa dirección (`platformData.subject` para el asunto). |
-| Botones / listas / cards | Se degradan a texto numerado. `poll`, `reaction` y `template` lanzan `UnsupportedContentError`. |
-| `native` | `{ kind: 'native', provider: 'email', payload: { subject, text, html, cc, bcc, headers, attachments } }`. Los adjuntos solo aceptan `{ filename, content: Buffer \| Uint8Array, contentType, cid }` (para archivos o URLs usa `image`/`document`, que pasan por `secureFetch`); las cabeceras de hilo y de protección contra bucles no se pueden sobrescribir. |
+| `senderId` | Normalized `From` address (lowercase, no `<>`). The same person → the same id. |
+| `chatId` (`thread` mode, the default) | `thread:<root Message-ID>`: one chat per thread, resolved through `In-Reply-To` / `References` (plus an index of the Message-IDs the bot sent, so it works even when the client trims `References`). The chat belongs to whoever opened the thread: if another address replies in it (a "reply all" or a forged `In-Reply-To`), it gets its own chat. |
+| `chatId` (`sender` mode) | The sender address: one chat per person, like a DM. |
+| `body` | New text of the reply: quoted history (`On … wrote:`, `El … escribió:`, Outlook blocks, `>`) and the signature (`-- `) are stripped. If the email only has HTML it is converted to text. If nothing is left, the subject is used. The full text is in `ctx.raw.text`. |
+| Attachments | `ctx.raw.attachments` (all) and `media` (the first non-inline one); `type` becomes `image`/`video`/`audio`/`document`. `provider.downloadMedia(ref)` returns the bytes (in-memory cache and, if evicted, requested again over IMAP only when the UID still points to the same message). |
+| Replies | `In-Reply-To`, `References`, `Re: <subject>` and the `From` recipient (or `Reply-To` when it is on the same domain; see `replyTo`). |
+| `send('person@x.com', ...)` | Starts a new thread with that address (`platformData.subject` for the subject). |
+| Buttons / lists / cards | Degrade to numbered text. `poll`, `reaction` and `template` throw `UnsupportedContentError`. |
+| `native` | `{ kind: 'native', provider: 'email', payload: { subject, text, html, cc, bcc, headers, attachments } }`. Attachments only accept `{ filename, content: Buffer \| Uint8Array, contentType, cid }` (for files or URLs use `image`/`document`, which go through `secureFetch`); threading and loop-protection headers cannot be overridden. |
 
-`options.platformData` en `send()` acepta `subject` y `html`.
+`options.platformData` in `send()` accepts `subject` and `html`.
 
-## Protección contra bucles
+## Loop protection
 
-Un bot que responde emails termina hablando con otro robot. Por defecto:
+A bot that replies to emails ends up talking to another robot. By default:
 
-- No se procesan emails automáticos (RFC 3834): `Auto-Submitted` distinto de `no`, `List-Id`/`List-Unsubscribe`, `Precedence: bulk|junk|list`, `X-Autoreply`/`X-Autorespond`, `X-Auto-Response-Suppress`, `Return-Path: <>` y remitentes de sistema (`mailer-daemon`, `postmaster`, `no-reply`).
-- Se ignoran los emails del propio bot.
-- Tope por remitente: 30 mensajes por hora (`loopProtection.maxPerSender`).
-- Todo lo que envía el bot lleva `Auto-Submitted: auto-replied` y `X-Auto-Response-Suppress: All` (desactivable con `autoSubmitted: false`).
+- Automatic emails are not processed (RFC 3834): `Auto-Submitted` other than `no`, `List-Id`/`List-Unsubscribe`, `Precedence: bulk|junk|list`, `X-Autoreply`/`X-Autorespond`, `X-Auto-Response-Suppress`, `Return-Path: <>` and system senders (`mailer-daemon`, `postmaster`, `no-reply`).
+- Emails from the bot itself are ignored.
+- Per-sender cap: 30 messages per hour (`loopProtection.maxPerSender`).
+- Everything the bot sends carries `Auto-Submitted: auto-replied` and `X-Auto-Response-Suppress: All` (disable with `autoSubmitted: false`).
 
 ```ts
 new EmailProvider({ ..., loopProtection: { ignore: ['mailing-list'], maxPerSender: { max: 10, windowMs: 600_000 } } })
 ```
 
-## Rebotes
+## Bounces
 
-Los informes de no entrega (DSN `multipart/report`, y rebotes "legacy" con `X-Failed-Recipients`) **no** llegan a los handlers: se emiten como evento `status` con `status: 'failed'`, el `ref` del email original, `recipient` y `error: { code: '5.1.1', message }`. Las direcciones con rebote permanente quedan suprimidas: `send()` a ellas lanza `RecipientUnreachableError` hasta `provider.unsuppress(address)` (`suppressBounced: false` lo desactiva).
+Non-delivery reports (DSN `multipart/report`, and "legacy" bounces with `X-Failed-Recipients`) **do not** reach handlers: they are emitted as a `status` event with `status: 'failed'`, the original email `ref`, `recipient` and `error: { code: '5.1.1', message }`. Permanently bounced addresses are suppressed: `send()` to them throws `RecipientUnreachableError` until `provider.unsuppress(address)` (`suppressBounced: false` disables it).
 
-Un rebote solo cuenta si se refiere a un email que **envió el bot** (su Message-ID está en el índice de salida) y el destinatario fallido es el de ese hilo; los rebotes legacy además tienen que venir de `MAILER-DAEMON`/`postmaster`. Así nadie puede bloquear una dirección enviando un rebote falso.
+A bounce only counts when it refers to an email the **bot sent** (its Message-ID is in the outbound index) and the failed recipient is that thread's; legacy bounces must additionally come from `MAILER-DAEMON`/`postmaster`. That way nobody can block an address by sending a fake bounce.
 
-## Seguridad: el remitente no está autenticado
+## Security: the sender is not authenticated
 
-El email no autentica `From`: cualquiera puede escribir al bot haciéndose pasar por otra dirección. Por eso:
+Email does not authenticate `From`: anyone can write to the bot pretending to be another address. Therefore:
 
-- Un hilo pertenece a quien lo abrió; otra dirección que responda en él recibe su propio chat y no ve ni redirige la conversación.
-- `Reply-To` solo cambia el destinatario si es del mismo dominio que `From` (`replyTo: 'always'` para confiar siempre, `'never'` para ignorarlo).
-- Con `requireAuthentication: { authservId: 'mx.tu-dominio.com' }` solo se aceptan emails con `dmarc=pass` (o `dkim=pass` alineado con el dominio de `From`) en una cabecera `Authentication-Results` escrita por **tu** MTA; las demás se ignoran, porque el remitente puede añadir las que quiera. El resto se descarta con `reason: 'unauthenticated'`.
+- A thread belongs to whoever opened it; another address replying in it gets its own chat and can neither see nor redirect the conversation.
+- `Reply-To` only changes the recipient when it is on the same domain as `From` (`replyTo: 'always'` to always trust it, `'never'` to ignore it).
+- With `requireAuthentication: { authservId: 'mx.your-domain.com' }` only emails with `dmarc=pass` (or `dkim=pass` aligned with the `From` domain) in an `Authentication-Results` header written by **your** MTA are accepted; the rest are ignored, because the sender can add whatever headers it wants. Everything else is discarded with `reason: 'unauthenticated'`.
 
-Sin `requireAuthentication`, trata `senderId` como una dirección declarada, no verificada: no reveles datos de un usuario (`ctx.user`, CRM) solo porque escribe "desde" su dirección. El tope por remitente también se puede agotar con remitentes falsificados.
+Without `requireAuthentication`, treat `senderId` as a declared, unverified address: do not reveal a user's data (`ctx.user`, CRM) just because they write "from" their address. The per-sender cap can also be exhausted with forged senders.
 
-## Persistir los hilos
+## Persisting threads
 
-El estado de los hilos (a quién responder, asunto, cadena `References`) vive en memoria por defecto. Para seguir respondiendo después de un reinicio, guárdalo en cualquier store con cursores:
+Thread state (who to reply to, subject, `References` chain) lives in memory by default. To keep replying after a restart, store it in any store with cursors:
 
 ```ts
 import { Bot } from '@botmesh/core'
@@ -96,15 +96,15 @@ const provider = new EmailProvider({ ..., threadStore: cursorThreadStore(store) 
 const bot = new Bot({ provider, store })
 ```
 
-`cursorThreadStore` guarda también el **cursor de UID** del buzón (`getMailboxCursor`/`setMailboxCursor`, opcionales en `EmailThreadStore`): tras un reinicio el bot sigue después del último UID que procesó, así que con `markSeen: false` no vuelve a entregar nada, y un correo que llegó con el bot parado y que alguien ya leyó en su cliente se procesa igual. Si el `UIDVALIDITY` del buzón cambió, el cursor no vale y el bot empieza desde `UIDNEXT`. Sin cursor guardado se aplica `processExisting`. Entre `stop()` y `start()` de la misma instancia el cursor se conserva siempre.
+`cursorThreadStore` also stores the mailbox **UID cursor** (`getMailboxCursor`/`setMailboxCursor`, optional in `EmailThreadStore`): after a restart the bot continues after the last UID it processed, so with `markSeen: false` it never delivers anything twice, and an email that arrived while the bot was stopped and that someone already read in their client is still processed. If the mailbox `UIDVALIDITY` changed, the cursor is invalid and the bot starts from `UIDNEXT`. With no stored cursor, `processExisting` applies. Across `stop()` and `start()` of the same instance the cursor is always kept.
 
 ## IMAP IDLE
 
-El bot selecciona el buzón y queda en IDLE: el servidor avisa de cada correo nuevo y el bot lo descarga por UID. `imapflow` entra en IDLE tras un periodo sin comandos; el provider lo baja a 1 s (`autoIdleDelay: 1000`, el valor de `imapflow` es 15 s) para que el correo nuevo llegue enseguida. Se puede cambiar con `imap.options.autoIdleDelay`.
+The bot selects the mailbox and stays in IDLE: the server notifies every new email and the bot downloads it by UID. `imapflow` enters IDLE after a period without commands; the provider lowers it to 1 s (`autoIdleDelay: 1000`, the `imapflow` value is 15 s) so new email arrives right away. It can be changed with `imap.options.autoIdleDelay`.
 
-## Webhook de correo entrante
+## Inbound email webhook
 
-Sin IMAP, `ingest()` acepta el MIME crudo (Buffer/string) de SES, Mailgun ("raw MIME"), un pipe de Postfix, etc., y devuelve `{ status, accepted, reason? }` (`413` si supera `maxInboundBytes`; limita también el body en tu servidor HTTP):
+Without IMAP, `ingest()` accepts the raw MIME (Buffer/string) from SES, Mailgun ("raw MIME"), a Postfix pipe, etc., and returns `{ status, accepted, reason? }` (`413` when it exceeds `maxInboundBytes`; also limit the body in your HTTP server):
 
 ```ts
 app.post('/inbound-email', async (req, res) => {
@@ -113,44 +113,44 @@ app.post('/inbound-email', async (req, res) => {
 })
 ```
 
-## Errores tipados
+## Typed errors
 
 | SMTP | Error |
 | --- | --- |
-| 550/551/553, `5.1.x`, destinatario rechazado | `RecipientUnreachableError` |
-| 552, `5.3.4`, adjuntos > `maxAttachmentBytes` (25 MiB) | `PayloadTooLargeError` |
+| 550/551/553, `5.1.x`, rejected recipient | `RecipientUnreachableError` |
+| 552, `5.3.4`, attachments > `maxAttachmentBytes` (25 MiB) | `PayloadTooLargeError` |
 | 4xx (421, 450, 451, 452) | `RateLimitedError` (`retryAfterMs` 60 s) |
-| Autenticación (`EAUTH`, 535) y el resto | `ProviderError` |
+| Authentication (`EAUTH`, 535) and the rest | `ProviderError` |
 
-## Opciones
+## Options
 
-| Opción | Por defecto | Descripción |
+| Option | Default | Description |
 | --- | --- | --- |
-| `address` | `smtp.user`/`imap.user` si son direcciones | Dirección del bot (`From` y `selfId`). |
-| `fromName` | — | Nombre visible en `From`. |
+| `address` | `smtp.user`/`imap.user` when they are addresses | Bot address (`From` and `selfId`). |
+| `fromName` | — | Display name in `From`. |
 | `imap` | — | `{ host, port=993, secure, user, pass \| accessToken, mailbox='INBOX', options }`. |
 | `smtp` | — | `{ host, port=465, secure, user, pass \| accessToken, verify=false, options }`. |
-| `threading` | `'thread'` | `'thread'` o `'sender'`. |
-| `threadStore` | memoria | `MemoryThreadStore` o `cursorThreadStore(store)`. |
-| `processExisting` | `'unseen'` | Al primer arranque (sin cursor de UID guardado): procesar los no leídos o empezar desde ahora (`'none'`). |
-| `markSeen` | `true` | Marcar como leídos los emails procesados. |
-| `stripQuotes` | `true` | Quitar historial citado y firma del `body`. |
-| `defaultSubject` | `'(no subject)'` | Asunto de hilos nuevos sin asunto. |
-| `loopProtection` | activo | `false` o `{ ignore, maxPerSender }`. |
-| `autoSubmitted` | `'auto-replied'` | Valor de `Auto-Submitted` saliente, o `false`. |
-| `suppressBounced` | `true` | Rechazar envíos a direcciones con rebote permanente. |
-| `maxAttachmentBytes` | 25 MiB | Límite de adjuntos por email saliente. |
-| `attachmentCacheBytes` | 32 MiB | Caché de adjuntos entrantes para `downloadMedia`. |
-| `maxInboundBytes` | 40 MiB | Tamaño máximo de un email entrante. Por IMAP se descarta sin descargarlo (y se marca como leído si `markSeen`); `ingest()` responde `413`. |
-| `replyTo` | `'same-domain'` | Cuándo responder a `Reply-To` en vez de a `From`: `'same-domain'`, `'always'` o `'never'`. |
-| `requireAuthentication` | — | `{ authservId }`: aceptar solo emails autenticados por tu MTA (`Authentication-Results`). |
-| `reconnect` | `{ baseMs: 1000, maxMs: 60000 }` | Backoff de reconexión IMAP. |
-| `http` | — | Opciones de `secureFetch` para adjuntos por URL. |
-| `createImapClient` / `smtpTransport` | — | Inyectar clientes propios (o fakes en tests). |
+| `threading` | `'thread'` | `'thread'` or `'sender'`. |
+| `threadStore` | memory | `MemoryThreadStore` or `cursorThreadStore(store)`. |
+| `processExisting` | `'unseen'` | On the first start (no stored UID cursor): process unread messages or start from now (`'none'`). |
+| `markSeen` | `true` | Mark processed emails as read. |
+| `stripQuotes` | `true` | Strip quoted history and signature from `body`. |
+| `defaultSubject` | `'(no subject)'` | Subject for new threads without one. |
+| `loopProtection` | enabled | `false` or `{ ignore, maxPerSender }`. |
+| `autoSubmitted` | `'auto-replied'` | Outgoing `Auto-Submitted` value, or `false`. |
+| `suppressBounced` | `true` | Reject sends to permanently bounced addresses. |
+| `maxAttachmentBytes` | 25 MiB | Attachment limit per outgoing email. |
+| `attachmentCacheBytes` | 32 MiB | Inbound attachment cache for `downloadMedia`. |
+| `maxInboundBytes` | 40 MiB | Maximum size of an inbound email. Over IMAP it is discarded without downloading (and marked as read when `markSeen`); `ingest()` responds `413`. |
+| `replyTo` | `'same-domain'` | When to reply to `Reply-To` instead of `From`: `'same-domain'`, `'always'` or `'never'`. |
+| `requireAuthentication` | — | `{ authservId }`: accept only emails authenticated by your MTA (`Authentication-Results`). |
+| `reconnect` | `{ baseMs: 1000, maxMs: 60000 }` | IMAP reconnection backoff. |
+| `http` | — | `secureFetch` options for attachments by URL. |
+| `createImapClient` / `smtpTransport` | — | Inject your own clients (or fakes in tests). |
 
-## Tests de integración
+## Integration tests
 
-Los tests de `tests/*.test.ts` son herméticos: IMAP y SMTP falsos en memoria. `tests/integration.test.ts` carga los peers reales (`imapflow` y `nodemailer`, `devDependencies` del paquete) y habla IMAP IDLE + SMTP con un servidor de verdad, [GreenMail](https://greenmail-mail-test.github.io/greenmail/), en Docker. Se salta si no defines `BOTWA_TEST_EMAIL`:
+The `tests/*.test.ts` tests are hermetic: in-memory fake IMAP and SMTP. `tests/integration.test.ts` loads the real peers (`imapflow` and `nodemailer`, `devDependencies` of the package) and talks IMAP IDLE + SMTP to a real server, [GreenMail](https://greenmail-mail-test.github.io/greenmail/), in Docker. It is skipped unless you set `BOTWA_TEST_EMAIL`:
 
 ```bash
 docker run -d --name botwa-it-greenmail \
@@ -162,6 +162,6 @@ BOTWA_TEST_EMAIL=1 pnpm --filter @botmesh/email test
 docker rm -f botwa-it-greenmail
 ```
 
-En PowerShell: `$env:BOTWA_TEST_EMAIL = '1'`. El host y los puertos se cambian con `BOTWA_TEST_EMAIL_HOST` (`127.0.0.1`), `BOTWA_TEST_EMAIL_SMTP_PORT` (`3025`) y `BOTWA_TEST_EMAIL_IMAP_PORT` (`3143`), los puertos sin TLS de GreenMail. Con `greenmail.auth.disabled` cualquier login vale y los buzones se crean al vuelo; cada test usa direcciones nuevas, así que se puede repetir contra el mismo contenedor.
+In PowerShell: `$env:BOTWA_TEST_EMAIL = '1'`. The host and ports are changed with `BOTWA_TEST_EMAIL_HOST` (`127.0.0.1`), `BOTWA_TEST_EMAIL_SMTP_PORT` (`3025`) and `BOTWA_TEST_EMAIL_IMAP_PORT` (`3143`), the non-TLS GreenMail ports. With `greenmail.auth.disabled` any login works and mailboxes are created on the fly; each test uses fresh addresses, so it can be repeated against the same container.
 
-Qué cubre: entrada por IMAP IDLE con `chatId`/`senderId` estables; hilos por `Message-ID`/`In-Reply-To`/`References`; respuestas que llegan al buzón del usuario con `In-Reply-To`, `References`, `Re:` y `Auto-Submitted`; adjuntos como `MediaRef` y `downloadMedia` (desde la caché y volviendo a pedirlos por IMAP); HTML a texto; descarte de respuestas automáticas, listas y `Precedence: bulk`; reinicios sin volver a entregar correo (con `markSeen` y con el cursor de UID persistido), y un flujo `ask()` del `Bot` contestado por email.
+What it covers: inbound over IMAP IDLE with stable `chatId`/`senderId`; threads by `Message-ID`/`In-Reply-To`/`References`; replies that reach the user's mailbox with `In-Reply-To`, `References`, `Re:` and `Auto-Submitted`; attachments as `MediaRef` and `downloadMedia` (from the cache and requested again over IMAP); HTML to text; discarding automatic replies, lists and `Precedence: bulk`; restarts without redelivering email (with `markSeen` and with the persisted UID cursor); and a `Bot` `ask()` flow answered by email.

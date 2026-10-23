@@ -2,4 +2,4 @@
 "@bot-wa/ai": patch
 ---
 
-La nota de sistema de las herramientas con confirmación indica al modelo que no afirme acciones que ninguna herramienta confirmó, que no mencione el proceso de confirmación al usuario y que no calcule importes por su cuenta (hallazgos de una prueba en vivo con WhatsApp + Ollama).
+The system note for tools that require confirmation tells the model not to claim actions no tool confirmed, not to mention the confirmation process to the user and not to compute amounts on its own (findings from a live test with WhatsApp + Ollama).

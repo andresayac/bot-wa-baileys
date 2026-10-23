@@ -1,8 +1,8 @@
 # @botmesh/campaigns
 
-> **Paquete privado** (`"private": true`, no se publica en npm). Implementación real y persistente; la API puede cambiar sin aviso mientras la alpha no salga.
+> **Private package** (`"private": true`, not published to npm). Real, persistent implementation; the API may change without notice while the alpha is out.
 
-Planificador de campañas con consentimiento, segmentación por tags y reservas durables por tenant/campaña/destinatario.
+Campaign planner with consent, tag-based segmentation and durable reservations per tenant/campaign/recipient.
 
 ```ts
 import { CampaignPlanner, KvCampaignStore, sendCampaign } from '@botmesh/campaigns'
@@ -18,30 +18,30 @@ const run = await sendCampaign(
 // run.deliveries[0].state === 'sent' (o 'failed' con el error real)
 ```
 
-`CampaignPlanner.plan()` devuelve envíos `queued` (con `deliveryId`) y descartes explicables (`opt_out`, `segment`, `duplicate`, `limit`). La planificación está separada del envío: un worker informa del resultado real con `markSent(deliveryId)` o `markFailed(deliveryId, error?)`.
+`CampaignPlanner.plan()` returns `queued` deliveries (with a `deliveryId`) and explainable discards (`opt_out`, `segment`, `duplicate`, `limit`). Planning is separate from sending: a worker reports the real outcome with `markSent(deliveryId)` or `markFailed(deliveryId, error?)`.
 
-- `maxPerRecipient` (entero ≥ 0, por defecto `1`) cuenta solo los envíos confirmados con `markSent`. Un envío `queued` reserva su hueco hasta que se resuelve (así un re-plan no duplica envíos) y `markFailed` lo libera.
-- Una reserva no resuelta deja de ocupar su hueco al vencer su TTL (`reservationTtl`, 15 minutos por defecto): un worker caído no bloquea al destinatario para siempre.
-- `maxPerRecipient: 0` pausa la campaña: los destinatarios elegibles se descartan con `limit`, no con `duplicate`.
-- `sentCount(tenantId, campaignId, recipientId)` devuelve los envíos confirmados.
+- `maxPerRecipient` (integer ≥ 0, default `1`) counts only deliveries confirmed with `markSent`. A `queued` delivery reserves its slot until it settles (so a re-plan does not duplicate sends) and `markFailed` releases it.
+- An unresolved reservation stops holding its slot once its TTL expires (`reservationTtl`, 15 minutes by default): a crashed worker never blocks the recipient forever.
+- `maxPerRecipient: 0` pauses the campaign: eligible recipients are discarded as `limit`, not `duplicate`.
+- `sentCount(tenantId, campaignId, recipientId)` returns the confirmed deliveries.
 
-## Envío real
+## Real sending
 
-`sendCampaign(bot, planner, campaign, recipients, content, options?)` planifica y envía con `bot.broadcast()` (por lotes, con concurrencia, rate-limit y cancelación), y liquida cada delivery con el resultado real:
+`sendCampaign(bot, planner, campaign, recipients, content, options?)` plans and sends with `bot.broadcast()` (batched, with concurrency, rate limiting and cancellation), and settles each delivery with the real outcome:
 
-- Aceptado por el proveedor → `markSent` (cuenta para `maxPerRecipient`).
-- Fallo definitivo → `markFailed` con el mensaje del error.
-- Descartado por un hook `before('send')` o pendiente por un aborto → `markFailed` con `'skipped'` / `'cancelled'` (libera el hueco).
-- Dos destinatarios con el mismo `chatId` (por defecto `recipient.id`) se envían una vez; los repetidos fallan con `duplicate chatId`.
+- Accepted by the provider → `markSent` (counts towards `maxPerRecipient`).
+- Definitive failure → `markFailed` with the error message.
+- Skipped by a `before('send')` hook or left pending by an abort → `markFailed` with `'skipped'` / `'cancelled'` (releases the slot).
+- Two recipients with the same `chatId` (default `recipient.id`) are sent once; the repeats fail with `duplicate chatId`.
 
-`CampaignRun` devuelve los deliveries finales, el `BroadcastResult` crudo y los errores de liquidación (si el backend no pudo asentar un cambio, el TTL libera la reserva).
+`CampaignRun` returns the final deliveries, the raw `BroadcastResult` and the settlement errors (if the backend could not commit a change, the TTL releases the reservation).
 
-## Almacenamiento
+## Storage
 
-- `MemoryCampaignStore` — implementación de referencia, en RAM. Se pierde al reiniciar; úsala en tests.
-- `KvCampaignStore` — persiste sobre cualquier [`DurableKv`](../core/src/durability/kv.ts) del core (`MemoryKv`, `FileDurability`, `SQLiteDurableKv`, `PostgresDurableKv`, `RedisDurableKv`). El estado de cada `(tenant, campaña, destinatario)` es un único documento con `sent`, las reservas y los últimos envíos: reserva y liquidación son compare-and-set atómicos en el backend, incluso entre procesos.
+- `MemoryCampaignStore` — reference implementation, in RAM. Lost on restart; use it in tests.
+- `KvCampaignStore` — persists over any core [`DurableKv`](../core/src/durability/kv.ts) (`MemoryKv`, `FileDurability`, `SQLiteDurableKv`, `PostgresDurableKv`, `RedisDurableKv`). The state of each `(tenant, campaign, recipient)` is a single document with `sent`, the reservations and the latest deliveries: reservation and settlement are atomic compare-and-set on the backend, even across processes.
 
-Ambas pasan la misma suite de conformidad (`test-utils/campaign-store-conformance.ts`). Las suites contra servidores reales (`tests/integration.test.ts`) se activan con `BOTWA_TEST_POSTGRES_URL`, `BOTWA_TEST_REDIS_URL` y `BOTWA_TEST_REDIS_CLUSTER_URL`; SQLite siempre corre con un archivo temporal.
+Both pass the same conformance suite (`test-utils/campaign-store-conformance.ts`). The suites against real servers (`tests/integration.test.ts`) are enabled with `BOTWA_TEST_POSTGRES_URL`, `BOTWA_TEST_REDIS_URL` and `BOTWA_TEST_REDIS_CLUSTER_URL`; SQLite always runs on a temporary file.
 
 ```ts
 const sqlite = new SQLiteStore({ file: 'campaigns.db' })

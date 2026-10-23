@@ -47,7 +47,7 @@
   - `appendSources`: a cited passage without `citation`/`source` is listed as `[2]` instead of `[2] #2`.
   - The `AIThinking` doc comment now says which models accept, deprecate or reject thinking budgets.
 - 403929e: The "already done, confirming will do it again" notice of a tool confirmation (`ai.tools.confirmRepeat`) is only shown when the new call has the same (validated) arguments as a previous successful run in the chat; a call with different arguments (e.g. changing an order from 3 to 2 units) is a new action and gets no notice. `ToolConfirmRequest.previous` follows the same rule. The result summary in that notice (and in `summarizeValue()`) leaves out fields too nested to read instead of rendering them as `…, …`.
-- 162cc3d: La respuesta de `/reset` del plugin de IA pasa por el catálogo i18n (`core.commands.reset`): sigue en español por defecto y sale en inglés cuando el chat resuelve inglés.
+- 162cc3d: The AI plugin's `/reset` reply now goes through the i18n catalog (`core.commands.reset`): it still defaults to Spanish and comes out in English when the chat resolves to English.
 - 8754bee: Robustness fixes across the AI plugin:
   
   - The chat history handed to the providers always starts with a user turn and has no blank turns: an odd `context.maxMessages` no longer makes Anthropic/Gemini reject every later call, and an empty model answer is no longer stored (it used to poison the chat until `/reset`). The one-shot autoreply answers `errorMessage` (and logs a warning) instead of sending a blank message.
@@ -63,7 +63,7 @@
   - An unknown `provider` name now lists the valid ones in the error.
 - 20f6674: The one-shot autoreply no longer shows the typing indicator twice when `BotConfig.typing` is on: with `humanizeTyping` the indicator is shown while the answer is generated and the reply is sent with `typing: false`.
 - 8e61c20: A side-effecting tool (`confirm` / `dedupe`) whose handler returns an object with a non-empty `error` (e.g. `{ error: 'No existe el pedido P-1' }`) is no longer remembered as a done action: it does not trigger the repeat notice, the "actions already done" system note or a `dedupe` block.
-- 32a2254: La nota de sistema de las herramientas con confirmación indica al modelo que no afirme acciones que ninguna herramienta confirmó, que no mencione el proceso de confirmación al usuario y que no calcule importes por su cuenta (hallazgos de una prueba en vivo con WhatsApp + Ollama).
+- 32a2254: The system note for tools that require confirmation tells the model not to claim actions no tool confirmed, not to mention the confirmation process to the user and not to compute amounts on its own (findings from a live test with WhatsApp + Ollama).
 - 1f7e9b1: A failing typing indicator no longer turns the autoreply into `errorMessage`: the `ctx.typing()` shown while the answer is generated is ignored when it fails (one-shot, tool and streamed paths).
 - 2bab262: `@bot-wa/core`: new optional `IProvider.textFormatFor(chatId)` for providers that serve several channels with different markup through one instance (e.g. Twilio WhatsApp + SMS). It wins over `capabilities.textFormat` (the fallback when it returns `undefined`) and reaches handlers as `ctx.textFormat`. `MockProvider` accepts `textFormatFor`; `ChaosProvider` forwards it.
   

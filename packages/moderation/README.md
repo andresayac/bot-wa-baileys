@@ -1,12 +1,12 @@
 # @botmesh/moderation
 
-> **Experimental — aún no publicado en npm.** Implementación real y probada, pero el paquete es `private`: no forma parte de la primera alpha y su API puede cambiar. Úsalo desde este monorepo (`workspace:*`).
+> **Experimental — not yet published on npm.** Real, tested implementation, but the package is `private`: it is not part of the first alpha and its API may change. Use it from this monorepo (`workspace:*`).
 
-Plugin de **moderación de grupos** para [`@botmesh/core`](../core): anti-spam por ventana de tiempo, filtros de palabras/regex, filtro de enlaces (invitaciones a grupos ajenos) y acciones `warn` / `mute` / `kick` / `delete`, con configuración por grupo y bypass para administradores.
+**Group moderation** plugin for [`@botmesh/core`](../core): time-window anti-spam, word/regex filters, link filter (invites to other groups) and `warn` / `mute` / `kick` / `delete` actions, with per-group configuration and an admin bypass.
 
-Es agnóstico de transporte: los ids de chat y de usuario son strings opacos, los enlaces se detectan en el **texto** del mensaje y cada capacidad del provider (borrar mensajes, expulsar, listar admins) es **opcional**. Si el provider no la tiene, la acción se degrada y se reporta.
+It is transport-agnostic: chat and user ids are opaque strings, links are detected in the message **text** and every provider capability (delete messages, kick, list admins) is **optional**. If the provider lacks it, the action degrades and is reported.
 
-## Uso
+## Usage
 
 ```ts
 import { Bot } from '@botmesh/core'
@@ -15,14 +15,14 @@ import { moderationPlugin } from '@botmesh/moderation'
 const bot = new Bot({ provider })
 
 bot.plug(moderationPlugin({
-  provider,                                          // habilita delete/kick/admins si el provider los soporta
+  provider,                                          // enables delete/kick/admins when the provider supports them
   antiSpam: { maxMessages: 5, windowMs: 10_000, action: 'warn' },
-  wordFilter: { banned: ['spam', 'estafa', /bit\.ly\/\w+/i], action: 'delete' },
-  linkFilter: { action: ['delete', 'kick'], allowInvites: ['CODIGO_DE_MI_GRUPO'] },
+  wordFilter: { banned: ['spam', 'scam', /bit\.ly\/\w+/i], action: 'delete' },
+  linkFilter: { action: ['delete', 'kick'], allowInvites: ['MY_GROUP_CODE'] },
   warnings: { max: 3, then: 'kick' },
   groups: {
-    [grupoStaff]: false,                             // sin moderación aquí
-    [grupoVentas]: { wordFilter: { banned: ['gratis'] } },
+    [staffGroup]: false,                             // no moderation here
+    [salesGroup]: { wordFilter: { banned: ['free'] } },
   },
 }))
 
@@ -31,38 +31,38 @@ bot.on('moderation', (report) => {
 })
 ```
 
-El plugin se engancha en `before('message')` con prioridad `100` (antes que otros hooks y que cualquier handler). Un mensaje que infringe una regla ejecuta sus acciones y **no** llega a los handlers. Los mensajes de un usuario silenciado (`mute`) se ignoran hasta que vence el silencio.
+The plugin hooks into `before('message')` with priority `100` (before other hooks and any handler). A message that breaks a rule runs its actions and does **not** reach the handlers. Messages from a muted user are ignored until the mute expires.
 
-**Ojo con `groupMode`:** el filtro `groupMode` del `Bot` corre **antes** de los hooks `before('message')`. Con `groupMode: 'mentions'` o `'commands'`, los mensajes de grupo que no mencionan al bot o no son comandos nunca llegan a la moderación (ni anti-spam, ni filtros de palabras o enlaces). Si el bot debe moderar todo el grupo, usa `groupMode: 'all'` (el valor por defecto); el plugin avisa en el log al instalarse si detecta un `groupMode` restrictivo.
+**Mind `groupMode`:** the `Bot`'s `groupMode` filter runs **before** `before('message')` hooks. With `groupMode: 'mentions'` or `'commands'`, group messages that do not mention the bot or are not commands never reach moderation (not even anti-spam or the word/link filters). If the bot must moderate the whole group, use `groupMode: 'all'` (the default); the plugin logs a warning on install when it detects a restrictive `groupMode`.
 
-Por defecto solo modera **grupos** (`applyTo: 'all'` incluye chats privados). Las interacciones (botones, slash commands) y los mensajes propios nunca se moderan.
+By default it only moderates **groups** (`applyTo: 'all'` includes private chats). Interactions (buttons, slash commands) and the bot's own messages are never moderated.
 
-## Reglas
+## Rules
 
-| Regla | Campos | Acción por defecto |
+| Rule | Fields | Default action |
 | --- | --- | --- |
-| `antiSpam` | `maxMessages`, `windowMs` (ventana deslizante por chat + remitente) | `'warn'` |
-| `wordFilter` | `banned: (string \| RegExp)[]`, `wholeWord` (defecto `true`) | `'delete'` |
-| `linkFilter` | `groupInvites` (defecto `true`), `allLinks`, `allowInvites`, `allowDomains`, `invitePatterns` | `['delete', 'warn']` |
+| `antiSpam` | `maxMessages`, `windowMs` (sliding window per chat + sender) | `'warn'` |
+| `wordFilter` | `banned: (string \| RegExp)[]`, `wholeWord` (default `true`) | `'delete'` |
+| `linkFilter` | `groupInvites` (default `true`), `allLinks`, `allowInvites`, `allowDomains`, `invitePatterns` | `['delete', 'warn']` |
 
-- Las palabras se comparan sin mayúsculas ni tildes (`'estafa'` detecta `'ESTAFÁ'`), salvo la `ñ`, que es una letra distinta de la `n` (`'ano'` no detecta `'año'`), y como palabra completa (`'spam'` no detecta `'spammer'` salvo `wholeWord: false`). Las RegExp se prueban sobre el texto crudo.
-- `allowInvites` acepta códigos o enlaces de invitación completos (con o sin `https://`) y compara el **código exacto**: una URL que solo contiene el código (p. ej. en la query) no queda permitida.
-- Invitaciones reconocidas: WhatsApp (`chat.whatsapp.com/…`), Telegram (`t.me/+…`, `t.me/joinchat/…`) y Discord (`discord.gg/…`, `discord.com/invite/…`). Añade otras con `invitePatterns` (el primer grupo de captura es el código).
-- `action` acepta una acción o varias en orden: `['delete', 'warn']`.
-- `autoKickOnLink: true` es un atajo de `linkFilter: { action: ['delete', 'kick'] }` y solo se aplica si no defines `linkFilter` (global o en el override del grupo).
+- Words are compared without case or accents (`'scam'` detects `'SCÁM'`), except `ñ`, which is a different letter from `n` (`'ano'` does not detect `'año'`), and as a whole word (`'spam'` does not detect `'spammer'` unless `wholeWord: false`). RegExps are tested against the raw text.
+- `allowInvites` accepts codes or full invite links (with or without `https://`) and compares the **exact code**: a URL that merely contains the code (e.g. in the query) is not allowed.
+- Recognized invites: WhatsApp (`chat.whatsapp.com/…`), Telegram (`t.me/+…`, `t.me/joinchat/…`) and Discord (`discord.gg/…`, `discord.com/invite/…`). Add others with `invitePatterns` (the first capture group is the code).
+- `action` accepts one or several actions in order: `['delete', 'warn']`.
+- `autoKickOnLink: true` is a shortcut for `linkFilter: { action: ['delete', 'kick'] }` and only applies when you do not define `linkFilter` (globally or in the group override).
 
-## Acciones y degradación
+## Actions and degradation
 
-| Acción | Cómo se ejecuta | Si no hay soporte |
+| Action | How it runs | Without support |
 | --- | --- | --- |
-| `delete` | `provider.deleteMessage(ref)` | `status: 'unsupported'`. Sin `provider` en la config, se usa `ctx.delete()` y se reporta `'attempted'` (no se puede verificar) |
-| `kick` | `provider.groups.removeParticipants(chatId, [userId])` | `'unsupported'` y, por defecto, se degrada a `mute` (`kickFallback: 'none'` lo evita) |
-| `mute` | Estado interno: los mensajes del usuario se ignoran `muteMs` (defecto 10 min) | Siempre disponible |
-| `warn` | `bot.send` al grupo, citando el mensaje y mencionando al usuario | `'failed'` si el envío falla |
+| `delete` | `provider.deleteMessage(ref)` | `status: 'unsupported'`. Without `provider` in the config, `ctx.delete()` is used and `'attempted'` is reported (it cannot be verified) |
+| `kick` | `provider.groups.removeParticipants(chatId, [userId])` | `'unsupported'` and, by default, degrades to `mute` (`kickFallback: 'none'` avoids it) |
+| `mute` | Internal state: the user's messages are ignored for `muteMs` (default 10 min) | Always available |
+| `warn` | `bot.send` to the group, quoting the message and mentioning the user | `'failed'` if the send fails |
 
-Las advertencias se cuentan por chat + usuario; al llegar a `warnings.max` se ejecuta `warnings.then` (`'mute'` o `'kick'`) y el contador vuelve a cero. `warnings: false` lo desactiva.
+Warnings are counted per chat + user; on reaching `warnings.max`, `warnings.then` (`'mute'` or `'kick'`) runs and the counter resets. `warnings: false` disables it.
 
-El namespace `groups` del provider es opcional y estructural:
+The provider `groups` namespace is optional and structural:
 
 ```ts
 interface GroupAdminApi {
@@ -71,15 +71,15 @@ interface GroupAdminApi {
 }
 ```
 
-## Administradores
+## Administrators
 
-Con `adminBypass` (defecto `true`) los administradores no se moderan. Se consideran admins:
+With `adminBypass` (default `true`) administrators are not moderated. Considered admins:
 
-1. Los ids de `admins` (global o por grupo).
-2. Quien devuelva `true` en `isAdmin(chatId, userId)`.
-3. Los que reporte `provider.groups.getAdmins(chatId)`, con caché de `adminCacheMs` (defecto 5 min) que se invalida con los eventos de grupo `promote`/`demote`.
+1. The ids in `admins` (global or per group).
+2. Whoever returns `true` from `isAdmin(chatId, userId)`.
+3. Those reported by `provider.groups.getAdmins(chatId)`, cached for `adminCacheMs` (default 5 min) and invalidated by the `promote`/`demote` group events.
 
-Cuando alguien sale del grupo (evento `remove`) se olvidan sus advertencias, su silencio y su ventana de spam.
+When someone leaves the group (`remove` event), their warnings, mute and spam window are forgotten.
 
 ## `ctx.tools.moderation`
 
@@ -95,18 +95,18 @@ mod.setGroupRules(chatId, { antiSpam: false })  // false desactiva, undefined qu
 mod.invalidateAdmins(chatId?)
 ```
 
-## Textos
+## Texts
 
 ```ts
 moderationPlugin({
   messages: {
-    warn: '⚠️ {name}: {reason}. Advertencia {count}/{max}.',
-    reasons: { antiSpam: 'calma con los mensajes', wordFilter: 'sin insultos', linkFilter: 'nada de links' },
+    warn: '⚠️ {name}: {reason}. Warning {count}/{max}.',
+    reasons: { antiSpam: 'easy on the messages', wordFilter: 'no insults', linkFilter: 'no links' },
   },
 })
 ```
 
-## Limitaciones
+## Limitations
 
-- El estado (ventanas, advertencias, silencios) vive en memoria: se pierde al reiniciar.
-- Ningún provider del monorepo expone todavía `groups.removeParticipants`/`getAdmins`; hasta entonces `kick` se degrada a `mute`.
+- State (windows, warnings, mutes) lives in memory: it is lost on restart.
+- No provider in the monorepo exposes `groups.removeParticipants`/`getAdmins` yet; until then `kick` degrades to `mute`.

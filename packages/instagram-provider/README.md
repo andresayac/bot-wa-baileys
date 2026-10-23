@@ -1,25 +1,25 @@
 # @botmesh/instagram
 
-> **Experimental — aún no publicado en npm.** Implementación real y con tests, pero el paquete es `private`: no forma parte de la primera alpha y su API puede cambiar. Úsalo desde este monorepo (`workspace:*`); el `pnpm add` de abajo funcionará cuando se publique.
+> **Experimental — not yet published on npm.** Real, tested implementation, but the package is `private`: it is not part of the first alpha and its API may change. Use it from this monorepo (`workspace:*`); the `pnpm add` below will work once it is published.
 
-Transporte **Instagram DM (Messenger API for Instagram, oficial de Meta)** para [`@botmesh/core`](../core). Es webhook-based (no abre socket): los mensajes llegan al webhook de objeto `page` de la Página de Facebook conectada y el envío usa el Send API de Graph (`me/messages`).
+**Instagram DM (Messenger API for Instagram, Meta's official API)** transport for [`@botmesh/core`](../core). It is webhook-based (it opens no socket): messages arrive at the `page` object webhook of the connected Facebook Page and sends use the Graph Send API (`me/messages`).
 
-## Instalación
+## Install
 
 ```bash
 pnpm add @botmesh/core @botmesh/instagram
 ```
 
-**Cero dependencias extra** — usa `fetch` y `crypto` nativos de Node ≥ 22.
+**No extra dependencies** — it uses Node ≥ 22 native `fetch` and `crypto`.
 
-## Requisitos (Meta)
+## Requirements (Meta)
 
-1. Una **cuenta de Instagram profesional** (business o creator) **conectada a una Página de Facebook** — los DMs se canalizan a través de esa Página.
-2. Una app en [developers.facebook.com](https://developers.facebook.com) con el producto **Messenger**, con la cuenta de Instagram conectada (Messenger API for Instagram) y los permisos `instagram_basic`, `instagram_manage_messages` y `pages_manage_metadata`.
-3. Un **Page access token** de la Página conectada.
-4. Configurar un **webhook** sobre el objeto `page` con los campos `messages`, `messaging_postback`, `message_reactions` y `message_echoes`, apuntando a tu servidor (con un `verify_token` que tú eliges y, recomendado, el `app_secret` de la app).
+1. A **professional Instagram account** (business or creator) **connected to a Facebook Page** — DMs are routed through that Page.
+2. An app at [developers.facebook.com](https://developers.facebook.com) with the **Messenger** product, the Instagram account connected (Messenger API for Instagram) and the `instagram_basic`, `instagram_manage_messages` and `pages_manage_metadata` permissions.
+3. A **Page access token** for the connected Page.
+4. Configure a **webhook** on the `page` object with the `messages`, `messaging_postback`, `message_reactions` and `message_echoes` fields, pointing at your server (with a `verify_token` you choose and, recommended, the app's `app_secret`).
 
-## Uso
+## Usage
 
 ```ts
 import { Bot } from '@botmesh/core'
@@ -27,17 +27,17 @@ import { InstagramProvider } from '@botmesh/instagram'
 import express from 'express'
 
 const provider = new InstagramProvider({
-  accessToken: process.env.META_PAGE_TOKEN!,      // token de la Página conectada
-  verifyToken: 'mi-verify-secret',                // el que pusiste en Meta
-  appSecret: process.env.META_APP_SECRET!,        // requerido: verifica X-Hub-Signature-256
-  selfId: process.env.IG_ACCOUNT_ID,              // opcional: IGSID de la cuenta IG
+  accessToken: process.env.META_PAGE_TOKEN!,      // token of the connected Page
+  verifyToken: 'my-verify-secret',                // the one you set in Meta
+  appSecret: process.env.META_APP_SECRET!,        // required: verifies X-Hub-Signature-256
+  selfId: process.env.IG_ACCOUNT_ID,              // optional: IGSID of the IG account
 })
 
 const bot = new Bot({ provider })
-bot.when('hola', (ctx) => ctx.reply('👋 ¡Hola desde Instagram!'))
+bot.when('hello', (ctx) => ctx.reply('👋 Hello from Instagram!'))
 await bot.start()
 
-// ——— El webhook lo sirve TU servidor ———
+// ——— YOUR server serves the webhook ———
 const app = express()
 app.get('/webhook', (req, res) => {
   const challenge = provider.verifyChallenge(req.query as never)
@@ -49,33 +49,33 @@ app.post('/webhook', express.json({ verify: (req, _res, buf) => { (req as any).r
 app.listen(3000)
 ```
 
-> **Firma del webhook:** `appSecret` es obligatorio en producción; `ingest` valida `X-Hub-Signature-256`
-> (HMAC-SHA256 en tiempo constante) y rechaza cuerpos falsificados con `403`.
-> Pasale el **body crudo** (no el ya parseado) para que la firma calcule igual.
-> Solo para desarrollo local se puede usar `allowUnsignedWebhooks: true` de forma explícita.
+> **Webhook signature:** `appSecret` is mandatory in production; `ingest` validates `X-Hub-Signature-256`
+> (constant-time HMAC-SHA256) and rejects forged bodies with `403`.
+> Pass it the **raw body** (not the already parsed one) so the signature computes the same.
+> For local development only, `allowUnsignedWebhooks: true` can be used explicitly.
 
-## Qué soporta
+## What it supports
 
 | Feature | Instagram DM |
 |---|---|
-| Texto | ✅ |
-| Imagen, video, audio, documento | ✅ **solo URL pública** (el Send API de IG no acepta buffers/paths) |
-| **Botones** (`ctx.buttons`) | ✅ como **quick replies** (respuestas rápidas, título ≤20) |
-| Clic de quick reply / postback → interacción (`kind: 'button'`) | ✅ |
-| Listas | ⚠️ degradadas a texto numerado (IG no tiene listas) |
-| Reacciones **recibidas** (IG DM reactions) | ✅ (`kind: 'reaction'`) |
-| Typing (`ctx.typing`) y confirmaciones de lectura (`mark_seen`) | ✅ (sender_action) |
-| Tarjeta (`card`) | ✅ como texto (sus botones, como quick replies) |
-| Enviar reacciones / encuestas / ubicación / contacto / sticker / plantillas | ❌ (`UnsupportedContentError`) |
-| Grupos, presencia, editar/borrar mensajes | ❌ (no existe en la API) |
+| Text | ✅ |
+| Image, video, audio, document | ✅ **public URL only** (the IG Send API does not accept buffers/paths) |
+| **Buttons** (`ctx.buttons`) | ✅ as **quick replies** (title ≤20) |
+| Quick reply / postback click → interaction (`kind: 'button'`) | ✅ |
+| Lists | ⚠️ degraded to numbered text (IG has no lists) |
+| **Inbound** reactions (IG DM reactions) | ✅ (`kind: 'reaction'`) |
+| Typing (`ctx.typing`) and read receipts (`mark_seen`) | ✅ (sender_action) |
+| Card (`card`) | ✅ as text (its buttons, as quick replies) |
+| Sending reactions / polls / location / contact / sticker / templates | ❌ (`UnsupportedContentError`) |
+| Groups, presence, editing/deleting messages | ❌ (does not exist in the API) |
 
-## Identidad
+## Identity
 
-`chatId`/`senderId` son el **IGSID** (Instagram-Scoped User ID) del remitente — estable y opaco. Los mensajes propios llegan como `message.is_echo` y se descartan (no se emiten como eventos).
+`chatId`/`senderId` are the sender's **IGSID** (Instagram-Scoped User ID) — stable and opaque. The bot's own messages arrive as `message.is_echo` and are discarded (they are not emitted as events).
 
-## Notas
+## Notes
 
-- **Media solo por URL:** adjuntá archivos subidos a un hosting público y pasá la URL (`ctx.photo('https://…/foto.jpg')`). Un `Buffer`, path o stream lanza `UnsupportedContentError`.
-- `ctx.buttons` se envía como quick replies: chips táctiles bajo el mensaje; el tap llega como interacción con `data` = el `id` del botón.
-- Fuera de la ventana de mensajes, Meta puede requerir que el usuario haya interactuado primero (política de la plataforma IG); los errores de Graph se traducen a los errores tipados de `@botmesh/core` (`RateLimitedError` en códigos 4/613; `OutsideSessionWindowError` fuera de la ventana, subcódigo 2534022; `RecipientUnreachableError` si el usuario no existe o no está disponible, código 551 o subcódigos 2018001/2534014).
-- Un mensaje que el usuario anula (`is_deleted`) no se emite como mensaje nuevo.
+- **Media by URL only:** upload files to public hosting and pass the URL (`ctx.photo('https://…/photo.jpg')`). A `Buffer`, path or stream throws `UnsupportedContentError`.
+- `ctx.buttons` is sent as quick replies: tappable chips below the message; the tap arrives as an interaction with `data` = the button `id`.
+- Outside the messaging window, Meta may require the user to interact first (IG platform policy); Graph errors are translated to `@botmesh/core` typed errors (`RateLimitedError` on codes 4/613; `OutsideSessionWindowError` outside the window, subcode 2534022; `RecipientUnreachableError` when the user does not exist or is unavailable, code 551 or subcodes 2018001/2534014).
+- A message the user unsends (`is_deleted`) is not emitted as a new message.

@@ -1,8 +1,8 @@
 # @botmesh/crm
 
-> **Paquete privado** (`"private": true`, no se publica en npm). Implementación real y persistente; la API puede cambiar sin aviso mientras la alpha no salga.
+> **Private package** (`"private": true`, not published to npm). Real, persistent implementation; the API may change without notice while the alpha is out.
 
-CRM ligero por tenant: contactos, canales, tags, atributos, consentimiento de marketing y segmentos por reglas.
+Lightweight per-tenant CRM: contacts, channels, tags, attributes, marketing consent and rule-based segments.
 
 ```ts
 import { ContactDirectory, KvContactStore } from '@botmesh/crm'
@@ -20,20 +20,20 @@ await contacts.upsert({
 const recipients = await contacts.segment('acme', { tagsAll: ['vip'], marketingConsent: true })
 ```
 
-`upsert()` reemplaza el contacto completo (no hace merge) y guarda los tags deduplicados y ordenados. `segment()` aplica todos los criterios con AND y compara atributos por igualdad estricta (`30` no coincide con `'30'`). `setConsent()` es un compare-and-set: dos escritores concurrentes se reintentan, nunca se pisan.
+`upsert()` replaces the whole contact (no merge) and stores tags deduplicated and sorted. `segment()` applies every criterion with AND and compares attributes by strict equality (`30` does not match `'30'`). `setConsent()` is a compare-and-set: two concurrent writers retry, never overwrite each other.
 
-## Almacenamiento
+## Storage
 
-- `MemoryContactStore` — implementación de referencia, en RAM. Se pierde al reiniciar; úsala en tests.
-- `KvContactStore` — persiste sobre cualquier [`DurableKv`](../core/src/durability/kv.ts) del core (`MemoryKv`, `FileDurability`, `SQLiteDurableKv`, `PostgresDurableKv`, `RedisDurableKv`). La tabla lleva el tenant (`@botmesh/tenant-kv`), así que dos tenants con el mismo id de contacto nunca se mezclan.
+- `MemoryContactStore` — reference implementation, in RAM. Lost on restart; use it in tests.
+- `KvContactStore` — persists over any core [`DurableKv`](../core/src/durability/kv.ts) (`MemoryKv`, `FileDurability`, `SQLiteDurableKv`, `PostgresDurableKv`, `RedisDurableKv`). The table carries the tenant (`@botmesh/tenant-kv`), so two tenants with the same contact id never mix.
 
-Ambas pasan la misma suite de conformidad (`test-utils/contact-store-conformance.ts`). Las suites contra servidores reales (`tests/integration.test.ts`) se activan con `BOTWA_TEST_POSTGRES_URL`, `BOTWA_TEST_REDIS_URL` y `BOTWA_TEST_REDIS_CLUSTER_URL`; SQLite siempre corre con un archivo temporal.
+Both pass the same conformance suite (`test-utils/contact-store-conformance.ts`). The suites against real servers (`tests/integration.test.ts`) are enabled with `BOTWA_TEST_POSTGRES_URL`, `BOTWA_TEST_REDIS_URL` and `BOTWA_TEST_REDIS_CLUSTER_URL`; SQLite always runs on a temporary file.
 
 ```ts
 const sqlite = new SQLiteStore({ file: 'crm.db' })
 const contacts = new ContactDirectory(new KvContactStore(sqlite.durability().kv))
 ```
 
-`segment(tenantId, rule, { limit, scan })` devuelve lo más reciente primero: escanea los `scan` (1000 por defecto) contactos más recientes y devuelve hasta `limit` (100 por defecto) coincidencias.
+`segment(tenantId, rule, { limit, scan })` returns the most recent first: it scans the `scan` (1000 by default) most recent contacts and returns up to `limit` (100 by default) matches.
 
-No uses el consentimiento de marketing como autorización para mensajes transaccionales: modela ambos fines por separado en una integración de producción.
+Do not use marketing consent as authorization for transactional messages: model both purposes separately in a production integration.

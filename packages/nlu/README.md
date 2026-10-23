@@ -1,6 +1,6 @@
 # @botmesh/nlu
 
-> **Experimental — aún no publicado en npm** (experimental, not yet published to npm). A real, tested implementation, but the package is `private`: it is not part of the first alpha and its API may change. Use it from this monorepo (`workspace:*`); the `pnpm add` below will work once it is published.
+> **Experimental — not yet published on npm.** A real, tested implementation, but the package is `private`: it is not part of the first alpha and its API may change. Use it from this monorepo (`workspace:*`); the `pnpm add` below will work once it is published.
 
 Lightweight, **fully-local** intent matching for [`@botmesh/core`](../core). Define intents
 with training phrases (utterances) and match incoming message text against them — no

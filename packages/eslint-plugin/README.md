@@ -1,15 +1,15 @@
 # eslint-plugin-botmesh
 
-> **Privado (no se publica en npm todavía).** Vive en el monorepo de `@botmesh`.
+> **Private (not published to npm yet).** It lives in the `@botmesh` monorepo.
 
-Reglas de ESLint específicas de `@botmesh`: detectan en el código fuente los errores que ningún linter genérico conoce
-(API v1 que ya no existe, `runtime.enter()` bloqueante, `install()` async, triggers vacíos, esperas sin timeout y estado
-por usuario en variables globales). Complementa a `bot.lint()` / `lintFlows()` del core, que revisan los flujos en
-tiempo de ejecución (gotos rotos, pasos inalcanzables, triggers duplicados…).
+`@botmesh`-specific ESLint rules: they catch in source code the mistakes no generic linter knows about
+(v1 API that no longer exists, blocking `runtime.enter()`, async `install()`, empty triggers, waits without a
+timeout and per-user state in global variables). They complement the core's `bot.lint()` / `lintFlows()`,
+which check flows at runtime (broken gotos, unreachable steps, duplicate triggers…).
 
-Requiere ESLint 9 o superior (flat config) y Node >= 22.
+Requires ESLint 9 or later (flat config) and Node >= 22.
 
-## Uso
+## Usage
 
 ```js
 // eslint.config.js
@@ -20,7 +20,7 @@ export default [
 ]
 ```
 
-O regla por regla:
+Or rule by rule:
 
 ```js
 import botWa from 'eslint-plugin-botmesh'
@@ -36,83 +36,83 @@ export default [
 ]
 ```
 
-Para TypeScript, combínalo con `typescript-eslint` (las reglas son sintácticas: no necesitan información de tipos).
+For TypeScript, combine it with `typescript-eslint` (the rules are syntactic: they need no type information).
 
 ## Presets
 
-| Preset | Contenido |
+| Preset | Contents |
 | --- | --- |
-| `configs.recommended` | Errores: `no-v1-api`, `no-await-runtime-enter`, `no-async-plugin-install`, `no-empty-trigger`. Avisos: `require-timeout-on-ask`, `prefer-ctx-user-over-global-state`. |
-| `configs.strict` | Todo como error; `require-timeout-on-ask` revisa también `waitText`, `waitMedia`, `choose` y `waitAny`. |
+| `configs.recommended` | Errors: `no-v1-api`, `no-await-runtime-enter`, `no-async-plugin-install`, `no-empty-trigger`. Warnings: `require-timeout-on-ask`, `prefer-ctx-user-over-global-state`. |
+| `configs.strict` | Everything as an error; `require-timeout-on-ask` also checks `waitText`, `waitMedia`, `choose` and `waitAny`. |
 
-## Reglas
+## Rules
 
 ### `botmesh/no-v1-api`
 
-Marca la API v1 / builderbot que no existe en v2: `.addAnswer()`, `.addAction()`, `{ capture: true }`,
-`flowDynamic()`, `gotoFlow()` y `endFlow()`. El mensaje indica el reemplazo (`flow().say/.ask/.do`, `ctx.reply`,
+Flags the v1 / builderbot API that does not exist in v2: `.addAnswer()`, `.addAction()`, `{ capture: true }`,
+`flowDynamic()`, `gotoFlow()` and `endFlow()`. The message points to the replacement (`flow().say/.ask/.do`, `ctx.reply`,
 `.goto`, `c.end`).
 
 ```js
-addKeyword('hola').addAnswer('¿Nombre?', { capture: true })   // ❌
-flow('hola').ask('¿Nombre?', 'name', { timeout: '5m' })         // ✅
+addKeyword('hello').addAnswer('Name?', { capture: true })   // ❌
+flow('hello').ask('Name?', 'name', { timeout: '5m' })         // ✅
 ```
 
 ### `botmesh/no-await-runtime-enter`
 
-`ConversationRuntime.enter()` resuelve cuando la conversación **termina**: hacerle `await` (o devolver su promesa desde
-el handler, o `await runtime.enter().catch()`) bloquea la cola FIFO del chat y el mensaje que la conversación espera
-nunca llega. Lánzala sin esperarla.
+`ConversationRuntime.enter()` resolves when the conversation **ends**: awaiting it (or returning its promise from
+the handler, or `await runtime.enter().catch()`) blocks the chat FIFO queue and the message the conversation waits for
+never arrives. Start it without waiting.
 
 ```js
 await runtime.enter(handle, msg)                               // ❌
 void runtime.enter(handle, msg).catch((err) => log.error({ err }))   // ✅
 ```
 
-Opción: `{ receiverPattern: string }` (regex del nombre del receptor; por defecto `runtime$`, sin distinguir mayúsculas).
+Option: `{ receiverPattern: string }` (regex for the receiver name; default `runtime$`, case-insensitive).
 
 ### `botmesh/no-async-plugin-install`
 
-`Plugin.install()` debe ser síncrono: `bot.plug()` no lo espera, el bot sigue antes de que termine y su rechazo solo
-llega al evento `'error'`. TypeScript ya lo rechaza al compilar (`PluginSpec.install` devuelve `void | SyncInstallError`);
-la regla cubre JavaScript y los escapes con `as any`. Revisa el objeto de `definePlugin({...})`, cualquier objeto literal
-con `name` + `install`, y clases con `install` que declaran `name` o `implements Plugin`. Para inicialización async usa el
-patrón lazy (como `LazyProvider` en `@botmesh/ai`).
+`Plugin.install()` must be synchronous: `bot.plug()` does not await it, the bot keeps going before it finishes and its
+rejection only reaches the `'error'` event. TypeScript already rejects it at compile time (`PluginSpec.install` returns
+`void | SyncInstallError`); the rule covers JavaScript and `as any` escapes. It checks the `definePlugin({...})` object, any literal
+object with `name` + `install`, and classes with `install` that declare `name` or `implements Plugin`. For async initialization use the
+lazy pattern (such as `LazyProvider` in `@botmesh/ai`).
 
 ### `botmesh/no-empty-trigger`
 
-Un trigger vacío (`''`, `'   '`, `[]`, `['']`, `{ pattern: '' }`) no coincide con nada (o, con `contains`, con todo).
-Se revisa en `flow()` / `addKeyword()`, `bot.when()` y el `trigger` de `bot.conversation(name, fn, { trigger })`.
+An empty trigger (`''`, `'   '`, `[]`, `['']`, `{ pattern: '' }`) matches nothing (or, with `contains`, everything).
+It is checked in `flow()` / `addKeyword()`, `bot.when()` and the `trigger` of `bot.conversation(name, fn, { trigger })`.
 
 ### `botmesh/require-timeout-on-ask`
 
-Toda espera de respuesta debe tener timeout para que una conversación abandonada termine.
+Every answer wait must have a timeout so an abandoned conversation ends.
 
-- En flujos: `.ask(texto, clave, { timeout })` o un `.timeout(...)` en la misma cadena.
-- En conversaciones: `c.ask(texto, { timeout })` (y, si se configuran, `c.waitText`, `c.waitMedia`, `c.choose`, `c.waitAny`).
-- Si las opciones no son un objeto literal (una variable, un spread), la regla no puede verlas y no avisa.
+- In flows: `.ask(text, key, { timeout })` or a `.timeout(...)` in the same chain.
+- In conversations: `c.ask(text, { timeout })` (and, when configured, `c.waitText`, `c.waitMedia`, `c.choose`, `c.waitAny`).
+- If the options are not a literal object (a variable, a spread), the rule cannot see them and does not warn.
 
-Opciones: `{ methods?: ('ask' | 'waitText' | 'waitMedia' | 'choose' | 'waitAny')[], allowFlowTimeout?: boolean }`
-(por defecto `['ask']` y `true`).
+Options: `{ methods?: ('ask' | 'waitText' | 'waitMedia' | 'choose' | 'waitAny')[], allowFlowTimeout?: boolean }`
+(default `['ask']` and `true`).
 
 ### `botmesh/prefer-ctx-user-over-global-state`
 
-Marca `globalState` (v1) y los `Map`/objetos **de módulo** indexados por `ctx.from`, `ctx.sender` o `ctx.senderId`
-(`users.set(ctx.from, …)`, `scores[ctx.sender]`): se pierden al reiniciar y no se comparten entre réplicas. Usa
-`ctx.user` (`await ctx.user.ns('feature').set(clave, valor)`).
+Flags `globalState` (v1) and **module-level** `Map`s/objects indexed by `ctx.from`, `ctx.sender` or `ctx.senderId`
+(`users.set(ctx.from, …)`, `scores[ctx.sender]`): they are lost on restart and are not shared across replicas. Use
+`ctx.user` (`await ctx.user.ns('feature').set(key, value)`).
 
-Opción: `{ contextNames: string[] }` (nombres del parámetro de contexto; por defecto `['ctx']`).
+Option: `{ contextNames: string[] }` (context parameter names; default `['ctx']`).
 
 ## API
 
 ```ts
 import botWa, { rules, configs, PLUGIN_NAMESPACE } from 'eslint-plugin-botmesh'
 botWa.meta     // { name: 'eslint-plugin-botmesh', version, namespace: 'botmesh' }
-botWa.rules    // las seis reglas
+botWa.rules    // the six rules
 botWa.configs  // { recommended, strict } (flat config)
 ```
 
-## Desarrollo
+## Development
 
 ```bash
 pnpm --filter eslint-plugin-botmesh build

@@ -1,16 +1,16 @@
 # @botmesh/gohighlevel
 
-> **Experimental — aún no publicado en npm.** Implementación real y con tests, pero el paquete es `private`: su API puede cambiar. Úsalo desde este monorepo (`workspace:*`).
+> **Experimental — not yet published on npm.** Real, tested implementation, but the package is `private`: its API may change. Use it from this monorepo (`workspace:*`).
 
-Transporte **HighLevel (GoHighLevel / LeadConnector) Conversations API** para [`@botmesh/core`](../core). Un bot que contesta a los contactos del CRM por el canal que usaron: **SMS, WhatsApp, Email, Facebook, Instagram, Live chat, GMB o un proveedor Custom**. Entrada por el webhook `InboundMessage` (firmado con **Ed25519, `X-GHL-Signature`**), salida por `POST /conversations/messages`.
+**HighLevel (GoHighLevel / LeadConnector) Conversations API** transport for [`@botmesh/core`](../core). A bot that answers CRM contacts on the channel they used: **SMS, WhatsApp, Email, Facebook, Instagram, Live chat, GMB or a Custom provider**. Inbound through the `InboundMessage` webhook (signed with **Ed25519, `X-GHL-Signature`**), outbound through `POST /conversations/messages`.
 
-## Requisitos
+## Requirements
 
-1. Un **Private Integration Token** (o un token OAuth de la location) con permisos de `conversations` y `conversations/message` (escritura).
-2. El `locationId` de la subcuenta.
-3. Una app del Marketplace (o integración) suscrita al webhook **`InboundMessage`** apuntando a tu servidor.
+1. A **Private Integration Token** (or a location OAuth token) with `conversations` and `conversations/message` (write) permissions.
+2. The sub-account `locationId`.
+3. A Marketplace app (or integration) subscribed to the **`InboundMessage`** webhook pointing at your server.
 
-## Uso
+## Usage
 
 ```ts
 import express from 'express'
@@ -20,42 +20,42 @@ import { GoHighLevelProvider } from '@botmesh/gohighlevel'
 const provider = new GoHighLevelProvider({
   accessToken: process.env.GHL_TOKEN!,
   locationId: process.env.GHL_LOCATION_ID!,
-  // apiVersion: '2021-04-15',   // cabecera Version (por defecto)
-  // defaultChannel: 'SMS',      // canal si el contacto aún no escribió
+  // apiVersion: '2021-04-15',   // Version header (default)
+  // defaultChannel: 'SMS',      // channel when the contact has not written yet
 })
 
 const bot = new Bot({ provider })
-bot.when('hola', (ctx) => ctx.reply('¡Hola! Te escribo desde el CRM'))
+bot.when('hello', (ctx) => ctx.reply('Hi! Writing to you from the CRM'))
 await bot.start()
 
 const app = express()
-// Body CRUDO: la firma Ed25519 se calcula sobre los bytes exactos.
+// RAW body: the Ed25519 signature is computed over the exact bytes.
 app.post('/ghl/webhook', express.raw({ type: 'application/json' }), (req, res) => {
   res.sendStatus(provider.ingest(req.body, req.headers))
 })
 app.listen(3000)
 ```
 
-- La clave pública Ed25519 de HighLevel viene incluida (`GHL_WEBHOOK_PUBLIC_KEY`); `publicKey` permite sobreescribirla si la rotan. La firma RSA heredada (`X-WH-Signature`, retirada el 1-sep-2026) solo se acepta si pasas `legacyPublicKey`.
-- Respuestas de `ingest`: `200` aceptado (también eventos ignorados o de otra location), `400` body ilegible o ya parseado, `401` firma ausente o inválida.
-- `allowUnsignedWebhooks: true` desactiva la verificación (solo desarrollo local).
+- HighLevel's Ed25519 public key ships built in (`GHL_WEBHOOK_PUBLIC_KEY`); `publicKey` overrides it if they rotate it. The legacy RSA signature (`X-WH-Signature`, retired on 2026-09-01) is only accepted when you pass `legacyPublicKey`.
+- `ingest` responses: `200` accepted (also ignored events or events from another location), `400` unreadable or already parsed body, `401` missing or invalid signature.
+- `allowUnsignedWebhooks: true` disables verification (isolated local development only).
 
-## Identidad
+## Identity
 
-`chatId` = `senderId` = **`contactId`** de HighLevel. HighLevel ya fusiona teléfono, email y redes en un contacto, así que la misma persona es el mismo chat en cualquier canal; el canal de cada mensaje va en `ctx.chat.platformData.channel` y el bot responde por el último canal usado. Para forzar otro: `provider.send(contactId, content, { platformData: { type: 'Email', subject: 'Tu pedido' } })` (los demás campos de `platformData` se pasan tal cual al body de la API).
+`chatId` = `senderId` = HighLevel **`contactId`**. HighLevel already merges phone, email and social profiles into one contact, so the same person is the same chat on any channel; each message's channel is in `ctx.chat.platformData.channel` and the bot replies on the last channel used. To force another: `provider.send(contactId, content, { platformData: { type: 'Email', subject: 'Your order' } })` (the other `platformData` fields are passed as-is into the API body).
 
-## Contenido
+## Content
 
 | Kind | HighLevel |
 | --- | --- |
-| `text` | `message` (en `Email` también `html` escapado) |
-| `image` / `video` / `document` / `audio` / `voice` | `attachments: [url]` (**URL pública**) + caption en `message` |
-| `buttons` / `list` | menú de texto numerado |
+| `text` | `message` (on `Email` also escaped `html`) |
+| `image` / `video` / `document` / `audio` / `voice` | `attachments: [url]` (**public URL**) + caption in `message` |
+| `buttons` / `list` | numbered text menu |
 | `template` | `templateId` (= `name`) |
-| `native` (`provider: 'gohighlevel'`) | campos del body tal cual |
+| `native` (`provider: 'gohighlevel'`) | body fields as-is |
 
-Entrante: mensajes (con adjuntos como `ctx.media`), llamadas `CALL` → evento `call`. Se ignoran los ecos `OutboundMessage` y el resto de eventos del CRM. `ctx.markRead()` pone `unreadCount: 0` en la conversación. `options.quoted` → `replyMessageId`.
+Inbound: messages (with attachments as `ctx.media`), `CALL` calls → `call` event. `OutboundMessage` echoes and the rest of the CRM events are ignored. `ctx.markRead()` sets `unreadCount: 0` on the conversation. `options.quoted` → `replyMessageId`.
 
-## Errores
+## Errors
 
-`429` → `RateLimitedError` · `404` o 400/422 por DND/opt-out/contacto inexistente → `RecipientUnreachableError` · `413` → `PayloadTooLargeError` · resto → `GoHighLevelApiError` (`status`).
+`429` → `RateLimitedError` · `404` or 400/422 for DND/opt-out/nonexistent contact → `RecipientUnreachableError` · `413` → `PayloadTooLargeError` · the rest → `GoHighLevelApiError` (`status`).

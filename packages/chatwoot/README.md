@@ -1,17 +1,17 @@
 # @botmesh/chatwoot
 
-> **Experimental — aún no publicado en npm.** Paquete `private` del monorepo: úsalo con `workspace:*`; su API puede cambiar.
+> **Experimental — not yet published on npm.** `private` package of the monorepo: use it with `workspace:*`; its API may change.
 
-Integración de [Chatwoot](https://www.chatwoot.com) para [`@botmesh/core`](../core), construida sobre la API de *human handoff* del core (`ctx.handoff()`, `bot.resume()`, `bot.sendTo()` y los eventos `'handoff'`/`'resume'`).
+[Chatwoot](https://www.chatwoot.com) integration for [`@botmesh/core`](../core), built on the core's *human handoff* API (`ctx.handoff()`, `bot.resume()`, `bot.sendTo()` and the `'handoff'`/`'resume'` events).
 
-- **Sincronización bidireccional:** cada mensaje entrante (también durante el handoff) se publica como `incoming` en Chatwoot y cada envío del bot como `outgoing`.
-- **Mapeo chat ↔ contacto/conversación** persistido en el store del bot (API de cursores, con namespace por bot): sobrevive a reinicios.
-- **Webhook de agente → `bot.sendTo`**, autenticado con token compartido y/o HMAC-SHA256 sobre el body crudo.
-- **Auto-handoff** cuando un agente responde, y **`bot.resume()`** cuando la conversación se marca como resuelta.
-- **Labels** al hacer handoff/resume, por mensaje (`labels.message`) o a mano (`addLabels`/`removeLabels`).
-- Todo el HTTP saliente pasa por `secureFetch` de [`@botmesh/http`](../http) (HTTPS, anti-SSRF, timeouts, sin seguir redirecciones).
+- **Two-way sync:** every inbound message (also during handoff) is posted as `incoming` in Chatwoot and every bot send as `outgoing`.
+- **Chat ↔ contact/conversation mapping** persisted in the bot store (cursors API, namespaced per bot): survives restarts.
+- **Agent webhook → `bot.sendTo`**, authenticated with a shared token and/or HMAC-SHA256 over the raw body.
+- **Auto-handoff** when an agent replies, and **`bot.resume()`** when the conversation is marked as resolved.
+- **Labels** on handoff/resume, per message (`labels.message`) or manually (`addLabels`/`removeLabels`).
+- All outbound HTTP goes through `secureFetch` from [`@botmesh/http`](../http) (HTTPS, anti-SSRF, timeouts, no redirect following).
 
-## Uso
+## Usage
 
 ```ts
 import { createServer } from 'node:http'
@@ -22,27 +22,27 @@ const bot = new Bot({ provider, handoff: { allowCommands: ['/bot'] } })
 
 const chatwoot = chatwootPlugin({
   baseUrl: 'https://app.chatwoot.com',
-  apiKey: process.env.CHATWOOT_TOKEN!,      // access token de un usuario/agente
+  apiKey: process.env.CHATWOOT_TOKEN!,      // access token of a user/agent
   accountId: 1,
-  inboxId: 2,                               // inbox de tipo "API"
+  inboxId: 2,                               // inbox of type "API"
   webhookToken: process.env.CHATWOOT_WEBHOOK_TOKEN!,
-  labels: { handoff: ['humano'], resume: ['bot'] },
+  labels: { handoff: ['human'], resume: ['bot'] },
 })
 bot.plug(chatwoot)
 
-bot.when('hablar con humano', async (ctx) => {
-  await ctx.handoff({ reason: 'el usuario pidió un agente' })
-  await ctx.reply('Te conecto con un agente…')
+bot.when('talk to a human', async (ctx) => {
+  await ctx.handoff({ reason: 'the user asked for an agent' })
+  await ctx.reply('Connecting you to an agent…')
 })
 
-// En Chatwoot: Settings → Integrations → Webhooks →
+// In Chatwoot: Settings → Integrations → Webhooks →
 //   https://bot.example.com/chatwoot?token=<CHATWOOT_WEBHOOK_TOKEN>
-//   eventos: message_created, conversation_status_changed
+//   events: message_created, conversation_status_changed
 createServer(chatwoot.webhookHandler()).listen(3001)
 await bot.start()
 ```
 
-¿Usas Express/Fastify? Pasa el body **crudo**:
+Using Express/Fastify? Pass the **raw** body:
 
 ```ts
 app.post('/chatwoot', express.raw({ type: '*/*' }), async (req, res) => {
@@ -51,55 +51,55 @@ app.post('/chatwoot', express.raw({ type: '*/*' }), async (req, res) => {
 })
 ```
 
-## Flujo
+## Flow
 
-| Evento | Qué hace el plugin |
+| Event | What the plugin does |
 | --- | --- |
-| Mensaje entrante | `incoming` en la conversación del chat (la crea la primera vez). En grupos, el texto va prefijado con el nombre del participante. |
-| El bot envía | `outgoing` (los medios se reflejan como `[image] caption`, etc.). |
-| `ctx.handoff()` / `bot.handoff()` | Conversación `open`, nota privada (`handoffNote`) y `labels.handoff`. |
-| Respuesta pública de un agente (webhook `message_created`) | `bot.handoff()` si `autoHandoff` y el chat no está en handoff; luego `bot.sendTo()` (adjuntos por URL). No se re-refleja en Chatwoot y un reenvío del mismo mensaje (mismo id) se ignora. |
-| Conversación resuelta (webhook `conversation_status_changed`, o `conversation_updated` solo si `changed_attributes` trae el cambio de `status`) | `bot.resume(chatId, { reason: 'chatwoot:resolved' })`. |
-| `bot.resume()` por otra causa | Conversación `resolved` (`resolveOnResume`), quita `labels.handoff`, añade `labels.resume`. |
+| Inbound message | `incoming` in the chat's conversation (created on first use). In groups, the text is prefixed with the participant's name. |
+| The bot sends | `outgoing` (media is mirrored as `[image] caption`, etc.). |
+| `ctx.handoff()` / `bot.handoff()` | `open` conversation, private note (`handoffNote`) and `labels.handoff`. |
+| Public reply from an agent (`message_created` webhook) | `bot.handoff()` if `autoHandoff` and the chat is not already handed off; then `bot.sendTo()` (attachments by URL). It is not mirrored back into Chatwoot, and a re-delivery of the same message (same id) is ignored. |
+| Conversation resolved (`conversation_status_changed` webhook, or `conversation_updated` only when `changed_attributes` carries the `status` change) | `bot.resume(chatId, { reason: 'chatwoot:resolved' })`. |
+| `bot.resume()` for another reason | `resolved` conversation (`resolveOnResume`), removes `labels.handoff`, adds `labels.resume`. |
 
-Se ignoran: notas privadas, mensajes `incoming`, mensajes de *agent bots*, otros inboxes, conversaciones desconocidas y los ecos de los mensajes que creó el propio plugin.
+Ignored: private notes, `incoming` messages, *agent bot* messages, other inboxes, unknown conversations and echoes of the messages the plugin itself created.
 
-## Opciones
+## Options
 
-| Opción | Por defecto | Descripción |
+| Option | Default | Description |
 | --- | --- | --- |
-| `baseUrl`, `apiKey`, `accountId`, `inboxId` | — | Conexión a Chatwoot (obligatorias). |
-| `webhookToken` / `webhookSecret` | — | Al menos una (o `insecureNoWebhookAuth: true`). Token en `?token=`, `x-chatwoot-token` o `Authorization: Bearer`. HMAC en `x-chatwoot-signature` (hex, admite `sha256=`), sobre el body crudo o sobre `${timestamp}.${body}` si llega `x-chatwoot-timestamp`. |
-| `webhookToleranceSec` | `300` | Desfase admitido del timestamp firmado. |
-| `autoHandoff` | `true` | Pausar el bot cuando responde un agente. |
-| `resumeOnResolve` | `true` | Reanudar el bot al resolver la conversación. |
-| `resolveOnResume` | `true` | Resolver la conversación cuando el bot se reanuda por otra vía. |
-| `handoffNote` | `'🤖 → 👤 Handoff: {{reason}}'` | Nota privada al hacer handoff; `false` la desactiva. |
-| `syncInbound` / `syncOutbound` | `true` | Reflejar entrantes / envíos del bot. |
-| `syncMode` | `'all'` | `'handoff'` solo refleja chats que están en handoff. |
+| `baseUrl`, `apiKey`, `accountId`, `inboxId` | — | Chatwoot connection (required). |
+| `webhookToken` / `webhookSecret` | — | At least one (or `insecureNoWebhookAuth: true`). Token in `?token=`, `x-chatwoot-token` or `Authorization: Bearer`. HMAC in `x-chatwoot-signature` (hex, accepts `sha256=`), over the raw body or over `${timestamp}.${body}` when `x-chatwoot-timestamp` is present. |
+| `webhookToleranceSec` | `300` | Allowed clock skew of the signed timestamp. |
+| `autoHandoff` | `true` | Pause the bot when an agent replies. |
+| `resumeOnResolve` | `true` | Resume the bot when the conversation is resolved. |
+| `resolveOnResume` | `true` | Resolve the conversation when the bot resumes another way. |
+| `handoffNote` | `'🤖 → 👤 Handoff: {{reason}}'` | Private note on handoff; `false` disables it. |
+| `syncInbound` / `syncOutbound` | `true` | Mirror inbound messages / bot sends. |
+| `syncMode` | `'all'` | `'handoff'` mirrors only chats that are handed off. |
 | `labels` | — | `{ handoff?, resume?, message?(ctx) }`. |
-| `contact(chatId, ctx)` | — | Datos de contacto nuevo (`name`, `phoneNumber`, `email`, `customAttributes`). El core no deriva teléfonos del id. |
-| `forwardAttachments` | `true` | Reenviar adjuntos del agente como media por URL. |
-| `http` | — | `{ fetch, resolver, allowHttp, allowPrivateHosts, timeoutMs }` (Chatwoot self-hosted en LAN necesita `allowPrivateHosts`). |
-| `storage` | store del bot | `{ get, set }` de strings para el mapeo. |
-| `onError(error, context)` | log `warn` | Errores de sincronización; nunca rompen el bot. |
+| `contact(chatId, ctx)` | — | New contact data (`name`, `phoneNumber`, `email`, `customAttributes`). The core does not derive phone numbers from the id. |
+| `forwardAttachments` | `true` | Forward agent attachments as media by URL. |
+| `http` | — | `{ fetch, resolver, allowHttp, allowPrivateHosts, timeoutMs }` (a self-hosted Chatwoot on a LAN needs `allowPrivateHosts`). |
+| `storage` | bot store | String `{ get, set }` for the mapping. |
+| `onError(error, context)` | `warn` log | Sync errors; they never break the bot. |
 
 ## API
 
-`chatwootPlugin()` devuelve el plugin con estos métodos (también en `ctx.tools.chatwoot`):
+`chatwootPlugin()` returns the plugin with these methods (also available under `ctx.tools.chatwoot`):
 
-- `handleWebhook({ rawBody, headers, query })` → `{ status, body }` (401 sin auth, 400 JSON inválido, 503 si aún no está instalado).
-- `webhookHandler({ maxBytes })` → handler de `node:http` (solo `POST`, límite 1 MiB).
+- `handleWebhook({ rawBody, headers, query })` → `{ status, body }` (401 without auth, 400 invalid JSON, 503 if it is not installed yet).
+- `webhookHandler({ maxBytes })` → `node:http` handler (`POST` only, 1 MiB limit).
 - `conversationOf(chatId)`, `chatOf(conversationId)`.
 - `addLabels(chatId, labels)`, `removeLabels(chatId, labels)`.
-- `flush()` — espera a que termine la sincronización pendiente (tests, apagado ordenado).
-- `client` — `ChatwootClient` (contactos, conversaciones, mensajes, estado, labels).
+- `flush()` — waits for pending sync to finish (tests, graceful shutdown).
+- `client` — `ChatwootClient` (contacts, conversations, messages, status, labels).
 
-## Limitaciones
+## Limitations
 
-- Los medios entrantes se reflejan como texto (`[image] caption`), no se suben como adjuntos.
-- Un chat ↔ una conversación; si Chatwoot devuelve 404 para la conversación mapeada se crea otra.
-- Resolver la conversación en Chatwoot **reanuda el bot** (`bot.resume()`), pero **no cierra ningún ticket**: el plugin no conoce [`@botmesh/tickets`](../tickets) (ni ningún otro sistema de tickets) y no se acopla a él. Si usas ambos, ciérralo tú en el evento `'resume'`:
+- Inbound media is mirrored as text (`[image] caption`); it is not uploaded as an attachment.
+- One chat ↔ one conversation; if Chatwoot returns 404 for the mapped conversation, a new one is created.
+- Resolving the conversation in Chatwoot **resumes the bot** (`bot.resume()`), but **does not close any ticket**: the plugin does not know about [`@botmesh/tickets`](../tickets) (or any other ticketing system) and does not couple to it. If you use both, close it yourself in the `'resume'` event:
 
   ```ts
   bot.on('resume', async ({ chatId, reason }) => {

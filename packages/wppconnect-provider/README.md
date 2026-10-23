@@ -1,33 +1,33 @@
 # @botmesh/wppconnect
 
-Transporte [WPPConnect Server](https://github.com/wppconnect-team/wppconnect-server)
-([`IProvider` v2](../core/src/core/provider.ts)) para [@botmesh/core](../core).
-`wppconnect-server` expone WhatsApp Web (WA-JS) como API REST; el bot habla con
-él por HTTP y recibe los eventos por webhook.
+[WPPConnect Server](https://github.com/wppconnect-team/wppconnect-server) transport
+([`IProvider` v2](../core/src/core/provider.ts)) for [@botmesh/core](../core).
+`wppconnect-server` exposes WhatsApp Web (WA-JS) as a REST API; the bot talks to
+it over HTTP and receives events through webhooks.
 
-> Paquete **privado** (alpha): no se publica en npm.
+> **Private package** (alpha): not published to npm.
 
-- **Salida:** `POST {baseUrl}/api/{session}/<endpoint>` con
-  `Authorization: Bearer <token>`, por `secureFetch` de `@botmesh/http` (sin
-  seguir redirecciones). Con `secretKey`, el token se genera en `start()` y se
-  regenera una vez ante un 401 (la `secretKey` nunca aparece en los errores).
-- **Entrada:** webhooks (`onmessage`, `onack`, `onreactionmessage`,
+- **Outbound:** `POST {baseUrl}/api/{session}/<endpoint>` with
+  `Authorization: Bearer <token>`, through `@botmesh/http`'s `secureFetch` (no
+  redirect following). With `secretKey`, the token is generated on `start()` and
+  regenerated once after a 401 (the `secretKey` never appears in errors).
+- **Inbound:** webhooks (`onmessage`, `onack`, `onreactionmessage`,
   `incomingcall`, `onparticipantschanged`, `status-find`, `qrcode`) →
-  `await provider.ingest(body, headers, url)`, con token obligatorio y
-  comprobación de `session`.
-- **Identidad estable:** los LID desconocidos se resuelven a su número con
-  `GET /api/{session}/contact/pn-lid/{lid}` **antes** de emitir (con caché), y
-  `sender.phoneNumber` también enlaza el par. La misma persona siempre produce el
-  mismo `senderId`.
-- **Contenido:** texto, imagen, vídeo, audio, nota de voz, documento, sticker,
-  ubicación, contacto (vCard), encuesta, reacción; `buttons`/`list`/`card` se
-  degradan a texto numerado; `native` para cualquier endpoint de `/api/{session}/`.
-- **Acciones:** descarga de media (`download-media`), marcar chat como leído
-  (`send-seen`), escribiendo/grabando, borrar, editar texto.
-- **Errores tipados:** `RecipientUnreachableError`, `RateLimitedError`,
+  `await provider.ingest(body, headers, url)`, with a mandatory token and a
+  `session` check.
+- **Stable identity:** unknown LIDs are resolved to their number with
+  `GET /api/{session}/contact/pn-lid/{lid}` **before** emitting (with a cache), and
+  `sender.phoneNumber` also links the pair. The same person always produces the
+  same `senderId`.
+- **Content:** text, image, video, audio, voice note, document, sticker,
+  location, contact (vCard), poll, reaction; `buttons`/`list`/`card` degrade to
+  numbered text; `native` for any `/api/{session}/` endpoint.
+- **Actions:** media download (`download-media`), mark chat as read
+  (`send-seen`), typing/recording, delete, edit text.
+- **Typed errors:** `RecipientUnreachableError`, `RateLimitedError`,
   `PayloadTooLargeError`, `UnsupportedContentError`, `ProviderError`.
 
-## Uso
+## Usage
 
 ```ts
 import express from 'express'
@@ -37,63 +37,63 @@ import { WPPConnectProvider } from '@botmesh/wppconnect'
 const provider = new WPPConnectProvider({
   baseUrl: 'http://localhost:21465',
   session: 'my-bot',
-  secretKey: process.env.WPP_SECRET_KEY!,     // o token: '<bearer ya generado>'
+  secretKey: process.env.WPP_SECRET_KEY!,     // or token: '<already generated bearer>'
   webhookToken: process.env.WPP_WEBHOOK_TOKEN!,
 })
 
 const bot = new Bot({ provider })
-bot.when('hola', (ctx) => ctx.reply('¡Hola! 👋'))
+bot.when('hello', (ctx) => ctx.reply('Hello! 👋'))
 
 const app = express()
 app.post('/webhooks/wpp', express.json({ limit: '25mb' }), async (req, res) => {
   res.sendStatus(await provider.ingest(req.body, req.headers, req.originalUrl))
 })
 app.listen(3000)
-await bot.start() // start-session + status-session → ready, o QR en authPayload
+await bot.start() // start-session + status-session → ready, or QR in authPayload
 ```
 
-`wppconnect-server` no firma los webhooks ni permite cabeceras propias, así que
-el token va en la URL del webhook (configuración del servidor):
+`wppconnect-server` neither signs webhooks nor allows custom headers, so
+the token goes in the webhook URL (server configuration):
 
 ```json
 { "webhook": { "url": "https://bot.example.com/webhooks/wpp?token=<WPP_WEBHOOK_TOKEN>" } }
 ```
 
-Pasa la URL de la petición (`req.originalUrl` basta) como tercer argumento de
-`ingest()`. Si un proxy delante la reescribe, también se acepta en la cabecera
-`x-webhook-token` o como `Authorization: Bearer <token>`.
+Pass the request URL (`req.originalUrl` is enough) as the third argument of
+`ingest()`. If a proxy in front rewrites it, the token is also accepted in the
+`x-webhook-token` header or as `Authorization: Bearer <token>`.
 
-## Configuración
+## Configuration
 
-| Opción | Por defecto | Descripción |
+| Option | Default | Description |
 | --- | --- | --- |
-| `baseUrl` | `http://localhost:21465` | URL de wppconnect-server. |
-| `session` | — | Nombre de la sesión. |
-| `token` / `secretKey` | — | Uno de los dos es obligatorio. |
-| `webhookToken` | — | Token del webhook (query `token`, cabecera o Bearer). |
-| `webhookTokenHeader` | `x-webhook-token` | Cabecera alternativa. |
-| `webhookTokenParam` | `token` | Parámetro de query. |
-| `allowUnsignedWebhooks` | `false` | Solo desarrollo local aislado. |
-| `startSession` | `true` | Llama a `start-session` en `start()`. |
-| `webhookUrl` | — | Webhook por sesión enviado en `start-session` (debe estar en `allowedUrls` del servidor). |
-| `resolveLid` | `true` | Resolver LIDs con `contact/pn-lid`. |
-| `maxLidLookups` | `5` | Máximo de consultas `pn-lid` por webhook (en paralelo). |
-| `lidLookupTimeoutMs` | `5000` | Timeout de cada consulta `pn-lid`. |
-| `lidRetryMs` | `300000` | Espera antes de reintentar un LID cuya consulta falló. |
-| `selfId` | — | Número propio (`573…@c.us`); si falta se aprende del `to` de un DM entrante. |
-| `http` | — | `allowHttp`, `allowPrivateHosts` (por defecto `true`), `timeoutMs` (30 s), `maxBytes` (64 MiB), `resolver`, `fetch`. |
-| `identityCacheSize` | `10000` | Tamaño máximo del mapa LID↔PN (LRU). |
-| `identityPersistence` | — | Mapa LID↔PN durable (`get`/`set` síncronos). Sin él, el id canónico de un contacto visto primero solo con LID puede cambiar tras un reinicio. |
+| `baseUrl` | `http://localhost:21465` | wppconnect-server URL. |
+| `session` | — | Session name. |
+| `token` / `secretKey` | — | One of the two is required. |
+| `webhookToken` | — | Webhook token (`token` query, header or Bearer). |
+| `webhookTokenHeader` | `x-webhook-token` | Alternative header. |
+| `webhookTokenParam` | `token` | Query parameter. |
+| `allowUnsignedWebhooks` | `false` | Isolated local development only. |
+| `startSession` | `true` | Calls `start-session` on `start()`. |
+| `webhookUrl` | — | Per-session webhook sent in `start-session` (must be in the server's `allowedUrls`). |
+| `resolveLid` | `true` | Resolve LIDs with `contact/pn-lid`. |
+| `maxLidLookups` | `5` | Maximum `pn-lid` lookups per webhook (in parallel). |
+| `lidLookupTimeoutMs` | `5000` | Timeout of each `pn-lid` lookup. |
+| `lidRetryMs` | `300000` | Wait before retrying a LID whose lookup failed. |
+| `selfId` | — | Own number (`573…@c.us`); when missing it is learned from the `to` of an inbound DM. |
+| `http` | — | `allowHttp`, `allowPrivateHosts` (default `true`), `timeoutMs` (30 s), `maxBytes` (64 MiB), `resolver`, `fetch`. |
+| `identityCacheSize` | `10000` | Maximum size of the LID↔PN map (LRU). |
+| `identityPersistence` | — | Durable LID↔PN map (synchronous `get`/`set`). Without it, the canonical id of a contact first seen with the LID only may change after a restart. |
 
-`ingest()` resuelve al código HTTP: `200` (aceptado; también para otra sesión o
-eventos desconocidos), `401` (token inválido) o `400` (no es un webhook válido).
+`ingest()` resolves to the HTTP code: `200` (accepted; also for another session or
+unknown events), `401` (invalid token) or `400` (not a valid webhook).
 
-## Notas
+## Notes
 
-- Los ids de mensaje son los serializados de WA-JS
-  (`false_573…@c.us_3EB0…`): son los que aceptan `send-reply`, `react-message`,
-  `delete-message` y `download-media`.
-- `markRead` marca el **chat** entero (`send-seen`); WhatsApp Web no tiene
-  recibos por mensaje.
-- Para botones/listas de WPPConnect usa
+- Message ids are the WA-JS serialized ones
+  (`false_573…@c.us_3EB0…`): they are the ones accepted by `send-reply`, `react-message`,
+  `delete-message` and `download-media`.
+- `markRead` marks the **whole chat** (`send-seen`); WhatsApp Web has no
+  per-message read receipts.
+- For WPPConnect buttons/lists use
   `ctx.sendNative('wppconnect', { endpoint: 'send-list-message', body: {...} })`.

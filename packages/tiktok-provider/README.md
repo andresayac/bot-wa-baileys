@@ -1,18 +1,18 @@
 # @botmesh/tiktok
 
-> **Experimental, aún no publicado en npm.** El paquete es `private`: no forma parte de la primera alpha y su API puede cambiar. Úsalo desde este monorepo (`workspace:*`).
+> **Experimental, not yet published on npm.** The package is `private`: it is not part of the first alpha and its API may change. Use it from this monorepo (`workspace:*`).
 
-Transporte **TikTok** para [`@botmesh/core`](../core) sobre la **TikTok API for Business oficial (v1.3)**. Funciona por webhooks (`pushIngress`) y no abre ningún socket. Cubre dos superficies:
+**TikTok** transport for [`@botmesh/core`](../core) built on the **official TikTok API for Business (v1.3)**. It works through webhooks (`pushIngress`) and opens no socket. It covers two surfaces:
 
-| Superficie | Entrada (webhook) | Respuesta | Requisitos |
+| Surface | Inbound (webhook) | Reply | Requirements |
 |---|---|---|---|
-| **Comentarios** en videos o fotos propios | `comment.update` (suscripción `event_type: COMMENT`) | `POST /business/comment/reply/create/` | Scope `comment.list` + "Manage Account Comment" |
-| **Mensajes directos** (Business Messaging API) | `im_receive_msg` (suscripción `event_type: DIRECT_MESSAGE`) | `POST /business/message/send/` | Acceso aprobado a Business Messaging, cuenta con Advanced Access o Verified Business, dueño de la cuenta mayor de 18 años |
-| **Comentarios de alta intención** (Comment-to-Message) | `im_receive_high_intent_comment` | `/business/message/send/` con `direct_reply` | Solo cuentas registradas en Vietnam, Indonesia o Tailandia |
+| **Comments** on your own videos or photos | `comment.update` (`event_type: COMMENT` subscription) | `POST /business/comment/reply/create/` | `comment.list` scope + "Manage Account Comment" |
+| **Direct messages** (Business Messaging API) | `im_receive_msg` (`event_type: DIRECT_MESSAGE` subscription) | `POST /business/message/send/` | Approved Business Messaging access, account with Advanced Access or Verified Business, account owner over 18 |
+| **High-intent comments** (Comment-to-Message) | `im_receive_high_intent_comment` | `/business/message/send/` with `direct_reply` | Only accounts registered in Vietnam, Indonesia or Thailand |
 
-Cada POST del webhook se valida con **`TikTok-Signature`** (HMAC-SHA256 de `${t}.${bodyCrudo}` con el app secret y una ventana anti-replay). Toda petición saliente pasa por `secureFetch` de [`@botmesh/http`](../http), que exige HTTPS, bloquea hosts privados y aplica timeouts y límites de tamaño.
+Every webhook POST is validated with **`TikTok-Signature`** (HMAC-SHA256 of `${t}.${rawBody}` with the app secret and an anti-replay window). Every outbound request goes through [`@botmesh/http`](../http)'s `secureFetch`, which requires HTTPS, blocks private hosts and applies timeouts and size limits.
 
-## Uso
+## Usage
 
 ```ts
 import { Bot } from '@botmesh/core'
@@ -20,30 +20,30 @@ import { TikTokProvider } from '@botmesh/tiktok'
 import express from 'express'
 
 const provider = new TikTokProvider({
-  accessToken: process.env.TIKTOK_TOKEN!,          // o una función async que lo refresque
-  businessId: process.env.TIKTOK_BUSINESS_ID!,     // open_id de /tt_user/oauth2/token/
-  appSecret: process.env.TIKTOK_APP_SECRET!,       // verifica TikTok-Signature
-  selfUniqueIdentifier: process.env.TIKTOK_SELF_UID!, // unique_identifier de la cuenta (necesario para comentarios)
+  accessToken: process.env.TIKTOK_TOKEN!,          // or an async function that refreshes it
+  businessId: process.env.TIKTOK_BUSINESS_ID!,     // open_id from /tt_user/oauth2/token/
+  appSecret: process.env.TIKTOK_APP_SECRET!,       // verifies TikTok-Signature
+  selfUniqueIdentifier: process.env.TIKTOK_SELF_UID!, // account unique_identifier (required for comments)
 })
 
 const bot = new Bot({ provider })
 
-// Comentarios: el chat es el hilo del comentario (ctx.isGroup === true)
-bot.when('precio', async (ctx) => {
-  await ctx.reply('¡Gracias por tu comentario! Te escribimos por DM 🙌')
+// Comments: the chat is the comment thread (ctx.isGroup === true)
+bot.when('price', async (ctx) => {
+  await ctx.reply('Thanks for your comment! We will DM you 🙌')
 })
 
-// DMs: menú con tarjeta Q&A (de 1 a 3 botones; con más, menú de texto numerado)
-bot.when('hola', async (ctx) => {
-  await ctx.buttons('¿Qué necesitas?', [
-    { id: 'precios', title: 'Precios' },
-    { id: 'horario', title: 'Horario' },
+// DMs: Q&A card menu (1 to 3 buttons; more become a numbered text menu)
+bot.when('hello', async (ctx) => {
+  await ctx.buttons('What do you need?', [
+    { id: 'prices', title: 'Prices' },
+    { id: 'hours', title: 'Hours' },
   ])
 })
 
 await bot.start()
 
-// El webhook lo sirve TU servidor. Pasa el body CRUDO: la firma se calcula sobre esos bytes.
+// YOUR server serves the webhook. Pass the RAW body: the signature is computed over those bytes.
 const app = express()
 app.post('/tiktok/webhook', express.raw({ type: '*/*' }), (req, res) => {
   res.sendStatus(provider.ingest(req.body, req.headers))
@@ -51,74 +51,74 @@ app.post('/tiktok/webhook', express.raw({ type: '*/*' }), (req, res) => {
 app.listen(3000)
 ```
 
-Registra la URL del webhook una vez por app (no por cuenta):
+Register the webhook URL once per app (not per account):
 
 ```bash
 curl -X POST https://business-api.tiktok.com/open_api/v1.3/business/webhook/update/ \
   -H 'Content-Type: application/json' \
-  -d '{"app_id":"…","secret":"…","event_type":"COMMENT","callback_url":"https://tu.host/tiktok/webhook"}'
-# y lo mismo con "event_type":"DIRECT_MESSAGE" si tienes Business Messaging
+  -d '{"app_id":"…","secret":"…","event_type":"COMMENT","callback_url":"https://your.host/tiktok/webhook"}'
+# and the same with "event_type":"DIRECT_MESSAGE" if you have Business Messaging
 ```
 
-`ingest()` devuelve el status HTTP con el que debes responder: `200` si lo acepta (también cuando el evento se ignora), `400` si el body no es crudo o no es JSON, y `403` si la firma no es válida, falta o está fuera de la ventana. TikTok reintenta durante 72 h cualquier respuesta distinta de 200, así que responde rápido; los handlers corren en segundo plano.
+`ingest()` returns the HTTP status you must respond with: `200` when it accepts it (also when the event is ignored), `400` when the body is not raw or not JSON, and `403` when the signature is invalid, missing or outside the window. TikTok retries for 72 h on any non-200 response, so respond fast; handlers run in the background.
 
-## Configuración
+## Configuration
 
-| Campo | Default | Descripción |
+| Field | Default | Description |
 |---|---|---|
-| `accessToken` | requerido | Token de la cuenta (header `Access-Token`). Acepta `string` o `() => string \| Promise<string>`, porque los tokens de cuenta caducan a las 24 h y el refresco corre por tu cuenta. |
-| `businessId` | requerido | `open_id` de la cuenta, que se envía como `business_id`. Los webhooks de otras cuentas autorizadas en la misma app se ignoran. |
-| `appSecret` | requerido* | Secret de la app; verifica `TikTok-Signature`. |
-| `allowUnsignedWebhooks` | `false` | Solo para desarrollo local: acepta webhooks sin firmar. |
-| `signatureToleranceSec` | `300` | Ventana anti-replay (diferencia máxima entre `t` y el reloj local). |
-| `selfUniqueIdentifier` | — | `unique_identifier` de la propia cuenta. **Obligatorio para recibir comentarios**: sus comentarios (incluidas las respuestas del bot vistas por otra instancia o tras un reinicio) llegan con `fromMe: true` y no se despachan. Sin él, los webhooks de comentarios se ignoran; los DMs funcionan igual. |
-| `apiBaseUrl` / `apiVersion` | `https://business-api.tiktok.com/open_api` / `v1.3` | Endpoint de la API. |
-| `http` | — | Opciones de `secureFetch` (`timeoutMs`, `maxBytes`, `resolver`, `fetch`…). |
-| `logger` / `debug` | pino `error` | Logger compatible con pino. |
+| `accessToken` | required | Account token (`Access-Token` header). Accepts a `string` or `() => string \| Promise<string>`, because account tokens expire after 24 h and refreshing is up to you. |
+| `businessId` | required | Account `open_id`, sent as `business_id`. Webhooks from other accounts authorized in the same app are ignored. |
+| `appSecret` | required* | App secret; verifies `TikTok-Signature`. |
+| `allowUnsignedWebhooks` | `false` | Isolated local development: accepts unsigned webhooks. |
+| `signatureToleranceSec` | `300` | Anti-replay window (maximum difference between `t` and the local clock). |
+| `selfUniqueIdentifier` | — | The account's own `unique_identifier`. **Required to receive comments**: its comments (including bot replies seen by another instance or after a restart) arrive with `fromMe: true` and are not dispatched. Without it, comment webhooks are ignored; DMs work the same. |
+| `apiBaseUrl` / `apiVersion` | `https://business-api.tiktok.com/open_api` / `v1.3` | API endpoint. |
+| `http` | — | `secureFetch` options (`timeoutMs`, `maxBytes`, `resolver`, `fetch`…). |
+| `logger` / `debug` | pino `error` | pino-compatible logger. |
 
-## Modelo de chats e identidad
+## Chat model and identity
 
-- **`senderId` = `unique_identifier`**, el identificador global de TikTok, que se mantiene igual entre APIs. La misma persona tiene el mismo `senderId` en comentarios y en DMs.
-- Los ids de chat son opacos para el core. El provider los construye así:
-  - `dm:<conversation_id>`: conversación de DM (`kind: 'dm'`).
-  - `comment:<video_id>:<comment_id>`: hilo de un comentario de primer nivel (`kind: 'group'`, `isGroup: true`). Las respuestas a un comentario caen en el hilo de su `parent_comment_id`, y las conversaciones van por participante.
-  - `hic:<comment_id>`: comentario de alta intención (respuesta por DM).
-    TikTok solo admite **una** respuesta directa por comentario. Tras enviarla, el provider enlaza el chat `hic:` con la conversación de DM que se abre (la aprende de la respuesta de la API, del eco `im_send_msg` o del primer DM del autor del comentario). Mientras haya actividad en las 48 h siguientes, los DMs de esa conversación llegan al mismo chat `hic:`, así que un flow iniciado desde el comentario (`.ask()`, `choose()`) recibe la respuesta. Los envíos posteriores a `hic:` van a la conversación (texto, imágenes, botones). Un segundo envío antes de conocer la conversación falla con `RecipientUnreachableError`. El enlace vive en memoria: tras un reinicio, los DMs llegan a `dm:<conversation_id>`.
-- `ctx.chat.platformData.surface` vale `'comment'`, `'dm'` o `'high-intent-comment'`. Con `scope: 'dm'` / `scope: 'group'` en un trigger separas DMs de comentarios.
-- Los ids de comentario de TikTok son enteros de 64 bits que llegan como números JSON. Se parsean **sin pérdida** (`parseJsonLossless`) y se tratan como strings.
+- **`senderId` = `unique_identifier`**, TikTok's global identifier, which stays the same across APIs. The same person has the same `senderId` in comments and DMs.
+- Chat ids are opaque to the core. The provider builds them like this:
+  - `dm:<conversation_id>`: DM conversation (`kind: 'dm'`).
+  - `comment:<video_id>:<comment_id>`: thread of a top-level comment (`kind: 'group'`, `isGroup: true`). Replies to a comment land in its `parent_comment_id` thread, and conversations are per participant.
+  - `hic:<comment_id>`: high-intent comment (reply by DM).
+    TikTok allows **one** direct reply per comment. After sending it, the provider links the `hic:` chat to the DM conversation that opens (learned from the API response, the `im_send_msg` echo or the comment author's first DM). While there is activity in the following 48 h, that conversation's DMs arrive in the same `hic:` chat, so a flow started from the comment (`.ask()`, `choose()`) receives the answer. Later sends to `hic:` go to the conversation (text, images, buttons). A second send before the conversation is known fails with `RecipientUnreachableError`. The link lives in memory: after a restart, DMs arrive at `dm:<conversation_id>`.
+- `ctx.chat.platformData.surface` is `'comment'`, `'dm'` or `'high-intent-comment'`. With `scope: 'dm'` / `scope: 'group'` in a trigger you separate DMs from comments.
+- TikTok comment ids are 64-bit integers that arrive as JSON numbers. They are parsed **losslessly** (`parseJsonLossless`) and treated as strings.
 
-## Qué soporta
+## What it supports
 
-| Contenido | DM | Comentario | Alta intención |
+| Content | DM | Comment | High intent |
 |---|---|---|---|
-| `text` | ✅ (≤ 6000 caracteres; `ctx.quote()` cita el mensaje) | ✅ (≤ 150 caracteres) | ✅ (el primer envío es la respuesta directa; los siguientes van al DM enlazado, con todo lo de la columna DM) |
-| `image` | ✅ (Buffer, `{path}` y URL se suben con `/business/message/media/upload/`; `{ native: { mediaId } }` reutiliza un `media_id` existente) | ❌ | ❌ |
-| `buttons` | ✅ `QA_BUTTON_CARD` (1 a 3, títulos ≤ 20) o `QA_LINK_CARD` (títulos ≤ 40); pregunta ≤ 40. Si no cabe (más de 3, botones con URL, textos más largos), menú de texto numerado | ✅ menú de texto numerado (≤ 150 caracteres) | ✅ menú de texto numerado en la respuesta directa |
-| `list` | ✅ `QA_LINK_CARD` si hay como mucho 3 filas en total; con más, menú de texto numerado | ✅ menú de texto numerado (≤ 150 caracteres) | ✅ menú de texto numerado en la respuesta directa |
-| `native` (`provider: 'tiktok'`) | ✅ (se fusiona en el body de `message/send`, p. ej. `SHARE_POST`) | ✅ (se fusiona en `reply/create`, p. ej. `image_uri`) | ❌ |
-| Resto (`audio`, `video`, `document`, `location`, `poll`, `reaction`…) | `UnsupportedContentError` | `UnsupportedContentError` | `UnsupportedContentError` |
+| `text` | ✅ (≤ 6000 characters; `ctx.quote()` quotes the message) | ✅ (≤ 150 characters) | ✅ (the first send is the direct reply; later ones go to the linked DM, with everything from the DM column) |
+| `image` | ✅ (Buffer, `{path}` and URL are uploaded with `/business/message/media/upload/`; `{ native: { mediaId } }` reuses an existing `media_id`) | ❌ | ❌ |
+| `buttons` | ✅ `QA_BUTTON_CARD` (1 to 3, titles ≤ 20) or `QA_LINK_CARD` (titles ≤ 40); question ≤ 40. When it does not fit (more than 3, URL buttons, longer texts), numbered text menu | ✅ numbered text menu (≤ 150 characters) | ✅ numbered text menu in the direct reply |
+| `list` | ✅ `QA_LINK_CARD` when there are at most 3 rows in total; more become a numbered text menu | ✅ numbered text menu (≤ 150 characters) | ✅ numbered text menu in the direct reply |
+| `native` (`provider: 'tiktok'`) | ✅ (merged into the `message/send` body, e.g. `SHARE_POST`) | ✅ (merged into `reply/create`, e.g. `image_uri`) | ❌ |
+| Everything else (`audio`, `video`, `document`, `location`, `poll`, `reaction`…) | `UnsupportedContentError` | `UnsupportedContentError` | `UnsupportedContentError` |
 
-Entrada (DM): texto, imagen y video (`ctx.media` con `downloadMedia` a través de `/business/message/media/download/`), stickers, posts compartidos (`type: 'unknown'`, con la URL embed en `body`), mensajes citados (`ctx.quoted`), reacciones (eventos `reaction`) y clics en tarjetas Q&A (interacción `button` con `data` igual al `id` del botón). `im_send_msg` se emite como estado `sent`.
+Inbound (DM): text, image and video (`ctx.media` with `downloadMedia` through `/business/message/media/download/`), stickers, shared posts (`type: 'unknown'`, with the embed URL in `body`), quoted messages (`ctx.quoted`), reactions (`reaction` events) and Q&A card clicks (`button` interaction with `data` equal to the button `id`). `im_send_msg` is emitted as a `sent` status.
 
-Acciones: `typing()` envía `SENDER_ACTION TYPING`, que desaparece a los 5 s. `markRead()` envía `MARK_READ` por conversación. En comentarios ambas son no-op.
+Actions: `typing()` sends `SENDER_ACTION TYPING`, which disappears after 5 s. `markRead()` sends `MARK_READ` per conversation. On comments both are no-ops.
 
-## Límites (impuestos por TikTok)
+## Limits (imposed by TikTok)
 
-- **No se puede iniciar conversación**: solo se responde a usuarios que escribieron primero.
-- **Ventana de 48 h** en conversaciones sin follow mutuo: hasta 10 mensajes en las 48 h posteriores al primer mensaje del usuario; ilimitados durante 48 h tras cada respuesta suya, y 3 como máximo fuera de ventana. Los rechazos se mapean a `OutsideSessionWindowError`.
-- **EEA, Suiza y Reino Unido**: TikTok no entrega el contenido. El evento `im_receive_msg_eu` se descarta.
-- `comment.update` llega **hasta 5 minutos tarde** y no trae nombre ni username del autor. Solo se procesa `comment_action: 'insert'`; borrados, ocultados y cambios de visibilidad se ignoran.
-- Las respuestas que envía el propio bot generan su propio `comment.update`. La protección contra bucles es el autor: con `selfUniqueIdentifier`, todo comentario de la cuenta llega como `fromMe: true` (vale tras un reinicio y entre varias instancias). Además, el proceso recuerda los `comment_id` que creó y no los re-emite. Sin `selfUniqueIdentifier` los comentarios se descartan.
-- Las llamadas a la API **no siguen redirecciones**: el token va en la cabecera `Access-Token`, que una redirección a otro origen arrastraría. Una respuesta 3xx falla con `TikTokApiError`.
-- Las imágenes en DM solo funcionan donde TikTok permite adjuntos; consúltalo con `/business/message/capabilities/get/`.
+- **You cannot start a conversation**: you only reply to users who wrote first.
+- **48 h window** in conversations without mutual follow: up to 10 messages in the 48 h after the user's first message; unlimited for 48 h after each of their replies, and at most 3 outside the window. Rejections map to `OutsideSessionWindowError`.
+- **EEA, Switzerland and the United Kingdom**: TikTok does not deliver the content. The `im_receive_msg_eu` event is discarded.
+- `comment.update` arrives **up to 5 minutes late** and carries no author name or username. Only `comment_action: 'insert'` is processed; deletions, hides and visibility changes are ignored.
+- Replies the bot itself sends generate their own `comment.update`. The loop protection is the author: with `selfUniqueIdentifier`, every comment from the account arrives as `fromMe: true` (works after a restart and across instances). In addition, the process remembers the `comment_id`s it created and does not re-emit them. Without `selfUniqueIdentifier`, comments are discarded.
+- API calls **do not follow redirects**: the token goes in the `Access-Token` header, which a cross-origin redirect would carry along. A 3xx response fails with `TikTokApiError`.
+- Images in DMs only work where TikTok allows attachments; check with `/business/message/capabilities/get/`.
 
-## Errores tipados
+## Typed errors
 
-| Situación | Error |
+| Situation | Error |
 |---|---|
-| HTTP 429 o `code` 40016 / 40100 / 40132 / 40133 | `RateLimitedError` (respeta `Retry-After`) |
-| Ventana o cuota de mensajes | `OutsideSessionWindowError` |
-| `code` 40007 (no existe la conversación o el comentario), o chat id inválido | `RecipientUnreachableError` |
-| Texto por encima del límite, también un menú degradado (se comprueba antes de llamar a la API) | `PayloadTooLargeError` |
-| Tipo de contenido no soportado | `UnsupportedContentError` |
-| Cualquier otro `code` ≠ 0 o HTTP no-2xx | `TikTokApiError` (`code`, `requestId`, `httpStatus`) |
+| HTTP 429 or `code` 40016 / 40100 / 40132 / 40133 | `RateLimitedError` (honours `Retry-After`) |
+| Message window or quota | `OutsideSessionWindowError` |
+| `code` 40007 (conversation or comment does not exist), or invalid chat id | `RecipientUnreachableError` |
+| Text over the limit, also a degraded menu (checked before calling the API) | `PayloadTooLargeError` |
+| Unsupported content type | `UnsupportedContentError` |
+| Any other `code` ≠ 0 or non-2xx HTTP | `TikTokApiError` (`code`, `requestId`, `httpStatus`) |

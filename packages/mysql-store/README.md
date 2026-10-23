@@ -1,7 +1,7 @@
 # @botmesh/mysql-store
 
 > [!WARNING]
-> **Experimental — aún no publicado en npm.** El paquete es `"private": true` dentro del monorepo; la API y el esquema pueden cambiar sin aviso. Está probado contra un MySQL real (ver [Tests de integración](#tests-de-integración)).
+> **Experimental — not yet published on npm.** The package is `"private": true` inside the monorepo; the API and schema may change without notice. It is tested against a real MySQL (see [Integration tests](#integration-tests)).
 
 MySQL/MariaDB [`IStore`](https://github.com/andresayac/botmesh/tree/main/packages/core) implementation for **@botmesh/core** — persistent, shared bot state backed by [mysql2](https://www.npmjs.com/package/mysql2). Point any number of bot replicas at the same database and they share message logs, chats, contacts, flow checkpoints, AI conversation history and delivery cursors.
 
@@ -144,30 +144,30 @@ bot.schedule('0 9 * * 1-5', { id: 'daily-report', timeZone: 'Europe/Madrid' }, a
 - `tests/schedules.integration.test.ts` runs the shared `ScheduleStore` conformance suite (also without `FOUND_ROWS`), 20 claimers on two 2-connection pools, a concurrent schema race and a two-bot end-to-end run against a real server (same `BOTWA_TEST_MYSQL_URL`).
 
 
-## Tests de integración
+## Integration tests
 
-Los tests unitarios (`tests/mysql-store.test.ts`, `tests/conformance.test.ts`) usan un `FakePool` en memoria que reconoce las sentencias del store, así que nunca ejecutan SQL real. `tests/integration.test.ts` sí lo hace: corre la suite compartida de conformidad de `IStore` y casos propios de MySQL (esquema e índice idempotentes, persistencia tras `stop()`/`start()` con un cliente nuevo, recorte con `maxMessagesPerChat`, `deleteChat` purgando el log, merge superficial, unicode/emoji y JSON grandes, orden/límite de `getMessagesByChat`, `saveMessage` concurrentes, `upsertChat`/`upsertContact` parciales y concurrentes desde varios clientes (merge atómico sin pérdida de campos) e ids que solo difieren en mayúsculas/acentos) contra un servidor de verdad.
+The unit tests (`tests/mysql-store.test.ts`, `tests/conformance.test.ts`) use an in-memory `FakePool` that understands the store's statements, so they never run real SQL. `tests/integration.test.ts` does: it runs the shared `IStore` conformance suite plus MySQL-specific cases (idempotent schema and indexes, persistence across `stop()`/`start()` with a fresh client, `maxMessagesPerChat` trimming, `deleteChat` purging the log, shallow merge, unicode/emoji and large JSON, `getMessagesByChat` order/limit, concurrent `saveMessage`, partial and concurrent `upsertChat`/`upsertContact` from several clients (atomic merge without losing fields) and ids that differ only in case/accents) against a real server.
 
-Es opt-in: se activa con la variable de entorno `BOTWA_TEST_MYSQL_URL` y, si no está definida, se salta entera, así que `pnpm test` sigue siendo hermético. Unos pocos tests "hermetic pins" del mismo archivo fijan esas regresiones sin servidor y corren siempre.
+It is opt-in: it is enabled by the `BOTWA_TEST_MYSQL_URL` environment variable and, when it is not set, the whole suite is skipped, so `pnpm test` stays hermetic. A few "hermetic pins" in the same file lock those regressions without a server and always run.
 
 ```bash
-# 1. Un MySQL desechable (puerto 53306 para no chocar con uno local)
+# 1. A disposable MySQL (port 53306 so it does not clash with a local one)
 docker run -d --name botwa-it-mysql -e MYSQL_ROOT_PASSWORD=root -e MYSQL_DATABASE=botwa -p 53306:3306 mysql:8.4
 
-# 2. Espera a que acepte conexiones TCP: repite hasta ver "mysqld is alive"
-#    (el primer arranque inicializa los datos y tarda unos 20-30 s)
+# 2. Wait until it accepts TCP connections: repeat until you see "mysqld is alive"
+#    (the first boot initializes the data and takes about 20-30 s)
 docker exec botwa-it-mysql mysqladmin ping -h 127.0.0.1 -uroot -proot
 
-# 3. Ejecuta la suite contra él
+# 3. Run the suite against it
 BOTWA_TEST_MYSQL_URL=mysql://root:root@127.0.0.1:53306/botwa pnpm --filter @botmesh/mysql-store test
 
-# 4. Limpieza
+# 4. Clean up
 docker rm -f botwa-it-mysql
 ```
 
-En PowerShell: `$env:BOTWA_TEST_MYSQL_URL = 'mysql://root:root@127.0.0.1:53306/botwa'; pnpm --filter @botmesh/mysql-store test`.
+In PowerShell: `$env:BOTWA_TEST_MYSQL_URL = 'mysql://root:root@127.0.0.1:53306/botwa'; pnpm --filter @botmesh/mysql-store test`.
 
-- **Aislamiento:** cada store del test usa su propio `tablePrefix` (`it<run>_<n>_`); cada test borra sus tablas al terminar y un `afterAll` elimina lo que quede de esa ejecución. Se puede apuntar a una base compartida sin pisar datos ni chocar con otra ejecución en paralelo.
-- **Usuario:** necesita permisos de `CREATE`, `DROP`, `INDEX`, `SELECT`, `INSERT`, `UPDATE` y `DELETE` sobre la base, y lectura de `information_schema`.
-- **Windows + Docker Desktop:** usa `127.0.0.1` en lugar de `localhost`. `localhost` resuelve primero a `::1` y el reenvío IPv6 de Docker Desktop acepta la conexión TCP pero no entrega el handshake de MySQL, así que `mysql2` acaba en `ETIMEDOUT`.
-- **CI:** esta suite no corre en CI; ejecútala en local con Docker antes de tocar el store.
+- **Isolation:** each store in the test uses its own `tablePrefix` (`it<run>_<n>_`); each test drops its tables when it finishes and an `afterAll` removes whatever is left from that run. It can target a shared database without overwriting data or clashing with another parallel run.
+- **User:** it needs `CREATE`, `DROP`, `INDEX`, `SELECT`, `INSERT`, `UPDATE` and `DELETE` privileges on the database, plus read access to `information_schema`.
+- **Windows + Docker Desktop:** use `127.0.0.1` instead of `localhost`. `localhost` resolves to `::1` first and Docker Desktop's IPv6 forwarding accepts the TCP connection but never delivers the MySQL handshake, so `mysql2` ends in `ETIMEDOUT`.
+- **CI:** this suite does not run in CI; run it locally with Docker before touching the store.

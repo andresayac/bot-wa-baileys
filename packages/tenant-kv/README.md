@@ -1,8 +1,8 @@
 # @botmesh/tenant-kv
 
-> Infraestructura interna · privado (`"private": true`, no se publica en npm).
+> Internal infrastructure · private (`"private": true`, not published to npm).
 
-Documentos JSON aislados por tenant con compare-and-set sobre cualquier `DurableKv` de `@botmesh/core`: `MemoryKv`, el kv de `FileDurability`, `SQLiteDurableKv` (`@botmesh/sqlite-store`), `PostgresDurableKv` (`@botmesh/postgres-store`) y `RedisDurableKv` (`@botmesh/redis-store`, nodo único o cluster). Es el pegamento de almacenamiento que comparten `@botmesh/inbox`, `@botmesh/crm`, `@botmesh/campaigns`, `@botmesh/deployments` y `@botmesh/hub`; no está pensado para usarse directamente desde un bot.
+Tenant-isolated JSON documents with compare-and-set over any `@botmesh/core` `DurableKv`: `MemoryKv`, the `FileDurability` kv, `SQLiteDurableKv` (`@botmesh/sqlite-store`), `PostgresDurableKv` (`@botmesh/postgres-store`) and `RedisDurableKv` (`@botmesh/redis-store`, single node or cluster). It is the storage glue shared by `@botmesh/inbox`, `@botmesh/crm`, `@botmesh/campaigns`, `@botmesh/deployments` and `@botmesh/hub`; it is not meant to be used directly from a bot.
 
 ```ts
 import { MemoryKv } from '@botmesh/core'
@@ -11,7 +11,7 @@ import { TenantDocs } from '@botmesh/tenant-kv'
 const docs = new TenantDocs<{ n: number; updatedAt: number }>(new MemoryKv(), {
   family: ['demo', 'counter'],            // tablas product/demo/counter/<tenant>
   parse: (value) => value as { n: number; updatedAt: number },
-  order: (doc) => -doc.updatedAt,         // list() devuelve los más recientes primero
+  order: (doc) => -doc.updatedAt,         // list() returns the most recent first
 })
 
 const table = docs.in('acme')
@@ -20,17 +20,17 @@ await table.update('x', (cur) => cur && { ...cur, n: cur.n + 1, updatedAt: Date.
 await table.list({ limit: 50 })
 ```
 
-## Decisión de diseño
+## Design decision
 
-Los paquetes de producto no dependen de ningún driver (`pg`, `redis`, `better-sqlite3`…) ni los stores conocen a los productos: cada producto persiste a través del contrato público `DurableKv` del core (documento JSON versionado + dos índices ordenados) y este paquete pone lo común en un solo sitio:
+Product packages depend on no driver (`pg`, `redis`, `better-sqlite3`…) and stores do not know about the products: each product persists through the core's public `DurableKv` contract (versioned JSON document + two ordered indexes) and this package puts the shared pieces in one place:
 
-- **Nombre de tabla** `product/<familia…>/<tenant>[/<sub>…]`, con cada segmento percent-encoded (`encodeSegment`, mismo alfabeto que `@botmesh/redis-store`). El tenant forma parte de la clave primaria del backend (`(tbl, id)` en Postgres/SQLite, hash tag `{durable:<tabla>}` en Redis), así que ninguna consulta puede cruzar tenants y un `tenantId` hostil (`a/b`, `}{`, `*`) queda codificado. El prefijo `product/` nunca colisiona con las tablas del journal del core (`inbox`, `outbox`, `inbox:<scope>`…), por lo que el mismo kv puede respaldar `BotConfig.durability`.
-- **Compare-and-set**: la versión opaca del backend es la que usa el CAS; `update(id, fn)` reintenta hasta `attempts` veces (32 por defecto, con pausa aleatoria) y después lanza `KvContentionError`. Nunca hay sobrescritura silenciosa.
-- **Validación**: todo documento leído pasa por `parse`; si no es JSON válido o no cumple la forma esperada, `CorruptDocumentError(table, id)` (el mensaje nunca incluye el contenido).
-- **Listados acotados**: `list({ index: 'all' | 'active', limit, max })` lee como mucho `limit` ids del índice (ascendente por puntuación, empates por id) y vuelve a leer cada documento. `DurableKv.range` solo responde «los N menores ≤ max», así que no hay paginación por cursor: los productos documentan sus límites (`limit`/`scan`).
+- **Table name** `product/<family…>/<tenant>[/<sub>…]`, with each segment percent-encoded (`encodeSegment`, same alphabet as `@botmesh/redis-store`). The tenant is part of the backend primary key (`(tbl, id)` in Postgres/SQLite, hash tag `{durable:<table>}` in Redis), so no query can cross tenants and a hostile `tenantId` (`a/b`, `}{`, `*`) stays encoded. The `product/` prefix never collides with the core journal tables (`inbox`, `outbox`, `inbox:<scope>`…), so the same kv can back `BotConfig.durability`.
+- **Compare-and-set**: the backend's opaque version is what CAS uses; `update(id, fn)` retries up to `attempts` times (32 by default, with a random pause) and then throws `KvContentionError`. There is never a silent overwrite.
+- **Validation**: every document read goes through `parse`; if it is not valid JSON or does not match the expected shape, `CorruptDocumentError(table, id)` (the message never includes the content).
+- **Bounded listings**: `list({ index: 'all' | 'active', limit, max })` reads at most `limit` ids from the index (ascending by score, ties by id) and re-reads each document. `DurableKv.range` only answers "the N smallest ≤ max", so there is no cursor pagination: products document their bounds (`limit`/`scan`).
 
-## Límites
+## Limits
 
-- Una tabla por tenant implica un hash slot por tenant-tabla en Redis Cluster: un tenant muy caliente concentra su tráfico en un nodo.
-- Las puntuaciones de los índices deben ser enteros seguros (Postgres y SQLite las guardan como enteros de 64 bits).
-- Quien crea el `DurableKv` es quien llama a `start()`/`stop()`; este paquete nunca los invoca.
+- One table per tenant means one hash slot per tenant-table in Redis Cluster: a very hot tenant concentrates its traffic on a single node.
+- Index scores must be safe integers (Postgres and SQLite store them as 64-bit integers).
+- Whoever creates the `DurableKv` calls `start()`/`stop()`; this package never does.

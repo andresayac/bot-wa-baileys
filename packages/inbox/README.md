@@ -1,8 +1,8 @@
 # @botmesh/inbox
 
-> **Paquete privado** (`"private": true`, no se publica en npm). Implementación real y persistente; la API puede cambiar sin aviso mientras la alpha no salga.
+> **Private package** (`"private": true`, not published to npm). Real, persistent implementation; the API may change without notice while the alpha is out.
 
-Bandeja de entrada aislada por tenant para conversaciones omnicanal: asignación con compare-and-set (CAS), handoff bot/humano, contadores de no leídos, SLA, notas internas y proyección de los mensajes del ledger del core.
+Tenant-isolated inbox for omnichannel conversations: compare-and-set (CAS) assignment, bot/human handoff, unread counters, SLA, internal notes and projection of the core ledger messages.
 
 ```ts
 import { Inbox, KvInboxStore } from '@botmesh/inbox'
@@ -14,27 +14,27 @@ const assigned = await inbox.assign('acme', conversation.id, 'agent-7', conversa
 await inbox.handoff('acme', assigned.id, true, assigned.version)
 ```
 
-## Almacenamiento
+## Storage
 
-- `MemoryInboxStore` — implementación de referencia, en RAM. Se pierde al reiniciar; úsala en tests.
-- `KvInboxStore` — persiste sobre cualquier [`DurableKv`](../core/src/durability/kv.ts) del core (`MemoryKv`, `FileDurability`, `SQLiteDurableKv`, `PostgresDurableKv`, `RedisDurableKv`). Las claves/tablas llevan el tenant (`@botmesh/tenant-kv`), así que dos tenants con el mismo id de conversación nunca se mezclan.
+- `MemoryInboxStore` — reference implementation, in RAM. Lost on restart; use it in tests.
+- `KvInboxStore` — persists over any core [`DurableKv`](../core/src/durability/kv.ts) (`MemoryKv`, `FileDurability`, `SQLiteDurableKv`, `PostgresDurableKv`, `RedisDurableKv`). Keys/tables carry the tenant (`@botmesh/tenant-kv`), so two tenants with the same conversation id never mix.
 
-Ambas pasan la misma suite de conformidad compartida (`test-utils/inbox-store-conformance.ts`). Las suites contra servidores reales (`tests/integration.test.ts`) se activan con `BOTWA_TEST_POSTGRES_URL`, `BOTWA_TEST_REDIS_URL` y `BOTWA_TEST_REDIS_CLUSTER_URL`; SQLite siempre corre con un archivo temporal.
+Both pass the same shared conformance suite (`test-utils/inbox-store-conformance.ts`). The suites against real servers (`tests/integration.test.ts`) are enabled with `BOTWA_TEST_POSTGRES_URL`, `BOTWA_TEST_REDIS_URL` and `BOTWA_TEST_REDIS_CLUSTER_URL`; SQLite always runs on a temporary file.
 
 ```ts
 const sqlite = new SQLiteStore({ file: 'inbox.db' })
 const inbox = new Inbox(new KvInboxStore(sqlite.durability().kv))
 ```
 
-## Concurrencia
+## Concurrency
 
-Toda mutación de una conversación existente exige `expectedVersion` y es un CAS **atómico en el backend**: dos agentes no pueden pisarse el handoff en silencio. Un desajuste lanza `InboxConflictError` sin escribir nada; una conversación inexistente lanza `InboxNotFoundError`.
+Every mutation of an existing conversation requires `expectedVersion` and is an **atomic compare-and-set on the backend**: two agents cannot silently overwrite each other's handoff. A mismatch throws `InboxConflictError` without writing anything; a nonexistent conversation throws `InboxNotFoundError`.
 
-`upsert(input, expectedVersion?)` también aplica CAS: sobre una conversación existente exige su versión actual; al crear acepta la versión omitida o `0` (`0` = solo crear).
+`upsert(input, expectedVersion?)` also applies CAS: on an existing conversation it requires its current version; on create it accepts an omitted version or `0` (`0` = create only).
 
-`projectMessage()` incrementa `unread` de forma atómica sobre el estado más reciente, sin revertir cambios de agentes. La dirección sale de `direction` o, si falta, de `fromMe` (`true` = saliente); un mensaje sin ninguno de los dos se rechaza con `TypeError` sin escribir nada.
+`projectMessage()` increments `unread` atomically on the latest state, without reverting agents' changes. The direction comes from `direction` or, when missing, from `fromMe` (`true` = outbound); a message with neither is rejected with `TypeError` without writing anything.
 
-## Proyección automática desde un bot
+## Automatic projection from a bot
 
 ```ts
 import { attachInbox } from '@botmesh/inbox'
@@ -44,8 +44,8 @@ const detach = attachInbox(bot, inbox, { tenantId: 'acme' })
 detach()
 ```
 
-`attachInbox` instala un plugin que proyecta cada mensaje entrante (`bot.on('message')`) y cada envío aceptado (`after('send')`). Un fallo de proyección va al evento `'error'` del bot y nunca bloquea el bot.
+`attachInbox` installs a plugin that projects every inbound message (`bot.on('message')`) and every accepted send (`after('send')`). A projection failure goes to the bot's `'error'` event and never blocks the bot.
 
-## Listados
+## Listings
 
-`list(tenantId, { status?, assigneeId?, limit?, scan? })` devuelve lo más reciente primero. Las conversaciones se ordenan por `updatedAt` descendente y los filtros se aplican dentro de los `scan` (1000 por defecto) más recientes; con `status: 'open' | 'pending'` se escanea solo el índice de no resueltas, así que el historial resuelto nunca las desplaza fuera de la ventana.
+`list(tenantId, { status?, assigneeId?, limit?, scan? })` returns the most recent first. Conversations are ordered by `updatedAt` descending and filters apply within the `scan` (1000 by default) most recent ones; with `status: 'open' | 'pending'` only the unresolved index is scanned, so resolved history never pushes them out of the window.

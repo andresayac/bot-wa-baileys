@@ -1,24 +1,24 @@
 # @botmesh/messenger
 
-> **Experimental — aún no publicado en npm.** Implementación real y con tests, pero el paquete es `private`: no forma parte de la primera alpha y su API puede cambiar. Úsalo desde este monorepo (`workspace:*`); el `pnpm add` de abajo funcionará cuando se publique.
+> **Experimental — not yet published on npm.** Real, tested implementation, but the package is `private`: it is not part of the first alpha and its API may change. Use it from this monorepo (`workspace:*`); the `pnpm add` below will work once it is published.
 
-Transporte **Facebook Messenger (Send API oficial de Meta)** para [`@botmesh/core`](../core). Hermano de `@botmesh/meta` (WhatsApp Cloud API): misma familia Graph — **webhook con handshake `hub.challenge` + firma `X-Hub-Signature-256`** y una **Send API HTTP** (`POST /{page-id}/messages`). No abre socket.
+**Facebook Messenger (Meta's official Send API)** transport for [`@botmesh/core`](../core). Sibling of `@botmesh/meta` (WhatsApp Cloud API): same Graph family — **webhook with the `hub.challenge` handshake + `X-Hub-Signature-256` signature** and an **HTTP Send API** (`POST /{page-id}/messages`). It opens no socket.
 
-## Instalación
+## Install
 
 ```bash
 pnpm add @botmesh/core @botmesh/messenger
 ```
 
-**Cero dependencias extra** — usa `fetch` y `crypto` nativos de Node ≥ 22.
+**No extra dependencies** — it uses Node ≥ 22 native `fetch` and `crypto`.
 
-## Requisitos (Meta)
+## Requirements (Meta)
 
-1. Una app en [developers.facebook.com](https://developers.facebook.com) con el producto **Messenger** y una Página de Facebook conectada.
-2. Un **Page Access Token** con `pages_messaging` (generado en la app, sección Messenger).
-3. Configurar el **webhook** de la página apuntando a tu servidor: suscribí el campo `messages` con un `verify_token` que vos elegís y, recomendado, el `app_secret` de la app.
+1. An app at [developers.facebook.com](https://developers.facebook.com) with the **Messenger** product and a connected Facebook Page.
+2. A **Page Access Token** with `pages_messaging` (generated in the app's Messenger section).
+3. Configure the Page **webhook** pointing at your server: subscribe the `messages` field with a `verify_token` you choose and, recommended, the app's `app_secret`.
 
-## Uso
+## Usage
 
 ```ts
 import { Bot } from '@botmesh/core'
@@ -27,16 +27,16 @@ import express from 'express'
 
 const provider = new MessengerProvider({
   accessToken: process.env.MESSENGER_TOKEN!,
-  verifyToken: 'mi-verify-secret',               // el que pusiste en Meta
-  appSecret: process.env.META_APP_SECRET!,       // requerido: verifica X-Hub-Signature-256
-  pageId: 'me',                                  // o el id numérico de la página
+  verifyToken: 'my-verify-secret',               // the one you set in Meta
+  appSecret: process.env.META_APP_SECRET!,       // required: verifies X-Hub-Signature-256
+  pageId: 'me',                                  // or the Page's numeric id
 })
 
 const bot = new Bot({ provider })
-bot.when('hola', (ctx) => ctx.reply('👋 ¡Hola desde Messenger!'))
+bot.when('hello', (ctx) => ctx.reply('👋 Hello from Messenger!'))
 await bot.start()
 
-// ——— El webhook lo sirve TU servidor ———
+// ——— YOUR server serves the webhook ———
 const app = express()
 app.get('/webhook', (req, res) => {
   const challenge = provider.verifyChallenge(req.query as never)
@@ -48,47 +48,47 @@ app.post('/webhook', express.json({ verify: (req, _res, buf) => { (req as any).r
 app.listen(3000)
 ```
 
-> **Firma del webhook:** `appSecret` es obligatorio en producción; `ingest` valida `X-Hub-Signature-256`
-> (HMAC-SHA256 en tiempo constante) y rechaza cuerpos falsificados con `403`.
-> Pasale el **body crudo** (no el ya parseado) para que la firma calcule igual.
-> Solo para desarrollo local se puede usar `allowUnsignedWebhooks: true` de forma explícita.
+> **Webhook signature:** `appSecret` is mandatory in production; `ingest` validates `X-Hub-Signature-256`
+> (constant-time HMAC-SHA256) and rejects forged bodies with `403`.
+> Pass it the **raw body** (not the already parsed one) so the signature computes the same.
+> For local development only, `allowUnsignedWebhooks: true` can be used explicitly.
 
-## Configuración
+## Configuration
 
-| Campo | Default | Descripción |
+| Field | Default | Description |
 |---|---|---|
 | `accessToken` | — | Page Access Token (`pages_messaging`). |
-| `verifyToken` | — | Secreto del handshake GET del webhook. |
-| `appSecret` | Sí | Verifica `X-Hub-Signature-256` en cada POST. |
-| `apiVersion` | `v21.0` | Versión del Graph API. |
-| `graphUrl` | `https://graph.facebook.com` | Base del Graph. |
-| `pageId` | `me` | Id de la página (o `me`). |
-| `selfId` | — | PSID del bot (para `fromMe`). |
+| `verifyToken` | — | Webhook GET handshake secret. |
+| `appSecret` | Yes | Verifies `X-Hub-Signature-256` on every POST. |
+| `apiVersion` | `v21.0` | Graph API version. |
+| `graphUrl` | `https://graph.facebook.com` | Graph base URL. |
+| `pageId` | `me` | Page id (or `me`). |
+| `selfId` | — | The bot's PSID (for `fromMe`). |
 
-## Qué soporta
+## What it supports
 
 | Feature | Messenger |
 |---|---|
-| Texto, imagen, video, audio, documento (por URL pública) | ✅ |
-| **Botones postback** (`ctx.buttons`, template `button`, máx 3; un botón con `url` es `web_url`) | ✅ nativo |
-| **Tarjetas** (`card` con imagen o botones → template `generic`; sin ellos, texto) | ✅ nativo |
-| **Listas** (template `generic`, un elemento por fila) | ✅ nativo |
-| Quick replies / postbacks entrantes → interacciones (`kind: 'button'`) | ✅ |
-| Ubicación entrante (`type: 'location'`) y respuestas citadas (`quoted`) | ✅ |
-| Reacciones entrantes (`message.reaction` → evento `reaction`) | ✅ |
-| Typing (`typing_on`/`typing_off`) y confirmación de lectura (`mark_seen`) | ✅ |
-| Descarga de media entrante (`MediaRef.token` es la URL del attachment) | ✅ |
-| Encuestas, stickers, ubicación, contacto, plantillas, enviar reacciones | ❌ (`UnsupportedContentError` — no hay endpoint en la Send API) |
-| Grupos, presence, editar/borrar mensajes | ❌ (no existe en la API) |
+| Text, image, video, audio, document (by public URL) | ✅ |
+| **Postback buttons** (`ctx.buttons`, `button` template, max 3; a button with `url` is `web_url`) | ✅ native |
+| **Cards** (`card` with image or buttons → `generic` template; without them, text) | ✅ native |
+| **Lists** (`generic` template, one element per row) | ✅ native |
+| Inbound quick replies / postbacks → interactions (`kind: 'button'`) | ✅ |
+| Inbound location (`type: 'location'`) and quoted replies (`quoted`) | ✅ |
+| Inbound reactions (`message.reaction` → `reaction` event) | ✅ |
+| Typing (`typing_on`/`typing_off`) and read receipt (`mark_seen`) | ✅ |
+| Inbound media download (`MediaRef.token` is the attachment URL) | ✅ |
+| Polls, stickers, location, contact, templates, sending reactions | ❌ (`UnsupportedContentError` — no Send API endpoint) |
+| Groups, presence, editing/deleting messages | ❌ (does not exist in the API) |
 
-## Limitaciones documentadas
+## Documented limitations
 
-- **Media solo por URL pública.** La Send API refiere attachments por URL (`is_reusable: true`); este provider **no** implementa el upload por chunks. Pasá `MediaSource` como URL (`'https://…'` o `{ url }`) — un `Buffer`/path/stream lanza `UnsupportedContentError` con la nota.
-- **Citas/respuestas (`quoted`) se ignoran:** la Send API no tiene contexto de reply de primer nivel.
-- **Reacciones salientes:** no hay endpoint público — `kind: 'reaction'` lanza `UnsupportedContentError`. Las entrantes sí se normalizan.
-- `acknowledgeInteraction` es un no-op: los postbacks de Messenger no requieren ack.
-- **Identidad:** `chatId`/`senderId` son el PSID (`sender.id`) — estable por par página↔usuario.
+- **Media by public URL only.** The Send API refers to attachments by URL (`is_reusable: true`); this provider does **not** implement chunked upload. Pass `MediaSource` as a URL (`'https://…'` or `{ url }`) — a `Buffer`/path/stream throws `UnsupportedContentError` with the note.
+- **Quotes/replies (`quoted`) are ignored:** the Send API has no first-class reply context.
+- **Outbound reactions:** there is no public endpoint — `kind: 'reaction'` throws `UnsupportedContentError`. Inbound ones are normalized.
+- `acknowledgeInteraction` is a no-op: Messenger postbacks need no ack.
+- **Identity:** `chatId`/`senderId` are the PSID (`sender.id`) — stable per page↔user pair.
 
-## Errores
+## Errors
 
-Los errores del Graph (`res.error`) se mapean a los tipos de `@botmesh/core`: códigos de rate limit **4/613** → `RateLimitedError` (honrando `Retry-After`); fuera de la ventana de 24 h (código 10, subcódigo 2018278) → `OutsideSessionWindowError`; destinatario no disponible o inexistente (código 551, subcódigos 1545041/2018001) → `RecipientUnreachableError`, ambos con el `chatId`; el resto → `ProviderError`.
+Graph errors (`res.error`) map to `@botmesh/core` types: rate-limit codes **4/613** → `RateLimitedError` (honouring `Retry-After`); outside the 24 h window (code 10, subcode 2018278) → `OutsideSessionWindowError`; recipient unavailable or nonexistent (code 551, subcodes 1545041/2018001) → `RecipientUnreachableError`, both with the `chatId`; the rest → `ProviderError`.

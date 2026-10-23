@@ -1,12 +1,12 @@
 # @botmesh/dialogflow
 
-> **Experimental — aún no publicado en npm.** Implementación real y probada, pero el paquete es `private`: no forma parte de la primera alpha y su API puede cambiar. Úsalo desde este monorepo (`workspace:*`).
+> **Experimental — not yet published on npm.** Real, tested implementation, but the package is `private`: it is not part of the first alpha and its API may change. Use it from this monorepo (`workspace:*`).
 
-Contexto de NLU con **Dialogflow ES y CX** para [`@botmesh/core`](../core). Cada mensaje de texto pasa por `detectIntent` (API REST) y la intención detectada rutea a un handler o a un flow; los parámetros de Dialogflow llegan a `c.state`.
+NLU context with **Dialogflow ES and CX** for [`@botmesh/core`](../core). Every text message goes through `detectIntent` (REST API) and the detected intent routes to a handler or a flow; Dialogflow parameters land in `c.state`.
 
-Sin SDK de Google: la autenticación es un JWT de cuenta de servicio firmado con `node:crypto` (RS256) que se canjea por un access token, y todas las peticiones salen por `secureFetch` de [`@botmesh/http`](../http).
+No Google SDK: authentication is a service-account JWT signed with `node:crypto` (RS256) that is exchanged for an access token, and all requests go through `secureFetch` from [`@botmesh/http`](../http).
 
-## Uso
+## Usage
 
 ```ts
 import { Bot, flow } from '@botmesh/core'
@@ -15,26 +15,26 @@ import { dialogflowContext, whenDialogflowIntent } from '@botmesh/dialogflow'
 const bot = new Bot({ provider })
 
 bot.plug(dialogflowContext({
-  credentials: JSON.parse(process.env.GOOGLE_CREDENTIALS!), // JSON de la cuenta de servicio
-  languageCode: 'es',
-  fulfillment: 'unrouted',     // responde con el texto del agente si la intención no tiene ruta
+  credentials: JSON.parse(process.env.GOOGLE_CREDENTIALS!), // service-account JSON
+  languageCode: 'en',
+  fulfillment: 'unrouted',     // reply with the agent text when the intent has no route
 }))
 
 const df = bot.injectTools.dialogflow!
 
-// Handler: recibe el resultado normalizado
+// Handler: receives the normalized result
 whenDialogflowIntent(bot, df, 'order.status', (ctx, r) =>
-  ctx.reply(`Buscando el pedido ${String(r.parameters.order)}…`))
+  ctx.reply(`Looking up order ${String(r.parameters.order)}…`))
 
-// Flow: los parámetros se copian en c.state antes del primer paso
-whenDialogflowIntent(bot, df, 'book.table', flow('reserva')
-  .say((_ctx, c) => `Reserva para ${String(c.state.people)} personas`)
-  .ask('¿A nombre de quién?', 'name'))
+// Flow: parameters are copied into c.state before the first step
+whenDialogflowIntent(bot, df, 'book.table', flow('booking')
+  .say((_ctx, c) => `Booking for ${String(c.state.people)} people`)
+  .ask('What name is the booking under?', 'name'))
 
-bot.onMessage((ctx) => ctx.reply('No te entendí'))   // lo que no rutea cae aquí
+bot.onMessage((ctx) => ctx.reply('Sorry, I did not understand'))   // anything unrouted falls here
 ```
 
-También puedes declarar las rutas en la config: `routes: { 'book.table': reservaFlow, greeting: (ctx) => ctx.reply('¡Hola!') }`.
+You can also declare the routes in the config: `routes: { 'book.table': bookingFlow, greeting: (ctx) => ctx.reply('Hello!') }`.
 
 ### Dialogflow CX
 
@@ -42,64 +42,64 @@ También puedes declarar las rutas en la config: `routes: { 'book.table': reserv
 bot.plug(dialogflowContext({
   credentials,
   cx: { agentId: 'xxxxxxxx-xxxx-…', location: 'us-central1', environment: 'prod' },
-  languageCode: 'es',
+  languageCode: 'en',
 }))
 ```
 
-## Cómo funciona
+## How it works
 
-1. Un hook `before('message')` (prioridad `0`; la moderación corre antes, en `100`) llama a `detectIntent` y guarda el resultado asociado a **ese** mensaje.
-2. `whenDialogflowIntent` registra un predicado de `bot.when` que lee ese resultado (sin volver a llamar a Dialogflow). Si la intención coincide y supera `minConfidence`, se ejecuta el destino; si no, el mensaje sigue su camino normal (`onMessage`, otros matchers…).
-3. No se envían a Dialogflow: mensajes vacíos, interacciones, comandos (`/…`, configurable con `commandPrefix`), mensajes de un usuario dentro de una conversación activa (`skipActiveConversation`), mensajes de un chat en handoff (`bot.isHandedOff()`: lo atiende un humano) y los que descarte `filter`.
-4. Si `detectIntent` falla, se registra en el logger, se llama a `onError` y el mensaje sigue llegando a los demás handlers.
+1. A `before('message')` hook (priority `0`; moderation runs before it, at `100`) calls `detectIntent` and stores the result linked to **that** message.
+2. `whenDialogflowIntent` registers a `bot.when` predicate that reads that result (without calling Dialogflow again). If the intent matches and meets `minConfidence`, the target runs; otherwise the message continues its normal path (`onMessage`, other matchers…).
+3. Not sent to Dialogflow: empty messages, interactions, commands (`/…`, configurable with `commandPrefix`), messages from a user inside an active conversation (`skipActiveConversation`), messages from a chat in handoff (`bot.isHandedOff()`: a human is handling it) and anything `filter` discards.
+4. If `detectIntent` fails, it is logged, `onError` is called and the message still reaches the other handlers.
 
-**Sesiones:** una sesión de Dialogflow por chat (`sessionScope: 'chat'`, por defecto) o por participante en grupos (`'participant'`), o la clave que devuelva `sessionKey(ctx)`. La clave se convierte en un id de sesión con SHA-256 (32 caracteres), así que el número de teléfono o el id del chat no se envían a Google.
+**Sessions:** one Dialogflow session per chat (`sessionScope: 'chat'`, the default) or per participant in groups (`'participant'`), or the key returned by `sessionKey(ctx)`. The key becomes a session id with SHA-256 (32 characters), so the phone number or chat id is never sent to Google.
 
-## Configuración
+## Configuration
 
-| Opción | Tipo | Defecto | Descripción |
+| Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `credentials` | `ServiceAccountCredentials` | — | JSON de la cuenta de servicio (`client_email`, `private_key`, `project_id`…). Acepta `\n` literales en la clave |
-| `tokenSource` | `{ getAccessToken() }` | — | Alternativa a `credentials` |
-| `projectId` | `string` | `credentials.project_id` | Proyecto de Google Cloud |
-| `languageCode` | `string` | `'es'` | Idioma de las consultas |
-| `languageFor` | `(ctx) => string \| undefined` | — | Idioma por mensaje |
-| `queryParams` | `(ctx) => object \| undefined` | — | `queryParams` crudos por mensaje (contexts, payload, parameters…) |
-| `cx` | `{ agentId, location, environment? }` | — | Usa Dialogflow CX |
-| `location` / `environment` | `string` | global / draft | Solo ES: agente regional o entorno publicado |
-| `minConfidence` | `number` | `0` | Confianza mínima para rutear |
-| `sessionScope` | `'chat' \| 'participant'` | `'chat'` | Granularidad de la sesión |
-| `sessionKey` | `(ctx) => string` | — | Clave de sesión propia |
-| `routes` | `Record<string, handler \| flow>` | — | Rutas registradas al instalar |
-| `fulfillment` | `'off' \| 'unrouted' \| 'all'` | `'off'` | Respuesta automática con los textos del agente |
-| `commandPrefix` | `string \| false` | `'/'` | Los comandos no se envían a Dialogflow |
-| `skipActiveConversation` | `boolean` | `true` | No consultar dentro de una conversación |
-| `filter` | `(ctx) => boolean` | — | `false` = no consultar |
-| `priority` | `number` | `0` | Prioridad del hook `before('message')` |
-| `client` | `DialogflowClient` | — | Cliente ya construido (en lugar de crearlo desde la config) |
-| `onError` | `(error, ctx) => void` | — | Errores de `detectIntent` |
-| `http` | `{ fetch?, resolver?, timeoutMs?, maxBytes? }` | — | Opciones de `secureFetch` (útil en tests) |
+| `credentials` | `ServiceAccountCredentials` | — | Service-account JSON (`client_email`, `private_key`, `project_id`…). Accepts literal `\n` in the key |
+| `tokenSource` | `{ getAccessToken() }` | — | Alternative to `credentials` |
+| `projectId` | `string` | `credentials.project_id` | Google Cloud project |
+| `languageCode` | `string` | `'es'` | Query language |
+| `languageFor` | `(ctx) => string \| undefined` | — | Per-message language |
+| `queryParams` | `(ctx) => object \| undefined` | — | Raw per-message `queryParams` (contexts, payload, parameters…) |
+| `cx` | `{ agentId, location, environment? }` | — | Use Dialogflow CX |
+| `location` / `environment` | `string` | global / draft | ES only: regional agent or published environment |
+| `minConfidence` | `number` | `0` | Minimum confidence to route |
+| `sessionScope` | `'chat' \| 'participant'` | `'chat'` | Session granularity |
+| `sessionKey` | `(ctx) => string` | — | Custom session key |
+| `routes` | `Record<string, handler \| flow>` | — | Routes registered on install |
+| `fulfillment` | `'off' \| 'unrouted' \| 'all'` | `'off'` | Automatic reply with the agent texts |
+| `commandPrefix` | `string \| false` | `'/'` | Commands are not sent to Dialogflow |
+| `skipActiveConversation` | `boolean` | `true` | Do not query inside a conversation |
+| `filter` | `(ctx) => boolean` | — | `false` = do not query |
+| `priority` | `number` | `0` | Priority of the `before('message')` hook |
+| `client` | `DialogflowClient` | — | Pre-built client (instead of building it from the config) |
+| `onError` | `(error, ctx) => void` | — | `detectIntent` errors |
+| `http` | `{ fetch?, resolver?, timeoutMs?, maxBytes? }` | — | `secureFetch` options (useful in tests) |
 
-## Resultado normalizado
+## Normalized result
 
 ```ts
 interface DialogflowResult {
-  intent: string | null        // displayName; null en CX NO_MATCH
+  intent: string | null        // displayName; null for CX NO_MATCH
   intentId?: string
   confidence: number
   isFallback: boolean
   parameters: Record<string, unknown>
   allRequiredParamsPresent: boolean
-  messages: string[]           // textos de respuesta en orden
+  messages: string[]           // reply texts in order
   fulfillmentText: string
   action?: string              // ES
   page?: string                // CX
-  raw: unknown                 // queryResult crudo
+  raw: unknown                 // raw queryResult
 }
 ```
 
-`ctx.tools.dialogflow.resultFor(ctx)` devuelve el resultado del mensaje actual desde cualquier handler. `DialogflowClient` también se puede usar por separado: `new DialogflowClient({ credentials }).detectIntent(sessionId, 'hola')`.
+`ctx.tools.dialogflow.resultFor(ctx)` returns the current message's result from any handler. `DialogflowClient` can also be used on its own: `new DialogflowClient({ credentials }).detectIntent(sessionId, 'hello')`.
 
-## Errores
+## Errors
 
-Credenciales inválidas lanzan `DialogflowError` de forma **síncrona** al hacer `bot.plug()`. Los fallos de red/API (`status`, `code` como `'PERMISSION_DENIED'`) se reportan por `onError` sin cortar el pipeline.
+Invalid credentials throw `DialogflowError` **synchronously** on `bot.plug()`. Network/API failures (`status`, `code` such as `'PERMISSION_DENIED'`) are reported through `onError` without breaking the pipeline.

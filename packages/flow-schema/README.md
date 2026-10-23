@@ -1,8 +1,8 @@
 # @botmesh/flow-schema
 
-> **Paquete privado** (`"private": true`, no se publica en npm). Implementación real; la API puede cambiar sin aviso mientras la alpha no salga.
+> **Private package** (`"private": true`, not published to npm). Real implementation; the API may change without notice while the alpha is out.
 
-Documentos de flujo **versionados y sin código**: validación con errores precisos, expresiones seguras, compilación a `CompiledFlow`, exportación inversa, migraciones y helpers de borrador/publicación para `@botmesh/deployments`.
+**Versioned, code-free** flow documents: validation with precise errors, safe expressions, compilation to `CompiledFlow`, reverse export, migrations and draft/publish helpers for `@botmesh/deployments`.
 
 ```ts
 import { compileFlowDocument, validateFlowDocument } from '@botmesh/flow-schema'
@@ -19,23 +19,23 @@ const document = {
 if (validateFlowDocument(document).length === 0) bot.registerFlow(compileFlowDocument(document))
 ```
 
-## Qué incluye
+## What it includes
 
-- **Esquema JSON** (draft 2020-12, `FLOW_DOCUMENT_SCHEMA`) y validador sin dependencias, con rutas JSON Pointer.
-- **Lenguaje de expresiones seguro** (`condition.if`, `guard.if`, `ask.validate.expr`): sin `eval`, `Function`, regexes, índices ni acceso al prototipo.
-- **Pasos**: `say`, `ask`, `choose`, `condition`, `delay`, `goto`, `end`, `media`, `form`, `guard`, `subflow`, `http`, `handoff` y `ai` (con herramientas por id).
-- **Compilación** a `CompiledFlow` del core; los pasos declarativos se compilan 1:1 para que `describe()`/`lint()` y los checkpoints funcionen por paso.
-- **Exportación inversa** de flujos introspectables (`exportFlowDocument`); un `do` opaco lanza `FlowExportError` en vez de perderse.
-- **Migraciones** (`migrateFlowDocument`) y helpers puros de despliegue: `flowDigest`, `diffFlowDocuments`, `flowDocumentGate`, `publishFlow`.
-- **Subflujos** resueltos con `resolveSubflow` (error si faltan o hay ciclos).
+- **JSON Schema** (draft 2020-12, `FLOW_DOCUMENT_SCHEMA`) and a dependency-free validator with JSON Pointer paths.
+- **Safe expression language** (`condition.if`, `guard.if`, `ask.validate.expr`): no `eval`, `Function`, regexes, indexes or prototype access.
+- **Steps**: `say`, `ask`, `choose`, `condition`, `delay`, `goto`, `end`, `media`, `form`, `guard`, `subflow`, `http`, `handoff` and `ai` (with tools by id).
+- **Compilation** to the core `CompiledFlow`; declarative steps compile 1:1 so `describe()`/`lint()` and checkpoints work per step.
+- **Reverse export** of introspectable flows (`exportFlowDocument`); an opaque `do` throws `FlowExportError` instead of being lost.
+- **Migrations** (`migrateFlowDocument`) and pure deploy helpers: `flowDigest`, `diffFlowDocuments`, `flowDocumentGate`, `publishFlow`.
+- **Subflows** resolved with `resolveSubflow` (error when missing or cyclic).
 
-## Seguridad
+## Security
 
-Un documento guardado no puede ejecutar código, leer archivos locales ni salirse de su alcance: las expresiones leen solo propiedades propias, las plantillas solo rutas, las URLs deben ser http(s), las peticiones `http` pasan por `@botmesh/http` (anti-SSRF, redirecciones, timeout y tamaño) y el paso `ai` solo puede restringir herramientas ya configuradas, no añadir nuevas.
+A stored document cannot execute code, read local files or escape its scope: expressions read own properties only, templates resolve paths only, URLs must be http(s), `http` requests go through `@botmesh/http` (anti-SSRF, redirects, timeout and size) and the `ai` step can only restrict already-configured tools, never add new ones.
 
-## Integración
+## Integration
 
-- `@botmesh/manager` consume este paquete para `GET /v1/flows/schema` y para compilar los flujos de su API REST (el contrato no cambia).
-- `@botmesh/deployments` es el dueño del almacenamiento; este paquete solo aporta `publishFlow`/`flowDocumentGate`.
+- `@botmesh/manager` consumes this package for `GET /v1/flows/schema` and to compile the flows of its REST API (the contract does not change).
+- `@botmesh/deployments` owns storage; this package only provides `publishFlow`/`flowDocumentGate`.
 
 Guía: [`docs/guide/flow-schema.md`](../../docs/guide/flow-schema.md) (EN) y [`docs/es/guide/flow-schema.md`](../../docs/es/guide/flow-schema.md) (ES).

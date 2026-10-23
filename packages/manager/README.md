@@ -1,11 +1,11 @@
 # @botmesh/manager
 
-> **Experimental — aún no publicado en npm.** Es una implementación real y con tests, pero el paquete es `private`: no forma parte de la primera alpha y su API puede cambiar. Úsalo desde este monorepo (`workspace:*`).
+> **Experimental — not yet published on npm.** It is a real, tested implementation, but the package is `private`: it is not part of the first alpha and its API may change. Use it from this monorepo (`workspace:*`).
 
-Orquestador multi-bot para [`@botmesh/core`](../core): gestiona muchas
-instancias de `Bot` desde un único registro. Añade y quita bots por id, sigue
-su estado de ejecución, arráncalos o detenlos uno a uno o todos a la vez y,
-si quieres, exponlo todo con una pequeña API HTTP sin dependencias.
+Multi-bot orchestrator for [`@botmesh/core`](../core): it manages many
+`Bot` instances from a single registry. Add and remove bots by id, track
+their running state, start or stop them one by one or all at once and,
+if you want, expose everything with a small dependency-free HTTP API.
 
 ```ts
 import { Bot } from '@botmesh/core'
@@ -16,53 +16,52 @@ import { createServer } from 'node:http'
 const manager = new BotManager()
 
 manager.on('error', ({ id, error }) => console.error(`[${id}]`, error))
-manager.on('started', (id) => console.log(`[${id}] arriba`))
+manager.on('started', (id) => console.log(`[${id}] up`))
 
 const bot = new Bot({ provider: new BaileysProvider({ session: 'acme' }) })
-bot.when('hola', async (ctx) => ctx.reply('¡Hola! 👋'))
+bot.when('hello', async (ctx) => ctx.reply('Hello! 👋'))
 
 const id = manager.add(bot, { id: 'acme', meta: { tenant: 'Acme Corp' } })
-// id === 'acme' (se genera 'bot-N' si no pasas id)
+// id === 'acme' ('bot-N' is generated when you do not pass an id)
 
 await manager.start(id)
 console.log(manager.list()) // [{ id: 'acme', running: true, meta: { tenant: 'Acme Corp' } }]
 
-// Plano de control por HTTP (opcional). Define siempre un token: sin `auth` la API no tiene autenticación.
+// Optional HTTP control plane. Always set a token: without `auth` the API has no authentication.
 createServer(createManagerApi(manager, { prefix: '/api', auth: { token: process.env.MANAGER_TOKEN! } })).listen(3000)
 ```
 
 ## BotManager
 
-`BotManager extends EventEmitter`. Un bot se considera **en ejecución** entre
-un `start(id)` correcto y su `stop(id)`: el manager guarda internamente el
-conjunto de ids en ejecución y lo actualiza alrededor del `start()`/`stop()`
-de cada bot.
+`BotManager extends EventEmitter`. A bot is considered **running** between a
+successful `start(id)` and its `stop(id)`: the manager keeps the set of running
+ids internally and updates it around each bot's `start()`/`stop()`.
 
-Cualquier objeto con `start()` / `stop()` se puede gestionar (un `Bot` del
-core o un stub) a través de la interfaz estructural `ManageableBot`.
+Any object with `start()` / `stop()` can be managed (a core `Bot` or a stub)
+through the structural `ManageableBot` interface.
 
-### Registro
+### Registry
 
-| Método | Devuelve | Notas |
+| Method | Returns | Notes |
 | --- | --- | --- |
-| `add(bot, opts?: { id?, tenantId?, name?, meta? })` | `string` (el id) | Id automático `bot-N` si se omite (nunca colisiona); **lanza si el id está repetido**. Emite `added`. |
-| `get(id)` | `ManageableBot \| undefined` | La instancia del bot. |
+| `add(bot, opts?: { id?, tenantId?, name?, meta? })` | `string` (the id) | Automatic `bot-N` id when omitted (never collides); **throws when the id is duplicated**. Emits `added`. |
+| `get(id)` | `ManageableBot \| undefined` | The bot instance. |
 | `has(id)` | `boolean` | |
-| `remove(id)` | `Promise<boolean>` | Detiene antes el bot si está en ejecución (un `stop` fallido emite `error` pero no impide quitarlo). Emite `removed`. `false` si el id no existe. |
-| `list()` | `Array<{ id, running, tenantId?, name?, meta? }>` | Foto del estado de todos los bots. |
-| `status(id)` | `{ id, running, tenantId?, name?, meta? } \| undefined` | Foto del estado de un bot. |
-| `entries()` | `BotEntry[]` | Entradas completas: `{ id, bot, createdAt, tenantId?, name?, meta? }`. |
+| `remove(id)` | `Promise<boolean>` | Stops the bot first when it is running (a failed `stop` emits `error` but does not prevent removal). Emits `removed`. `false` when the id does not exist. |
+| `list()` | `Array<{ id, running, tenantId?, name?, meta? }>` | Snapshot of every bot's state. |
+| `status(id)` | `{ id, running, tenantId?, name?, meta? } \| undefined` | Snapshot of one bot's state. |
+| `entries()` | `BotEntry[]` | Full entries: `{ id, bot, createdAt, tenantId?, name?, meta? }`. |
 | `isRunning(id)` | `boolean` | |
-| `size` | `number` (getter) | Número de bots registrados. |
+| `size` | `number` (getter) | Number of registered bots. |
 
-### Ciclo de vida
+### Lifecycle
 
-| Método | Comportamiento |
+| Method | Behavior |
 | --- | --- |
-| `start(id)` / `stop(id)` | `Promise<void>`. Idempotentes (no hacen nada si ya está en ejecución / detenido). Lanzan con ids desconocidos; relanzan los fallos del bot tras emitir `error`. Un `stop` fallido deja el bot marcado como en ejecución. |
-| `restart(id, { recreate? })` | Detiene (si está en ejecución) y vuelve a arrancar; emite `restarted`. `recreate: true` reconstruye con la factory un bot respaldado por configuración. |
-| `startAll()` / `stopAll()` | `Promise<Record<string, 'ok' \| Error>>`. Corren **en paralelo** y nunca lanzan: los fallos se recogen por id en el mapa de resultados. |
-| `shutdown()` | Cancela las reconexiones pendientes y detiene todos los bots **sin** cambiar el estado deseado persistido (así `restore()` los vuelve a levantar). |
+| `start(id)` / `stop(id)` | `Promise<void>`. Idempotent (they do nothing when already running / stopped). They throw on unknown ids; they rethrow bot failures after emitting `error`. A failed `stop` leaves the bot marked as running. |
+| `restart(id, { recreate? })` | Stops (when running) and starts again; emits `restarted`. `recreate: true` rebuilds a config-backed bot with the factory. |
+| `startAll()` / `stopAll()` | `Promise<Record<string, 'ok' \| Error>>`. They run **in parallel** and never throw: failures are collected by id in the result map. |
+| `shutdown()` | Cancels pending reconnections and stops every bot **without** changing the persisted desired state (so `restore()` brings them back up). |
 
 ```ts
 const results = await manager.startAll()
@@ -73,27 +72,26 @@ for (const [id, outcome] of Object.entries(results)) {
 await manager.stopAll()
 ```
 
-### Eventos
+### Events
 
-| Evento | Payload | Cuándo |
+| Event | Payload | When |
 | --- | --- | --- |
-| `added` | `id: string` | Tras registrar un bot con `add()`. |
-| `removed` | `id: string` | Tras quitar un bot con `remove()`. |
-| `started` | `id: string` | Tras un `start(id)` correcto. |
-| `stopped` | `id: string` | Tras un `stop(id)` correcto. |
-| `restarted` | `id: string` | Tras un `restart(id)` (manual o del supervisor). |
-| `error` | `{ id: string, error: unknown }` | Falló una operación del ciclo de vida (también se relanza o aparece en los mapas de resultados). |
-| `connection` | `{ id, state, reason?, authPayload?, updatedAt? }` | Cambió el estado de conexión de un bot (bots que emiten `connection`). |
-| `reconnecting` / `reconnected` / `reconnectFailed` | `{ id, attempt, delayMs, reason }` / `{ id, attempts }` / `{ id, attempts, error? }` | Actividad del supervisor (ver *Reconexión automática*). |
+| `added` | `id: string` | After registering a bot with `add()`. |
+| `removed` | `id: string` | After removing a bot with `remove()`. |
+| `started` | `id: string` | After a successful `start(id)`. |
+| `stopped` | `id: string` | After a successful `stop(id)`. |
+| `restarted` | `id: string` | After a `restart(id)` (manual or from the supervisor). |
+| `error` | `{ id: string, error: unknown }` | A lifecycle operation failed (it is also rethrown or appears in the result maps). |
+| `connection` | `{ id, state, reason?, authPayload?, updatedAt? }` | A bot's connection state changed (bots that emit `connection`). |
+| `reconnecting` / `reconnected` / `reconnectFailed` | `{ id, attempt, delayMs, reason }` / `{ id, attempts }` / `{ id, attempts, error? }` | Supervisor activity (see *Automatic reconnection*). |
 
-Los listeners están tipados con `ManagerEventMap`. Se instala un listener
-`error` por defecto que no hace nada, para que un fallo sin observar nunca
-tumbe el proceso por la semántica de `EventEmitter`; añade tu propio listener
-`error` para tratarlos.
+Listeners are typed with `ManagerEventMap`. A default no-op `error` listener is
+installed so an unobserved failure never crashes the process through
+`EventEmitter` semantics; add your own `error` listener to handle them.
 
-## API HTTP
+## HTTP API
 
-Hay tres superficies HTTP. La completa es **`createRestApi`** (ver *API REST `/v1` completa* más abajo). `createControlPlaneApi(manager, { tenantId, apiKeys })` es una superficie `/v1` mínima y auditada, sin modo anónimo (también usa el prefijo `/v1` por defecto, así que no la montes junto a `createRestApi` en el mismo prefijo). Cada API key lleva scopes, cada respuesta incluye `x-request-id` y las operaciones del ciclo de vida aceptan un `Idempotency-Key`.
+There are three HTTP surfaces. The complete one is **`createRestApi`** (see *Full `/v1` REST API* below). `createControlPlaneApi(manager, { tenantId, apiKeys })` is a minimal, audited `/v1` surface with no anonymous mode (it also uses the `/v1` prefix by default, so do not mount it next to `createRestApi` on the same prefix). Every API key carries scopes, every response includes `x-request-id` and lifecycle operations accept an `Idempotency-Key`.
 
 ```ts
 createServer(createControlPlaneApi(manager, {
@@ -102,40 +100,40 @@ createServer(createControlPlaneApi(manager, {
 })).listen(3000)
 ```
 
-Rutas iniciales: `GET /v1/health`, `GET /v1/bots`, `POST /v1/bots/:id/start`, `POST /v1/bots/:id/stop` y `GET /v1/audit`. Consulta la [guía del plano de control](https://github.com/andresayac/botmesh/blob/main/docs/es/guide/control-plane.md).
+Initial routes: `GET /v1/health`, `GET /v1/bots`, `POST /v1/bots/:id/start`, `POST /v1/bots/:id/stop` and `GET /v1/audit`. See the [control plane guide](https://github.com/andresayac/botmesh/blob/main/docs/es/guide/control-plane.md).
 
-La API compacta heredada, `createManagerApi(manager, opts?: { prefix?, auth?: { token, header? } })`,
-devuelve un handler de Node `(req, res) => void` (solo usa `node:http`: móntalo
-en `http.createServer` o llámalo desde cualquier framework). Todas las
-respuestas son JSON. Con `auth`, cada petición debe presentar el token
-(`Authorization: Bearer <token>` por defecto, o la cabecera indicada en
-`auth.header`; comparación timing-safe) o recibe `401`. **Sin `auth` la API no
-tiene autenticación**: cualquiera que alcance el socket puede listar, arrancar
-y detener bots, y se registra un aviso una sola vez.
+The legacy compact API, `createManagerApi(manager, opts?: { prefix?, auth?: { token, header? } })`,
+returns a Node handler `(req, res) => void` (it only uses `node:http`: mount it
+in `http.createServer` or call it from any framework). All
+responses are JSON. With `auth`, every request must present the token
+(`Authorization: Bearer <token>` by default, or the header set in
+`auth.header`; timing-safe comparison) or it receives `401`. **Without `auth` the API has
+no authentication**: anyone who can reach the socket can list, start
+and stop bots, and a warning is logged once.
 
-| Ruta | Éxito | Errores |
+| Route | Success | Errors |
 | --- | --- | --- |
 | `GET {prefix}/health` | `200` — `{ status: 'ok', bots, running }` | |
-| `GET {prefix}/metrics` | `200` — texto Prometheus (`botwa_manager_bots_registered`, `botwa_manager_bots_running`) | |
+| `GET {prefix}/metrics` | `200` — Prometheus text (`botwa_manager_bots_registered`, `botwa_manager_bots_running`) | |
 | `GET {prefix}/bots` | `200` — `Array<{ id, running, meta }>` | |
-| `GET {prefix}/bots/:id` | `200` — `{ id, running, meta }` | `404 { error }` id desconocido |
-| `POST {prefix}/bots/:id/start` | `200` — `{ id, running: true }` | `404` id desconocido · `500 { error }` fallo al arrancar |
-| `POST {prefix}/bots/:id/stop` | `200` — `{ id, running: false }` | `404` id desconocido · `500 { error }` fallo al detener |
+| `GET {prefix}/bots/:id` | `200` — `{ id, running, meta }` | `404 { error }` unknown id |
+| `POST {prefix}/bots/:id/start` | `200` — `{ id, running: true }` | `404` unknown id · `500 { error }` start failure |
+| `POST {prefix}/bots/:id/stop` | `200` — `{ id, running: false }` | `404` unknown id · `500 { error }` stop failure |
 
-Cualquier otra ruta o método → `404 { "error": "not found" }`. Los ids de las
-URLs pueden ir codificados con porcentaje.
+Any other route or method → `404 { "error": "not found" }`. URL ids may be
+percent-encoded.
 
 ```bash
 H="Authorization: Bearer $MANAGER_TOKEN"
-curl -H "$H" localhost:3000/api/bots                 # listar
-curl -H "$H" localhost:3000/api/bots/acme            # estado
+curl -H "$H" localhost:3000/api/bots                 # list
+curl -H "$H" localhost:3000/api/bots/acme            # status
 curl -H "$H" -X POST localhost:3000/api/bots/acme/start
 curl -H "$H" -X POST localhost:3000/api/bots/acme/stop
 ```
 
-## API REST `/v1` completa (`createRestApi`)
+## Full `/v1` REST API (`createRestApi`)
 
-`createRestApi(manager, { tokens })` es la API recomendada para plataformas: `node:http` puro, sin dependencias, con documento **OpenAPI 3.1** en `GET /v1/openapi.json`.
+`createRestApi(manager, { tokens })` is the recommended API for platforms: pure `node:http`, dependency-free, with an **OpenAPI 3.1** document at `GET /v1/openapi.json`.
 
 ```ts
 import { createServer } from 'node:http'
@@ -144,57 +142,57 @@ import { BaileysProvider } from '@botmesh/baileys'
 import { BotManager, createRestApi } from '@botmesh/manager'
 
 const manager = new BotManager({
-  // Construye un bot a partir de su config serializable (nunca guardes secretos crudos en provider.options).
+  // Build a bot from its serializable config (never store raw secrets in provider.options).
   factory: (cfg) => new Bot({
     provider: new BaileysProvider({ session: `${cfg.tenantId}-${cfg.id}` }),
     tenantId: cfg.tenantId,
     botId: cfg.id,
   }),
-  persistence: { dir: './data/bots' },          // <dir>/<tenantId>/<botId>.json (escritura atómica, 0600)
+  persistence: { dir: './data/bots' },          // <dir>/<tenantId>/<botId>.json (atomic write, 0600)
   autoReconnect: { maxRetries: 5, initialDelay: 1000, maxDelay: 30_000, jitter: 0.2 },
 })
-await manager.restore()                          // reconstruye los bots guardados y arranca los que estaban "running"
+await manager.restore()                          // rebuild saved bots and start the ones that were "running"
 
 createServer(createRestApi(manager, {
   tokens: [
-    { id: 'ops', token: process.env.OPS_TOKEN!, scopes: ['*'] },                                  // todos los tenants
+    { id: 'ops', token: process.env.OPS_TOKEN!, scopes: ['*'] },                                  // all tenants
     { id: 'acme', token: process.env.ACME_TOKEN!, tenantId: 'acme', scopes: ['bots:read', 'messages:send'] },
   ],
 })).listen(3000)
-process.on('SIGTERM', () => void manager.shutdown())   // para todo sin tocar el desiredState persistido
+process.on('SIGTERM', () => void manager.shutdown())   // stop everything without touching the persisted desiredState
 ```
 
-| Ruta (`/v1/...`) | Scope |
+| Route (`/v1/...`) | Scope |
 | --- | --- |
-| `GET /health`, `GET /openapi.json`, `GET /flows/schema` | público (`publicDocs: false` exige token para docs) |
+| `GET /health`, `GET /openapi.json`, `GET /flows/schema` | public (`publicDocs: false` requires a token for docs) |
 | `GET/POST /bots`, `GET/PUT/DELETE /bots/{id}` | `bots:read` / `bots:write` |
 | `POST /bots/{id}/start\|stop\|restart` | `bots:operate` |
-| `GET /bots/{id}/connection` (estado + QR/código de emparejamiento) | `connections:read` |
+| `GET /bots/{id}/connection` (state + QR/pairing code) | `connections:read` |
 | `POST /bots/{id}/send` | `messages:send` |
 | `GET /bots/{id}/messages?chatId=&limit=&cursor=` | `messages:read` |
 | `POST /bots/{id}/trigger`, `GET /bots/{id}/conversations`, `POST /bots/{id}/conversations/{key}/cancel` | `conversations:*` |
 | `GET/POST /bots/{id}/flows`, `GET/PUT/DELETE /bots/{id}/flows/{flowId}` | `flows:*` |
 | `GET /metrics`, `GET /bots/{id}/metrics` | `metrics:read` |
 
-Además: `X-Request-Id` en todas las respuestas, rate limiting por token (`RateLimit-*`, `Retry-After`), `Idempotency-Key` en rutas que mutan (replay 24 h, `422` si se reutiliza con otro cuerpo), límite de cuerpo (`413`), `415` si no es JSON, aislamiento por tenant (un token de tenant no ve bots ajenos: `404`). Los errores siguen `{ error: { code, message, requestId, details? } }`.
+Also: `X-Request-Id` on every response, per-token rate limiting (`RateLimit-*`, `Retry-After`), `Idempotency-Key` on mutating routes (24 h replay, `422` when reused with a different body), body limit (`413`), `415` when not JSON, tenant isolation (a tenant token never sees other bots: `404`). Errors follow `{ error: { code, message, requestId, details? } }`.
 
-## Flows JSON dinámicos
+## Dynamic JSON flows
 
-`compileFlowDocument(doc)` convierte un documento JSON (sin código) en un `CompiledFlow` que se registra con `bot.registerFlow()` / `bot.replaceFlow()`. Pasos: `say`, `ask` (con `validate.expr`), `choose`, `delay`, `goto`, `end`, `condition`; plantillas `{{ path }}` y expresiones seguras (`len(name) > 2 && oneOf(plan, "pro", "max")`). Esquema JSON versionado: `FLOW_DOCUMENT_SCHEMA` (`GET /v1/flows/schema`).
+`compileFlowDocument(doc)` turns a JSON document (no code) into a `CompiledFlow` registered with `bot.registerFlow()` / `bot.replaceFlow()`. Steps: `say`, `ask` (with `validate.expr`), `choose`, `delay`, `goto`, `end`, `condition`; `{{ path }}` templates and safe expressions (`len(name) > 2 && oneOf(plan, "pro", "max")`). Versioned JSON Schema: `FLOW_DOCUMENT_SCHEMA` (`GET /v1/flows/schema`).
 
-## Reconexión automática
+## Automatic reconnection
 
-Con `autoReconnect`, si la conexión se cae (`connection: closed`, salvo `sessionTakenOver`) y el provider no se recupera solo en `graceMs`, o si un arranque falla, el manager reinicia el bot con backoff exponencial + jitter hasta `maxRetries` (eventos `reconnecting`, `reconnected`, `reconnectFailed`). Los bots con config se recrean con la factory (provider nuevo).
+With `autoReconnect`, if the connection drops (`connection: closed`, except `sessionTakenOver`) and the provider does not recover on its own within `graceMs`, or if a start fails, the manager restarts the bot with exponential backoff + jitter up to `maxRetries` (`reconnecting`, `reconnected`, `reconnectFailed` events). Config-backed bots are recreated with the factory (fresh provider).
 
 ## Logging
 
-El manager registra los eventos del ciclo de vida con pino en `debug`/`warn`.
-Inyecta tu propio logger (`new BotManager({ logger })`) o activa el de por
-defecto con `BOTWA_MANAGER_LOG_LEVEL=debug` (por defecto: `silent`).
+The manager logs lifecycle events with pino at `debug`/`warn`.
+Inject your own logger (`new BotManager({ logger })`) or enable the default
+one with `BOTWA_MANAGER_LOG_LEVEL=debug` (default: `silent`).
 
-## Desarrollo
+## Development
 
 ```bash
 pnpm --filter @botmesh/manager build   # tsc → lib/
-pnpm --filter @botmesh/manager test    # vitest (herméticos: bots falsos, sin red)
+pnpm --filter @botmesh/manager test    # vitest (hermetic: fake bots, no network)
 ```
