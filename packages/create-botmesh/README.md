@@ -2,6 +2,8 @@
 
 Scaffold a new [@botmesh](https://github.com/andresayac/botmesh) bot project in seconds — no runtime dependencies (only `node:` builtins).
 
+Requires **Node >= 22.12**: generated projects use `node --env-file-if-exists` for `start` (a missing `.env` is fine), and that flag shipped in Node 22.9.
+
 > **Alpha — published under the `alpha` tag.** `create-botmesh` and the `@botmesh/*` packages it stamps into
 > generated projects live under the **`alpha` dist-tag** (`changeset publish` does not create `latest`), so the
 > commands below use `@alpha`. Drop the tag when a stable version ships. To run the CLI from a checkout of this
@@ -81,7 +83,7 @@ Then:
 ```bash
 cd my-bot
 npm install
-cp .env.example .env   # fill in your credentials
+cp .env.example .env   # optional: fill in your credentials (`dev` runs without it)
 npm run dev            # chat in the terminal: simulated provider, hot reload
 npm start              # connect the real channel
 ```

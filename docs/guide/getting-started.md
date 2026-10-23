@@ -71,10 +71,12 @@ Every project gets `package.json` (with `npm start` and `npm run dev`, the
 coding agents: the current v2 API, what does not exist (`addAnswer`,
 `capture`...) and the commands to run.
 
-The generated `package.json` depends on the npm versions of the `@botmesh/*`
-packages (`^2.0.0-alpha.1` for the core, `^0.1.0` for the rest), so its
-`npm install` only works after the first publish. Until then, point those
-dependencies at your local checkout of the monorepo.
+The generated `package.json` depends on the published `@botmesh/*` packages
+under the `alpha` dist-tag (`^2.0.0-alpha.2` for the core, `^0.2.0-alpha.0`
+for the rest; the exact ranges come from `create-botmesh/src/versions.ts`,
+generated at build time). There is no `latest` yet, so installing them by hand
+needs `@alpha`. To point those dependencies at your local checkout of the
+monorepo instead, use `workspace:` ranges.
 
 To set everything up by hand instead, follow the steps below.
 
@@ -101,7 +103,8 @@ Other transports behind the same `IProvider` contract:
 | Instagram DM | `@botmesh/instagram` | Experimental | Meta Graph, webhook-based |
 | Discord | `@botmesh/discord` | Experimental | Gateway websocket + REST |
 
-**Alpha** packages are part of the first publishable alpha. **Experimental**
+**Alpha** packages are published on npm under the `alpha` dist-tag (install
+with `@alpha`). **Experimental**
 ones are real, tested implementations that stay private (unpublished) for now
 and may change. More experimental providers (Evolution API, WPPConnect,
 Twilio, HighLevel, Gupshup, Email and TikTok) and a capability matrix are in

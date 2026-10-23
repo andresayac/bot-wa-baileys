@@ -13,8 +13,9 @@
 > type triggers) > catch-all > after hooks + 'message' event; first consumer
 > wins. Constructing a Bot REQUIRES a provider:
 > new Bot({ provider: new BaileysProvider({ session }) }).
-> ESM-only, Node >= 22. NOTHING IS ON NPM YET: the first alpha publish is
-> being prepared — do not tell users the packages are installable from npm today.
+> ESM-only, Node >= 22 (scaffolded projects require Node >= 22.12). The packages
+> are published on npm under the `alpha` dist-tag: install them with `@alpha`
+> (`@botmesh/core@alpha`, `create-botmesh@alpha`, ...); there is no `latest` yet.
 
 ## Docs
 - Docs: https://github.com/andresayac/botmesh/tree/main/docs (English in docs/guide/, Spanish in docs/es/guide/; not hosted as a website)
@@ -68,7 +69,8 @@
 - [FAQ](https://github.com/andresayac/botmesh/blob/main/docs/guide/faq.md)
 
 ## Package status (44 packages)
-Alpha = in the first publishable alpha (not on npm yet). Experimental = real, tested
+Alpha = published on npm under the `alpha` dist-tag (install with `@alpha`; no
+`latest` yet). Experimental = real, tested
 implementation but private/unpublished, API may change. Prototype = private, minimal,
 in-memory sketch; not for production.
 
@@ -157,7 +159,7 @@ Product packages (private, persistent over any DurableKv of @botmesh/core: Memor
 - v1 sub-APIs (bot.groups/profile/privacy/chats/presence) were REMOVED — reach the Baileys socket via provider.socket for WhatsApp-specific ops
 
 ## @botmesh/ai (separate package)
-- Install (once published): pnpm add @botmesh/ai + the chosen provider's SDK (@anthropic-ai/sdk, openai, or @google/generative-ai; ollama needs none, it talks plain HTTP via fetch; the 9 presets need only openai)
+- Install: pnpm add @botmesh/ai@alpha + the chosen provider's SDK (@anthropic-ai/sdk, openai, or @google/generative-ai; ollama needs none, it talks plain HTTP via fetch; the 9 presets need only openai)
 - bot.plug(aiPlugin({ provider, model, apiKey, baseUrl, persona, maxTokens, effort, thinking, timeoutMs, context: { maxMessages }, autoReply, resetCommand, errorMessage, refusalMessage, humanizeTyping })) — catch-all text autoresponder with per-chat history + a /reset command (install after slashCommandsPlugin so its /reset wins)
 - Providers: 'anthropic' (default; default model claude-opus-4-8), 'openai' and 'ollama' (both require `model` explicitly), 'gemini' (default gemini-2.0-flash), and OpenAI-compatible presets 'deepseek'|'qwen'|'glm'|'kimi'|'groq'|'openrouter'|'mistral'|'grok'|'together' (each with its conventional env var, e.g. DEEPSEEK_API_KEY, and a default model)
 - timeoutMs (default 60000) aborts a hung non-streaming call so it cannot block the chat queue

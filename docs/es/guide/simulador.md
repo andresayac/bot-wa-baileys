@@ -62,6 +62,7 @@ npx botmesh dev src/bot.js --user ana --name "Ana" --group equipo --no-watch
 | `--name <nombre>` | nombre visible simulado (por defecto `Dev User`) |
 | `--group <id>` | empezar dentro del chat de grupo `<id>` |
 | `--env-file <ruta>` | cargar variables de entorno de un archivo; se puede repetir; si falta el archivo solo avisa |
+| `--env-file-if-exists <ruta>` | igual, pero si falta el archivo no se avisa (se puede repetir; es lo que usan los proyectos generados) |
 | `--watch <dir>` | carpeta vigilada para la recarga (por defecto, la de la entry) |
 | `--no-watch` | desactiva la recarga (`:reload` sigue funcionando) |
 | `--color` / `--no-color` | fuerza colores sí o no (por defecto: auto; respeta `NO_COLOR`) |

@@ -72,10 +72,12 @@ Cada proyecto incluye `package.json` (con `npm start` y `npm run dev`, el
 instrucciones para agentes de código con IA: la API v2 actual, lo que no
 existe (`addAnswer`, `capture`...) y los comandos que hay que ejecutar.
 
-El `package.json` generado depende de las versiones en npm de los paquetes
-`@botmesh/*` (`^2.0.0-alpha.1` para el core, `^0.1.0` para el resto), así que
-su `npm install` solo funciona tras la primera publicación. Mientras tanto,
-apunta esas dependencias a tu copia local del monorepo.
+El `package.json` generado depende de los paquetes `@botmesh/*` publicados
+bajo el dist-tag `alpha` (`^2.0.0-alpha.2` para el core, `^0.2.0-alpha.0` para
+el resto; los rangos exactos salen de `create-botmesh/src/versions.ts`,
+generado en el build). Todavía no hay `latest`, así que instalarlos a mano
+requiere `@alpha`. Para apuntar esas dependencias a tu copia local del
+monorepo, usa rangos `workspace:`.
 
 Si prefieres montarlo todo a mano, sigue los pasos de abajo.
 
@@ -102,7 +104,8 @@ Otros transportes detrás del mismo contrato `IProvider`:
 | Instagram DM | `@botmesh/instagram` | Experimental | Meta Graph, por webhook |
 | Discord | `@botmesh/discord` | Experimental | Gateway websocket + REST |
 
-Los paquetes **Alpha** forman parte de la primera alpha publicable. Los
+Los paquetes **Alpha** están publicados en npm bajo el dist-tag `alpha`
+(instálalos con `@alpha`). Los
 **Experimental** son implementaciones reales y con tests que de momento siguen
 siendo privadas (sin publicar) y pueden cambiar. Hay más providers
 experimentales (Evolution API, WPPConnect, Twilio, HighLevel, Gupshup, Email y

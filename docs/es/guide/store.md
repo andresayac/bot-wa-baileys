@@ -14,8 +14,8 @@ Los stores implementan el `IStore` genérico y neutral de transporte de `@botmes
 | `MongoStore` · `PostgresStore` · `MysqlStore` | `@botmesh/mongo-store` · `@botmesh/postgres-store` · `@botmesh/mysql-store` | MongoDB / PostgreSQL / MySQL | **Experimental** — implementaciones reales y con tests, aún sin publicar |
 
 `MemoryStore` viene con el core. `SQLiteStore` y `RedisStore` forman parte de
-la primera alpha (todavía no están en npm; la primera publicación se está
-preparando). Los stores de MongoDB, PostgreSQL y MySQL pasan la misma suite de
+la primera alpha, publicada en npm bajo el dist-tag `alpha`. Los stores de
+MongoDB, PostgreSQL y MySQL pasan la misma suite de
 conformidad de `IStore`, pero de momento siguen siendo privados (sin
 publicar); mira sus READMEs en el
 [repositorio](https://github.com/andresayac/botmesh/tree/main/packages).
@@ -53,6 +53,8 @@ Una base de datos real con [better-sqlite3](https://github.com/WiseLibs/better-s
 ```bash
 pnpm add @botmesh/sqlite-store@alpha better-sqlite3
 ```
+
+El rango soportado es `^11.7.0 || ^12.0.0 || ^13.0.0` (probado con 11.10.0, 12.11.1 y 13.0.3). `npm` elige un major compatible y solo avisa; `pnpm` instala el último y se salta el rango.
 
 ```ts
 import { Bot } from '@botmesh/core'

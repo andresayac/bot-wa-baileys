@@ -62,6 +62,7 @@ npx botmesh dev src/bot.js --user ana --name "Ana" --group team --no-watch
 | `--name <name>` | simulated display name (default `Dev User`) |
 | `--group <id>` | start inside group chat `<id>` |
 | `--env-file <path>` | load environment variables from a file; repeatable; a missing file only warns |
+| `--env-file-if-exists <path>` | same, but a missing file is expected and stays silent (repeatable; what generated projects use) |
 | `--watch <dir>` | folder to watch for hot reload (default: the entry's folder) |
 | `--no-watch` | disable hot reload (`:reload` still works) |
 | `--color` / `--no-color` | force colours on or off (default: auto; `NO_COLOR` is respected) |
